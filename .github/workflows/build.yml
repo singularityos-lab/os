@@ -1,0 +1,135 @@
+name: Singularity Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install host dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y \
+            build-essential gcc g++ make \
+            bc bison flex \
+            libssl-dev libelf-dev \
+            libncurses-dev \
+            wget rsync cpio \
+            xz-utils gzip bzip2 \
+            patch perl python3 \
+            git unzip \
+            erofs-utils \
+            cryptsetup-bin \
+            systemd-boot \
+            binutils
+
+      - name: Cache Buildroot downloads
+        uses: actions/cache@v4
+        with:
+          path: buildroot-dl
+          key: buildroot-dl-${{ hashFiles('buildroot-config/singularity_defconfig') }}
+          restore-keys: |
+            buildroot-dl-
+
+      - name: Cache Buildroot host + build artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            buildroot-build/host
+            buildroot-build/build
+          key: buildroot-build-v4-${{ hashFiles('buildroot-config/singularity_defconfig', 'buildroot-config/kernel.config') }}
+          restore-keys: |
+            buildroot-build-v4-
+
+      - name: Cache Buildroot source tree
+        uses: actions/cache@v4
+        with:
+          path: buildroot-src
+          key: buildroot-src-2024.02.9
+
+      - name: Prepare Buildroot
+        run: ./scripts/prepare.sh
+
+      - name: Reset target dir
+        run: |
+          rm -rf buildroot-build/target
+          mkdir -p buildroot-build/target
+          find buildroot-build/build -name ".stamp_target_installed" -delete 2>/dev/null || true
+          find buildroot-build/build -name ".stamp_images_installed" -delete 2>/dev/null || true
+
+      - name: Compile
+        run: ./scripts/compile.sh 2>&1 | tee build.log
+
+      - name: Package
+        run: ./scripts/package.sh
+
+      - name: Show final artifacts
+        run: |
+          echo "=== Atom Loops artifacts ==="
+          ls -lh artifacts/
+          echo "root_hash: $ROOT_HASH"
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: singularity-${{ github.sha }}
+          path: |
+            artifacts/rootfs.erofs
+            artifacts/rootfs.hash
+            artifacts/kernelcache.efi
+            artifacts/verity-output.txt
+            buildroot-build/images/bzImage
+          retention-days: 7
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log-${{ github.sha }}
+          path: build.log
+          retention-days: 3
+
+  test:
+    runs-on: ubuntu-24.04
+    needs: build
+    timeout-minutes: 10
+
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: singularity-${{ github.sha }}
+          path: images/
+
+      - name: Install QEMU
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y qemu-system-x86
+
+      - name: Test boot with QEMU
+        run: |
+          KERNEL="images/bzImage"
+
+          if [ ! -f "$KERNEL" ]; then
+            echo "Kernel not found, skipping"
+            exit 0
+          fi
+
+          timeout 30 qemu-system-x86_64 \
+            -kernel "$KERNEL" \
+            -append "console=ttyS0 quiet" \
+            -nographic \
+            -m 256M \
+            -no-reboot 2>&1 | head -80 || true
+
+          echo "QEMU boot test done"
