@@ -3,6 +3,7 @@ name: Singularity Build
 on:
   push:
     branches: [main]
+    tags: ['v*']
   pull_request:
   workflow_dispatch:
 
@@ -32,6 +33,12 @@ jobs:
             systemd-boot \
             binutils
 
+      - name: Cache Buildroot source tree
+        uses: actions/cache@v4
+        with:
+          path: buildroot-src
+          key: buildroot-src-2024.02.9
+
       - name: Cache Buildroot downloads
         uses: actions/cache@v4
         with:
@@ -46,15 +53,9 @@ jobs:
           path: |
             buildroot-build/host
             buildroot-build/build
-          key: buildroot-build-v4-${{ hashFiles('buildroot-config/singularity_defconfig', 'buildroot-config/kernel.config') }}
+          key: buildroot-build-v5-${{ hashFiles('buildroot-config/singularity_defconfig', 'buildroot-config/kernel.config') }}
           restore-keys: |
-            buildroot-build-v4-
-
-      - name: Cache Buildroot source tree
-        uses: actions/cache@v4
-        with:
-          path: buildroot-src
-          key: buildroot-src-2024.02.9
+            buildroot-build-v5-
 
       - name: Prepare Buildroot
         run: ./scripts/prepare.sh
@@ -133,3 +134,26 @@ jobs:
             -no-reboot 2>&1 | head -80 || true
 
           echo "QEMU boot test done"
+
+  release:
+    runs-on: ubuntu-24.04
+    needs: [build, test]
+    if: startsWith(github.ref, 'refs/tags/v')
+
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: singularity-${{ github.sha }}
+          path: artifacts/
+
+      - name: Upload to existing GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          fail_on_unmatched_files: true
+          files: |
+            artifacts/rootfs.erofs
+            artifacts/rootfs.hash
+            artifacts/kernelcache.efi
+            artifacts/verity-output.txt
+            artifacts/bzImage
