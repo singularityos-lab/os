@@ -152,8 +152,4 @@ jobs:
         with:
           fail_on_unmatched_files: true
           files: |
-            artifacts/rootfs.erofs
-            artifacts/rootfs.hash
-            artifacts/kernelcache.efi
-            artifacts/verity-output.txt
-            artifacts/bzImage
+            artifacts/*
