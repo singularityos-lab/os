@@ -1,0 +1,9 @@
+config BR2_PACKAGE_SINGULARITY_BOOT_SPLASH
+	bool "singularity-boot-splash"
+	select BR2_PACKAGE_SINGULARITY_LOGINUI
+	select BR2_PACKAGE_LIBDRM
+	help
+	  A toolkit-less KMS boot splash (a Plymouth replacement) for
+	  Singularity OS.
+
+	  https://github.com/singularityos-lab/singularity-boot-splash

@@ -1,0 +1,12 @@
+config BR2_PACKAGE_SINGULARITY_WRITE
+	bool "singularity-write"
+	depends on BR2_PACKAGE_LIBGTK4
+	depends on BR2_PACKAGE_WEBKITGTK
+	select BR2_PACKAGE_LIBSINGULARITY
+	select BR2_PACKAGE_LIBGEE
+	select BR2_PACKAGE_GTKSOURCEVIEW
+	select BR2_PACKAGE_POPPLER
+	help
+	  Singularity Write: the document writer.
+
+	  https://github.com/singularityos-lab/singularity-write

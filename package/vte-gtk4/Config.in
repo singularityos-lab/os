@@ -1,0 +1,13 @@
+config BR2_PACKAGE_VTE_GTK4
+	bool "vte (GTK4)"
+	depends on BR2_PACKAGE_LIBGTK4
+	select BR2_PACKAGE_PCRE2
+	select BR2_PACKAGE_LZ4
+	help
+	  VTE terminal emulator widget built for GTK4 (provides
+	  vte-2.91-gtk4). Used by the Leafs terminal.
+
+	  https://gitlab.gnome.org/GNOME/vte
+
+comment "vte (GTK4) needs libgtk4"
+	depends on !BR2_PACKAGE_LIBGTK4

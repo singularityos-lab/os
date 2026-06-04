@@ -1,0 +1,3 @@
+greeter -1 greeter -1 * /var/lib/greetd /bin/false video,input greetd greeter user
+polkitd -1 polkitd -1 * - /bin/false - polkit polkit user
+sinty 1000 sinty 1000 $6$jQxOc3rAma8sJ6RU$313wF02ojAfiNXd2far4MuF2lkuntjOsfcU6cq6f6WbPPpzTtQfJlVcvRDE6hGW/HUUHYc/RQSSdBVmIuagBU0 /home/sinty /bin/sh video,input,audio,render,dialout sinty user

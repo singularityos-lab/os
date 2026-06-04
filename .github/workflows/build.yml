@@ -4,17 +4,34 @@ on:
   push:
     branches: [main]
     tags: ['v*']
+    paths-ignore:
+      - '**.md'
   pull_request:
   workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-24.04
-    timeout-minutes: 90
+    timeout-minutes: 350
+    outputs:
+      incomplete: ${{ steps.compile.outputs.incomplete }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Free disk space and host the build on /mnt
+        run: |
+          df -h /
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc \
+            /usr/local/.ghcup /opt/hostedtoolcache/CodeQL || true
+          sudo docker image prune -af || true
+          sudo mkdir -p /mnt/br/build /mnt/br/dl
+          mkdir -p buildroot-build buildroot-dl
+          sudo mount --bind /mnt/br/build buildroot-build
+          sudo mount --bind /mnt/br/dl buildroot-dl
+          sudo chown -R "$(id -u):$(id -g)" /mnt/br buildroot-build buildroot-dl
+          df -h / /mnt
 
       - name: Install host dependencies
         run: |
@@ -37,14 +54,15 @@ jobs:
         uses: actions/cache@v4
         with:
           path: buildroot-src
-          key: buildroot-src-2024.02.9
+          key: buildroot-src-2026.02.2
 
       - name: Cache Buildroot downloads
         uses: actions/cache@v4
         with:
           path: buildroot-dl
-          key: buildroot-dl-${{ hashFiles('buildroot-config/singularity_defconfig') }}
+          key: buildroot-dl-${{ hashFiles('buildroot-config/singularity_defconfig') }}-${{ github.run_id }}
           restore-keys: |
+            buildroot-dl-${{ hashFiles('buildroot-config/singularity_defconfig') }}-
             buildroot-dl-
 
       - name: Cache Buildroot host + build artifacts
@@ -53,8 +71,9 @@ jobs:
           path: |
             buildroot-build/host
             buildroot-build/build
-          key: buildroot-build-v5-${{ hashFiles('buildroot-config/singularity_defconfig', 'buildroot-config/kernel.config') }}
+          key: buildroot-build-v5-${{ hashFiles('buildroot-config/singularity_defconfig', 'buildroot-config/kernel.config') }}-${{ github.run_id }}
           restore-keys: |
+            buildroot-build-v5-${{ hashFiles('buildroot-config/singularity_defconfig', 'buildroot-config/kernel.config') }}-
             buildroot-build-v5-
 
       - name: Prepare Buildroot
@@ -68,19 +87,32 @@ jobs:
           find buildroot-build/build -name ".stamp_images_installed" -delete 2>/dev/null || true
 
       - name: Compile
-        run: ./scripts/compile.sh 2>&1 | tee build.log
+        id: compile
+        run: |
+          set +e
+          timeout 320m ./scripts/compile.sh 2>&1 | tee build.log
+          ec=${PIPESTATUS[0]}
+          if [ "$ec" = "124" ]; then
+            echo "BUILD_INCOMPLETE=1" >> "$GITHUB_ENV"
+            echo "incomplete=1" >> "$GITHUB_OUTPUT"
+            echo "::warning::Compile hit the 320m budget; cache is saved and the build resumes on the next run."
+            exit 0
+          fi
+          exit "$ec"
 
       - name: Package
+        if: env.BUILD_INCOMPLETE != '1'
         run: ./scripts/package.sh
 
       - name: Show final artifacts
+        if: env.BUILD_INCOMPLETE != '1'
         run: |
           echo "=== Atom Loops artifacts ==="
           ls -lh artifacts/
           echo "root_hash: $ROOT_HASH"
 
       - name: Upload artifacts
-        if: always()
+        if: env.BUILD_INCOMPLETE != '1'
         uses: actions/upload-artifact@v4
         with:
           name: singularity-${{ github.sha }}
@@ -103,6 +135,7 @@ jobs:
   test:
     runs-on: ubuntu-24.04
     needs: build
+    if: needs.build.outputs.incomplete != '1'
     timeout-minutes: 10
 
     steps:

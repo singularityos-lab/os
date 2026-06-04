@@ -1,0 +1,11 @@
+[Unit]
+Description=Select software GL rendering when no GPU is present
+DefaultDependencies=no
+After=systemd-udevd.service
+Before=greetd.service
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/bin/singularity-render-setup
+[Install]
+WantedBy=multi-user.target

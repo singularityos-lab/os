@@ -1,0 +1,37 @@
+config BR2_PACKAGE_SINGULARITY_SHELL
+	bool "singularity-shell"
+	depends on BR2_PACKAGE_LIBGTK4
+	depends on BR2_PACKAGE_GOBJECT_INTROSPECTION
+	depends on BR2_PACKAGE_WEBKITGTK_ARCH_SUPPORTS # gnome-online-accounts
+	select BR2_PACKAGE_LIBSINGULARITY
+	select BR2_PACKAGE_GTK4_LAYER_SHELL
+	select BR2_PACKAGE_VTE_GTK4
+	select BR2_PACKAGE_GTKSOURCEVIEW
+	select BR2_PACKAGE_POPPLER
+	select BR2_PACKAGE_NETWORK_MANAGER
+	select BR2_PACKAGE_UPOWER
+	select BR2_PACKAGE_PULSEAUDIO
+	select BR2_PACKAGE_GNOME_ONLINE_ACCOUNTS
+	select BR2_PACKAGE_POLKIT
+	select BR2_PACKAGE_LINUX_PAM
+	select BR2_PACKAGE_LIBSOUP3
+	select BR2_PACKAGE_JSON_GLIB
+	select BR2_PACKAGE_LIBPEAS2
+	select BR2_PACKAGE_LIBDBUSMENU
+	select BR2_PACKAGE_AT_SPI2_CORE
+	select BR2_PACKAGE_TRACKER
+	select BR2_PACKAGE_LIBGUDEV
+	select BR2_PACKAGE_LIBGEE
+	select BR2_PACKAGE_GSETTINGS_DESKTOP_SCHEMAS
+	select BR2_PACKAGE_WAYLAND
+	select BR2_PACKAGE_LIBXCB
+	select BR2_PACKAGE_LIBPNG
+	help
+	  The Singularity desktop shell: panel, dock, overview, sidebar,
+	  Control Center, spotlight, notifications, lock screen and the
+	  global menu.
+
+	  https://github.com/singularityos-lab/singularity-shell
+
+comment "singularity-shell needs libgtk4 and gobject-introspection"
+	depends on !BR2_PACKAGE_LIBGTK4 || !BR2_PACKAGE_GOBJECT_INTROSPECTION

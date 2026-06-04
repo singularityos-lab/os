@@ -1,0 +1,12 @@
+config BR2_PACKAGE_SINGULARITY_LOGINUI
+	bool "singularity-loginui"
+	select BR2_PACKAGE_CAIRO
+	select BR2_PACKAGE_PANGO
+	select BR2_PACKAGE_GDK_PIXBUF
+	select BR2_PACKAGE_WAYLAND
+	help
+	  Shared toolkit-less Cairo render library for the Singularity login
+	  surfaces: the greeter, the lock screen, the session splash and the
+	  boot splash.
+
+	  https://github.com/singularityos-lab/singularity-loginui

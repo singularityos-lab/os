@@ -1,0 +1,11 @@
+config BR2_PACKAGE_SINGULARITY_KEYRING
+	bool "singularity-keyring"
+	depends on BR2_PACKAGE_LIBGTK4
+	select BR2_PACKAGE_JSON_GLIB
+	select BR2_PACKAGE_LIBGCRYPT
+	select BR2_PACKAGE_LIBSODIUM
+	help
+	  Singularity Keyring: the Secret Service daemon (org.freedesktop.secrets)
+	  backing credential storage for the desktop.
+
+	  https://github.com/singularityos-lab/singularity-keyring

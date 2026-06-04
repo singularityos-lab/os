@@ -1,0 +1,12 @@
+config BR2_PACKAGE_SINGULARITY_PLUGINS
+	bool "singularity-plugins"
+	depends on BR2_PACKAGE_LIBGTK4
+	select BR2_PACKAGE_LIBSINGULARITY
+	select BR2_PACKAGE_LIBPEAS2
+	select BR2_PACKAGE_LIBGEE
+	help
+	  Singularity shell plugins (caffeine, clipboard history, color
+	  picker, pomodoro, weather and the various dock and panel widgets)
+	  loaded by the shell through libpeas.
+
+	  https://github.com/singularityos-lab/singularity-plugins

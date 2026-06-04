@@ -1,0 +1,31 @@
+config BR2_PACKAGE_WLROOTS020
+	bool "wlroots 0.20"
+	depends on !BR2_STATIC_LIBS # wayland
+	depends on BR2_TOOLCHAIN_HAS_THREADS # libdrm, wayland
+	depends on BR2_PACKAGE_HAS_UDEV # libinput
+	depends on BR2_PACKAGE_HAS_LIBEGL
+	depends on BR2_PACKAGE_HAS_LIBGLES
+	depends on BR2_PACKAGE_HAS_LIBGBM
+	select BR2_PACKAGE_HWDATA
+	select BR2_PACKAGE_HWDATA_PNP_IDS
+	select BR2_PACKAGE_LIBDISPLAY_INFO
+	select BR2_PACKAGE_LIBDRM
+	select BR2_PACKAGE_LIBINPUT
+	select BR2_PACKAGE_LIBLIFTOFF
+	select BR2_PACKAGE_LIBXKBCOMMON
+	select BR2_PACKAGE_PIXMAN
+	select BR2_PACKAGE_SEATD
+	select BR2_PACKAGE_WAYLAND
+	select BR2_PACKAGE_WAYLAND_PROTOCOLS
+	help
+	  wlroots 0.20, the modular Wayland compositor library, built
+	  with DRM multi-plane (libliftoff) support. Required by the
+	  Singularity build of labwc.
+
+	  https://gitlab.freedesktop.org/wlroots/wlroots
+
+comment "wlroots 0.20 needs udev, EGL, OpenGL ES and GBM support"
+	depends on !BR2_PACKAGE_HAS_LIBEGL || \
+		!BR2_PACKAGE_HAS_LIBGLES || \
+		!BR2_PACKAGE_HAS_LIBGBM || \
+		!BR2_PACKAGE_HAS_UDEV

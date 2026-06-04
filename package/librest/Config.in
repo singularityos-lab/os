@@ -1,0 +1,14 @@
+config BR2_PACKAGE_LIBREST
+	bool "librest"
+	depends on BR2_PACKAGE_GOBJECT_INTROSPECTION
+	select BR2_PACKAGE_LIBGLIB2
+	select BR2_PACKAGE_LIBSOUP3
+	select BR2_PACKAGE_JSON_GLIB
+	help
+	  Helper library for RESTful web services (provides rest-1.0).
+	  Required by gnome-online-accounts.
+
+	  https://gitlab.gnome.org/GNOME/librest
+
+comment "librest needs gobject-introspection"
+	depends on !BR2_PACKAGE_GOBJECT_INTROSPECTION

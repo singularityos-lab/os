@@ -1,0 +1,19 @@
+[Unit]
+Description=greetd login manager
+After=systemd-user-sessions.service getty@tty1.service plymouth-quit-wait.service
+After=multi-user.target
+Wants=systemd-user-sessions.service
+Conflicts=getty@tty1.service
+
+[Service]
+ExecStart=/usr/bin/greetd
+Restart=always
+RestartSec=1
+Type=simple
+IgnoreSIGPIPE=no
+SendSIGHUP=yes
+TimeoutStopSec=30s
+KeyringMode=shared
+
+[Install]
+WantedBy=graphical.target

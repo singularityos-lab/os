@@ -1,0 +1,16 @@
+config BR2_PACKAGE_TRACKER
+	bool "tracker"
+	depends on BR2_PACKAGE_GOBJECT_INTROSPECTION
+	select BR2_PACKAGE_SQLITE
+	select BR2_PACKAGE_JSON_GLIB
+	select BR2_PACKAGE_ICU
+	select BR2_PACKAGE_LIBGLIB2
+	select BR2_PACKAGE_DBUS
+	help
+	  Tracker SPARQL 3.7 (provides tracker-sparql-3.0), the database
+	  and query engine used by the Singularity shell for file search.
+
+	  https://gnome.pages.gitlab.gnome.org/tracker/
+
+comment "tracker needs gobject-introspection"
+	depends on !BR2_PACKAGE_GOBJECT_INTROSPECTION

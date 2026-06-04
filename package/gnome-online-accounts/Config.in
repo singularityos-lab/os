@@ -1,0 +1,20 @@
+config BR2_PACKAGE_GNOME_ONLINE_ACCOUNTS
+	bool "gnome-online-accounts"
+	depends on BR2_PACKAGE_GOBJECT_INTROSPECTION
+	depends on BR2_PACKAGE_WEBKITGTK_ARCH_SUPPORTS
+	depends on BR2_PACKAGE_WEBKITGTK
+	select BR2_PACKAGE_LIBGLIB2
+	select BR2_PACKAGE_LIBSOUP3
+	select BR2_PACKAGE_JSON_GLIB
+	select BR2_PACKAGE_LIBREST
+	select BR2_PACKAGE_GCR
+	select BR2_PACKAGE_LIBSECRET
+	help
+	  GNOME Online Accounts (provides goa-1.0 and goa-backend-1.0).
+	  Used by the Singularity shell for online account integration
+	  (calendar sync).
+
+	  https://gitlab.gnome.org/GNOME/gnome-online-accounts
+
+comment "gnome-online-accounts needs gobject-introspection"
+	depends on !BR2_PACKAGE_GOBJECT_INTROSPECTION

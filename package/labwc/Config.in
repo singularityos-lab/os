@@ -1,0 +1,25 @@
+config BR2_PACKAGE_LABWC
+	bool "labwc"
+	depends on !BR2_STATIC_LIBS
+	depends on BR2_TOOLCHAIN_HAS_THREADS
+	depends on BR2_PACKAGE_HAS_UDEV
+	depends on BR2_PACKAGE_HAS_LIBEGL
+	depends on BR2_PACKAGE_HAS_LIBGLES
+	depends on BR2_PACKAGE_HAS_LIBGBM
+	select BR2_PACKAGE_WLROOTS020
+	select BR2_PACKAGE_LIBXML2
+	select BR2_PACKAGE_CAIRO
+	select BR2_PACKAGE_PANGO
+	select BR2_PACKAGE_LIBGLIB2
+	select BR2_PACKAGE_LIBRSVG
+	help
+	  labwc, the wlroots-based stacking Wayland compositor, in the
+	  Singularity build that the shell drives.
+
+	  https://github.com/singularityos-lab/labwc
+
+comment "labwc needs udev, EGL, OpenGL ES and GBM support"
+	depends on !BR2_PACKAGE_HAS_LIBEGL || \
+		!BR2_PACKAGE_HAS_LIBGLES || \
+		!BR2_PACKAGE_HAS_LIBGBM || \
+		!BR2_PACKAGE_HAS_UDEV

@@ -1,0 +1,3 @@
+[properties]
+sqlite3_has_fts5 = 'true'
+needs_exe_wrapper = false

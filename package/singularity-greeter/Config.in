@@ -1,0 +1,13 @@
+config BR2_PACKAGE_SINGULARITY_GREETER
+	bool "singularity-greeter"
+	depends on BR2_PACKAGE_LIBGTK4
+	select BR2_PACKAGE_LIBSINGULARITY
+	select BR2_PACKAGE_GTK4_LAYER_SHELL
+	select BR2_PACKAGE_LIBGEE
+	select BR2_PACKAGE_JSON_GLIB
+	select BR2_PACKAGE_GREETD if BR2_PACKAGE_HOST_RUSTC_TARGET_ARCH_SUPPORTS
+	help
+	  Singularity Greeter: the greetd-based login screen for the
+	  Singularity desktop.
+
+	  https://github.com/singularityos-lab/singularity-greeter

@@ -1,0 +1,10 @@
+config BR2_PACKAGE_SINGULARITY_POLKIT_AGENT
+	bool "singularity-polkit-agent"
+	depends on BR2_PACKAGE_LIBGTK4
+	select BR2_PACKAGE_LIBSINGULARITY
+	select BR2_PACKAGE_POLKIT
+	help
+	  The Singularity polkit authentication agent (started by the
+	  desktop session to handle privilege escalation prompts).
+
+	  https://github.com/singularityos-lab/singularity-polkit-agent

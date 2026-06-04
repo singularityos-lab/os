@@ -1,0 +1,12 @@
+config BR2_PACKAGE_SINGULARITY_MUSIC
+	bool "singularity-music"
+	depends on BR2_PACKAGE_LIBGTK4
+	select BR2_PACKAGE_LIBSINGULARITY
+	select BR2_PACKAGE_LIBGEE
+	depends on BR2_PACKAGE_GSTREAMER1
+	select BR2_PACKAGE_GST1_PLUGINS_BASE
+	select BR2_PACKAGE_LIBSOUP3
+	help
+	  Singularity Music: the music player.
+
+	  https://github.com/singularityos-lab/singularity-music

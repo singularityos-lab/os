@@ -1,0 +1,9 @@
+config BR2_PACKAGE_SINGULARITY_PHOTOS
+	bool "singularity-photos"
+	depends on BR2_PACKAGE_LIBGTK4
+	select BR2_PACKAGE_LIBSINGULARITY
+	select BR2_PACKAGE_LIBGEE
+	help
+	  Singularity Photos: the image viewer.
+
+	  https://github.com/singularityos-lab/singularity-photos

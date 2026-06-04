@@ -1,0 +1,7 @@
+config BR2_PACKAGE_SINGULARITY_WALLPAPERS
+	bool "singularity-wallpapers"
+	help
+	  Singularity desktop wallpapers, installed under
+	  /usr/share/backgrounds/singularity.
+
+	  https://github.com/singularityos-lab/singularity-wallpapers

@@ -1,0 +1,14 @@
+config BR2_PACKAGE_GREETD
+	bool "greetd"
+	depends on BR2_PACKAGE_HOST_RUSTC_TARGET_ARCH_SUPPORTS
+	depends on BR2_TOOLCHAIN_HAS_THREADS
+	select BR2_PACKAGE_LINUX_PAM
+	help
+	  greetd is a minimal and flexible login manager daemon that
+	  launches a greeter and starts a session on successful auth.
+	  Singularity uses it to drive singularity-greeter.
+
+	  https://git.sr.ht/~kennylevinsen/greetd
+
+comment "greetd needs a toolchain w/ threads"
+	depends on !BR2_TOOLCHAIN_HAS_THREADS
