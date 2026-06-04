@@ -1,0 +1,15 @@
+[Unit]
+Description=Singularity boot splash
+DefaultDependencies=no
+Wants=systemd-udevd.service
+After=systemd-udevd.service
+Before=greetd.service shutdown.target
+Conflicts=greetd.service shutdown.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/singularity-boot-splash
+KillMode=mixed
+
+[Install]
+WantedBy=sysinit.target

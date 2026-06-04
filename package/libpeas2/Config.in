@@ -1,0 +1,12 @@
+config BR2_PACKAGE_LIBPEAS2
+	bool "libpeas2"
+	depends on BR2_PACKAGE_GOBJECT_INTROSPECTION
+	select BR2_PACKAGE_LIBGLIB2
+	help
+	  libpeas 2.x, the GObject-based plugin engine (provides
+	  libpeas-2). Used by the Singularity shell to load plugins.
+
+	  https://gitlab.gnome.org/GNOME/libpeas
+
+comment "libpeas2 needs gobject-introspection"
+	depends on !BR2_PACKAGE_GOBJECT_INTROSPECTION

@@ -2,13 +2,15 @@
 
 set -e
 
-BUILDROOT_VERSION="2024.02.9"
+BUILDROOT_VERSION="2026.02.2"
 REPO_DIR="$(pwd)"
 
 if [ ! -d "buildroot-src" ]; then
     wget -q "https://buildroot.org/downloads/buildroot-${BUILDROOT_VERSION}.tar.xz"
     tar xf "buildroot-${BUILDROOT_VERSION}.tar.xz"
     mv "buildroot-${BUILDROOT_VERSION}" buildroot-src
+    sed -i '/\$(eval \$(generic-package))/i SQLITE_CFLAGS += -DSQLITE_ENABLE_FTS5' \
+        buildroot-src/package/sqlite/sqlite.mk
 fi
 
 mkdir -p buildroot-build buildroot-dl

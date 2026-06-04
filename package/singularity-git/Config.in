@@ -1,0 +1,10 @@
+config BR2_PACKAGE_SINGULARITY_GIT
+	bool "singularity-git"
+	depends on BR2_PACKAGE_LIBGTK4
+	select BR2_PACKAGE_LIBSINGULARITY
+	select BR2_PACKAGE_LIBGEE
+	select BR2_PACKAGE_GTKSOURCEVIEW
+	help
+	  Singularity Git: the git client.
+
+	  https://github.com/singularityos-lab/singularity-git

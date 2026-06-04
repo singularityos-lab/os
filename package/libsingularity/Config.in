@@ -1,0 +1,18 @@
+config BR2_PACKAGE_LIBSINGULARITY
+	bool "libsingularity"
+	depends on BR2_PACKAGE_LIBGTK4
+	depends on BR2_PACKAGE_GOBJECT_INTROSPECTION
+	select BR2_PACKAGE_GTK4_LAYER_SHELL
+	select BR2_PACKAGE_LIBPEAS2
+	select BR2_PACKAGE_LIBGEE
+	select BR2_PACKAGE_JSON_GLIB
+	select BR2_PACKAGE_GTKSOURCEVIEW
+	help
+	  The Singularity application framework: GTK4 UI primitives, the
+	  accent-aware style system, and the public contracts that the
+	  shell and every first-party app build on.
+
+	  https://github.com/singularityos-lab/libsingularity
+
+comment "libsingularity needs libgtk4 and gobject-introspection"
+	depends on !BR2_PACKAGE_LIBGTK4 || !BR2_PACKAGE_GOBJECT_INTROSPECTION

@@ -1,0 +1,19 @@
+#!/bin/sh
+# Enable software GL rendering only when there is no hardware GPU driver
+# (VMs: virtio-gpu without virgl, vkms, simpledrm). Real GPUs keep hardware
+# rendering. Appends to /etc/environment (writable tmpfs overlay, reset each boot).
+hw=0
+for c in /sys/class/drm/card[0-9]*; do
+    [ -e "$c/device/uevent" ] || continue
+    drv=$(sed -n 's/^DRIVER=//p' "$c/device/uevent")
+    case "$drv" in
+        i915|xe|amdgpu|radeon|nouveau|nova*|msm|panfrost|panthor|v3d|lima|etnaviv|tegra)
+            hw=1 ;;
+    esac
+done
+if [ "$hw" = 0 ]; then
+    {
+        echo "MESA_LOADER_DRIVER_OVERRIDE=kms_swrast"
+        echo "GSK_RENDERER=cairo"
+    } >> /etc/environment
+fi

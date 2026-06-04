@@ -1,0 +1,11 @@
+config BR2_PACKAGE_SINGULARITY_VIDEOS
+	bool "singularity-videos"
+	depends on BR2_PACKAGE_LIBGTK4
+	select BR2_PACKAGE_LIBSINGULARITY
+	select BR2_PACKAGE_LIBGEE
+	depends on BR2_PACKAGE_GSTREAMER1
+	select BR2_PACKAGE_GST1_PLUGINS_BASE
+	help
+	  Singularity Videos: the video player.
+
+	  https://github.com/singularityos-lab/singularity-videos

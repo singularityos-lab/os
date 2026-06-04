@@ -1,0 +1,8 @@
+/buildroot-src/
+/buildroot-build/
+/buildroot-dl/
+/buildroot-*.tar.*
+/rootfs-staging/
+/initrd-staging/
+/artifacts/
+*.log

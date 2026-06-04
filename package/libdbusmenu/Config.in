@@ -1,0 +1,13 @@
+config BR2_PACKAGE_LIBDBUSMENU
+	bool "libdbusmenu"
+	depends on BR2_PACKAGE_GOBJECT_INTROSPECTION
+	select BR2_PACKAGE_LIBGLIB2
+	help
+	  Library to pass menu structures across D-Bus (provides
+	  dbusmenu-glib-0.4). Used by the Singularity shell for the
+	  DBusMenu global-menu fallback (Qt and legacy apps).
+
+	  https://launchpad.net/libdbusmenu
+
+comment "libdbusmenu needs gobject-introspection"
+	depends on !BR2_PACKAGE_GOBJECT_INTROSPECTION

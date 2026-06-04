@@ -1,0 +1,11 @@
+config BR2_PACKAGE_SINGULARITY_FILES
+	bool "singularity-files"
+	depends on BR2_PACKAGE_LIBGTK4
+	select BR2_PACKAGE_LIBSINGULARITY
+	select BR2_PACKAGE_LIBGEE
+	select BR2_PACKAGE_LIBPEAS2
+	select BR2_PACKAGE_JSON_GLIB
+	help
+	  Singularity Files: the file manager.
+
+	  https://github.com/singularityos-lab/singularity-files

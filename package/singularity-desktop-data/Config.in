@@ -1,0 +1,13 @@
+config BR2_PACKAGE_SINGULARITY_DESKTOP_DATA
+	bool "singularity-desktop-data"
+	help
+	  Top-level Singularity desktop data: the dev.sinty.desktop
+	  GSettings schema (required by the shell), the xdg-desktop-portal
+	  config, the polkit-agent and portal systemd user units, the
+	  accountsservice interface and the brand emblem icon.
+
+	  These live in the singularity-desktop meta repository, outside
+	  any subprojct, so they are shipped as a standalone package. I
+	  might improve it.
+
+	  https://github.com/singularityos-lab/singularity-desktop

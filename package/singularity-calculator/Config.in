@@ -1,0 +1,9 @@
+config BR2_PACKAGE_SINGULARITY_CALCULATOR
+	bool "singularity-calculator"
+	depends on BR2_PACKAGE_LIBGTK4
+	select BR2_PACKAGE_LIBSINGULARITY
+	select BR2_PACKAGE_LIBGEE
+	help
+	  Singularity Calculator: the calculator.
+
+	  https://github.com/singularityos-lab/singularity-calculator

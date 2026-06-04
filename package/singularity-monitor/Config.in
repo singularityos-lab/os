@@ -1,0 +1,9 @@
+config BR2_PACKAGE_SINGULARITY_MONITOR
+	bool "singularity-monitor"
+	depends on BR2_PACKAGE_LIBGTK4
+	select BR2_PACKAGE_LIBSINGULARITY
+	select BR2_PACKAGE_LIBGEE
+	help
+	  Singularity Monitor: the system monitor.
+
+	  https://github.com/singularityos-lab/singularity-monitor

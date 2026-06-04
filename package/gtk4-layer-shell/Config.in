@@ -1,0 +1,13 @@
+config BR2_PACKAGE_GTK4_LAYER_SHELL
+	bool "gtk4-layer-shell"
+	depends on BR2_PACKAGE_LIBGTK4
+	depends on BR2_PACKAGE_LIBGTK4_WAYLAND
+	help
+	  Layer shell protocol support for GTK4: lets a GTK4 window
+	  become a panel, dock, or overlay on a wlroots-based Wayland
+	  compositor.
+
+	  https://github.com/wmww/gtk4-layer-shell
+
+comment "gtk4-layer-shell needs libgtk4 with the Wayland backend"
+	depends on !BR2_PACKAGE_LIBGTK4 || !BR2_PACKAGE_LIBGTK4_WAYLAND

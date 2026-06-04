@@ -1,0 +1,10 @@
+config BR2_PACKAGE_SINGULARITY_WIDGETS
+	bool "singularity-widgets"
+	depends on BR2_PACKAGE_LIBGTK4
+	select BR2_PACKAGE_LIBSINGULARITY
+	select BR2_PACKAGE_LIBGEE
+	help
+	  Singularity desktop widgets (overview widget modules such as the
+	  write notes and calculator widgets loaded by the shell).
+
+	  https://github.com/singularityos-lab/singularity-widgets

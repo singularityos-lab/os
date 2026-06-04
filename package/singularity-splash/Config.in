@@ -1,0 +1,9 @@
+config BR2_PACKAGE_SINGULARITY_SPLASH
+	bool "singularity-splash"
+	select BR2_PACKAGE_SINGULARITY_LOGINUI
+	help
+	  The Singularity session splash shown between the greeter and the
+	  shell while the desktop loads (Cairo/layer-shell, time-driven via
+	  loginui_render_splash).
+
+	  https://github.com/singularityos-lab/singularity-desktop

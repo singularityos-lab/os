@@ -1,0 +1,11 @@
+config BR2_PACKAGE_SINGULARITY_LEAFS
+	bool "singularity-leafs"
+	depends on BR2_PACKAGE_LIBGTK4
+	select BR2_PACKAGE_LIBSINGULARITY
+	select BR2_PACKAGE_LIBGEE
+	select BR2_PACKAGE_VTE_GTK4
+	select BR2_PACKAGE_JSON_GLIB
+	help
+	  Singularity Leafs: the terminal.
+
+	  https://github.com/singularityos-lab/singularity-leafs

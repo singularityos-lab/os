@@ -1,0 +1,8 @@
+config BR2_PACKAGE_LIBLIFTOFF
+	bool "libliftoff"
+	select BR2_PACKAGE_LIBDRM
+	help
+	  Lightweight KMS plane library for offloading composition to
+	  display hardware (DRM multi-plane). Used by wlroots.
+
+	  https://gitlab.freedesktop.org/emersion/libliftoff

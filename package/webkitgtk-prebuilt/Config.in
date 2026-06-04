@@ -1,0 +1,37 @@
+config BR2_PACKAGE_WEBKITGTK_PREBUILT
+	bool "webkitgtk (prebuilt)"
+	depends on BR2_x86_64
+	depends on !BR2_PACKAGE_WEBKITGTK
+	depends on !BR2_STATIC_LIBS
+	depends on BR2_INSTALL_LIBSTDCPP
+	depends on BR2_TOOLCHAIN_HAS_THREADS_NPTL
+	depends on BR2_USE_WCHAR
+	select BR2_PACKAGE_LIBGTK4
+	select BR2_PACKAGE_CAIRO
+	select BR2_PACKAGE_CAIRO_PNG
+	select BR2_PACKAGE_ENCHANT
+	select BR2_PACKAGE_HARFBUZZ
+	select BR2_PACKAGE_ICU
+	select BR2_PACKAGE_JPEG
+	select BR2_PACKAGE_LIBEPOXY
+	select BR2_PACKAGE_LIBGCRYPT
+	select BR2_PACKAGE_LIBSECRET
+	select BR2_PACKAGE_LIBSOUP3
+	select BR2_PACKAGE_LIBTASN1
+	select BR2_PACKAGE_LIBXML2
+	select BR2_PACKAGE_LIBXSLT
+	select BR2_PACKAGE_SQLITE
+	select BR2_PACKAGE_WEBP
+	select BR2_PACKAGE_WEBP_DEMUX
+	select BR2_PACKAGE_WEBP_MUX
+	select BR2_PACKAGE_WOFF2
+	select BR2_PACKAGE_LIBGBM
+	select BR2_PACKAGE_LIBDRM
+	select BR2_PACKAGE_SYSTEMD
+	help
+	  Temporary drop-in prebuilt WebKitGTK, for faster builds.
+
+comment "webkitgtk-prebuilt needs a glibc toolchain w/ C++, NPTL, wchar (x86_64)"
+	depends on BR2_x86_64
+	depends on !BR2_INSTALL_LIBSTDCPP || !BR2_TOOLCHAIN_HAS_THREADS_NPTL \
+		|| !BR2_USE_WCHAR || BR2_STATIC_LIBS
