@@ -54,4 +54,10 @@ else
 VTE_GTK4_CONF_OPTS += -D_systemd=false
 endif
 
+define VTE_GTK4_REMOVE_DEMO_APP
+	rm -f $(TARGET_DIR)/usr/bin/vte-2.91-gtk4
+	rm -f $(TARGET_DIR)/usr/share/applications/org.gnome.Vte.App.Gtk4.desktop
+endef
+VTE_GTK4_POST_INSTALL_TARGET_HOOKS += VTE_GTK4_REMOVE_DEMO_APP
+
 $(eval $(meson-package))

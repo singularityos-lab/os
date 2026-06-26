@@ -27,12 +27,15 @@ WLROOTS020_DEPENDENCIES = \
 	seatd \
 	udev \
 	wayland \
-	wayland-protocols
+	wayland-protocols \
+	libxcb \
+	xcb-util-wm \
+	xwayland
 
 WLROOTS020_CONF_OPTS = \
 	-Dexamples=false \
 	-Dxcb-errors=disabled \
-	-Dxwayland=disabled \
+	-Dxwayland=enabled \
 	-Dbackends=libinput,drm \
 	-Drenderers=gles2
 

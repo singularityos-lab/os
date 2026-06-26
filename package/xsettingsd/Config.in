@@ -1,0 +1,11 @@
+config BR2_PACKAGE_XSETTINGSD
+	bool "xsettingsd"
+	depends on BR2_PACKAGE_XORG7
+	select BR2_PACKAGE_XLIB_LIBX11
+	help
+	  xsettingsd is a daemon that implements the XSETTINGS specification,
+	  providing theme, font and cursor settings to X11 (XWayland)
+	  applications. The Singularity shell launches it to keep XWayland
+	  apps in sync with the desktop theme.
+
+	  https://github.com/derat/xsettingsd

@@ -1,0 +1,7 @@
+config BR2_PACKAGE_XDG_USER_DIRS
+	bool "xdg-user-dirs"
+	help
+	  Tool to create and maintain the well-known user directories
+	  (Desktop, Downloads, Documents, Pictures, Music, Videos).
+
+	  https://www.freedesktop.org/wiki/Software/xdg-user-dirs/

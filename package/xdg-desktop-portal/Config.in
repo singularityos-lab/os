@@ -1,0 +1,19 @@
+config BR2_PACKAGE_XDG_DESKTOP_PORTAL
+	bool "xdg-desktop-portal"
+	depends on BR2_TOOLCHAIN_HAS_THREADS # glib2, pipewire
+	depends on BR2_USE_WCHAR # glib2
+	depends on BR2_USE_MMU # glib2
+	depends on !BR2_STATIC_LIBS # libfuse3
+	select BR2_PACKAGE_LIBGLIB2
+	select BR2_PACKAGE_JSON_GLIB
+	select BR2_PACKAGE_GDK_PIXBUF
+	select BR2_PACKAGE_LIBFUSE3
+	select BR2_PACKAGE_PIPEWIRE
+	help
+	  The freedesktop xdg-desktop-portal frontend
+	  (org.freedesktop.portal.Desktop). It routes portal requests from
+	  applications to the desktop backend implementation (here the
+	  Singularity portal backend): file chooser, screenshot, screencast,
+	  settings and more.
+
+	  https://github.com/flatpak/xdg-desktop-portal

@@ -21,10 +21,13 @@ LABWC_DEPENDENCIES = \
 	libinput \
 	libxkbcommon \
 	librsvg \
-	libpng
+	libpng \
+	libxcb \
+	xcb-util-wm \
+	xwayland
 
 LABWC_CONF_OPTS = \
-	-Dxwayland=disabled \
+	-Dxwayland=enabled \
 	-Dman-pages=disabled \
 	-Dicon=disabled
 
