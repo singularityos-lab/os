@@ -50,14 +50,14 @@ jobs:
             systemd-boot \
             binutils
 
-      - name: Cache Buildroot source tree
-        uses: actions/cache@v4
+      - name: Restore Buildroot source tree
+        uses: actions/cache/restore@v4
         with:
           path: buildroot-src
           key: buildroot-src-2026.02.2
 
-      - name: Cache Buildroot downloads
-        uses: actions/cache@v4
+      - name: Restore Buildroot downloads
+        uses: actions/cache/restore@v4
         with:
           path: buildroot-dl
           key: buildroot-dl-${{ hashFiles('buildroot-config/singularity_defconfig') }}-${{ github.run_id }}
@@ -65,16 +65,23 @@ jobs:
             buildroot-dl-${{ hashFiles('buildroot-config/singularity_defconfig') }}-
             buildroot-dl-
 
-      - name: Cache Buildroot host + build artifacts
-        uses: actions/cache@v4
+      - name: Restore Buildroot host toolchain
+        uses: actions/cache/restore@v4
         with:
-          path: |
-            buildroot-build/host
-            buildroot-build/build
-          key: buildroot-build-v5-${{ hashFiles('buildroot-config/singularity_defconfig', 'buildroot-config/kernel.config') }}-${{ github.run_id }}
+          path: buildroot-build/host
+          key: buildroot-host-v1-${{ hashFiles('buildroot-config/singularity_defconfig', 'buildroot-config/kernel.config') }}-${{ github.run_id }}
           restore-keys: |
-            buildroot-build-v5-${{ hashFiles('buildroot-config/singularity_defconfig', 'buildroot-config/kernel.config') }}-
-            buildroot-build-v5-
+            buildroot-host-v1-${{ hashFiles('buildroot-config/singularity_defconfig', 'buildroot-config/kernel.config') }}-
+            buildroot-host-v1-
+
+      - name: Restore Buildroot package build tree
+        uses: actions/cache/restore@v4
+        with:
+          path: buildroot-build/build
+          key: buildroot-build-v6-${{ hashFiles('buildroot-config/singularity_defconfig', 'buildroot-config/kernel.config') }}-${{ github.run_id }}
+          restore-keys: |
+            buildroot-build-v6-${{ hashFiles('buildroot-config/singularity_defconfig', 'buildroot-config/kernel.config') }}-
+            buildroot-build-v6-
 
       - name: Prepare Buildroot
         run: ./scripts/prepare.sh
@@ -99,6 +106,34 @@ jobs:
             exit 0
           fi
           exit "$ec"
+
+      - name: Save Buildroot source tree
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: buildroot-src
+          key: buildroot-src-2026.02.2
+
+      - name: Save Buildroot downloads
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: buildroot-dl
+          key: buildroot-dl-${{ hashFiles('buildroot-config/singularity_defconfig') }}-${{ github.run_id }}
+
+      - name: Save Buildroot host toolchain
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: buildroot-build/host
+          key: buildroot-host-v1-${{ hashFiles('buildroot-config/singularity_defconfig', 'buildroot-config/kernel.config') }}-${{ github.run_id }}
+
+      - name: Save Buildroot package build tree
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: buildroot-build/build
+          key: buildroot-build-v6-${{ hashFiles('buildroot-config/singularity_defconfig', 'buildroot-config/kernel.config') }}-${{ github.run_id }}
 
       - name: Package
         if: env.BUILD_INCOMPLETE != '1'
