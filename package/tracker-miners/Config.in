@@ -1,0 +1,12 @@
+config BR2_PACKAGE_TRACKER_MINERS
+	bool "tracker-miners"
+	depends on BR2_PACKAGE_TRACKER
+	select BR2_PACKAGE_UTIL_LINUX
+	select BR2_PACKAGE_UTIL_LINUX_LIBBLKID
+	help
+	  Tracker filesystem miner (org.freedesktop.Tracker3.Miner.Files),
+	  which indexes file names and metadata so the shell file search
+	  works. Built minimal: the filesystem miner only, without the
+	  media/document content extractors.
+
+	  https://gitlab.gnome.org/GNOME/tracker-miners

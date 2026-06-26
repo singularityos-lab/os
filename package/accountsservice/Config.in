@@ -1,0 +1,14 @@
+config BR2_PACKAGE_ACCOUNTSSERVICE
+	bool "accountsservice"
+	depends on BR2_PACKAGE_HAS_UDEV
+	depends on BR2_TOOLCHAIN_HAS_THREADS # glib2, polkit
+	depends on BR2_USE_WCHAR # glib2, polkit
+	depends on BR2_USE_MMU # glib2, polkit
+	select BR2_PACKAGE_LIBGLIB2
+	select BR2_PACKAGE_POLKIT
+	help
+	  D-Bus service (org.freedesktop.Accounts) for querying and
+	  manipulating user account information, used by the shell account
+	  page and for user avatars.
+
+	  https://www.freedesktop.org/wiki/Software/AccountsService/

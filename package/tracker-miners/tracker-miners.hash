@@ -1,0 +1,4 @@
+# From https://download.gnome.org/sources/tracker-miners/3.7/tracker-miners-3.7.3.sha256sum
+sha256  e74388154b5c197b4b7ee42f0dce8c5fbbddd4d361093ef88d4fb303e33da5fe  tracker-miners-3.7.3.tar.xz
+# Locally computed
+sha256  f3b55eb5bb5a36a19c8c40e3bd8ab0d683649ae3ad29e3ccae2ddda843547d0e  COPYING

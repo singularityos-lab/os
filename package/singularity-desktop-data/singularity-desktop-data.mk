@@ -13,12 +13,12 @@ SINGULARITY_DESKTOP_DATA_INSTALL_STAGING = YES
 
 define SINGULARITY_DESKTOP_DATA_FIX_DOCK_DEFAULTS
 	$(SED) "s|<default>\['firefox.desktop'.*</default>|<default>['dev.sinty.files.desktop', 'dev.sinty.photos.desktop', 'dev.sinty.music.desktop', 'dev.sinty.store.desktop', 'dev.sinty.write.desktop', 'dev.sinty.calculator.desktop']</default>|" \
-	SINGULARITY_DESKTOP_DATA_POST_PATCH_HOOKS += SINGULARITY_DESKTOP_DATA_FIX_DOCK_DEFAULTS
+		$(@D)/data/dev.sinty.desktop.gschema.xml
+endef
+SINGULARITY_DESKTOP_DATA_POST_PATCH_HOOKS += SINGULARITY_DESKTOP_DATA_FIX_DOCK_DEFAULTS
 
 define SINGULARITY_DESKTOP_DATA_INSTALL_STAGING_CMDS
 	$(INSTALL) -D -m 0644 $(@D)/data/dev.sinty.desktop.gschema.xml \
-	$(@D)/data/dev.sinty.desktop.gschema.xml
-endef
 		$(STAGING_DIR)/usr/share/glib-2.0/schemas/dev.sinty.desktop.gschema.xml
 endef
 
