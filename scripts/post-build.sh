@@ -23,4 +23,11 @@ find "$TARGET_DIR/usr/sbin" -type f -exec strip --strip-all {} \; 2>/dev/null ||
 find "$TARGET_DIR/bin" -type f -exec strip --strip-all {} \; 2>/dev/null || true
 find "$TARGET_DIR/sbin" -type f -exec strip --strip-all {} \; 2>/dev/null || true
 
+# Helper paths: pam_unix and getty look in /usr/sbin, binaries are in /usr/bin
+for b in unix_chkpwd agetty; do
+	if [ -e "$TARGET_DIR/usr/bin/$b" ] && [ ! -e "$TARGET_DIR/usr/sbin/$b" ]; then
+		ln -sf "../bin/$b" "$TARGET_DIR/usr/sbin/$b"
+	fi
+done
+
 echo "[singularity] post-build: done. Rootfs size: $(du -sh $TARGET_DIR | cut -f1)"

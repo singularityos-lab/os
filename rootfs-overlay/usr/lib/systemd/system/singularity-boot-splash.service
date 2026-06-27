@@ -4,7 +4,7 @@ DefaultDependencies=no
 Wants=systemd-udevd.service
 After=systemd-udevd.service
 Before=greetd.service shutdown.target
-Conflicts=greetd.service shutdown.target
+Conflicts=shutdown.target
 
 [Service]
 Type=simple

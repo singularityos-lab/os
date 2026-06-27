@@ -1,0 +1,14 @@
+[Unit]
+Description=Singularity XDG Desktop Portal
+PartOf=graphical-session.target
+After=graphical-session.target
+
+[Service]
+Type=dbus
+BusName=org.freedesktop.impl.portal.desktop.singularity
+ExecStart=/usr/libexec/xdg-desktop-portal-singularity
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=graphical-session.target
