@@ -1,0 +1,12 @@
+NAME="Sinty OS"
+PRETTY_NAME="Sinty OS 1.0 (Event Horizon)"
+ID=sinty
+VERSION="1.0 (Event Horizon)"
+VERSION_ID=1.0
+VERSION_CODENAME=event-horizon
+ANSI_COLOR="1;36"
+HOME_URL="https://sinty.dev/"
+DOCUMENTATION_URL="https://sinty.dev/docs/"
+SUPPORT_URL="https://sinty.dev/support/"
+BUG_REPORT_URL="https://sinty.dev/bugs/"
+LOGO=sinty
