@@ -15,5 +15,6 @@ if [ "$hw" = 0 ]; then
     {
         echo "MESA_LOADER_DRIVER_OVERRIDE=kms_swrast"
         echo "GSK_RENDERER=cairo"
+        echo "WLR_RENDERER=pixman"
     } >> /etc/environment
 fi

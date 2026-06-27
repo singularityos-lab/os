@@ -20,7 +20,7 @@ TRACKER_MINERS_DEPENDENCIES = \
 	icu
 
 TRACKER_MINERS_CONF_OPTS = \
-	-Dextract=false \
+	-Dextract=true \
 	-Dminer_fs=true \
 	-Dminer_rss=false \
 	-Dwriteback=false \

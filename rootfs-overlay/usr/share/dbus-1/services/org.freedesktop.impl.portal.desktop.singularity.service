@@ -1,0 +1,4 @@
+[D-BUS Service]
+Name=org.freedesktop.impl.portal.desktop.singularity
+Exec=/usr/libexec/xdg-desktop-portal-singularity
+SystemdService=xdg-desktop-portal-singularity.service

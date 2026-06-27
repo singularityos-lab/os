@@ -6,6 +6,7 @@ Wants=systemd-user-sessions.service
 Conflicts=getty@tty1.service
 
 [Service]
+ExecStartPre=-/usr/bin/systemctl stop singularity-boot-splash.service
 ExecStart=/usr/bin/greetd
 Restart=always
 RestartSec=1
