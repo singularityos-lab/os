@@ -73,4 +73,26 @@ rm -rf genimage-tmp
     --outputpath artifacts \
     --tmppath genimage-tmp
 
-echo "[package] disk image: artifacts/singularity.img"
+# Bootable hybrid ISO: efiboot.img holds the UKI for El Torito EFI boot, the ESP
+# plus data and hash are appended as GPT partitions for USB boot; the initramfs
+# finds data and hash by content.
+ISO_ROOT="$(mktemp -d)"
+mkdir -p "${ISO_ROOT}/EFI"
+rm -f artifacts/efiboot.img
+dd if=/dev/zero of=artifacts/efiboot.img bs=1M count=32 status=none
+mkfs.fat -F 16 artifacts/efiboot.img >/dev/null
+mmd -i artifacts/efiboot.img ::EFI ::EFI/BOOT
+mcopy -i artifacts/efiboot.img artifacts/kernelcache.efi ::EFI/BOOT/BOOTX64.EFI
+cp artifacts/efiboot.img "${ISO_ROOT}/EFI/efiboot.img"
+"${HOSTBIN}/xorriso" -as mkisofs \
+    -iso-level 3 -volid SINTY_OS \
+    -e EFI/efiboot.img -no-emul-boot \
+    -append_partition 2 0xef artifacts/esp.vfat \
+    -append_partition 3 0x83 artifacts/rootfs.erofs \
+    -append_partition 4 0x83 artifacts/rootfs.hash \
+    -appended_part_as_gpt -isohybrid-gpt-basdat \
+    -o artifacts/sinty-os.iso "${ISO_ROOT}"
+rm -rf "${ISO_ROOT}" artifacts/efiboot.img
+
+echo "[package] disk image: artifacts/sinty-os.img"
+echo "[package] iso: artifacts/sinty-os.iso"
