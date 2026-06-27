@@ -6,31 +6,71 @@ REPO_DIR="$(pwd)"
 mkdir -p artifacts
 
 # RootFS
-mkdir -p rootfs-staging
-tar xf buildroot-build/images/rootfs.tar.bz2 -C rootfs-staging
-mkfs.erofs -z lz4hc,9 -E ztailpacking artifacts/rootfs.erofs rootfs-staging/
+ROOTFS_TAR=artifacts/rootfs.tar
+bzcat buildroot-build/images/rootfs.tar.bz2 > "$ROOTFS_TAR"
+mkfs.erofs --tar=f -z lz4hc,9 -E ztailpacking artifacts/rootfs.erofs "$ROOTFS_TAR"
 
 # Verity
 veritysetup format artifacts/rootfs.erofs artifacts/rootfs.hash | tee artifacts/verity-output.txt
+ROOT_HASH=$(awk '/Root hash:/{print $3}' artifacts/verity-output.txt)
+DATA_BLOCKS=$(awk '/Data blocks:/{print $3}' artifacts/verity-output.txt)
+SALT=$(awk '/Salt:/{print $2}' artifacts/verity-output.txt)
+DM_LEN=$((DATA_BLOCKS * 8))
 
 if [ -n "$GITHUB_ENV" ]; then
-    ROOT_HASH=$(grep "Root hash:" artifacts/verity-output.txt | awk '{print $3}')
     echo "ROOT_HASH=${ROOT_HASH}" >> "$GITHUB_ENV"
 fi
 
-# UKI
+# Initramfs: the dm-verity aware init that waits for the kernel-created
+# verity device, mounts the verified erofs read-only and overlays a tmpfs.
+bash scripts/build-initramfs.sh buildroot-build/target artifacts/initrd.cpio.xz
+
+# The initramfs finds the data/hash partitions by GPT PARTLABEL and opens the
+# verity device with this root hash, so no device names are baked in.
+CMDLINE="console=ttyS0,115200 console=tty0 ro quiet rootwait sing.roothash=${ROOT_HASH}"
+
+# UKI: place the added sections above the stub's image so they do not fall
+# below the PE image base.
 KERNEL="buildroot-build/images/bzImage"
 STUB="/usr/lib/systemd/boot/efi/linuxx64.efi.stub"
-CMDLINE="console=ttyS0,115200 console=tty0 ro quiet root=/dev/mapper/erofs-verity"
+BASE=$((16#$(objdump -p "$STUB" | awk '/ImageBase/{print $2}')))
+vma() { printf "0x%x" $((BASE + $1)); }
 
-mkdir -p initrd-staging/{bin,dev,proc,sys}
-(cd initrd-staging && find . | cpio -H newc -o | xz > ../artifacts/initrd.cpio.xz)
+OSREL=""
+[ -f buildroot-build/target/usr/lib/os-release ] && OSREL="--add-section .osrel=buildroot-build/target/usr/lib/os-release --change-section-vma .osrel=$(vma 0x100000)"
+
+printf '%s' "$CMDLINE" > artifacts/cmdline.txt
 
 objcopy \
-    --add-section .cmdline=<(echo -n "$CMDLINE") \
-    --change-section-vma .cmdline=0x30000 \
+    $OSREL \
+    --add-section .cmdline=artifacts/cmdline.txt \
+    --change-section-vma .cmdline=$(vma 0x110000) \
     --add-section .linux="$KERNEL" \
-    --change-section-vma .linux=0x40000 \
-    --add-section .initrd="artifacts/initrd.cpio.xz" \
-    --change-section-vma .initrd=0x3000000 \
+    --change-section-vma .linux=$(vma 0x200000) \
+    --add-section .initrd=artifacts/initrd.cpio.xz \
+    --change-section-vma .initrd=$(vma 0x2000000) \
     "$STUB" artifacts/kernelcache.efi
+
+echo "[package] UKI: artifacts/kernelcache.efi"
+echo "[package] root hash: ${ROOT_HASH}"
+
+# Installable GPT disk image: ESP (UKI as default boot) + labelled data/hash.
+HOSTBIN="${REPO_DIR}/buildroot-build/host/bin"
+HOSTSBIN="${REPO_DIR}/buildroot-build/host/sbin"
+export PATH="${HOSTBIN}:${HOSTSBIN}:${PATH}"
+export MTOOLS_SKIP_CHECK=1
+
+rm -f artifacts/esp.vfat
+dd if=/dev/zero of=artifacts/esp.vfat bs=1M count=300 status=none
+mkfs.fat -F 32 -n SINGEFI artifacts/esp.vfat >/dev/null
+mmd -i artifacts/esp.vfat ::EFI ::EFI/BOOT
+mcopy -i artifacts/esp.vfat artifacts/kernelcache.efi ::EFI/BOOT/BOOTX64.EFI
+
+rm -rf genimage-tmp
+"${HOSTBIN}/genimage" \
+    --config scripts/genimage.cfg \
+    --inputpath artifacts \
+    --outputpath artifacts \
+    --tmppath genimage-tmp
+
+echo "[package] disk image: artifacts/singularity.img"
