@@ -152,9 +152,11 @@ jobs:
         with:
           name: singularity-${{ github.sha }}
           path: |
+            artifacts/sinty-os.iso
+            artifacts/sinty-os.img
+            artifacts/kernelcache.efi
             artifacts/rootfs.erofs
             artifacts/rootfs.hash
-            artifacts/kernelcache.efi
             artifacts/verity-output.txt
             buildroot-build/images/bzImage
           retention-days: 7
@@ -214,9 +216,11 @@ jobs:
         with:
           name: singularity-${{ github.sha }}
 
-      - name: Upload to existing GitHub Release
+      - name: Upload to GitHub Release
         uses: softprops/action-gh-release@v3
         with:
+          name: Sinty OS ${{ github.ref_name }}
+          prerelease: true
           fail_on_unmatched_files: true
           files: |
             artifacts/*
