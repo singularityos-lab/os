@@ -61,8 +61,8 @@ export PATH="${HOSTBIN}:${HOSTSBIN}:${PATH}"
 export MTOOLS_SKIP_CHECK=1
 
 rm -f artifacts/esp.vfat
-dd if=/dev/zero of=artifacts/esp.vfat bs=1M count=300 status=none
-mkfs.fat -F 32 -n SINGEFI artifacts/esp.vfat >/dev/null
+dd if=/dev/zero of=artifacts/esp.vfat bs=1M count=64 status=none
+mkfs.fat -F 16 -n SINGEFI artifacts/esp.vfat >/dev/null
 mmd -i artifacts/esp.vfat ::EFI ::EFI/BOOT
 mcopy -i artifacts/esp.vfat artifacts/kernelcache.efi ::EFI/BOOT/BOOTX64.EFI
 
