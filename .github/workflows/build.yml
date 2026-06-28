@@ -93,6 +93,19 @@ jobs:
           find buildroot-build/build -name ".stamp_target_installed" -delete 2>/dev/null || true
           find buildroot-build/build -name ".stamp_images_installed" -delete 2>/dev/null || true
 
+      - name: Rebuild host LLVM stack if cached without RTTI
+        run: |
+          if find buildroot-build/build -name CMakeCache.txt -path '*host-llvm*' \
+               -exec grep -l 'LLVM_ENABLE_RTTI:BOOL=OFF' {} + 2>/dev/null | grep -q .; then
+            echo "::warning::Cached host-llvm predates the LLVM_RTTI requirement; rebuilding the host LLVM stack."
+            rm -rf buildroot-build/build/host-llvm-* \
+                   buildroot-build/build/host-clang-* \
+                   buildroot-build/build/host-mesa3d-* \
+                   buildroot-build/build/host-spirv-* 2>/dev/null || true
+          else
+            echo "host-llvm RTTI state OK (RTTI=ON or not yet built)."
+          fi
+
       - name: Compile
         id: compile
         run: |
