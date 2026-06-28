@@ -1,0 +1,74 @@
+#!/bin/sh
+set -eu
+export PATH="/usr/sbin:/sbin:/usr/bin:/bin:${PATH:-}"
+
+DEV="${1:-}"
+[ -n "$DEV" ] || { echo "usage: atom-install /dev/DISK" >&2; exit 1; }
+[ -b "$DEV" ] || { echo "atom-install: $DEV is not a block device" >&2; exit 1; }
+[ "$(id -u)" -eq 0 ] || { echo "atom-install: must run as root" >&2; exit 1; }
+
+log() { echo "[atom-install] $*"; }
+
+bytes_of() { read s < "/sys/class/block/$(basename "$1")/size"; echo $(( s * 512 )); }
+mib_of() { echo $(( ( $(bytes_of "$1") + 1048575 ) / 1048576 )); }
+
+log "locating live source partitions"
+EROFS= ; HASH= ; ESP= ; PROBE="$(mktemp -d)"
+for d in /dev/vd*[0-9] /dev/sd*[0-9] /dev/nvme*p[0-9]* /dev/mmcblk*p[0-9]*; do
+	[ -b "$d" ] || continue
+	case "$d" in ${DEV}*) continue ;; esac
+	if [ -z "$HASH" ] && [ "$(dd if="$d" bs=6 count=1 2>/dev/null)" = "verity" ]; then HASH="$d"; continue; fi
+	m=$(dd if="$d" bs=1 skip=1024 count=4 2>/dev/null | od -An -tx1 | tr -d ' \n')
+	if [ -z "$EROFS" ] && [ "$m" = "e2e1f5e0" ]; then EROFS="$d"; continue; fi
+	if [ -z "$ESP" ] && mount -t vfat -o ro "$d" "$PROBE" 2>/dev/null; then
+		[ -f "$PROBE/EFI/BOOT/BOOTX64.EFI" ] && ESP="$d"
+		umount "$PROBE" 2>/dev/null || true
+	fi
+done
+rmdir "$PROBE" 2>/dev/null || true
+[ -n "$EROFS" ] && [ -n "$HASH" ] && [ -n "$ESP" ] || { echo "atom-install: live source not found (esp=$ESP erofs=$EROFS hash=$HASH)" >&2; exit 1; }
+log "source: esp=$ESP erofs=$EROFS hash=$HASH"
+
+ESP_MB=$(mib_of "$ESP"); EROFS_MB=$(mib_of "$EROFS"); HASH_MB=$(mib_of "$HASH")
+
+log "partitioning $DEV (ESP + root + hash + var)"
+sfdisk "$DEV" >/dev/null <<EOF
+label: gpt
+size=${ESP_MB}MiB, type=C12A7328-F81F-11D2-BA4B-00A0C93EC93B, name=ESP, bootable
+size=${EROFS_MB}MiB, type=0FC63DAF-8483-4772-8E79-3D69D8477DE4, name=sing-root
+size=${HASH_MB}MiB, type=0FC63DAF-8483-4772-8E79-3D69D8477DE4, name=sing-hash
+type=0FC63DAF-8483-4772-8E79-3D69D8477DE4, name=atom-var
+EOF
+partprobe "$DEV" 2>/dev/null || partx -u "$DEV" 2>/dev/null || true
+sleep 1
+
+case "$DEV" in *[0-9]) P="${DEV}p" ;; *) P="$DEV" ;; esac
+
+log "writing ESP, verified root and hash tree"
+dd if="$ESP"   of="${P}1" bs=4M conv=fsync 2>/dev/null
+dd if="$EROFS" of="${P}2" bs=4M conv=fsync 2>/dev/null
+dd if="$HASH"  of="${P}3" bs=4M conv=fsync 2>/dev/null
+
+log "creating persistent /var with first-boot setup"
+mkfs.ext4 -q -F -L atom-var "${P}4"
+M="$(mktemp -d)"
+mount "${P}4" "$M"
+mkdir -p "$M/home" "$M/etc-upper" "$M/etc-work" "$M/lib" "$M/log" "$M/cache" "$M/spool" "$M/tmp" "$M/run"
+chmod 1777 "$M/tmp"
+: > "$M/.atom-var"
+mkdir -p "$M/etc-upper/greetd"
+cat > "$M/etc-upper/greetd/config.toml" <<G
+[terminal]
+vt = 1
+
+[default_session]
+command = "/usr/bin/labwc -s /usr/bin/singularity-greeter"
+user = "greeter"
+
+[initial_session]
+command = "/usr/bin/atom-oobe-session"
+user = "root"
+G
+umount "$M"; rmdir "$M"
+
+log "done: $DEV provisioned"

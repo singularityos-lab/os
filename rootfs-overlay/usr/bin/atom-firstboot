@@ -1,0 +1,87 @@
+#!/bin/sh
+
+set -eu
+export PATH="/usr/sbin:/sbin:/usr/bin:/bin:${PATH:-}"
+
+mkdir -p /var/log
+exec >>/var/log/atom-firstboot.log 2>&1
+
+MARKER_DIR=/var/lib/sinty
+MARKER="${MARKER_DIR}/.oobe-done"
+
+log() { printf '[firstboot] %s\n' "$*"; }
+fail() { printf '[firstboot] ERROR: %s\n' "$*" >&2; exit 1; }
+
+[ "$(id -u)" -eq 0 ] || fail "must run as root"
+[ -f "${MARKER}" ] && { log "already provisioned, nothing to do"; exit 0; }
+
+: "${OOBE_USERNAME:?OOBE_USERNAME is required}"
+HOSTNAME="${OOBE_HOSTNAME:-sinty}"
+FULLNAME="${OOBE_FULLNAME:-}"
+AUTOLOGIN="${OOBE_AUTOLOGIN:-0}"
+
+PASSWORD="$(cat || true)"
+
+USER_SHELL=/bin/sh
+[ -x /bin/bash ] && USER_SHELL=/bin/bash
+
+HOME_DIR="/var/home/${OOBE_USERNAME}"
+if ! id "${OOBE_USERNAME}" >/dev/null 2>&1; then
+    log "creating user ${OOBE_USERNAME} (home ${HOME_DIR})"
+    mkdir -p /var/home
+    useradd --create-home --home-dir "${HOME_DIR}" \
+            --shell "${USER_SHELL}" --comment "${FULLNAME}" \
+            "${OOBE_USERNAME}"
+fi
+
+for grp in wheel sudo audio video input render seat netdev plugdev bluetooth; do
+    usermod -aG "${grp}" "${OOBE_USERNAME}" 2>/dev/null || true
+done
+
+if [ -n "${PASSWORD}" ]; then
+    HASH="$(mkpasswd -m sha512 "${PASSWORD}" 2>/dev/null || busybox mkpasswd -m sha512 "${PASSWORD}")"
+    usermod -p "${HASH}" "${OOBE_USERNAME}"
+    log "password set"
+else
+    log "no password provided (account left without one)"
+fi
+
+printf '%s\n' "${HOSTNAME}" > /etc/hostname
+log "hostname set to ${HOSTNAME}"
+
+if [ -n "${OOBE_LOCALE:-}" ]; then
+    printf 'LANG=%s\n' "${OOBE_LOCALE}" > /etc/locale.conf
+    log "locale set to ${OOBE_LOCALE}"
+fi
+if [ -n "${OOBE_KEYMAP:-}" ]; then
+    printf 'KEYMAP=%s\n' "${OOBE_KEYMAP}" > /etc/vconsole.conf
+    printf 'XKBLAYOUT=%s\n' "${OOBE_KEYMAP}" >> /etc/vconsole.conf
+    log "keymap set to ${OOBE_KEYMAP}"
+fi
+
+GREETD_CFG=/etc/greetd/config.toml
+if [ -f "${GREETD_CFG}" ]; then
+    SESSION_CMD="$(awk -F'"' '/^command/ {print $2; exit}' "${GREETD_CFG}")"
+    [ -n "${SESSION_CMD}" ] || SESSION_CMD="singularity-session"
+    {
+        echo "[terminal]"
+        echo "vt = 1"
+        echo
+        echo "[default_session]"
+        echo "command = \"${SESSION_CMD}\""
+        echo "user = \"greeter\""
+        if [ "${AUTOLOGIN}" = "1" ]; then
+            echo
+            echo "[initial_session]"
+            echo "command = \"${SESSION_CMD}\""
+            echo "user = \"${OOBE_USERNAME}\""
+        fi
+    } > "${GREETD_CFG}"
+    log "greetd configured (autologin=${AUTOLOGIN}, user=${OOBE_USERNAME})"
+else
+    log "greetd config not found, skipping login setup"
+fi
+
+mkdir -p "${MARKER_DIR}"
+date -u +"%Y-%m-%dT%H:%M:%SZ" > "${MARKER}"
+log "first-boot provisioning complete"
