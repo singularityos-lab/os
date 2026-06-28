@@ -1,0 +1,5 @@
+#!/bin/sh
+set -eu
+export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/0}"
+mkdir -p "$XDG_RUNTIME_DIR"
+exec labwc -s "singularity-installer"

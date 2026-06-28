@@ -68,6 +68,22 @@ resolve_libs() {
 copy_bin busybox bin
 copy_bin veritysetup sbin
 
+# Kernel modules for the persistent /var (ext4 is a module in the Sinty kernel).
+KVER="$(basename "$(ls -d "$TARGET_DIR"/lib/modules/*/ 2>/dev/null | head -1)")"
+if [ -n "$KVER" ]; then
+	mkdir -p "$WORK/lib/modules/$KVER"
+	for mod in crc16 mbcache jbd2 ext4; do
+		ko="$(find "$TARGET_DIR/lib/modules/$KVER" \( -name "$mod.ko" -o -name "$mod.ko.*" \) 2>/dev/null | head -1)"
+		[ -n "$ko" ] || continue
+		case "$ko" in
+			*.zst) zstd -dqf "$ko" -o "$WORK/lib/modules/$KVER/$mod.ko" 2>/dev/null ;;
+			*.xz)  xz -dc "$ko" > "$WORK/lib/modules/$KVER/$mod.ko" 2>/dev/null ;;
+			*.gz)  gzip -dc "$ko" > "$WORK/lib/modules/$KVER/$mod.ko" 2>/dev/null ;;
+			*)     cp "$ko" "$WORK/lib/modules/$KVER/$mod.ko" ;;
+		esac
+	done
+fi
+
 resolve_libs
 
 # The glibc loader searches /lib64, /usr/lib and /usr/lib64; mirror the closure.
@@ -128,12 +144,38 @@ done
 
 veritysetup open "$DATA" vroot "$HASH" "$ROOTHASH" || rescue "veritysetup open failed"
 
-busybox mount -t erofs -o ro /dev/mapper/vroot /lower || rescue "cannot mount erofs root"
-busybox mount -t tmpfs -o mode=0755 tmpfs /over || rescue "cannot mount tmpfs"
-busybox mkdir -p /over/upper /over/work
-busybox mount -t overlay overlay \
-    -o lowerdir=/lower,upperdir=/over/upper,workdir=/over/work /sysroot \
-    || rescue "cannot mount overlay root"
+for m in crc16 mbcache jbd2 ext4; do
+	ko=$(busybox find /lib/modules -name "$m.ko" 2>/dev/null | busybox head -n1)
+	[ -n "$ko" ] && busybox insmod "$ko" 2>/dev/null
+done
+
+busybox mkdir -p /varprobe
+VAR=
+for d in /dev/vd*[0-9] /dev/sd*[0-9] /dev/nvme*p[0-9]* /dev/mmcblk*p[0-9]*; do
+	[ -b "$d" ] || continue
+	[ "$d" = "$DATA" ] && continue
+	[ "$d" = "$HASH" ] && continue
+	busybox mount -t ext4 "$d" /varprobe 2>/dev/null || continue
+	if [ -e /varprobe/.atom-var ]; then VAR="$d"; busybox umount /varprobe; break; fi
+	busybox umount /varprobe 2>/dev/null
+done
+
+if [ -n "$VAR" ]; then
+	busybox mount -t erofs -o ro /dev/mapper/vroot /sysroot || rescue "cannot mount erofs root"
+	busybox mount -t ext4 "$VAR" /sysroot/var || rescue "cannot mount /var"
+	busybox mkdir -p /sysroot/var/etc-upper /sysroot/var/etc-work /sysroot/var/home
+	busybox mount -t overlay overlay \
+	    -o lowerdir=/sysroot/etc,upperdir=/sysroot/var/etc-upper,workdir=/sysroot/var/etc-work /sysroot/etc || true
+	busybox mount -t tmpfs -o mode=1777 tmpfs /sysroot/tmp || true
+	busybox mount -o bind /sysroot/var/home /sysroot/home || true
+else
+	busybox mount -t erofs -o ro /dev/mapper/vroot /lower || rescue "cannot mount erofs root"
+	busybox mount -t tmpfs -o mode=0755 tmpfs /over || rescue "cannot mount tmpfs"
+	busybox mkdir -p /over/upper /over/work
+	busybox mount -t overlay overlay \
+	    -o lowerdir=/lower,upperdir=/over/upper,workdir=/over/work /sysroot \
+	    || rescue "cannot mount overlay root"
+fi
 INIT=
 for cand in /sbin/init /usr/lib/systemd/systemd /lib/systemd/systemd; do
 	[ -x "/sysroot$cand" ] && { INIT="$cand"; break; }

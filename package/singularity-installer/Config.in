@@ -1,0 +1,11 @@
+config BR2_PACKAGE_SINGULARITY_INSTALLER
+	bool "singularity-installer"
+	depends on BR2_PACKAGE_LIBGTK4
+	select BR2_PACKAGE_LIBSINGULARITY
+	select BR2_PACKAGE_LIBGEE
+	select BR2_PACKAGE_JSON_GLIB
+	select BR2_PACKAGE_LIBXML2
+	help
+	  Sinty OS installer and first-boot setup (OOBE).
+
+	  https://github.com/singularityos-lab/singularity-installer
