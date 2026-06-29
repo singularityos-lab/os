@@ -26,12 +26,15 @@ else
 VTE_GTK4_CONF_OPTS += -Dicu=false
 endif
 
-ifeq ($(BR2_PACKAGE_GOBJECT_INTROSPECTION),y)
-VTE_GTK4_CONF_OPTS += -Dgir=true -Dvapi=true
-VTE_GTK4_DEPENDENCIES += host-vala gobject-introspection
-else
 VTE_GTK4_CONF_OPTS += -Dgir=false -Dvapi=false
-endif
+
+define VTE_GTK4_INSTALL_VAPI
+	mkdir -p $(STAGING_DIR)/usr/share/vala/vapi
+	cp -a $(VTE_GTK4_PKGDIR)/vapi/. $(STAGING_DIR)/usr/share/vala/vapi/
+	mkdir -p $(HOST_DIR)/share/vala-0.56/vapi
+	cp -a $(VTE_GTK4_PKGDIR)/vapi/. $(HOST_DIR)/share/vala-0.56/vapi/
+endef
+VTE_GTK4_POST_INSTALL_STAGING_HOOKS += VTE_GTK4_INSTALL_VAPI
 
 ifeq ($(BR2_PACKAGE_GNUTLS),y)
 VTE_GTK4_CONF_OPTS += -Dgnutls=true
