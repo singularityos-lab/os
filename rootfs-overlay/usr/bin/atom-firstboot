@@ -38,6 +38,13 @@ for grp in wheel sudo audio video input render seat netdev plugdev bluetooth; do
     usermod -aG "${grp}" "${OOBE_USERNAME}" 2>/dev/null || true
 done
 
+for f in /etc/subuid /etc/subgid; do
+    [ -e "${f}" ] || : > "${f}"
+    grep -q "^${OOBE_USERNAME}:" "${f}" 2>/dev/null \
+        || printf '%s:100000:65536\n' "${OOBE_USERNAME}" >> "${f}"
+done
+log "subordinate id ranges ensured for ${OOBE_USERNAME}"
+
 if [ -n "${PASSWORD}" ]; then
     HASH="$(mkpasswd -m sha512 "${PASSWORD}" 2>/dev/null || busybox mkpasswd -m sha512 "${PASSWORD}")"
     usermod -p "${HASH}" "${OOBE_USERNAME}"
