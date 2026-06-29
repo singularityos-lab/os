@@ -78,10 +78,10 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: buildroot-build/build
-          key: buildroot-build-v7-${{ hashFiles('buildroot-config/singularity_defconfig', 'buildroot-config/kernel.config') }}-${{ github.run_id }}
+          key: buildroot-build-v8-${{ hashFiles('buildroot-config/singularity_defconfig', 'buildroot-config/kernel.config') }}-${{ github.run_id }}
           restore-keys: |
-            buildroot-build-v7-${{ hashFiles('buildroot-config/singularity_defconfig', 'buildroot-config/kernel.config') }}-
-            buildroot-build-v7-
+            buildroot-build-v8-${{ hashFiles('buildroot-config/singularity_defconfig', 'buildroot-config/kernel.config') }}-
+            buildroot-build-v8-
 
       - name: Prepare Buildroot
         run: ./scripts/prepare.sh
@@ -152,7 +152,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: buildroot-build/build
-          key: buildroot-build-v7-${{ hashFiles('buildroot-config/singularity_defconfig', 'buildroot-config/kernel.config') }}-${{ github.run_id }}
+          key: buildroot-build-v8-${{ hashFiles('buildroot-config/singularity_defconfig', 'buildroot-config/kernel.config') }}-${{ github.run_id }}
 
       - name: Package
         if: env.BUILD_INCOMPLETE != '1'
