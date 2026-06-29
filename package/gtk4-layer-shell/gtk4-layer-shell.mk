@@ -14,13 +14,16 @@ GTK4_LAYER_SHELL_DEPENDENCIES = host-pkgconf libgtk4 wayland wayland-protocols
 GTK4_LAYER_SHELL_CONF_OPTS = \
 	-Dexamples=false \
 	-Ddocs=false \
-	-Dtests=false
+	-Dtests=false \
+	-Dintrospection=false \
+	-Dvapi=false
 
-ifeq ($(BR2_PACKAGE_GOBJECT_INTROSPECTION),y)
-GTK4_LAYER_SHELL_CONF_OPTS += -Dintrospection=true -Dvapi=true
-GTK4_LAYER_SHELL_DEPENDENCIES += gobject-introspection host-vala
-else
-GTK4_LAYER_SHELL_CONF_OPTS += -Dintrospection=false -Dvapi=false
-endif
+define GTK4_LAYER_SHELL_INSTALL_VAPI
+	mkdir -p $(STAGING_DIR)/usr/share/vala/vapi
+	cp -a $(GTK4_LAYER_SHELL_PKGDIR)/vapi/. $(STAGING_DIR)/usr/share/vala/vapi/
+	mkdir -p $(HOST_DIR)/share/vala-0.56/vapi
+	cp -a $(GTK4_LAYER_SHELL_PKGDIR)/vapi/. $(HOST_DIR)/share/vala-0.56/vapi/
+endef
+GTK4_LAYER_SHELL_POST_INSTALL_STAGING_HOOKS += GTK4_LAYER_SHELL_INSTALL_VAPI
 
 $(eval $(meson-package))
