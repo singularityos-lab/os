@@ -21,7 +21,7 @@ GNOME_ONLINE_ACCOUNTS_DEPENDENCIES = \
 	librest \
 	gcr \
 	libsecret \
-	webkitgtk
+	$(if $(BR2_PACKAGE_WEBKITGTK_PREBUILT),webkitgtk-prebuilt,webkitgtk)
 
 GNOME_ONLINE_ACCOUNTS_CONF_OPTS = \
 	-Dgoabackend=false \
