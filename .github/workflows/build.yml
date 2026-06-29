@@ -106,6 +106,12 @@ jobs:
             echo "host-llvm RTTI state OK (RTTI=ON or not yet built)."
           fi
 
+      - name: Force reconfigure of gir-disabled packages
+        run: |
+          make -C buildroot-src O="${PWD}/buildroot-build" BR2_EXTERNAL="${PWD}" \
+            BR2_DL_DIR="${PWD}/buildroot-dl" \
+            gtk4-layer-shell-dirclean vte-gtk4-dirclean || true
+
       - name: Compile
         id: compile
         run: |
