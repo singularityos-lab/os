@@ -86,11 +86,12 @@ jobs:
       - name: Prepare Buildroot
         run: ./scripts/prepare.sh
 
-      - name: Reset target dir
+      - name: Reset target dir and re-stage from the cached build tree
         run: |
           rm -rf buildroot-build/target
           mkdir -p buildroot-build/target
           find buildroot-build/build -name ".stamp_target_installed" -delete 2>/dev/null || true
+          find buildroot-build/build -name ".stamp_staging_installed" -delete 2>/dev/null || true
           find buildroot-build/build -name ".stamp_images_installed" -delete 2>/dev/null || true
 
       - name: Rebuild host LLVM stack if cached without RTTI
