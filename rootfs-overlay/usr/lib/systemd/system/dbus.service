@@ -1,0 +1,14 @@
+[Unit]
+Description=D-Bus System Message Bus
+Before=basic.target
+After=sinty-rundir.service
+
+[Service]
+Type=simple
+ExecStartPre=/bin/sh -c 'mkdir -p /run/dbus'
+RuntimeDirectory=dbus
+ExecStart=/usr/bin/dbus-daemon --system --nofork --nopidfile --syslog-only
+Restart=on-failure
+
+[Install]
+WantedBy=sysinit.target

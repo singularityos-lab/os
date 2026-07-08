@@ -1,0 +1,9 @@
+[Unit]
+Description=Sinty login1 shim (power actions under sinit)
+Before=greetd.service dbus.service
+[Service]
+Type=simple
+ExecStart=/usr/libexec/sinty-logind
+Restart=always
+[Install]
+WantedBy=sysinit.target

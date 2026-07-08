@@ -1,0 +1,10 @@
+[Unit]
+Description=Sinty PIN change broker (unprivileged desktop session -> re-seal via sintykey)
+After=sinty-recoverd.service
+ConditionPathExists=/usr/libexec/sinty-pind
+[Service]
+Type=simple
+ExecStart=/usr/libexec/sinty-pind
+Restart=always
+[Install]
+WantedBy=sysinit.target

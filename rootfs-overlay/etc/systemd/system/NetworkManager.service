@@ -1,1 +1,17 @@
-/dev/null
+[Unit]
+Description=Network Manager
+After=dbus.service
+
+[Service]
+Type=dbus
+BusName=org.freedesktop.NetworkManager
+ExecStartPre=-/usr/bin/udevadm trigger --type=subsystems --action=add
+ExecStartPre=-/usr/bin/udevadm trigger --type=devices --action=add
+ExecStartPre=-/usr/bin/udevadm settle
+RuntimeDirectory=NetworkManager
+ExecStart=/usr/bin/NetworkManager --no-daemon
+Restart=on-failure
+KillMode=process
+
+[Install]
+WantedBy=multi-user.target

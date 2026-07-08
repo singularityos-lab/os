@@ -1,0 +1,13 @@
+[Unit]
+ConditionPathExists=/etc/atom/dev.enabled
+Description=Dev root shell on tty2
+After=systemd-user-sessions.service
+
+[Service]
+Type=simple
+ExecStart=/bin/sh -c 'stty sane </dev/tty2 2>/dev/null; exec /bin/sh -i <>/dev/tty2 1>&0 2>&1'
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

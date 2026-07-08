@@ -1,0 +1,10 @@
+[Unit]
+Description=Sinty recovery broker (pre-login recovery escape hatch)
+Before=greetd.service
+ConditionPathExists=/usr/libexec/sinty-recoverd
+[Service]
+Type=simple
+ExecStart=/usr/libexec/sinty-recoverd
+Restart=always
+[Install]
+WantedBy=sysinit.target

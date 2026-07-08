@@ -1,0 +1,15 @@
+[Unit]
+Description=Load essential kernel modules (GPU, wifi, audio, bluetooth)
+DefaultDependencies=no
+Before=basic.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=-/sbin/modprobe i915
+ExecStart=-/sbin/modprobe iwlwifi
+ExecStart=-/sbin/modprobe snd_hda_intel
+ExecStart=-/sbin/modprobe btusb
+
+[Install]
+WantedBy=sysinit.target

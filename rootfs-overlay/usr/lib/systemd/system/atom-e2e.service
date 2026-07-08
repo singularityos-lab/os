@@ -1,0 +1,11 @@
+[Unit]
+ConditionPathExists=/etc/atom/dev.enabled
+Description=E2E observation harness (runs only with atom.e2e=<mode> on cmdline; inert otherwise)
+DefaultDependencies=no
+After=multi-user.target
+[Service]
+Type=oneshot
+ExecStart=-/bin/sh -c 'M=$(grep -oE "atom[.]e2e=[a-z0-9]+" /proc/cmdline | head -1 | cut -d= -f2); case "$M" in 1) /usr/libexec/atom-e2e-harness >/dev/ttyS0 2>&1;; integ) /usr/libexec/atom-e2e-integ >/dev/ttyS0 2>&1;; esac'
+RemainAfterExit=yes
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,10 @@
+[Unit]
+Description=Authorization Manager (polkit)
+After=dbus.service
+ConditionPathExists=/usr/lib/polkit-1/polkitd
+[Service]
+Type=simple
+ExecStart=/usr/lib/polkit-1/polkitd --no-debug
+Restart=on-failure
+[Install]
+WantedBy=sysinit.target

@@ -1,1 +1,1 @@
-../../../../usr/lib/systemd/system/singularity-boot-splash.service
+/usr/lib/systemd/system/singularity-boot-splash.service

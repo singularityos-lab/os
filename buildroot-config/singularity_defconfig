@@ -80,6 +80,7 @@ BR2_PACKAGE_GNUTLS=y
 
 # Fonts
 BR2_PACKAGE_DEJAVU=y
+BR2_PACKAGE_INTER_FONT=y
 
 # Rootfs integration (greetd login, full desktop session, greeter user)
 BR2_ROOTFS_OVERLAY="$(BR2_EXTERNAL_SINGULARITY_PATH)/rootfs-overlay"

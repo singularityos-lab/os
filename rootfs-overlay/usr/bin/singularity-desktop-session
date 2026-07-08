@@ -1,0 +1,103 @@
+#!/bin/sh
+SELF="$(readlink -f "$0")"
+BIN="$(dirname "$SELF")"
+PREFIX="$(dirname "$BIN")"
+LIB="$PREFIX/lib"
+SHARE="$PREFIX/share"
+
+export LD_LIBRARY_PATH="$LIB${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+export PATH="$BIN:$PATH"
+export GDK_BACKEND=wayland
+export GSK_RENDERER="${GSK_RENDERER:-gl}"
+export QT_QPA_PLATFORMTHEME=xdgdesktopportal
+export XDG_CURRENT_DESKTOP=Singularity
+export XDG_DATA_DIRS="$HOME/.local/share/flatpak/exports/share:/var/lib/flatpak/exports/share:$SHARE:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
+export GSETTINGS_SCHEMA_DIR="$SHARE/glib-2.0/schemas"
+export GI_TYPELIB_PATH="$LIB/girepository-1.0${GI_TYPELIB_PATH:+:$GI_TYPELIB_PATH}"
+
+if [ -d /run/sinty ]; then
+    _SINTY_SESSION="/run/sinty/session-$(id -u)"
+    {
+        echo "uid=$(id -u)"
+        echo "seat=${XDG_SEAT:-seat0}"
+        echo "vt=${XDG_VTNR:-1}"
+        echo "class=user"
+        echo "type=${XDG_SESSION_TYPE:-wayland}"
+        echo "display=${WAYLAND_DISPLAY:-wayland-0}"
+    } > "$_SINTY_SESSION" 2>/dev/null || true
+    trap 'rm -f "$_SINTY_SESSION" 2>/dev/null' EXIT INT TERM
+fi
+
+# These talk to systemd --user over the session bus. Under a systemd userspace they
+# return instantly; with no systemd --user (e.g. sinit) the D-Bus call to systemd1
+# gets no reply and blocks for the ~25s default timeout, stalling the whole session
+# before the shell ever launches. timeout caps them so best-effort stays best-effort.
+timeout 3 dbus-update-activation-environment --systemd \
+    DISPLAY WAYLAND_DISPLAY XDG_SESSION_TYPE XDG_CURRENT_DESKTOP \
+    XDG_RUNTIME_DIR DBUS_SESSION_BUS_ADDRESS GDK_BACKEND GSK_RENDERER \
+    QT_QPA_PLATFORMTHEME \
+    GSETTINGS_SCHEMA_DIR XDG_DATA_DIRS GI_TYPELIB_PATH PATH LD_LIBRARY_PATH \
+    2>/dev/null || true
+
+timeout 3 systemctl --user set-environment \
+    XDG_CURRENT_DESKTOP="$XDG_CURRENT_DESKTOP" \
+    QT_QPA_PLATFORMTHEME="$QT_QPA_PLATFORMTHEME" \
+    XDG_DATA_DIRS="$XDG_DATA_DIRS" \
+    GSETTINGS_SCHEMA_DIR="$GSETTINGS_SCHEMA_DIR" 2>/dev/null || true
+
+timeout 3 systemctl --user start singularity-session.target 2>/dev/null || true
+
+_STATE="${XDG_STATE_HOME:-$HOME/.local/state}/singularity"
+mkdir -p "$_STATE"
+# labwc does not run /etc/xdg/autostart, so create the XDG user dirs here (idempotent,
+# locale-aware): Desktop/Documents/Downloads/... on the now-decrypted /home (FB-15).
+command -v xdg-user-dirs-update >/dev/null 2>&1 && xdg-user-dirs-update 2>/dev/null || true
+_LOG="$_STATE/desktop.log"
+[ -f "$_LOG" ] && mv -f "$_LOG" "$_LOG.1"
+_SPID="${XDG_RUNTIME_DIR:-/tmp}/singularity-desktop-session.pid"
+if [ -f "$_SPID" ]; then
+    _prev=$(cat "$_SPID" 2>/dev/null)
+    if [ -n "$_prev" ] && kill -0 "$_prev" 2>/dev/null; then
+        kill "$_prev" 2>/dev/null || true
+        sleep 0.5
+        kill -9 "$_prev" 2>/dev/null || true
+    fi
+fi
+echo $$ > "$_SPID"
+trap "rm -f $_SPID" EXIT
+
+pkill -TERM -x singularity-desktop 2>/dev/null || true
+pkill -x singularity-polkit-agent 2>/dev/null || true
+sleep 0.3
+nohup "$BIN/singularity-polkit-agent" >> "$_STATE/polkit.log" 2>&1 &
+# Restart the portal so it picks up the live session environment, but do NOT
+# block on it: xdg-desktop-portal can hang ~25s on its settings-proxy timeout
+# waiting for our portal backend, which would delay the shell launch below.
+systemctl --user restart --no-block xdg-desktop-portal 2>/dev/null || true
+
+rm -f "${XDG_RUNTIME_DIR:-/tmp}/singularity-shell-ready"
+if [ -x "$BIN/singularity-splash" ]; then
+    "$BIN/singularity-splash" >> "$_STATE/splash.log" 2>&1 &
+fi
+
+_fails=0
+while true; do
+    _t0=$SECONDS
+    "$BIN/singularity-desktop" >> "$_LOG" 2>&1
+    _EC=$?
+    _dt=$((SECONDS - _t0))
+    if [ $_EC -eq 0 ]; then
+        echo "[$(date)] singularity-desktop exited 0, waiting 5s..." >> "$_LOG"
+        _fails=0
+        sleep 5
+    else
+        if [ $_dt -lt 3 ]; then _fails=$((_fails + 1)); else _fails=0; fi
+        if [ $_fails -ge 5 ]; then
+            echo "[$(date)] singularity-desktop failed fast $_fails times (compositor gone?), ending the session instead of looping." >> "$_LOG"
+            kill "$PPID" 2>/dev/null || true
+            exit 1
+        fi
+        echo "[$(date)] singularity-desktop exited $_EC after ${_dt}s, restarting in 2s..." >> "$_LOG"
+        sleep 2
+    fi
+done

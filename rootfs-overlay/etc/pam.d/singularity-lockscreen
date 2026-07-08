@@ -1,0 +1,5 @@
+#%PAM-1.0
+# SintyOS: unlock with the PIN (pam_sinty), not the Unix password. Session already open.
+auth       required   pam_sinty.so
+account    required   pam_sinty.so
+account    required   pam_unix.so

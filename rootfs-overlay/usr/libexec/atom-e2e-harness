@@ -1,0 +1,89 @@
+#!/bin/sh
+# E2E observation harness (test-only, runs solely with atom.e2e=1 on cmdline).
+# Exercises the real image's crypto chain (sintykey -> sintykey-tpm -> swtpm,
+# pam_sinty via the real greetd pam.d, fscrypt on real f2fs) on a scratch disk
+# and prints OBSERVED vs EXPECTED to ttyS0. wrong-PIN kept last so
+# the TPM DA-counter cannot poison the earlier asserts (fresh swtpm state per run).
+exec 2>&1
+P () { printf '%s\n' "$*"; }
+P "===== ATOM E2E HARNESS START ====="
+P "kernel: $(uname -r)"
+grep -q f2fs /proc/filesystems && P "ASSERT f2fs-in-kernel: PASS (exp PASS)" || P "ASSERT f2fs-in-kernel: FAIL"
+
+D=/dev/vdb
+mkfs.f2fs -f -O encrypt "$D" >/dev/null 2>&1 && P "OBS mkfs.f2fs: ok" || P "OBS mkfs.f2fs: FAIL"
+mkdir -p /mnt/t
+mount -t f2fs "$D" /mnt/t && P "ASSERT mount-f2fs: PASS ($(mount | grep ' /mnt/t ' | awk '{print $5}'))" || P "ASSERT mount-f2fs: FAIL"
+
+U=e2euser
+# create the test user exactly as production atom-firstboot does (useradd + locked
+# unix password), so passwd/shadow/nsswitch match real accounts -- no hand-rolled divergence
+id "$U" >/dev/null 2>&1 || useradd -M -d /mnt/t/home/"$U" -s /bin/sh "$U"
+usermod -p '*' "$U"
+TUID=$(id -u "$U")
+mkdir -p /mnt/t/home/"$U"; chown "$TUID:$TUID" /mnt/t/home/"$U"
+
+PIN=123456
+REC=$(printf '%s' "$PIN" | sintykey provision --user "$U" --uid "$TUID" --home /mnt/t/home/"$U")
+P "OBS provision-exit: $? ; recovery-code: [$REC]"
+
+echo TOPSECRET > /mnt/t/home/"$U"/secret
+P "ASSERT with-key-readable: [$(cat /mnt/t/home/"$U"/secret 2>&1)] (exp TOPSECRET)"
+printf '%s' "$PIN" | sintykey verify-pin --uid "$TUID"; P "ASSERT verify-RIGHT-exit: $? (exp 0)"
+
+# ---- FB-13: lockscreen unlock path (daemon verify from the SESSION USER context) ----
+# The lockscreen runs as the user and CANNOT read the root-only key blobs; it must
+# verify the PIN via the root sinty-recoverd daemon (SO_PEERCRED-gated to its own uid).
+# root cause: as the user, sintykey verify-pin DIRECTLY fails (EACCES on root blobs).
+# (BusyBox setpriv lacks --reuid; use su, which BusyBox supports, to drop to the user.)
+su -s /bin/sh "$U" -c "printf '%s' '$PIN' | sintykey verify-pin --uid $TUID" >/dev/null 2>&1
+P "ASSERT FB13-user-direct-verify-exit: $? (exp non-zero: user cannot read root-only blobs)"
+[ -S /run/sinty-recoverd.sock ] || { sinty-recoverd & sleep 1; }
+cat > /tmp/dv.py <<'PYEOF'
+import socket,sys
+s=socket.socket(socket.AF_UNIX); s.connect("/run/sinty-recoverd.sock")
+s.sendall(("verify\n%s\n%s\n"%(sys.argv[1],sys.argv[2])).encode())
+sys.stdout.write(s.recv(16).decode().strip())
+PYEOF
+chmod 644 /tmp/dv.py
+DV () { su -s /bin/sh "$U" -c "python3 /tmp/dv.py $1 $2"; }
+P "ASSERT FB13-daemon-verify-RIGHT: [$(DV "$TUID" "$PIN")] (exp OK: user unlocks via daemon)"
+P "ASSERT FB13-daemon-peercred-otheruid: [$(DV 0 "$PIN")] (exp FAIL: user cannot verify uid 0)"
+
+# drop the CE key: umount destroys the super_block key (fscrypt v2)
+umount /mnt/t && P "OBS umount: ok" || P "OBS umount: FAIL (without-key block invalid)"
+mount -t f2fs "$D" /mnt/t
+ENC=$(ls /mnt/t/home/"$U"/ 2>/dev/null | head -1)
+P "ASSERT without-key-name-obfuscated: [$ENC] (exp: NOT 'secret')"
+P "ASSERT without-key-cat-plainname: [$(cat /mnt/t/home/"$U"/secret 2>&1)] (exp: No such file [ENOENT])"
+P "ASSERT without-key-cat-encname: [$(cat /mnt/t/home/"$U"/"$ENC" 2>&1)] (exp: Required key not available [ENOKEY])"
+
+# real login through the greetd stack (one handle: auth+acct+session)
+printf '%s' "$PIN" | pamtester -v greetd "$U" authenticate acct_mgmt open_session; P "ASSERT pamtester-RIGHT-exit: $? (exp 0)"
+P "ASSERT after-login-cat: [$(cat /mnt/t/home/"$U"/secret 2>&1)] (exp TOPSECRET; before/after contrast = fscrypt real AND auth->session handle holds)"
+
+# recovery: recovery-code + new PIN -> re-seal; old PIN out, new PIN in, data still there
+printf '%s\n5678' "$REC" | sintykey recover --uid "$TUID"; P "ASSERT recover-exit: $? (exp 0)"
+printf '5678'   | sintykey verify-pin --uid "$TUID"; P "ASSERT verify-NEWPIN-exit: $? (exp 0)"
+printf '123456' | sintykey verify-pin --uid "$TUID"; P "ASSERT verify-OLDPIN-exit: $? (exp non-zero)"
+umount /mnt/t; mount -t f2fs "$D" /mnt/t
+printf '5678' | pamtester greetd "$U" authenticate acct_mgmt open_session; P "ASSERT recover-login-exit: $? (exp 0)"
+P "ASSERT recover-after-cat: [$(cat /mnt/t/home/"$U"/secret 2>&1)] (exp TOPSECRET; recovery re-seal keeps data)"
+
+# wrong-PIN LAST (DA-counter poison cannot reach the asserts above)
+printf 'wrong0' | sintykey verify-pin --uid "$TUID"; P "ASSERT verify-WRONG-exit: $? (exp non-zero)"
+printf 'wrong0' | pamtester greetd "$U" authenticate; P "ASSERT pamtester-WRONG-exit: $? (exp non-zero)"
+# FB-13 wrong PIN via the daemon (kept last: hits the TPM -> DA counter, like the others)
+cat > /tmp/dvw.py <<'PYEOF'
+import socket,sys
+s=socket.socket(socket.AF_UNIX); s.connect("/run/sinty-recoverd.sock")
+s.sendall(b"verify\n%d\nwrong0\n"%int(sys.argv[1]))
+sys.stdout.write(s.recv(16).decode().strip())
+PYEOF
+chmod 644 /tmp/dvw.py
+P "ASSERT FB13-daemon-verify-WRONG: [$(su -s /bin/sh "$U" -c "python3 /tmp/dvw.py $TUID")] (exp FAIL)"
+
+P "===== ATOM E2E HARNESS END ====="
+sync
+echo 1 > /proc/sys/kernel/sysrq 2>/dev/null || true
+echo o > /proc/sysrq-trigger 2>/dev/null || true

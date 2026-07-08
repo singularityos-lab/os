@@ -1,0 +1,105 @@
+#!/bin/sh
+# E2E INTEGRATED harness (test-only, gated by atom.e2e=integ). Exercises the REAL
+# installed flow across three boots on the REAL /var f2fs. The phase marker is an
+# EXPLICIT file on the installed /var (/var/lib/sinty/.e2e-phase); the live boot is
+# recognised by /var/.atom-var being absent (tmpfs). Only the install boot carries
+# the live image disk; the firstboot/login boots run on the installed disk ALONE, so
+# the initramfs can't pick the live image's erofs over the installed one. FAIL-LOUD:
+# a phase failure prints "E2E PHASE <x> FAILED" and stops without advancing the marker.
+exec 2>&1
+P () { printf '%s\n' "$*"; }
+STOP () { sync; echo 1 > /proc/sys/kernel/sysrq 2>/dev/null || true; echo o > /proc/sysrq-trigger 2>/dev/null || true; sleep 5; }
+FAIL () { P "E2E PHASE ${PHASE:-?} FAILED: $*"; P "===== ATOM E2E INTEG END (FAILED) ====="; STOP; exit 1; }
+MARKF=/var/lib/sinty/.e2e-phase
+PIN=246810
+USER=e2eowner
+
+if [ ! -e /var/.atom-var ]; then
+  PHASE=install                                   # live boot: /var is tmpfs
+else
+  PHASE="$(cat "$MARKF" 2>/dev/null | tr -cd 'a-z')"; [ -n "$PHASE" ] || PHASE=firstboot
+fi
+P "===== ATOM E2E INTEG START (phase=$PHASE) ====="
+P "kernel: $(uname -r)"
+
+case "$PHASE" in
+  install)
+    [ -b /dev/vdb ] || FAIL "no /dev/vdb target"
+    P "OBS running real atom-install /dev/vdb ..."
+    atom-install /dev/vdb || FAIL "atom-install rc=$?"
+    P "ASSERT B2 installer-made-/var-f2fs: $(blkid -o value -s TYPE /dev/vdb4 2>/dev/null) (exp f2fs)"
+    MNT="$(mktemp -d)"
+    mount -t f2fs /dev/vdb4 "$MNT" || FAIL "cannot mount vdb4 to stage marker"
+    mkdir -p "$MNT/lib/sinty"; printf 'firstboot' > "$MNT/lib/sinty/.e2e-phase"; sync; umount "$MNT"
+    P "OBS install ok -> marker(on installed /var)=firstboot; rebooting to installed system (image disk removed)"
+    ;;
+  firstboot)
+    VARFS="$(mount | grep ' /var ' | awk '{print $5}' | head -1)"
+    P "ASSERT B3 initramfs-var-f2fs: [$VARFS] (exp f2fs, NOT tmpfs -- real-path mount fix on the REAL installed disk)"
+    [ "$VARFS" = f2fs ] || FAIL "/var is '$VARFS' not f2fs"
+    P "ASSERT B4 atom-var-marker-present: [$([ -e /var/.atom-var ] && echo yes)] (exp yes -> installed /var, not live tmpfs)"
+    P "OBS running real atom-firstboot (PIN via stdin, provision on REAL /var/home) ..."
+    OOBE_USERNAME="$USER" OOBE_HOSTNAME=sinty OOBE_FULLNAME="E2E Owner" OOBE_THEME=dual \
+      sh -c 'printf "%s" "$0" | atom-firstboot' "$PIN" || FAIL "atom-firstboot rc=$?"
+    id "$USER" >/dev/null 2>&1 || FAIL "user $USER not created"
+    UIDN="$(id -u "$USER")"
+    P "ASSERT firstboot-provision: user=$UIDN home=/var/home/$USER blob=[$(ls /var/lib/sinty/"$UIDN".blob 2>/dev/null && echo present)] recovery=$(head -c 5 /run/sinty-recovery-code 2>/dev/null)..."
+    # RECOVERY E2E (escape hatch for a forgotten PIN): the code is staged in /run now.
+    # recover unwraps the CE key from the .recovery blob and re-seals under a new PIN.
+    RECCODE="$(cat /run/sinty-recovery-code 2>/dev/null)"; RECPIN=55555
+    P "OBS E2E-RECCODE: $RECCODE"  # TEST-ONLY: full code on serial so the UI capture can type it
+    printf '%s\n%s\n' "wrong-code-000000" "$RECPIN" | sintykey recover --uid "$UIDN" >/dev/null 2>&1; P "ASSERT recover-WRONG-code-rejected: $? (exp non-zero -- a bad recovery code cannot unwrap the CE key)"
+    printf '%s\n%s\n' "$RECCODE" "$RECPIN" | sintykey recover --uid "$UIDN"; P "ASSERT recover-exit: $? (exp 0 -- CE unwrapped from the recovery blob, re-sealed under a new PIN)"
+    printf '%s' "$RECPIN" | sintykey verify-pin --uid "$UIDN"; P "ASSERT recover-NEW-accepted: $? (exp 0 -- the recovered PIN unseals the CE key)"
+    printf '%s\n%s\n' "$RECCODE" "$PIN" | sintykey recover --uid "$UIDN" >/dev/null 2>&1  # restore the original PIN so the login phase works
+    printf 'login' > "$MARKF"; sync
+    P "OBS firstboot ok -> marker=login; rebooting for real login"
+    ;;
+  login)
+    HOME_DIR="/var/home/$USER"
+    ENC="$(ls "$HOME_DIR" 2>/dev/null | head -1)"
+    P "ASSERT before-login-real-home-locked: ls=[$ENC] cat-bashrc=[$(cat "$HOME_DIR"/.bashrc 2>&1 | head -c 40)] (exp encrypted name / not readable)"
+    printf '%s' "$PIN" | pamtester -v greetd "$USER" authenticate acct_mgmt open_session; RC=$?
+    P "ASSERT login-real-PIN-exit: $RC (exp 0 -- real greetd stack on the installed system)"
+    [ "$RC" = 0 ] || FAIL "pamtester login rc=$RC on real installed system"
+    P "DBG-KEYSTATUS-after-pamtester: [$(f2fscrypt key_status "$HOME_DIR" 2>&1 | tr '\n' '|' | head -c 200)] [$(f2fscrypt status /var 2>&1 | tr '\n' '|' | head -c 200)]"
+    P "ASSERT after-login-real-home-readable: [$(cat "$HOME_DIR"/.bashrc 2>&1 | head -c 40)] (exp readable skel -- crown on the REAL installed /home)"
+    P "DBG-CROWN: [$(cat /var/lib/sinty/.dbg-crown 2>/dev/null | tr '\n' '|')]"
+    P "DBG-POLICY-ON-DISK: [$(f2fscrypt get_policy "$HOME_DIR" 2>&1 | tr '\n' '|' | head -c 200)]"
+    printf 'wrong9' | pamtester greetd "$USER" authenticate; P "ASSERT login-WRONG-PIN-exit: $? (exp non-zero)"
+    # PAM-AUDIT: verify the pam_unix backdoor is CLOSED everywhere (FATTO #2)
+    printf '' | pamtester login "$USER" authenticate; P "ASSERT PAM-login-EMPTY-pw-exit: $? (exp non-zero -- console empty-password backdoor CLOSED)"
+    printf 'x' | pamtester su "$USER" authenticate;   P "ASSERT PAM-su-deny-exit: $? (exp non-zero -- pam_deny, no escalation)"
+    printf 'x' | pamtester sudo "$USER" authenticate; P "ASSERT PAM-sudo-deny-exit: $? (exp non-zero -- pam_deny, no escalation)"
+    printf '%s' "$PIN" | pamtester login "$USER" authenticate; P "ASSERT PAM-login-PIN-exit: $? (exp 0 -- console login works with the PIN)"
+    # POLKIT E2E: polkit authorizes privileged actions via the PIN (pam_sinty), rejects a wrong one.
+    printf '%s' "$PIN"  | pamtester polkit-1 "$USER" authenticate; P "ASSERT POLKIT-PIN-exit: $? (exp 0 -- polkit authorizes via the PIN)"
+    printf 'wrong9'     | pamtester polkit-1 "$USER" authenticate; P "ASSERT POLKIT-WRONG-exit: $? (exp non-zero -- polkit rejects a wrong PIN)"
+    # ACCOUNT-LOCK E2E: a locked account is refused even with the correct PIN (account phase).
+    usermod -L "$USER" 2>/dev/null || passwd -l "$USER" 2>/dev/null
+    printf '%s' "$PIN"  | pamtester login "$USER" authenticate acct_mgmt; P "ASSERT LOCK-refuses-right-PIN-exit: $? (exp non-zero -- locked account cannot log in even with the right PIN)"
+    usermod -U "$USER" 2>/dev/null || passwd -u "$USER" 2>/dev/null  # restore
+    printf '%s' "$PIN"  | pamtester login "$USER" authenticate acct_mgmt; P "ASSERT UNLOCK-allows-right-PIN-exit: $? (exp 0 -- unlocked account logs in again)"
+    # DE-AUDIT: device-key (no-PIN) fscrypt on system /var (FATTO #4)
+    P "ASSERT DE-device-pub: [$(ls /var/lib/sinty/device.pub >/dev/null 2>&1 && echo present || echo MISSING)] (exp present -- provision-device ran at first boot)"
+    P "ASSERT DE-var-log-policy: [$(f2fscrypt get_policy /var/log 2>&1 | tr '\n' ' ' | head -c 80)] (exp a policy -- /var/log DE-encrypted)"
+    echo "DK-DEVICE-KEY-WORKS" > /var/log/de-test 2>/dev/null
+    P "ASSERT DE-var-log-write-read: [$(cat /var/log/de-test 2>&1)] (exp DK-DEVICE-KEY-WORKS -- /var/log usable = atom-fscrypt-de unlock-device added the device key, no PIN)"
+    # CHANGE-PIN E2E: exercise the exact path the Settings change-PIN UI uses
+    # (/usr/libexec/sinty-changepin -> sintykey change-pin), with negative proof.
+    UID_E="$(id -u "$USER" 2>/dev/null)"; NEWPIN=97531
+    printf '%s\n%s\n' "$PIN" "$NEWPIN" | /usr/libexec/sinty-changepin "$UID_E"; P "ASSERT changepin-exit: $? (exp 0 -- CE key re-sealed under the new PIN)"
+    printf '%s' "$PIN"    | sintykey verify-pin --uid "$UID_E"; P "ASSERT changepin-OLD-rejected: $? (exp non-zero -- old PIN no longer unseals)"
+    printf '%s' "$NEWPIN" | sintykey verify-pin --uid "$UID_E"; P "ASSERT changepin-NEW-accepted: $? (exp 0 -- new PIN unseals the CE key)"
+    printf '%s\n%s\n' "$NEWPIN" "$PIN" | /usr/libexec/sinty-changepin "$UID_E" >/dev/null 2>&1  # restore original PIN
+    # RECOVERY BROKER: sinty-recoverd (root daemon) must be up before greetd so the
+    # unprivileged greeter can reach it for the forgotten-PIN recovery.
+    P "ASSERT recoverd-socket: [$(ls /run/sinty-recoverd.sock >/dev/null 2>&1 && echo present || echo MISSING)] (exp present -- root recovery broker listening for the greeter)"
+    printf 'done' > "$MARKF"
+    P "OBS login ok -> integrated chain complete on the REAL installed system"
+    ;;
+  done) P "OBS integrated run already complete (marker=done); leaving greetd up for GUI desktop capture"; exit 0 ;;
+  *) FAIL "unknown phase '$PHASE'" ;;
+esac
+P "===== ATOM E2E INTEG END (phase=$PHASE ok) ====="
+STOP

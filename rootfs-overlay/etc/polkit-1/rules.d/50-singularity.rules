@@ -1,0 +1,14 @@
+// Sinty runs sinit (no systemd-logind), so polkit never sees an "active" session.
+// Grant local users the desktop-privileged actions keyed on subject.local.
+polkit.addRule(function(action, subject) {
+    if (!subject.local) { return polkit.Result.NOT_HANDLED; }
+    if (action.id.indexOf("org.freedesktop.NetworkManager.") === 0 ||
+        action.id.indexOf("org.freedesktop.udisks2.") === 0 ||
+        action.id.indexOf("org.freedesktop.accounts.") === 0 ||
+        action.id.indexOf("org.freedesktop.login1.") === 0 ||
+        action.id.indexOf("org.bluez.") === 0 ||
+        action.id.indexOf("org.freedesktop.ModemManager") === 0 ||
+        action.id == "org.freedesktop.NetworkManager.settings.modify.system") {
+        return polkit.Result.YES;
+    }
+});

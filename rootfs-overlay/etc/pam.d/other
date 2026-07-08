@@ -1,0 +1,6 @@
+#%PAM-1.0
+# Default fallback: DENY. Nothing falls back to pam_unix.
+auth       required   pam_deny.so
+account    required   pam_deny.so
+password   required   pam_deny.so
+session    required   pam_deny.so

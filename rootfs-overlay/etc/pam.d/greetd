@@ -1,7 +1,9 @@
 #%PAM-1.0
-auth       required   pam_unix.so nullok
+auth       required   pam_sinty.so
+account    required   pam_sinty.so
 account    required   pam_unix.so
 session    required   pam_limits.so
 session    required   pam_env.so
+session    required   pam_sinty.so
 session    required   pam_unix.so
-session    optional   pam_systemd.so
+session    optional   pam_rundir.so

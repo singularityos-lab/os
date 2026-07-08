@@ -1,0 +1,12 @@
+[Unit]
+Description=Wireless service
+After=dbus.service
+
+[Service]
+Type=dbus
+BusName=net.connman.iwd
+ExecStartPre=-/usr/bin/udevadm trigger --type=subsystems --action=add
+ExecStartPre=-/usr/bin/udevadm trigger --type=devices --action=add
+ExecStartPre=-/usr/bin/udevadm settle
+ExecStart=/usr/libexec/iwd
+Restart=on-failure

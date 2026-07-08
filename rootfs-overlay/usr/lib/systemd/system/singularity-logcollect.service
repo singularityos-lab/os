@@ -1,0 +1,12 @@
+[Unit]
+Description=Sinty log collector to a removable SINTYLOGS partition
+DefaultDependencies=no
+After=systemd-journald.service systemd-udevd.service
+
+[Service]
+ExecStart=/usr/bin/singularity-logcollect
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=sysinit.target

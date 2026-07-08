@@ -1,0 +1,5 @@
+#%PAM-1.0
+# SintyOS: privileged-action confirmation uses the PIN (pam_sinty). No session/fscrypt side-effect.
+auth       required   pam_sinty.so
+account    required   pam_sinty.so
+account    required   pam_unix.so

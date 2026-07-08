@@ -1,0 +1,11 @@
+#%PAM-1.0
+# SintyOS: console login uses the PIN (pam_sinty -> TPM -> fscrypt), NOT pam_unix.
+# The old pam_unix.so nullok allowed EMPTY-password console login = a backdoor.
+auth       required   pam_sinty.so
+account    required   pam_sinty.so
+account    required   pam_unix.so
+session    required   pam_limits.so
+session    required   pam_env.so
+session    required   pam_sinty.so
+session    required   pam_unix.so
+session    optional   pam_rundir.so

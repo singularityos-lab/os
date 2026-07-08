@@ -1,0 +1,16 @@
+[Unit]
+Description=udev coldplug (trigger present devices so modules autoload)
+DefaultDependencies=no
+Wants=systemd-udevd.service
+After=systemd-udevd.service
+Before=basic.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/bin/udevadm trigger --type=subsystems --action=add
+ExecStart=/usr/bin/udevadm trigger --type=devices --action=add
+ExecStart=/usr/bin/udevadm settle
+
+[Install]
+WantedBy=sysinit.target

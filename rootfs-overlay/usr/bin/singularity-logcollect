@@ -1,0 +1,54 @@
+#!/bin/sh
+# Continuously mirror this boot's logs to a removable SINTYLOGS partition (the test
+# USB), so the full early+late boot (and the post-install boot, as long as the USB
+# stays plugged) can be read back off-device. One file per boot_id.
+DEV=""
+i=0
+while [ "$i" -lt 40 ]; do
+    DEV="$(blkid -L SINTYLOGS 2>/dev/null || true)"
+    [ -n "$DEV" ] && break
+    i=$((i + 1)); sleep 1
+done
+[ -n "$DEV" ] || exit 0
+M=/run/sintylogs
+mkdir -p "$M"
+mount "$DEV" "$M" 2>/dev/null || exit 0
+BOOT="$(tr -d '-' < /proc/sys/kernel/random/boot_id 2>/dev/null || echo unknown)"
+OUT="$M/boot-$BOOT.log"
+while :; do
+    {
+        echo "===== SINTY LOGCOLLECT  uptime=$(cut -d' ' -f1 /proc/uptime 2>/dev/null)s ====="
+        echo "### /proc/cmdline"; cat /proc/cmdline 2>/dev/null
+        echo; echo "### hostname / os-release"; cat /etc/hostname /etc/os-release 2>/dev/null
+        echo; echo "### failed units"; systemctl --failed --no-legend --no-pager 2>/dev/null || echo "(systemctl n/a under sinit)"
+        echo; echo "### input udev tags"
+        for e in /dev/input/event*; do
+            [ -e "$e" ] || continue
+            echo "== $e =="
+            udevadm info --query=property --name="$e" 2>/dev/null | grep -iE "ID_INPUT|ID_SEAT|^NAME="
+        done
+        echo; echo "### session logs"
+        for f in /root/.local/state/singularity/*.log /home/*/.local/state/singularity/*.log; do
+            [ -f "$f" ] || continue
+            echo "== $f =="; tail -n 300 "$f"
+        done
+        echo; echo "### NETWORK/WIFI DIAG"
+        echo "-- ip link --"; ip link 2>/dev/null
+        echo "-- ip addr --"; ip addr 2>/dev/null
+        echo "-- /sys/class/net --"; ls /sys/class/net 2>/dev/null
+        echo "-- /sys/class/ieee80211 (wifi PHY) --"; ls -l /sys/class/ieee80211/ 2>/dev/null
+        echo "-- lspci -nnk --"; lspci -nnk 2>/dev/null
+        echo "-- iwlwifi PCI uevent (exact chip id) --"; cat /sys/bus/pci/drivers/iwlwifi/0000:*/uevent 2>/dev/null
+        echo "-- lsmod wifi --"; lsmod 2>/dev/null | grep -iE "iwl|cfg80211|mac80211|rfkill"
+        echo "-- rfkill --"; rfkill list 2>/dev/null
+        echo "-- lsusb --"; lsusb 2>/dev/null
+        echo "-- modinfo iwlwifi firmware --"; modinfo iwlwifi 2>/dev/null | grep -i firmware
+        echo "-- /lib/firmware/iwlwifi* present --"; ls -1 /lib/firmware/iwlwifi* 2>/dev/null
+        echo "-- dmesg iwlwifi/firmware lines --"; dmesg 2>/dev/null | grep -iE "iwlwifi|firmware|wlan|cfg80211|rndis|cdc_ether|cdc_ncm|usb.*net"
+        echo; echo "### dmesg"; dmesg 2>/dev/null
+        echo; echo "### journalctl -b"; journalctl -b --no-pager 2>/dev/null || echo "(journal n/a)"
+    } > "$OUT.tmp" 2>&1
+    mv "$OUT.tmp" "$OUT" 2>/dev/null
+    sync
+    sleep 12
+done

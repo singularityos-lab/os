@@ -1,0 +1,16 @@
+[Unit]
+Description=Unlock the DE (device-key) fscrypt for system /var
+DefaultDependencies=no
+After=local-fs.target
+Before=sysinit.target basic.target
+RequiresMountsFor=/var
+ConditionPathExists=/var/lib/sinty/device.pub
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# unseal the device key (no PIN, TPM-bound) and add it -> /var/log,cache,spool decrypt
+ExecStart=/usr/bin/sintykey unlock-device --mount /var
+
+[Install]
+WantedBy=sysinit.target

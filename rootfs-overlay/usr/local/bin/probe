@@ -1,0 +1,9 @@
+#!/bin/sh
+export HOME=/root
+echo "=========================================="
+echo " IP di questo laptop (passalo al client):"
+ip -4 addr show 2>/dev/null | grep -oE 'inet [0-9.]+' | grep -v '127.0.0.1' | sed 's/inet /   /'
+echo " Poi parte la sonda (Ctrl+C per fermare)."
+echo "=========================================="
+atom-probe gen-token --keep-existing >/dev/null 2>&1 || true
+exec atom-probe serve --dev
