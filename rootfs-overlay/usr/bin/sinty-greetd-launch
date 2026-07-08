@@ -1,0 +1,31 @@
+#!/bin/sh
+# greetd default_session dispatcher (runs as root -- choice A: greetd root session).
+# Normal path: drop to the unprivileged 'greeter' user for the login greeter.
+# Recovery path: if the greeter requested it ("Forgot PIN?"), run the greeter in
+# --recovery mode AS ROOT so it can call `sintykey recover` (forgotten-PIN escape hatch).
+mkdir -p /run/singularity && : > /run/singularity/greeter-ready
+
+# Keymap/locale persist in /var/lib/singularity (atom-firstboot writes them there; /etc is
+# erofs+verity read-only so it cannot). Read them here as root and hand XKB/LANG to the
+# greeter's env so the login keyboard + language match the OOBE choice.
+[ -r /var/lib/singularity/vconsole.conf ] && . /var/lib/singularity/vconsole.conf
+[ -r /var/lib/singularity/locale.conf ] && . /var/lib/singularity/locale.conf
+
+if [ -e /run/sinty-recovery-requested ] || grep -q ' atom.recovery=1' /proc/cmdline 2>/dev/null; then
+    rm -f /run/sinty-recovery-requested
+    export XDG_RUNTIME_DIR=/run/user/0 LIBSEAT_BACKEND=builtin
+    export XKB_DEFAULT_LAYOUT="${XKBLAYOUT:-us}" XKB_DEFAULT_VARIANT="${XKBVARIANT:-}" LANG="${LANG:-C.UTF-8}"
+    mkdir -p "$XDG_RUNTIME_DIR"
+    exec labwc -s "/usr/bin/singularity-greeter --recovery"
+fi
+# NOTE (A): this normal-path drop uses util-linux setpriv flags (--reuid/--regid/--init-groups)
+# that the image's BUSYBOX setpriv does NOT support -> this script black-screens if wired as-is.
+# That is why the shipped greetd config runs an inline `user = "greeter"` command instead (greetd
+# does the drop). Do NOT wire this script into greetd until the drop is busybox-compatible
+# (e.g. busybox `su greeter -c`) AND /run/user/102 creation is handled. The keymap+fontconfig
+# fix lives in etc/greetd/config.toml's inline command for now.
+# normal login greeter as the unprivileged 'greeter' user
+exec setpriv --reuid greeter --regid greeter --init-groups \
+    env XDG_RUNTIME_DIR=/run/user/102 LIBSEAT_BACKEND=builtin \
+        XKB_DEFAULT_LAYOUT="${XKBLAYOUT:-us}" XKB_DEFAULT_VARIANT="${XKBVARIANT:-}" LANG="${LANG:-C.UTF-8}" \
+    labwc -s /usr/bin/singularity-greeter

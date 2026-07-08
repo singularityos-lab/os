@@ -1,8 +1,14 @@
 [terminal]
 vt = 1
 
+# Runs AS the 'greeter' user (greetd does the drop -- do NOT setpriv here: the image's busybox
+# setpriv lacks --reuid/--regid, which black-screens the login). This one command hands the
+# greeter: (a) the OOBE keymap/locale from the world-readable /var/lib/singularity so the login
+# keyboard + language match the OOBE choice, and (b) a writable HOME/XDG_CACHE so fontconfig can
+# write its cache (else FcInit / shader-cache errors). atom-install derives the installed copy
+# from THIS file (see atom-install), so the fix propagates to the disk install too.
 [default_session]
-command = "/usr/bin/labwc -s /usr/bin/singularity-greeter"
+command = "/usr/bin/singularity-greeter-session"
 user = "greeter"
 
 [initial_session]

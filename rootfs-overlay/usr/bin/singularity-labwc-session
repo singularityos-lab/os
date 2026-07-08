@@ -1,0 +1,20 @@
+#!/bin/sh
+SELF="$(readlink -f "$0")"
+BIN="$(dirname "$SELF")"
+PREFIX="$(dirname "$BIN")"
+
+export PATH="$BIN:$PATH"
+export LD_LIBRARY_PATH="$PREFIX/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+export SINGULARITY_BLUR_ENABLED=1
+
+[ -r /var/lib/singularity/vconsole.conf ] && . /var/lib/singularity/vconsole.conf
+[ -n "$XKBLAYOUT" ] && export XKB_DEFAULT_LAYOUT="$XKBLAYOUT"
+[ -n "$XKBVARIANT" ] && export XKB_DEFAULT_VARIANT="$XKBVARIANT"
+[ -r /var/lib/singularity/locale.conf ] && . /var/lib/singularity/locale.conf
+[ -n "$LANG" ] && export LANG
+
+if [ -n "$GDM_SESSION_DBUS_ADDRESS" ] && [ -x "/usr/libexec/gdm-wayland-session" ]; then
+    exec /usr/libexec/gdm-wayland-session "$BIN/labwc" -s "$BIN/singularity-desktop-session"
+else
+    exec "$BIN/labwc" -s "$BIN/singularity-desktop-session"
+fi

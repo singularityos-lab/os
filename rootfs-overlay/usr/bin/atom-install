@@ -50,25 +50,33 @@ dd if="$EROFS" of="${P}2" bs=4M conv=fsync 2>/dev/null
 dd if="$HASH"  of="${P}3" bs=4M conv=fsync 2>/dev/null
 
 log "creating persistent /var with first-boot setup"
-mkfs.ext4 -q -F -L atom-var "${P}4"
+mkfs.f2fs -f -l atom-var -O encrypt,extra_attr "${P}4"
 M="$(mktemp -d)"
-mount "${P}4" "$M"
+mount -t f2fs "${P}4" "$M"
 mkdir -p "$M/home" "$M/etc-upper" "$M/etc-work" "$M/lib" "$M/log" "$M/cache" "$M/spool" "$M/tmp" "$M/run"
 chmod 1777 "$M/tmp"
 : > "$M/.atom-var"
 mkdir -p "$M/etc-upper/greetd"
-cat > "$M/etc-upper/greetd/config.toml" <<G
-[terminal]
-vt = 1
-
-[default_session]
-command = "/usr/bin/labwc -s /usr/bin/singularity-greeter"
-user = "greeter"
-
-[initial_session]
-command = "/usr/bin/atom-oobe-session"
-user = "root"
-G
+# Derive the installed greetd config from the image's own /etc/greetd/config.toml,
+# swapping ONLY the initial_session (live disk-installer -> installed first-boot OOBE).
+# Never hand-copy the default_session line: it carries the greeter env (HOME/XDG_CACHE
+# for fontconfig) and a hand-copied duplicate drifts stale from the image on every fix.
+sed 's|/usr/bin/atom-install-session|/usr/bin/atom-oobe-session|' \
+	/etc/greetd/config.toml > "$M/etc-upper/greetd/config.toml"
 umount "$M"; rmdir "$M"
+
+# UEFI boot entry on the INTERNAL disk so a left-in install USB does not boot the
+# live image (the initramfs same-disk-var guard would then refuse the internal
+# /var -> confusing live mode). Boot the internal disk next.
+if [ -d /sys/firmware/efi ] && command -v efibootmgr >/dev/null 2>&1; then
+    log "setting UEFI boot entry on the internal disk"
+    for n in $(efibootmgr 2>/dev/null | sed -n 's/^Boot\([0-9A-Fa-f]*\)\*\? Singularity$/\1/p'); do
+        efibootmgr -b "$n" -B >/dev/null 2>&1 || true
+    done
+    efibootmgr -c -d "$DEV" -p 1 -L "Singularity" -l '\EFI\BOOT\BOOTX64.EFI' >/dev/null 2>&1 \
+        || log "warn: efibootmgr failed (efivars not writable?)"
+    NUM=$(efibootmgr 2>/dev/null | sed -n 's/^Boot\([0-9A-Fa-f]*\)\*\? Singularity$/\1/p' | head -1)
+    [ -n "$NUM" ] && efibootmgr -n "$NUM" >/dev/null 2>&1 || true
+fi
 
 log "done: $DEV provisioned"

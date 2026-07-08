@@ -6,7 +6,11 @@ Wants=systemd-user-sessions.service
 Conflicts=getty@tty1.service
 
 [Service]
-ExecStartPre=-/usr/bin/systemctl stop singularity-boot-splash.service
+ExecStartPre=-/bin/sh -c 'mkdir -p /run/singularity && chmod 0777 /run/singularity'
+ExecStartPre=-/bin/sh -c 'mkdir -p /run/user/102 && chown greeter /run/user/102 && chmod 0700 /run/user/102'
+ExecStartPre=-/bin/sh -c 'mkdir -p /tmp/.X11-unix && chmod 1777 /tmp/.X11-unix'
+ExecStartPre=-/usr/bin/udevadm trigger --action=add
+ExecStartPre=-/usr/bin/atomctl restart seatd.service
 ExecStart=/usr/bin/greetd
 Restart=always
 RestartSec=1

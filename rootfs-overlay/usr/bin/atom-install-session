@@ -2,4 +2,7 @@
 set -eu
 export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/0}"
 mkdir -p "$XDG_RUNTIME_DIR"
-exec labwc -s "singularity-installer"
+if [ -r /etc/environment ]; then set -a; . /etc/environment; set +a; fi
+mkdir -p /run/singularity && : > /run/singularity/greeter-ready
+export LIBSEAT_BACKEND=builtin
+exec labwc -s "atom-installer-launch"
