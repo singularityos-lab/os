@@ -1,0 +1,9 @@
+config BR2_PACKAGE_LIBSYSTEMD_SHIM
+	bool "libsystemd-shim"
+	help
+	  A dependency-light libsystemd.so.0 replacement for Singularity OS
+	  running under sinit (no systemd). Provides the sd_* ABI backed by
+	  sinit (sd-daemon), our syslogd (sd-journal), seatd + a /run session
+	  registry (sd-login) and the real dbus-daemon via libdbus-1 (sd-bus),
+	  plus build-time headers and pkg-config so packages that link
+	  libsystemd build and run with no systemd present.

@@ -27,7 +27,6 @@ config BR2_PACKAGE_WEBKITGTK_PREBUILT
 	select BR2_PACKAGE_WOFF2
 	select BR2_PACKAGE_LIBGBM
 	select BR2_PACKAGE_LIBDRM
-	select BR2_PACKAGE_SYSTEMD
 	help
 	  Temporary drop-in prebuilt WebKitGTK, for faster builds.
 

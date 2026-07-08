@@ -1,0 +1,13 @@
+config BR2_PACKAGE_SINIT
+	bool "sinit"
+	depends on BR2_PACKAGE_HOST_GO_TARGET_ARCH_SUPPORTS
+	depends on BR2_PACKAGE_HOST_GO_TARGET_CGO_LINKING_SUPPORTS
+	help
+	  sinit: the init system and service manager (PID 1) for Singularity
+	  OS. A dependency-free, systemd-subset init written in Go. Installs
+	  /usr/lib/sinit/sinit plus the client multicall symlinks (init,
+	  atomctl, systemctl, reboot, poweroff, halt), so the de-systemd image
+	  is self-contained and boots with init=/usr/lib/sinit/sinit -- no
+	  manual injection.
+
+	  https://github.com/singularityos-lab/sinit

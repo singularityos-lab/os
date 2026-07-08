@@ -16,7 +16,7 @@ ACCOUNTSSERVICE_DEPENDENCIES = \
 	libglib2 \
 	polkit \
 	dbus \
-	systemd
+	libsystemd-shim
 
 ACCOUNTSSERVICE_CONF_OPTS = \
 	-Dintrospection=false \

@@ -1,0 +1,19 @@
+Only build and install documentation (man pages) when install-docs
+is enabled, avoiding a build-time dependency on xsltproc and the
+Docbook XSL stylesheets.
+
+Signed-off-by: Buildroot <buildroot@buildroot.org>
+
+--- a/meson.build
++++ b/meson.build
+@@ -226,7 +226,9 @@
+ subdir('po/')
+ subdir('data/')
+ subdir('contrib/')
+-subdir('docs/')
++if get_option('install-docs')
++    subdir('docs/')
++endif
+ subdir('tests/')
+ if get_option('qt')
+     subdir('qt/')

@@ -19,7 +19,7 @@ WEBKITGTK_PREBUILT_DEPENDENCIES = \
 	host-vala \
 	enchant harfbuzz icu jpeg libegl libepoxy libgcrypt libsecret \
 	libsoup3 libtasn1 libxml2 libxslt sqlite webp woff2 \
-	libgtk4 libgbm libdrm systemd
+	libgtk4 libgbm libdrm libsystemd-shim
 
 define WEBKITGTK_PREBUILT_INSTALL_STAGING_CMDS
 	cp -a $(@D)/staging/. $(STAGING_DIR)/

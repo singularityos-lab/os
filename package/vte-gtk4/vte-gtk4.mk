@@ -52,7 +52,7 @@ endif
 
 ifeq ($(BR2_PACKAGE_SYSTEMD),y)
 VTE_GTK4_CONF_OPTS += -D_systemd=true
-VTE_GTK4_DEPENDENCIES += systemd
+VTE_GTK4_DEPENDENCIES += libsystemd-shim
 else
 VTE_GTK4_CONF_OPTS += -D_systemd=false
 endif

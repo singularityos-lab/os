@@ -1,0 +1,10 @@
+config BR2_PACKAGE_SINTY_CRYPTO
+	bool "sinty-crypto"
+	select BR2_PACKAGE_LINUX_PAM
+	select BR2_PACKAGE_TPM2_TOOLS
+	help
+	  Key-custody and PIN authentication for Singularity OS: the sintykey
+	  CLI (provision / change-pin / verify-pin), the pam_sinty PAM module
+	  (PIN -> TPM unseal -> fscrypt), and libsintykey. Built with Zig 0.16.
+
+	  https://github.com/singularityos-lab/sinty-crypto

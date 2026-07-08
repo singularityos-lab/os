@@ -4,8 +4,12 @@
 #
 ################################################################################
 
-SINGULARITY_GREETER_VERSION = 3f380a89ff74f83f5c105f7c6135a702866f0598
-SINGULARITY_GREETER_SITE = $(call github,singularityos-lab,singularity-greeter,$(SINGULARITY_GREETER_VERSION))
+# SITE=local: build from the local desktop subproject so local UI changes (PIN label,
+# recovery flow) reach the image. RC: bump _VERSION to the committed commit + restore
+# the github SITE after Mirko commits.
+SINGULARITY_GREETER_VERSION = local
+SINGULARITY_GREETER_SITE = /home/mirko/Projects/personal/singularity-desktop/subprojects/singularity-greeter
+SINGULARITY_GREETER_SITE_METHOD = local
 SINGULARITY_GREETER_LICENSE = GPL-3.0+
 SINGULARITY_GREETER_LICENSE_FILES = LICENSE
 # Install to staging too, so the shipped dev.sinty.greeter GSettings schema lands

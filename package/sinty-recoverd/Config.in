@@ -1,0 +1,6 @@
+config BR2_PACKAGE_SINTY_RECOVERD
+	bool "sinty-recoverd"
+	help
+	  Root daemon: the recovery escape hatch for the pre-login greeter.
+	  Performs `sintykey recover` on behalf of the unprivileged greeter,
+	  gated by the recovery code, over a unix socket.

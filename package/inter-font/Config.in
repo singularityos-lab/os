@@ -1,0 +1,7 @@
+config BR2_PACKAGE_INTER_FONT
+	bool "inter-font"
+	help
+	  Inter, a typeface carefully crafted and designed for computer
+	  screens and user interfaces.
+
+	  https://rsms.me/inter/

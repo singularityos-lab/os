@@ -1,0 +1,11 @@
+prefix=/usr
+exec_prefix=${prefix}
+libdir=${exec_prefix}/lib
+includedir=${prefix}/include
+
+Name: libsystemd
+Description: libsystemd shim (sinit-backed) for Singularity OS
+URL: https://github.com/singularityos-lab
+Version: 254
+Libs: -L${libdir} -lsystemd
+Cflags: -I${includedir}

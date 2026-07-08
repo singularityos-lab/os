@@ -1,0 +1,27 @@
+LIBSYSTEMD_209 {
+global:
+  sd_booted; sd_get_sessions; sd_is_socket; sd_is_socket_inet; sd_is_socket_unix;
+  sd_journal_printv_with_location; sd_journal_send; sd_journal_sendv;
+  sd_journal_send_with_location; sd_journal_stream_fd; sd_listen_fds;
+  sd_login_monitor_flush; sd_login_monitor_get_fd; sd_login_monitor_new;
+  sd_login_monitor_unref; sd_notify; sd_pid_get_session; sd_pid_get_user_unit;
+  sd_seat_can_multi_session; sd_session_get_class; sd_session_get_display;
+  sd_session_get_remote_host; sd_session_get_seat; sd_session_get_state;
+  sd_session_get_type; sd_session_get_uid; sd_session_is_active;
+  sd_uid_get_seats; sd_uid_get_sessions; sd_uid_is_on_seat;
+local: *;
+};
+LIBSYSTEMD_213 { global: sd_uid_get_display; } LIBSYSTEMD_209;
+LIBSYSTEMD_220 { global: sd_pid_get_user_slice; } LIBSYSTEMD_213;
+LIBSYSTEMD_221 {
+global:
+  sd_bus_call_method; sd_bus_call_method_async; sd_bus_default_system;
+  sd_bus_error_free; sd_bus_get_fd; sd_bus_get_property_trivial;
+  sd_bus_message_enter_container; sd_bus_message_exit_container;
+  sd_bus_message_get_error; sd_bus_message_is_method_error;
+  sd_bus_message_read_basic; sd_bus_message_read; sd_bus_message_skip;
+  sd_bus_message_unref; sd_bus_process; sd_bus_unref;
+} LIBSYSTEMD_220;
+LIBSYSTEMD_233 { global: sd_id128_get_machine_app_specific; } LIBSYSTEMD_221;
+LIBSYSTEMD_237 { global: sd_bus_match_signal; } LIBSYSTEMD_233;
+LIBSYSTEMD_238 { global: sd_bus_get_n_queued_read; sd_bus_get_n_queued_write; } LIBSYSTEMD_237;

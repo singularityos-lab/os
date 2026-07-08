@@ -1,0 +1,6 @@
+config BR2_PACKAGE_SINTY_LOGIND
+	bool "sinty-logind"
+	depends on BR2_PACKAGE_LIBGLIB2
+	help
+	  Minimal org.freedesktop.login1 shim so the desktop's power
+	  actions (reboot/poweroff/suspend) work under sinit.

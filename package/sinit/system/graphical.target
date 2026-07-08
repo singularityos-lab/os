@@ -1,0 +1,5 @@
+[Unit]
+Description=Graphical Interface
+Requires=multi-user.target
+After=multi-user.target
+AllowIsolate=yes

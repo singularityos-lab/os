@@ -19,7 +19,7 @@ XDG_DESKTOP_PORTAL_DEPENDENCIES = \
 	gstreamer1 \
 	gst1-plugins-base \
 	pipewire \
-	systemd \
+	libsystemd-shim \
 	dbus
 
 XDG_DESKTOP_PORTAL_CONF_OPTS = \

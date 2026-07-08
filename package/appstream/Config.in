@@ -1,0 +1,13 @@
+config BR2_PACKAGE_APPSTREAM
+	bool "appstream"
+	select BR2_PACKAGE_LIBGLIB2
+	select BR2_PACKAGE_LIBXML2
+	select BR2_PACKAGE_LIBYAML
+	select BR2_PACKAGE_LIBXMLB
+	select BR2_PACKAGE_LIBCURL
+	help
+	  AppStream is a metadata specification and library for
+	  software components (provides appstream / libappstream).
+	  Required by flatpak.
+
+	  https://www.freedesktop.org/wiki/Distributions/AppStream/
