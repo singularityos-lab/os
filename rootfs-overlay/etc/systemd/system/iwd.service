@@ -5,6 +5,8 @@ After=dbus.service
 [Service]
 Type=dbus
 BusName=net.connman.iwd
+# ell/iwd needs the bus address explicitly; systemd injects it, sinit does not.
+Environment=DBUS_SYSTEM_BUS_ADDRESS=unix:path=/run/dbus/system_bus_socket
 ExecStartPre=-/usr/bin/udevadm trigger --type=subsystems --action=add
 ExecStartPre=-/usr/bin/udevadm trigger --type=devices --action=add
 ExecStartPre=-/usr/bin/udevadm settle
