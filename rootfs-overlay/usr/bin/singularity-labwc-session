@@ -16,5 +16,5 @@ export SINGULARITY_BLUR_ENABLED=1
 if [ -n "$GDM_SESSION_DBUS_ADDRESS" ] && [ -x "/usr/libexec/gdm-wayland-session" ]; then
     exec /usr/libexec/gdm-wayland-session "$BIN/labwc" -s "$BIN/singularity-desktop-session"
 else
-    exec "$BIN/labwc" -s "$BIN/singularity-desktop-session"
+    exec "$BIN/labwc" -s "$BIN/singularity-desktop-session" 2>>"${XDG_RUNTIME_DIR:-/tmp}/labwc.log"
 fi

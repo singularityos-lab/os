@@ -143,7 +143,7 @@ fi
 # copied, so it removes what the overlay placed.
 if [ "${ATOM_BUILD:-}" = "rc" ]; then
     rm -f "$TARGET_DIR/etc/atom/dev.enabled" "$TARGET_DIR/etc/atom/probe.enabled"
-    rm -f "$TARGET_DIR/usr/bin/sinty-devlink" "$TARGET_DIR/usr/sbin/dropbear" "$TARGET_DIR/usr/sbin/dropbearkey"
+    rm -f "$TARGET_DIR/usr/bin/sinty-devlink" "$TARGET_DIR/usr/bin/sinty-online" "$TARGET_DIR/usr/sbin/dropbear" "$TARGET_DIR/usr/sbin/dropbearkey"
     rm -rf "$TARGET_DIR/usr/share/atom/devlink"
     echo "[singularity] post-build: RC build -- stripped dev markers (dev.enabled, probe.enabled)"
 fi

@@ -1,0 +1,24 @@
+From: Sinty A <a@sinty>
+Date: 2026-07-08
+Subject: [PATCH] fcobjs: drop the "using without calling FcInit()" stderr warning
+
+Fontconfig auto-initializes on first use (FcObjectInit runs right below), so
+this warning is cosmetic; it only clutters the labwc log at greeter and
+desktop startup. Sinty wants a clean log, so drop the line. Local-only, not
+submitted upstream.
+
+Signed-off-by: Sinty A <a@sinty>
+---
+ src/fcobjs.c | 1 -
+ 1 file changed, 1 deletion(-)
+
+--- a/src/fcobjs.c
++++ b/src/fcobjs.c
+@@ -88,7 +88,6 @@
+     ots = fc_atomic_ptr_get (&other_types);
+     if (obj_ref.count < 1) {
+ 	if (!warn) {
+-	    fprintf (stderr, "Fontconfig warning: using without calling FcInit()\n");
+ 	    warn = FcTrue;
+ 	}
+ 	FcObjectInit();
