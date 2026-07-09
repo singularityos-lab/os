@@ -5,6 +5,7 @@ After=dbus.service
 [Service]
 Type=dbus
 BusName=org.freedesktop.NetworkManager
+ExecStartPre=-/usr/bin/wait-wpa-dbus
 ExecStartPre=-/usr/bin/udevadm trigger --type=subsystems --action=add
 ExecStartPre=-/usr/bin/udevadm trigger --type=devices --action=add
 ExecStartPre=-/usr/bin/udevadm settle

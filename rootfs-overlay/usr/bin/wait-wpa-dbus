@@ -1,0 +1,13 @@
+#!/bin/sh
+i=0
+while [ "$i" -lt 30 ]; do
+    if ls /sys/class/net/wl* >/dev/null 2>&1 && \
+        dbus-send --system --print-reply --dest=org.freedesktop.DBus \
+            /org/freedesktop/DBus org.freedesktop.DBus.NameHasOwner \
+            string:fi.w1.wpa_supplicant1 2>/dev/null | grep -q "boolean true"; then
+        exit 0
+    fi
+    i=$((i + 1))
+    sleep 0.5
+done
+exit 0
