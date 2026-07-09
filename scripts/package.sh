@@ -35,7 +35,7 @@ bash scripts/build-initramfs.sh buildroot-build/target artifacts/initrd.cpio.xz
 
 # The initramfs finds the data/hash partitions by GPT PARTLABEL and opens the
 # verity device with this root hash, so no device names are baked in.
-CMDLINE="console=ttyS0,115200 ro quiet loglevel=3 vt.global_cursor_default=0 udev.log_level=0 rd.systemd.show_status=0 systemd.show_status=0 rootwait sing.roothash=${ROOT_HASH} lsm=landlock,lockdown,yama,bpf lockdown=integrity module.sig_enforce=1 init_on_alloc=1 slab_nomerge page_alloc.shuffle=1 randomize_kstack_offset=1 vsyscall=none${EXTRA_CMDLINE:+ ${EXTRA_CMDLINE}}"
+CMDLINE="console=ttyS0,115200 ro quiet loglevel=3 vt.global_cursor_default=0 udev.log_level=0 rd.systemd.show_status=0 systemd.show_status=0 rootwait sing.roothash=${ROOT_HASH} lsm=landlock,lockdown,yama,bpf lockdown=integrity module.sig_enforce=1 init_on_alloc=1 slab_nomerge page_alloc.shuffle=1 randomize_kstack_offset=1 vsyscall=none cfg80211.ieee80211_regdom=IT${EXTRA_CMDLINE:+ ${EXTRA_CMDLINE}}"
 
 # UKI: place the added sections above the stub's image so they do not fall
 # below the PE image base.

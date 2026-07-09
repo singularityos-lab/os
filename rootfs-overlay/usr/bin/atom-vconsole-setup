@@ -1,0 +1,16 @@
+#!/bin/sh
+# atom-vconsole-setup -- apply the console keymap under sinit.
+#
+# Replaces systemd-vconsole-setup (absent after de-systemd). atom-firstboot writes
+# KEYMAP=<it> to /var/lib/singularity/vconsole.conf, but nothing loads it, so the
+# tty keeps the kernel-default (US) keymap while the Wayland desktop is correct.
+# This reads the KEYMAP and runs loadkeys, early, before getty/login.
+set -u
+for f in /var/lib/singularity/vconsole.conf /etc/vconsole.conf; do
+    [ -r "$f" ] || continue
+    KEYMAP=$(sed -n 's/^KEYMAP=//p' "$f" | tr -d '"' | head -1)
+    if [ -n "${KEYMAP:-}" ]; then
+        loadkeys "$KEYMAP" 2>/dev/null && exit 0
+    fi
+done
+exit 0

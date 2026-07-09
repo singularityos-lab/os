@@ -47,6 +47,12 @@ rm -rf "$TARGET_DIR/usr/include"
 
 rm -f "$TARGET_DIR/usr/share/wayland-sessions/labwc.desktop"
 
+# iwd is the wifi backend (NM wifi.backend=iwd); the system wpa_supplicant.service must not
+# auto-start or it contends with iwd for the radio. Overlay-copy cannot remove a stale wants
+# symlink, so drop it here. sinty-online still spawns its own wpa on demand.
+rm -f "$TARGET_DIR/etc/systemd/system/graphical.target.wants/wpa_supplicant.service"
+rm -f "$TARGET_DIR/etc/systemd/system/multi-user.target.wants/wpa_supplicant.service"
+
 # Remove static libs
 find "$TARGET_DIR" -name "*.a" -delete
 find "$TARGET_DIR" -name "*.la" -delete
@@ -143,7 +149,7 @@ fi
 # copied, so it removes what the overlay placed.
 if [ "${ATOM_BUILD:-}" = "rc" ]; then
     rm -f "$TARGET_DIR/etc/atom/dev.enabled" "$TARGET_DIR/etc/atom/probe.enabled"
-    rm -f "$TARGET_DIR/usr/bin/sinty-devlink" "$TARGET_DIR/usr/bin/sinty-online" "$TARGET_DIR/usr/sbin/dropbear" "$TARGET_DIR/usr/sbin/dropbearkey"
+    rm -f "$TARGET_DIR/usr/bin/sinty-devlink" "$TARGET_DIR/usr/bin/sinty-online" "$TARGET_DIR/usr/bin/wifi" "$TARGET_DIR/usr/bin/wifi-verify" "$TARGET_DIR/usr/sbin/dropbear" "$TARGET_DIR/usr/sbin/dropbearkey"
     rm -rf "$TARGET_DIR/usr/share/atom/devlink"
     echo "[singularity] post-build: RC build -- stripped dev markers (dev.enabled, probe.enabled)"
 fi

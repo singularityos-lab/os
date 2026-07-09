@@ -1,0 +1,12 @@
+[Unit]
+Description=Apply console keymap (sinit vconsole-setup)
+DefaultDependencies=no
+Before=greetd.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/bin/atom-vconsole-setup
+
+[Install]
+WantedBy=sysinit.target
