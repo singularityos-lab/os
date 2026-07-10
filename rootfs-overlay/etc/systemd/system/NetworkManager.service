@@ -5,6 +5,9 @@ After=dbus.service iwd.service
 [Service]
 Type=dbus
 BusName=org.freedesktop.NetworkManager
+# Same dbus-race guard as iwd: wait for the bus socket before starting (belt-
+# braces on top of After=iwd.service, which already implies the socket is up).
+ExecStartPre=/bin/sh -c 'n=0; while [ $n -lt 50 ]; do [ -S /run/dbus/system_bus_socket ] && break; sleep 0.1; n=$((n+1)); done'
 ExecStartPre=-/usr/bin/udevadm trigger --type=subsystems --action=add
 ExecStartPre=-/usr/bin/udevadm trigger --type=devices --action=add
 ExecStartPre=-/usr/bin/udevadm settle

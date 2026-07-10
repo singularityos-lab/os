@@ -7,8 +7,13 @@ Type=dbus
 BusName=net.connman.iwd
 # ell/iwd needs the bus address explicitly; systemd injects it, sinit does not.
 Environment=DBUS_SYSTEM_BUS_ADDRESS=unix:path=/run/dbus/system_bus_socket
+# dbus.service is Type=simple: sinit orders us After= its SPAWN, not after the
+# socket is listening, so at boot iwd can beat the bus and die "Failed to
+# initialize D-Bus". Wait (best effort, <=5s) for the socket before starting.
+ExecStartPre=/bin/sh -c 'n=0; while [ $n -lt 50 ]; do [ -S /run/dbus/system_bus_socket ] && break; sleep 0.1; n=$((n+1)); done'
 ExecStartPre=-/usr/bin/udevadm trigger --type=subsystems --action=add
 ExecStartPre=-/usr/bin/udevadm trigger --type=devices --action=add
 ExecStartPre=-/usr/bin/udevadm settle
 ExecStart=/usr/libexec/iwd
 Restart=on-failure
+RestartSec=1
