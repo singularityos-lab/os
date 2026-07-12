@@ -13,12 +13,17 @@
  * pre-login greeter reboots via its own `systemctl` path, not this socket.
  */
 #include <gio/gio.h>
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/types.h>
 
 #define UID_MIN 1000u
+/* The greeter (login screen) runs as this system uid and legitimately needs the
+ * power menu (reboot/poweroff/suspend), like GDM's greeter does via logind+polkit.
+ * It is allowed for power actions only, not for Session methods. */
+#define GREETER_UID 102u
 
 static const char *xml =
   "<node>"
@@ -42,6 +47,11 @@ static const char *sxml =
   "    <method name='Terminate'/>"
   "    <method name='Lock'/>"
   "    <method name='Unlock'/>"
+  "    <method name='SetBrightness'>"
+  "      <arg type='s' name='subsystem' direction='in'/>"
+  "      <arg type='s' name='name' direction='in'/>"
+  "      <arg type='u' name='brightness' direction='in'/>"
+  "    </method>"
   "  </interface>"
   "</node>";
 
@@ -68,8 +78,8 @@ static void method(GDBusConnection *c, const char *sender, const char *path,
                   !strcmp(m, "Halt") || !strcmp(m, "Suspend");
   if (is_action) {
     uid_t uid = caller_uid(c, sender);
-    /* allow root and human users; deny system-service uids and unknown callers */
-    if (uid != 0 && (uid == (uid_t)-1 || (unsigned)uid < UID_MIN)) {
+    /* allow root, human users, and the greeter; deny other system-service uids and unknown callers */
+    if (uid != 0 && uid != GREETER_UID && (uid == (uid_t)-1 || (unsigned)uid < UID_MIN)) {
       g_dbus_method_invocation_return_error(
           inv, G_DBUS_ERROR, G_DBUS_ERROR_ACCESS_DENIED,
           "not authorized to %s (caller uid %u)", m, (unsigned)uid);
@@ -113,6 +123,45 @@ static void session_method(GDBusConnection *c, const char *sender, const char *p
      * substring; on this single-user desktop the only labwc is the caller's compositor.
      * The uid gate above already restricts who may trigger this. */
     (void)!system("pkill -TERM labwc");
+  } else if (!strcmp(m, "SetBrightness")) {
+    /* Real logind gates this to the active session; we have no session tracking, so gate
+     * to the caller's uid (root or a human user) like Terminate: a system-service uid must
+     * not drive the panel backlight. */
+    uid_t uid = caller_uid(c, sender);
+    if (uid != 0 && (uid == (uid_t)-1 || (unsigned)uid < UID_MIN)) {
+      g_dbus_method_invocation_return_error(inv, G_DBUS_ERROR, G_DBUS_ERROR_ACCESS_DENIED,
+          "not authorized to SetBrightness (caller uid %u)", (unsigned)uid);
+      return;
+    }
+    const char *subsys = NULL, *dev = NULL;
+    guint32 val = 0;
+    g_variant_get(params, "(&s&su)", &subsys, &dev, &val);
+    /* This daemon is root and writes an arbitrary /sys path, so validate hard: only the
+     * two brightness subsystems, and a bare device name (no separators, no traversal). */
+    if ((strcmp(subsys, "backlight") && strcmp(subsys, "leds")) ||
+        !dev || !*dev || strchr(dev, '/') || strstr(dev, "..")) {
+      g_dbus_method_invocation_return_error(inv, G_DBUS_ERROR, G_DBUS_ERROR_INVALID_ARGS,
+          "invalid brightness target %s/%s", subsys ? subsys : "", dev ? dev : "");
+      return;
+    }
+    char path[256], mpath[256];
+    snprintf(path, sizeof path, "/sys/class/%s/%s/brightness", subsys, dev);
+    snprintf(mpath, sizeof mpath, "/sys/class/%s/%s/max_brightness", subsys, dev);
+    FILE *mf = fopen(mpath, "r");
+    if (mf) {
+      unsigned long mx = 0;
+      if (fscanf(mf, "%lu", &mx) == 1 && val > mx) val = (guint32)mx;
+      fclose(mf);
+    }
+    FILE *bf = fopen(path, "w");
+    if (!bf) {
+      g_dbus_method_invocation_return_error(inv, G_DBUS_ERROR, G_DBUS_ERROR_IO_ERROR,
+          "cannot write %s: %s", path, g_strerror(errno));
+      return;
+    }
+    fprintf(bf, "%u", val);
+    fclose(bf);
+    g_dbus_method_invocation_return_value(inv, NULL);
   } else {
     /* Lock/Unlock: acknowledged no-ops (the shell drives the lockscreen itself) */
     g_dbus_method_invocation_return_value(inv, NULL);
@@ -127,6 +176,10 @@ static void on_bus(GDBusConnection *c, const char *name, gpointer u) {
               ni->interfaces[0], &vt, NULL, NULL, NULL);
   GDBusNodeInfo *si = g_dbus_node_info_new_for_xml(sxml, NULL);
   if (si) g_dbus_connection_register_object(c, "/org/freedesktop/login1/session/self",
+              si->interfaces[0], &svt, NULL, NULL, NULL);
+  /* real logind resolves session/auto to the caller's session; we have a single
+   * graphical session, so auto is the same object as self (the shell calls auto). */
+  if (si) g_dbus_connection_register_object(c, "/org/freedesktop/login1/session/auto",
               si->interfaces[0], &svt, NULL, NULL, NULL);
 }
 int main(void) {
