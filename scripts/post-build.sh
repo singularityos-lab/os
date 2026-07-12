@@ -189,10 +189,12 @@ fi
 # (timedatectl -> libsystemd-shared, tracker extractors -> libtracker-extract) link
 # private libs in non-standard dirs (/usr/lib/systemd, /usr/lib/tracker-*) with an
 # empty RUNPATH; without the cache the loader cannot find them and they fail with
-# "cannot open shared object file". /etc/ld.so.conf.d/atom.conf lists those dirs, and
-# ldconfig -r builds the cache the loader reads at runtime. Runs last so it indexes the
-# final tree. Non-fatal so a host without ldconfig still produces an image.
+# "cannot open shared object file". Buildroot strips /etc/ld.so.conf.d at finalize, so
+# the extra dirs are passed to ldconfig as positional arguments (relative to -r root)
+# instead of via a conf file. Runs last so it indexes the final tree. Non-fatal so a
+# host without ldconfig still produces an image.
 if command -v ldconfig >/dev/null 2>&1; then
-    ldconfig -r "$TARGET_DIR" 2>/dev/null || true
-    echo "[singularity] post-build: generated /etc/ld.so.cache"
+    ldconfig -r "$TARGET_DIR" \
+        /usr/lib/systemd /usr/lib/tracker-3.0 /usr/lib/tracker-miners-3.0 2>/dev/null || true
+    echo "[singularity] post-build: generated /etc/ld.so.cache (with systemd + tracker dirs)"
 fi
