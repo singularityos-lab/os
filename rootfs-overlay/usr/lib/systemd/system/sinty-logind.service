@@ -1,6 +1,8 @@
 [Unit]
 Description=Sinty login1 shim (power actions under sinit)
-Before=greetd.service dbus.service
+Wants=dbus.service
+After=dbus.service
+Before=greetd.service
 [Service]
 Type=simple
 ExecStart=/usr/libexec/sinty-logind

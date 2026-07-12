@@ -171,6 +171,9 @@ static const GDBusInterfaceVTable svt = { session_method, NULL, NULL, { 0 } };
 
 static void on_bus(GDBusConnection *c, const char *name, gpointer u) {
   (void)name; (void)u;
+  static gboolean registered = FALSE;
+  if (registered) return;
+  registered = TRUE;
   GDBusNodeInfo *ni = g_dbus_node_info_new_for_xml(xml, NULL);
   if (ni) g_dbus_connection_register_object(c, "/org/freedesktop/login1",
               ni->interfaces[0], &vt, NULL, NULL, NULL);
@@ -182,9 +185,38 @@ static void on_bus(GDBusConnection *c, const char *name, gpointer u) {
   if (si) g_dbus_connection_register_object(c, "/org/freedesktop/login1/session/auto",
               si->interfaces[0], &svt, NULL, NULL, NULL);
 }
+static guint own_id = 0;
+static gboolean rearm_own(gpointer u);
+
+/* g_bus_own_name does a single async g_bus_get and never retries it: if we start
+ * before the system dbus socket exists (leaner boots lose the race), the acquire
+ * fails, the daemon stays alive without owning login1, and every power action
+ * activates /bin/false and no-ops. Re-arm once a second until the bus is up and
+ * we own the name. */
+static void on_acquired(GDBusConnection *c, const char *name, gpointer u) {
+  (void)c; (void)name; (void)u;
+  fprintf(stderr, "sinty-logind: acquired org.freedesktop.login1\n");
+}
+
+static void on_lost(GDBusConnection *c, const char *name, gpointer u) {
+  (void)c; (void)name; (void)u;
+  fprintf(stderr, "sinty-logind: system bus not ready, retrying login1 ownership\n");
+  g_timeout_add_seconds(1, rearm_own, NULL);
+}
+
+static gboolean rearm_own(gpointer u) {
+  (void)u;
+  if (own_id) { g_bus_unown_name(own_id); own_id = 0; }
+  own_id = g_bus_own_name(G_BUS_TYPE_SYSTEM, "org.freedesktop.login1",
+                          G_BUS_NAME_OWNER_FLAGS_REPLACE, on_bus, on_acquired, on_lost,
+                          NULL, NULL);
+  return G_SOURCE_REMOVE;
+}
+
 int main(void) {
-  g_bus_own_name(G_BUS_TYPE_SYSTEM, "org.freedesktop.login1",
-                 G_BUS_NAME_OWNER_FLAGS_REPLACE, on_bus, NULL, NULL, NULL, NULL);
+  own_id = g_bus_own_name(G_BUS_TYPE_SYSTEM, "org.freedesktop.login1",
+                          G_BUS_NAME_OWNER_FLAGS_REPLACE, on_bus, on_acquired, on_lost,
+                          NULL, NULL);
   g_main_loop_run(g_main_loop_new(NULL, FALSE));
   return 0;
 }
