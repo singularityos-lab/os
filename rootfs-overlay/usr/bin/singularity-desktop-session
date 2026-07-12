@@ -47,6 +47,21 @@ timeout 3 systemctl --user set-environment \
 
 timeout 3 systemctl --user start singularity-session.target 2>/dev/null || true
 
+# PipeWire audio stack. Started here (not in singularity-labwc-session) so it comes up
+# after the session bus dbus-run-session provides; wireplumber is the session manager,
+# pipewire-pulse the Pulse-compat shim. Each is checked and started independently, so a
+# dead pipewire-pulse (or wireplumber) is restarted even if pipewire itself is alive.
+if command -v pipewire >/dev/null 2>&1 && ! pgrep -x pipewire >/dev/null 2>&1; then
+    pipewire &
+    sleep 0.5
+fi
+if command -v wireplumber >/dev/null 2>&1 && ! pgrep -x wireplumber >/dev/null 2>&1; then
+    wireplumber &
+fi
+if command -v pipewire-pulse >/dev/null 2>&1 && ! pgrep -f pipewire-pulse >/dev/null 2>&1; then
+    pipewire-pulse &
+fi
+
 _STATE="${XDG_STATE_HOME:-$HOME/.local/state}/singularity"
 mkdir -p "$_STATE"
 # labwc does not run /etc/xdg/autostart, so create the XDG user dirs here (idempotent,

@@ -13,6 +13,18 @@ export SINGULARITY_BLUR_ENABLED=1
 [ -r /var/lib/singularity/locale.conf ] && . /var/lib/singularity/locale.conf
 [ -n "$LANG" ] && export LANG
 
+# Run the whole session under a private session bus that dbus-run-session creates
+# before launch and tears down when the session exits. This replaces manually
+# backgrounding dbus-daemon, which orphaned the daemon at logout and left a dead
+# $XDG_RUNTIME_DIR/bus socket that the next login connected to (timeout/retry
+# storm, slow load, black screen on the second login). The audio stack starts
+# from singularity-desktop-session, after the bus is up.
+if [ -z "$DBUS_SESSION_BUS_ADDRESS" ] && [ -z "$GDM_SESSION_DBUS_ADDRESS" ] \
+   && command -v dbus-run-session >/dev/null 2>&1; then
+    exec dbus-run-session -- "$BIN/labwc" -s "$BIN/singularity-desktop-session" \
+        2>>"${XDG_RUNTIME_DIR:-/tmp}/labwc.log"
+fi
+
 if [ -n "$GDM_SESSION_DBUS_ADDRESS" ] && [ -x "/usr/libexec/gdm-wayland-session" ]; then
     exec /usr/libexec/gdm-wayland-session "$BIN/labwc" -s "$BIN/singularity-desktop-session"
 else

@@ -1,0 +1,12 @@
+[Unit]
+Description=Power Profiles daemon
+After=dbus.service
+
+[Service]
+Type=dbus
+BusName=net.hadess.PowerProfiles
+ExecStart=/usr/libexec/power-profiles-daemon
+Restart=no
+
+[Install]
+WantedBy=multi-user.target

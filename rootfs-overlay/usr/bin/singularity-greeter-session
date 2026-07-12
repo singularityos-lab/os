@@ -4,5 +4,5 @@
 export XDG_RUNTIME_DIR=/run/user/102 HOME=/run/user/102 XDG_CACHE_HOME=/run/user/102/.cache
 export XKB_DEFAULT_LAYOUT="${XKBLAYOUT:-us}" XKB_DEFAULT_VARIANT="${XKBVARIANT:-}" LANG="${LANG:-C.UTF-8}"
 mkdir -p "$XDG_CACHE_HOME"
-mkdir -p /run/singularity && : > /run/singularity/greeter-ready
+mkdir -p /run/singularity && rm -f /run/singularity/greeter-ready 2>/dev/null; : > /run/singularity/greeter-ready 2>/dev/null || true
 exec /usr/bin/labwc -s /usr/bin/singularity-greeter 2>>/run/user/102/labwc.log

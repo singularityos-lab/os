@@ -53,6 +53,25 @@ rm -f "$TARGET_DIR/usr/share/wayland-sessions/labwc.desktop"
 rm -f "$TARGET_DIR/etc/systemd/system/graphical.target.wants/wpa_supplicant.service"
 rm -f "$TARGET_DIR/etc/systemd/system/multi-user.target.wants/wpa_supplicant.service"
 
+# sinty-nm replaces the NetworkManager daemon: it owns org.freedesktop.NetworkManager,
+# so the NM daemon must not also start (two owners of one name). The libnm library and
+# the NM D-Bus policy stay (the desktop links libnm; the policy lets root own the name).
+# Drop the NM daemon unit and its wants from the target, which a stale target may retain.
+rm -f "$TARGET_DIR/etc/systemd/system/NetworkManager.service"
+rm -f "$TARGET_DIR/etc/systemd/system/graphical.target.wants/NetworkManager.service"
+rm -f "$TARGET_DIR/etc/systemd/system/multi-user.target.wants/NetworkManager.service"
+rm -f "$TARGET_DIR/usr/lib/systemd/system/NetworkManager.service"
+rm -f "$TARGET_DIR/usr/lib/systemd/system/multi-user.target.wants/NetworkManager.service"
+
+# The NM-era wifi helpers (nmcli re-enumeration, managed toggles, parallel connect) were
+# workarounds for the broken NM flow and actively fight sinty-nm (e.g. sinty-online's
+# `nmcli device set managed no` disables the very device sinty-nm manages). Boot must be
+# dbus -> iwd -> sinty-nm only; the scripts stay on disk for manual debug, just unstarted.
+for h in atom-wifi-visual atom-wifi dev-autowifi singularity-wifi-kick sinty-wifi-diag; do
+    rm -f "$TARGET_DIR/etc/systemd/system/graphical.target.wants/$h.service"
+    rm -f "$TARGET_DIR/etc/systemd/system/multi-user.target.wants/$h.service"
+done
+
 # Remove static libs
 find "$TARGET_DIR" -name "*.a" -delete
 find "$TARGET_DIR" -name "*.la" -delete
@@ -140,6 +159,18 @@ if [ "$_FW_MODE" != "none" ] && [ -n "$_FW_SRC" ] && [ -d "$_FW_SRC" ]; then
     rm -rf "$_FW_DST/.git" "$_FW_DST/check_whence.py" "$_FW_DST"/*.rst 2>/dev/null || true
 fi
 
+# Audio is PipeWire (pipewire + wireplumber + pipewire-pulse started by the session
+# launcher); the legacy PulseAudio DAEMON must not ship, or its libpulse autospawn
+# grabs the ALSA card and yields the Dummy Output. Remove only the daemon binary and
+# its configs (autospawn is also disabled in /etc/pulse/client.conf). KEEP the pulse
+# CLIENT libraries under /usr/lib/pulseaudio (libpulsecommon-*.so) and libpulse.so.0:
+# singularity-desktop links libpulse for volume, and libpulse.so.0 dlopens
+# libpulsecommon, so deleting that dir made the shell exit 127 (missing lib) and the
+# session go black. The daemon-only module dirs are left in place, inert without the daemon.
+rm -f "$TARGET_DIR/usr/bin/pulseaudio" \
+      "$TARGET_DIR/usr/share/dbus-1/system.d/pulseaudio-system.conf" \
+      "$TARGET_DIR/etc/pulse/system.pa" "$TARGET_DIR/etc/pulse/default.pa" 2>/dev/null || true
+
 # RC hardening: the dev markers gate dev-only units -- /etc/atom/dev.enabled fences the
 # root-vt/diag-console root shells (ConditionPathExists) and the dev toolkit;
 # probe.enabled fences atom-probe. A release image must NOT ship them, or those gates are
@@ -152,4 +183,16 @@ if [ "${ATOM_BUILD:-}" = "rc" ]; then
     rm -f "$TARGET_DIR/usr/bin/sinty-devlink" "$TARGET_DIR/usr/bin/sinty-online" "$TARGET_DIR/usr/bin/wifi" "$TARGET_DIR/usr/bin/wifi-verify" "$TARGET_DIR/usr/sbin/dropbear" "$TARGET_DIR/usr/sbin/dropbearkey"
     rm -rf "$TARGET_DIR/usr/share/atom/devlink"
     echo "[singularity] post-build: RC build -- stripped dev markers (dev.enabled, probe.enabled)"
+fi
+
+# Generate /etc/ld.so.cache. The image has no runtime ldconfig, and several binaries
+# (timedatectl -> libsystemd-shared, tracker extractors -> libtracker-extract) link
+# private libs in non-standard dirs (/usr/lib/systemd, /usr/lib/tracker-*) with an
+# empty RUNPATH; without the cache the loader cannot find them and they fail with
+# "cannot open shared object file". /etc/ld.so.conf.d/atom.conf lists those dirs, and
+# ldconfig -r builds the cache the loader reads at runtime. Runs last so it indexes the
+# final tree. Non-fatal so a host without ldconfig still produces an image.
+if command -v ldconfig >/dev/null 2>&1; then
+    ldconfig -r "$TARGET_DIR" 2>/dev/null || true
+    echo "[singularity] post-build: generated /etc/ld.so.cache"
 fi

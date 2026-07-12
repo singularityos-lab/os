@@ -1,12 +1,12 @@
 [Unit]
 Description=greetd login manager
-After=systemd-user-sessions.service getty@tty1.service plymouth-quit-wait.service
+After=getty@tty1.service
 After=multi-user.target
-Wants=systemd-user-sessions.service
 Conflicts=getty@tty1.service
 
 [Service]
-ExecStartPre=-/bin/sh -c 'mkdir -p /run/singularity && chmod 0777 /run/singularity'
+ExecStartPre=-/bin/mkdir -p /run/singularity
+ExecStartPre=-/bin/chmod 0777 /run/singularity
 ExecStartPre=-/bin/sh -c 'mkdir -p /run/user/102 && chown greeter /run/user/102 && chmod 0700 /run/user/102'
 ExecStartPre=-/bin/sh -c 'mkdir -p /tmp/.X11-unix && chmod 1777 /tmp/.X11-unix'
 ExecStartPre=-/usr/bin/udevadm trigger --action=add

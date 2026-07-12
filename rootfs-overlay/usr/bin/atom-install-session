@@ -2,7 +2,19 @@
 set -eu
 export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/0}"
 mkdir -p "$XDG_RUNTIME_DIR"
+# The installer session runs as root, whose HOME is /root on the read-only erofs.
+# Point HOME and the XDG config/cache dirs at a writable tmpfs so GTK/GLib do not
+# warn-storm trying to write /root/.config (glib settings, gtk accent css, etc.).
+export HOME="$XDG_RUNTIME_DIR"
+export XDG_CONFIG_HOME="$XDG_RUNTIME_DIR/.config"
+export XDG_CACHE_HOME="$XDG_RUNTIME_DIR/.cache"
+mkdir -p "$XDG_CONFIG_HOME" "$XDG_CACHE_HOME"
 if [ -r /etc/environment ]; then set -a; . /etc/environment; set +a; fi
-mkdir -p /run/singularity && : > /run/singularity/greeter-ready
+mkdir -p /run/singularity && : > /run/singularity/greeter-ready && chmod 666 /run/singularity/greeter-ready
 export LIBSEAT_BACKEND=builtin
+# Run under a session bus so the installer (GTK) does not try dbus-launch --autolaunch
+# for the a11y bus and warn "Unable to acquire session bus" during the handoff.
+if [ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ] && command -v dbus-run-session >/dev/null 2>&1; then
+    exec dbus-run-session -- labwc -s "atom-installer-launch"
+fi
 exec labwc -s "atom-installer-launch"

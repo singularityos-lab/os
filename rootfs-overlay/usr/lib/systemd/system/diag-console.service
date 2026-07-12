@@ -1,7 +1,6 @@
 [Unit]
 ConditionPathExists=/etc/atom/dev.enabled
 Description=Diagnostic root shell on tty1
-After=systemd-user-sessions.service
 
 [Service]
 Type=simple

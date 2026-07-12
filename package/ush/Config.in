@@ -1,0 +1,6 @@
+config BR2_PACKAGE_USH
+	bool "ush (permission broker + dsh developer shell)"
+	depends on BR2_PACKAGE_HOST_GO_TARGET_ARCH_SUPPORTS
+	help
+	  USH permission broker and the dsh developer shell (rootless
+	  podman/distrobox dev profile). Dev-image only.

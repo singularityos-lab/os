@@ -1,0 +1,1 @@
+SUBSYSTEM=="leds", KERNEL=="*kbd_backlight*", GROUP="video", MODE="0664"
