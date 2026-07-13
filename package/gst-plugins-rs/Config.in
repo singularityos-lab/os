@@ -1,0 +1,13 @@
+config BR2_PACKAGE_GST_PLUGINS_RS
+	bool "gst-plugins-rs (gtk4 paintable sink)"
+	depends on BR2_PACKAGE_HOST_RUSTC_TARGET_ARCH_SUPPORTS
+	depends on BR2_PACKAGE_GSTREAMER1
+	depends on BR2_PACKAGE_LIBGTK4
+	select BR2_PACKAGE_HOST_RUSTC
+	select BR2_PACKAGE_GST1_PLUGINS_BASE
+	help
+	  The gtk4paintablesink GStreamer plugin from gst-plugins-rs, required
+	  by GNOME Videos and other GTK4 media apps to render video. Only the
+	  gtk4 plugin is built (not the whole workspace).
+
+	  https://gitlab.freedesktop.org/gstreamer/gst-plugins-rs

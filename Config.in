@@ -1,4 +1,5 @@
 menu "Singularity"
+	source "$BR2_EXTERNAL_SINGULARITY_PATH/package/gst-plugins-rs/Config.in"
 	source "$BR2_EXTERNAL_SINGULARITY_PATH/package/gtk4-layer-shell/Config.in"
 	source "$BR2_EXTERNAL_SINGULARITY_PATH/package/libpeas2/Config.in"
 	source "$BR2_EXTERNAL_SINGULARITY_PATH/package/vte-gtk4/Config.in"
