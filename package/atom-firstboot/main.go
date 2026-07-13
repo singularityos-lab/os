@@ -86,6 +86,12 @@ func isSinty() bool {
 }
 
 func main() {
+	// Provisioning tools live in /usr/sbin (useradd, usermod) and /usr/bin (sintykey, id,
+	// chown, cp, mkpasswd). The OOBE session that spawns us does not guarantee /usr/sbin on
+	// PATH, so useradd was not found and provisioning aborted. Pin a deterministic PATH so
+	// every tool resolves regardless of the caller's environment.
+	os.Setenv("PATH", "/usr/sbin:/sbin:/usr/bin:/bin")
+
 	var writers []io.Writer
 	if f, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644); err == nil {
 		writers = append(writers, f)
