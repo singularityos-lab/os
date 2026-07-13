@@ -5,7 +5,7 @@ config BR2_PACKAGE_XDG_DESKTOP_PORTAL_SINGULARITY
 	select BR2_PACKAGE_GTK4_LAYER_SHELL
 	select BR2_PACKAGE_LIBGEE
 	select BR2_PACKAGE_JSON_GLIB
-	select BR2_PACKAGE_PIPEWIRE
+	depends on BR2_PACKAGE_PIPEWIRE
 	help
 	  The Singularity xdg-desktop-portal backend (file chooser,
 	  screenshot, screencast and related portal frontends).
