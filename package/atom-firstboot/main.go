@@ -11,6 +11,7 @@ package main
 import (
 	"bufio"
 	"fmt"
+	"context"
 	"io"
 	"os"
 	"os/exec"
@@ -18,6 +19,11 @@ import (
 	"strings"
 	"time"
 )
+
+// cmdTimeout bounds every external tool: no provisioning step may hang forever. A step that
+// blocks (e.g. an NSS/DNS lookup with a nameserver but no route) would otherwise wedge the
+// whole OOBE. Well above any real useradd/sintykey/TPM time, so it only ever kills a hang.
+const cmdTimeout = 45 * time.Second
 
 const (
 	markerDir  = "/var/lib/sinty"
@@ -38,17 +44,28 @@ func fail(format string, a ...any) {
 }
 
 // run execs name with args and an explicit argv (never a shell). Returns combined output.
+// A per-command timeout kills any tool that hangs so provisioning can never wedge.
 func run(name string, args ...string) (string, error) {
-	cmd := exec.Command(name, args...)
+	ctx, cancel := context.WithTimeout(context.Background(), cmdTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, name, args...)
 	out, err := cmd.CombinedOutput()
+	if ctx.Err() == context.DeadlineExceeded {
+		return string(out), fmt.Errorf("%s timed out after %s", name, cmdTimeout)
+	}
 	return string(out), err
 }
 
 // runStdin is run() with data on stdin (used to hand the PIN to sintykey, never argv).
 func runStdin(stdin string, name string, args ...string) (string, error) {
-	cmd := exec.Command(name, args...)
+	ctx, cancel := context.WithTimeout(context.Background(), cmdTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Stdin = strings.NewReader(stdin)
 	out, err := cmd.CombinedOutput()
+	if ctx.Err() == context.DeadlineExceeded {
+		return string(out), fmt.Errorf("%s timed out after %s", name, cmdTimeout)
+	}
 	return string(out), err
 }
 
@@ -69,9 +86,20 @@ func isSinty() bool {
 }
 
 func main() {
+	var writers []io.Writer
 	if f, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644); err == nil {
-		logw = f
+		writers = append(writers, f)
 		defer f.Close()
+	}
+	// Mirror the log to the console so each step is visible on serial even when the OOBE UI
+	// has frozen and there is no getty: the OOBE runs before any login shell, so /run logs are
+	// otherwise unreachable on a wedged boot.
+	if c, err := os.OpenFile("/dev/console", os.O_WRONLY, 0); err == nil {
+		writers = append(writers, c)
+		defer c.Close()
+	}
+	if len(writers) > 0 {
+		logw = io.MultiWriter(writers...)
 	}
 	if os.Geteuid() != 0 {
 		fail("must run as root")
