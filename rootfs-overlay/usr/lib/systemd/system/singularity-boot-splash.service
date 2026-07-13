@@ -8,7 +8,9 @@ Conflicts=shutdown.target
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/singularity-boot-splash --max-life 8
+ExecStart=/bin/sh -c 'exec /usr/bin/singularity-boot-splash --max-life 8 >/run/boot-splash.log 2>&1'
+StandardOutput=journal
+StandardError=journal
 KillMode=mixed
 
 [Install]
