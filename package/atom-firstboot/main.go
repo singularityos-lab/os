@@ -127,9 +127,12 @@ func main() {
 	pinBytes, _ := io.ReadAll(bufio.NewReader(os.Stdin))
 	pin := strings.TrimRight(string(pinBytes), "\r\n")
 
-	shell := "/bin/sh"
-	if exists("/bin/bash") {
-		shell = "/bin/bash"
+	shell := "/usr/bin/ush"
+	if !exists(shell) {
+		shell = "/bin/sh"
+		if exists("/bin/bash") {
+			shell = "/bin/bash"
+		}
 	}
 	homeDir := filepath.Join(varHome, user)
 
@@ -155,6 +158,11 @@ func main() {
 		run("chown", user, homeDir)
 		os.Chmod(homeDir, 0o700)
 	}
+
+	// Pin the login shell unconditionally: useradd sets it only when the account is
+	// created here, but a pre-seeded account (e.g. the baked template) would keep its
+	// old shell, so the user would not get ush as their terminal shell (#65).
+	run("usermod", "--shell", shell, user)
 
 	// 2. groups (best-effort; a missing group is not fatal)
 	for _, g := range []string{"wheel", "sudo", "audio", "video", "input", "render", "seat", "netdev", "plugdev", "bluetooth"} {
