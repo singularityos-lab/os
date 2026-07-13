@@ -6,6 +6,7 @@ config BR2_PACKAGE_ACCOUNTSSERVICE
 	depends on BR2_USE_MMU # glib2, polkit
 	select BR2_PACKAGE_LIBGLIB2
 	select BR2_PACKAGE_POLKIT
+	select BR2_PACKAGE_LIBSYSTEMD_SHIM
 	help
 	  D-Bus service (org.freedesktop.Accounts) for querying and
 	  manipulating user account information, used by the shell account
