@@ -174,7 +174,9 @@ func main() {
 				os.WriteFile("/run/sinty-recovery-code", []byte(strings.TrimSpace(rec)+"\n"), 0o600)
 				logf("PIN provisioned via sintykey (recovery code staged)")
 			} else {
-				logf("sintykey provision failed; account has no Unix password")
+				// Log sintykey's own output (the die reason), not just a generic line, so the
+				// exact provisioning failure is diagnosable from the boot log (#75).
+				logf("sintykey provision failed (%v): %s; account has no Unix password", err, strings.TrimSpace(rec))
 			}
 		} else {
 			hash, err := run("mkpasswd", "-m", "sha512", pin)
