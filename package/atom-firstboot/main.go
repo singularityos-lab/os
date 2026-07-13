@@ -142,15 +142,18 @@ func main() {
 				"--shell", shell, "--comment", fullname, user); err != nil {
 				fail("useradd: %v: %s", err, out)
 			}
-			os.MkdirAll(homeDir, 0o700)
-			run("chown", user, homeDir)
-			os.Chmod(homeDir, 0o700)
 		} else {
 			if out, err := run("useradd", "--create-home", "--home-dir", homeDir,
 				"--shell", shell, "--comment", fullname, user); err != nil {
 				fail("useradd: %v: %s", err, out)
 			}
 		}
+	}
+
+	if sinty {
+		os.MkdirAll(homeDir, 0o700)
+		run("chown", user, homeDir)
+		os.Chmod(homeDir, 0o700)
 	}
 
 	// 2. groups (best-effort; a missing group is not fatal)
