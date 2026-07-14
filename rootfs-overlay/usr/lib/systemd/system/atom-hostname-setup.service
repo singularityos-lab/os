@@ -1,0 +1,12 @@
+[Unit]
+Description=Apply hostname (sinit hostname-setup)
+DefaultDependencies=no
+Before=greetd.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/bin/atom-hostname-setup
+
+[Install]
+WantedBy=sysinit.target

@@ -17,6 +17,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -213,15 +214,21 @@ func main() {
 	// 6. avatar (AccountsService)
 	setAvatar(user)
 
-	// 7. identity: hostname, locale, keymap, theme
-	os.WriteFile("/etc/hostname", []byte(hostname+"\n"), 0o644)
+	// 7. identity: hostname, locale, keymap, theme. /etc is on the read-only
+	// verity rootfs, so identity config lands in /var/lib/singularity (writable f2fs)
+	// and is applied at boot by the atom-*-setup units (#83).
+	os.MkdirAll("/var/lib/singularity", 0o755)
+	os.WriteFile("/var/lib/singularity/hostname", []byte(hostname+"\n"), 0o644)
+	if err := syscall.Sethostname([]byte(hostname)); err != nil {
+		logf("sethostname failed: %v", err)
+	}
 	logf("hostname set to %s", hostname)
 	if loc := os.Getenv("OOBE_LOCALE"); loc != "" {
-		os.WriteFile("/etc/locale.conf", []byte("LANG="+loc+"\n"), 0o644)
+		os.WriteFile("/var/lib/singularity/locale.conf", []byte("LANG="+loc+"\n"), 0o644)
 		logf("locale set to %s", loc)
 	}
 	if km := os.Getenv("OOBE_KEYMAP"); km != "" {
-		os.WriteFile("/etc/vconsole.conf", []byte("KEYMAP="+km+"\nXKBLAYOUT="+km+"\n"), 0o644)
+		os.WriteFile("/var/lib/singularity/vconsole.conf", []byte("KEYMAP="+km+"\nXKBLAYOUT="+km+"\n"), 0o644)
 		logf("keymap set to %s", km)
 	}
 	switch os.Getenv("OOBE_THEME") {

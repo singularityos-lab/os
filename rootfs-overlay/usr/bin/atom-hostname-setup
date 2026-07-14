@@ -1,0 +1,17 @@
+#!/bin/sh
+# atom-hostname-setup -- apply the hostname under sinit.
+#
+# Replaces systemd-hostnamed (absent after de-systemd). atom-firstboot writes the
+# chosen hostname to /var/lib/singularity/hostname, because /etc is on the
+# read-only verity rootfs. Nothing loads it at boot, so gethostname() stays the
+# kernel default "(none)". This reads it and runs sethostname early, before login.
+# Falls back to the baked /etc/hostname default.
+set -u
+for f in /var/lib/singularity/hostname /etc/hostname; do
+    [ -r "$f" ] || continue
+    HN=$(head -1 "$f" | tr -d '[:space:]')
+    if [ -n "${HN:-}" ]; then
+        hostname "$HN" 2>/dev/null && exit 0
+    fi
+done
+exit 0
