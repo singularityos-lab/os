@@ -7,8 +7,13 @@ vt = 1
 # keyboard + language match the OOBE choice, and (b) a writable HOME/XDG_CACHE so fontconfig can
 # write its cache (else FcInit / shader-cache errors). atom-install derives the installed copy
 # from THIS file (see atom-install), so the fix propagates to the disk install too.
+# Single-compositor: greetd no longer starts a labwc. The persistent compositor
+# (singularity-compositor.service, started Before=greetd) owns the seat for the
+# whole session; greetd only authenticates and runs the greeter as a CLIENT of
+# that compositor. This removes the second cold start and the greeter->desktop
+# black frame by construction.
 [default_session]
-command = "/usr/bin/singularity-greeter-session"
+command = "/usr/bin/singularity-greeter-client"
 user = "greeter"
 
 [initial_session]

@@ -1,0 +1,17 @@
+[Unit]
+Description=Memory Tiering Standard manager (mtsd)
+Documentation=man:mts.conf(5)
+After=local-fs.target
+# Start once the system is up; MTS enforce tiering is experimental, so keep it
+# off the critical early-boot path. A failure restarts mtsd, it never hangs boot.
+
+[Service]
+Type=simple
+# Provision the cold-tier backing file (sparse, no image bloat) before mtsd runs.
+ExecStartPre=/bin/sh -c 'mkdir -p /var/lib/mts && [ -f /var/lib/mts/cold.img ] || truncate -s 1G /var/lib/mts/cold.img'
+ExecStart=/usr/sbin/mtsd run /etc/mts/mts.conf
+Restart=on-failure
+RestartSec=3s
+
+[Install]
+WantedBy=graphical.target

@@ -1,0 +1,11 @@
+config BR2_PACKAGE_ATOM_PROBE
+	bool "atom-probe"
+	depends on BR2_PACKAGE_HOST_GO_TARGET_ARCH_SUPPORTS
+	depends on BR2_PACKAGE_HOST_GO_TARGET_CGO_LINKING_SUPPORTS
+	help
+	  atom-probe: the on-device diagnostic probe from the atom source
+	  tree (cmd/atom-probe), the same repo as sinit. Installs
+	  /usr/bin/atom-probe. Fenced at runtime by /etc/atom/probe.enabled,
+	  which release images strip, so a release ships the binary inert.
+
+	  https://github.com/singularityos-lab/atom

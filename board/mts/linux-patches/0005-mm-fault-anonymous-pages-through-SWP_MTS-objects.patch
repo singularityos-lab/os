@@ -1,0 +1,768 @@
+From 2c2d31d0b115e27d85f05c0c914bca3b5295298c Mon Sep 17 00:00:00 2001
+From: Mirko Brombin <9479903+mirkobrombin@users.noreply.github.com>
+Date: Sat, 18 Jul 2026 19:57:13 +0100
+Subject: [PATCH 5/5] mm: fault anonymous pages through SWP_MTS objects
+
+Reserve a native software-leaf type and convert eligible single-mapped base anonymous folios through migration entries before provider I/O. The immediate TLB flush freezes writers before the immutable payload is checksummed and stored.
+
+Install generation-backed SWP_MTS PTEs, duplicate exact object references across fork, release them on zap, and promote through the anonymous major-fault path without legacy swap ownership. Provider and fault references prevent slot reuse during I/O.
+
+Keep the first reclaim path deliberately narrow: large or multiply mapped resident folios fall back instead of risking partial conversion. Nonresident objects may become shared after fork and retain lazy COW semantics.
+
+Evidence: Linux 7.1.3 CONFIG_MTS_TIER=y make -j4 mm/; checkpatch.pl --strict (clean).
+Signed-off-by: Mirko Brombin <9479903+mirkobrombin@users.noreply.github.com>
+---
+ include/linux/leafops.h |  11 ++
+ include/linux/mts.h     |  29 +++++
+ include/linux/swap.h    |  10 +-
+ mm/Kconfig              |   2 +-
+ mm/memory.c             |  78 ++++++++++-
+ mm/mts_tier.c           | 282 ++++++++++++++++++++++++++++++++++++++++
+ mm/rmap.c               |  61 +++++++++
+ mm/vmscan.c             |  31 +++++
+ 8 files changed, 500 insertions(+), 4 deletions(-)
+
+diff --git a/include/linux/leafops.h b/include/linux/leafops.h
+index 992cd8b..5c6db9f 100644
+--- a/include/linux/leafops.h
++++ b/include/linux/leafops.h
+@@ -32,6 +32,8 @@ enum softleaf_type {
+ 	SOFTLEAF_HWPOISON,
+ 	/* Marker types. */
+ 	SOFTLEAF_MARKER,
++	/* Native MTS object. */
++	SOFTLEAF_MTS,
+ };
+ 
+ /**
+@@ -172,6 +174,10 @@ static inline enum softleaf_type softleaf_type(softleaf_t entry)
+ #endif
+ 	case SWP_PTE_MARKER:
+ 		return SOFTLEAF_MARKER;
++#ifdef CONFIG_MTS_TIER
++	case SWP_MTS:
++		return SOFTLEAF_MTS;
++#endif
+ 	}
+ 
+ 	/* Unknown entry type. */
+@@ -190,6 +196,11 @@ static inline bool softleaf_is_swap(softleaf_t entry)
+ 	return softleaf_type(entry) == SOFTLEAF_SWAP;
+ }
+ 
++static inline bool softleaf_is_mts(softleaf_t entry)
++{
++	return softleaf_type(entry) == SOFTLEAF_MTS;
++}
++
+ /**
+  * softleaf_is_migration_write() - Is this leaf entry a writable migration entry?
+  * @entry: Leaf entry.
+diff --git a/include/linux/mts.h b/include/linux/mts.h
+index ec5dc22..c90ab70 100644
+--- a/include/linux/mts.h
++++ b/include/linux/mts.h
+@@ -3,9 +3,11 @@
+ #define _LINUX_MTS_H
+ 
+ #include <linux/errno.h>
++#include <linux/mm_types.h>
+ #include <linux/types.h>
+ 
+ struct folio;
++struct mem_cgroup;
+ struct page;
+ 
+ struct mts_object_id {
+@@ -32,6 +34,15 @@ int mts_tier_get_page(u8 tier_slot, const struct mts_object_id *id,
+ 		      struct page *page);
+ int mts_tier_get_ref(u8 tier_slot, const struct mts_object_id *id);
+ int mts_tier_put_ref(u8 tier_slot, const struct mts_object_id *id);
++bool mts_can_reclaim(struct mem_cgroup *memcg);
++int mts_prepare_folio(struct folio *folio);
++bool mts_folio_entry(struct page *page, swp_entry_t *entry);
++bool mts_finish_folio(struct folio *folio);
++bool mts_install_folio_ptes(struct folio *folio);
++int mts_entry_dup(swp_entry_t entry);
++void mts_entry_put(swp_entry_t entry);
++int mts_entry_read(swp_entry_t entry, struct page *page,
++		   struct mts_object_id *id, u8 uuid[16]);
+ #else
+ static inline int mts_tier_put_page(u8 tier_slot, struct page *page,
+ 				    struct mts_object_id *id)
+@@ -57,6 +68,24 @@ static inline int mts_tier_put_ref(u8 tier_slot,
+ {
+ 	return -EOPNOTSUPP;
+ }
++
++static inline bool mts_can_reclaim(struct mem_cgroup *memcg) { return false; }
++static inline int mts_prepare_folio(struct folio *folio) { return -EOPNOTSUPP; }
++static inline bool mts_folio_entry(struct page *page, swp_entry_t *entry)
++{
++	return false;
++}
++
++static inline bool mts_finish_folio(struct folio *folio) { return false; }
++static inline bool mts_install_folio_ptes(struct folio *folio) { return false; }
++static inline int mts_entry_dup(swp_entry_t entry) { return -EOPNOTSUPP; }
++static inline void mts_entry_put(swp_entry_t entry) { }
++static inline int mts_entry_read(swp_entry_t entry, struct page *page,
++				 struct mts_object_id *id,
++				 u8 uuid[16])
++{
++	return -EOPNOTSUPP;
++}
+ #endif
+ 
+ #endif /* _LINUX_MTS_H */
+diff --git a/include/linux/swap.h b/include/linux/swap.h
+index 7a09df6..a728137 100644
+--- a/include/linux/swap.h
++++ b/include/linux/swap.h
+@@ -61,6 +61,14 @@ static inline int current_is_kswapd(void)
+ #define SWP_PTE_MARKER     (MAX_SWAPFILES + SWP_HWPOISON_NUM + \
+ 			    SWP_MIGRATION_NUM + SWP_DEVICE_NUM)
+ 
++#ifdef CONFIG_MTS_TIER
++#define SWP_MTS_NUM 1
++#define SWP_MTS (MAX_SWAPFILES + SWP_HWPOISON_NUM + SWP_MIGRATION_NUM + \
++		 SWP_DEVICE_NUM + SWP_PTE_MARKER_NUM)
++#else
++#define SWP_MTS_NUM 0
++#endif
++
+ /*
+  * Unaddressable device memory support. See include/linux/hmm.h and
+  * Documentation/mm/hmm.rst. Short description is we need struct pages for
+@@ -113,7 +121,7 @@ static inline int current_is_kswapd(void)
+ #define MAX_SWAPFILES \
+ 	((1 << MAX_SWAPFILES_SHIFT) - SWP_DEVICE_NUM - \
+ 	SWP_MIGRATION_NUM - SWP_HWPOISON_NUM - \
+-	SWP_PTE_MARKER_NUM)
++	SWP_PTE_MARKER_NUM - SWP_MTS_NUM)
+ 
+ /*
+  * Magic header for a swap area. The first part of the union is
+diff --git a/mm/Kconfig b/mm/Kconfig
+index 97658fd..48b4e22 100644
+--- a/mm/Kconfig
++++ b/mm/Kconfig
+@@ -31,7 +31,7 @@ config MTS_OBSERVE
+ 
+ config MTS_TIER
+ 	bool "Memory Tiering Standard native object tiers"
+-	depends on MTS_OBSERVE && BLOCK && CGROUPS
++	depends on MTS_OBSERVE && BLOCK && CGROUPS && MEMCG
+ 	select CRC32
+ 	help
+ 	  Register declarative file-backed tiers through /dev/mts and expose the
+diff --git a/mm/memory.c b/mm/memory.c
+index 86a9731..d082f15 100644
+--- a/mm/memory.c
++++ b/mm/memory.c
+@@ -42,6 +42,7 @@
+ #include <linux/kernel_stat.h>
+ #include <linux/mm.h>
+ #include <linux/mm_inline.h>
++#include <linux/mts.h>
+ #include <linux/sched/mm.h>
+ #include <linux/sched/numa_balancing.h>
+ #include <linux/sched/task.h>
+@@ -69,6 +70,7 @@
+ #include <linux/memory-tiers.h>
+ #include <linux/debugfs.h>
+ #include <linux/userfaultfd_k.h>
++#include <trace/events/mts.h>
+ #include <linux/dax.h>
+ #include <linux/oom.h>
+ #include <linux/numa.h>
+@@ -96,6 +98,9 @@
+ 
+ static vm_fault_t do_fault(struct vm_fault *vmf);
+ static vm_fault_t do_anonymous_page(struct vm_fault *vmf);
++static void map_anon_folio_pte_pf(struct folio *folio, pte_t *pte,
++				  struct vm_area_struct *vma,
++				  unsigned long addr, bool uffd_wp);
+ static bool vmf_pte_changed(struct vm_fault *vmf);
+ 
+ /*
+@@ -949,7 +954,11 @@ copy_nonpresent_pte(struct mm_struct *dst_mm, struct mm_struct *src_mm,
+ 	struct folio *folio;
+ 	struct page *page;
+ 
+-	if (likely(softleaf_is_swap(entry))) {
++	if (softleaf_is_mts(entry)) {
++		if (mts_entry_dup(entry) < 0)
++			return -EIO;
++		rss[MM_SWAPENTS]++;
++	} else if (likely(softleaf_is_swap(entry))) {
+ 		if (swap_dup_entry_direct(entry) < 0)
+ 			return -EIO;
+ 
+@@ -1759,6 +1768,11 @@ static inline int zap_nonpresent_ptes(struct mmu_gather *tlb,
+ 		rss[mm_counter(folio)]--;
+ 		folio_remove_rmap_pte(folio, page, vma);
+ 		folio_put(folio);
++	} else if (softleaf_is_mts(entry)) {
++		if (!should_zap_cows(details))
++			return 1;
++		rss[MM_SWAPENTS]--;
++		mts_entry_put(entry);
+ 	} else if (softleaf_is_swap(entry)) {
+ 		/* Genuine swap entries, hence a private anon pages */
+ 		if (!should_zap_cows(details))
+@@ -4792,6 +4806,64 @@ static void check_swap_exclusive(struct folio *folio, swp_entry_t entry,
+  * We return with the mmap_lock locked or unlocked in the same cases
+  * as does filemap_fault().
+  */
++static vm_fault_t do_mts_page(struct vm_fault *vmf, softleaf_t entry)
++{
++	struct vm_area_struct *vma = vmf->vma;
++	struct mts_object_id object_id;
++	struct mem_cgroup *memcg;
++	struct folio *folio;
++	u8 tier_uuid[16];
++	u64 cgroup = 0;
++	u64 start_ns;
++	vm_fault_t ret;
++	int err;
++
++	ret = vmf_anon_prepare(vmf);
++	if (ret)
++		return ret;
++	folio = folio_prealloc(vma->vm_mm, vma, vmf->address, false);
++	if (!folio)
++		return VM_FAULT_OOM;
++	memcg = folio_memcg(folio);
++	if (memcg)
++		cgroup = cgroup_id(memcg->css.cgroup);
++	start_ns = ktime_get_ns();
++	memset(tier_uuid, 0, sizeof(tier_uuid));
++	trace_fault_begin(cgroup, vmf->address, swp_offset(entry), 0,
++			  tier_uuid, 0, start_ns, 0);
++	err = mts_entry_read(entry, &folio->page, &object_id, tier_uuid);
++	if (err) {
++		trace_fault_end(cgroup, vmf->address, swp_offset(entry), 0,
++				tier_uuid, 0, ktime_get_ns(), err);
++		folio_put(folio);
++		return err == -ENOMEM ? VM_FAULT_OOM : VM_FAULT_SIGBUS;
++	}
++	__folio_mark_uptodate(folio);
++	vmf->pte = pte_offset_map_lock(vma->vm_mm, vmf->pmd, vmf->address,
++				       &vmf->ptl);
++	if (!vmf->pte)
++		goto release;
++	if (!pte_same(ptep_get(vmf->pte), vmf->orig_pte)) {
++		update_mmu_tlb(vma, vmf->address, vmf->pte);
++		pte_unmap_unlock(vmf->pte, vmf->ptl);
++		goto release;
++	}
++	map_anon_folio_pte_pf(folio, vmf->pte, vma, vmf->address,
++			      vmf_orig_pte_uffd_wp(vmf));
++	dec_mm_counter(vma->vm_mm, MM_SWAPENTS);
++	pte_unmap_unlock(vmf->pte, vmf->ptl);
++	mts_entry_put(entry);
++	count_vm_event(PGMAJFAULT);
++	count_memcg_event_mm(vma->vm_mm, PGMAJFAULT);
++	trace_fault_end(cgroup, vmf->address, object_id.slot,
++			object_id.generation, tier_uuid, 0, ktime_get_ns(), 0);
++	return VM_FAULT_MAJOR;
++
++release:
++	folio_put(folio);
++	return 0;
++}
++
+ vm_fault_t do_swap_page(struct vm_fault *vmf)
+ {
+ 	struct vm_area_struct *vma = vmf->vma;
+@@ -4813,7 +4885,9 @@ vm_fault_t do_swap_page(struct vm_fault *vmf)
+ 
+ 	entry = softleaf_from_pte(vmf->orig_pte);
+ 	if (unlikely(!softleaf_is_swap(entry))) {
+-		if (softleaf_is_migration(entry)) {
++		if (softleaf_is_mts(entry)) {
++			return do_mts_page(vmf, entry);
++		} else if (softleaf_is_migration(entry)) {
+ 			migration_entry_wait(vma->vm_mm, vmf->pmd,
+ 					     vmf->address);
+ 		} else if (softleaf_is_device_exclusive(entry)) {
+diff --git a/mm/mts_tier.c b/mm/mts_tier.c
+index 6c8e93a..9274804 100644
+--- a/mm/mts_tier.c
++++ b/mm/mts_tier.c
+@@ -10,12 +10,15 @@
+ #include <linux/list.h>
+ #include <linux/miscdevice.h>
+ #include <linux/mm.h>
++#include <linux/memcontrol.h>
+ #include <linux/module.h>
+ #include <linux/mts.h>
+ #include <linux/mutex.h>
+ #include <linux/pagemap.h>
+ #include <linux/overflow.h>
+ #include <linux/slab.h>
++#include <linux/swap.h>
++#include <linux/swapops.h>
+ #include <linux/uaccess.h>
+ #include <linux/xarray.h>
+ #include <trace/events/mts.h>
+@@ -72,10 +75,21 @@ struct mts_domain {
+ 	struct mts_domain_tier tiers[MTS_MAX_DOMAIN_TIERS];
+ };
+ 
++struct mts_pte_object {
++	struct kref kref;
++	struct mts_tier *tier;
++	struct mts_object_id id;
++	u32 cookie;
++	u32 pte_refs;
++};
++
+ static DEFINE_XARRAY(mts_tiers);
+ static DEFINE_IDA(mts_tier_ids);
+ static DEFINE_MUTEX(mts_registry_lock);
+ static LIST_HEAD(mts_domains);
++static DEFINE_XARRAY_ALLOC1(mts_pte_objects);
++static DEFINE_XARRAY(mts_prepared_pages);
++static DEFINE_MUTEX(mts_pte_lock);
+ 
+ static struct mts_tier *mts_tier_lookup(u8 tier_slot)
+ {
+@@ -184,9 +198,11 @@ static int mts_allocate_object(struct mts_tier *tier,
+ 	}
+ 
+ found:
++	mutex_lock(&object->lock);
+ 	if (object->generation == U32_MAX) {
+ 		object->retired = true;
+ 		err = -EOVERFLOW;
++		mutex_unlock(&object->lock);
+ 		goto out_unlock;
+ 	}
+ 	object->generation++;
+@@ -195,6 +211,7 @@ found:
+ 	id->slot = slot;
+ 	id->generation = object->generation;
+ 	*result = object;
++	mutex_unlock(&object->lock);
+ 	mutex_unlock(&tier->lock);
+ 	return 0;
+ 
+@@ -313,6 +330,271 @@ int mts_tier_put_ref(u8 tier_slot, const struct mts_object_id *id)
+ }
+ EXPORT_SYMBOL_GPL(mts_tier_put_ref);
+ 
++static struct mts_tier *mts_select_tier(struct mem_cgroup *memcg)
++{
++	struct mts_domain *domain;
++	struct mts_tier *tier = NULL;
++
++	if (!memcg)
++		return NULL;
++	mutex_lock(&mts_registry_lock);
++	list_for_each_entry(domain, &mts_domains, node) {
++		if (domain->status != MTS_SLO_ADMITTED || !domain->tier_count)
++			continue;
++		if (domain->cgroup != memcg->css.cgroup)
++			continue;
++		tier = domain->tiers[0].tier;
++		kref_get(&tier->kref);
++		break;
++	}
++	mutex_unlock(&mts_registry_lock);
++	return tier;
++}
++
++bool mts_can_reclaim(struct mem_cgroup *memcg)
++{
++	struct mts_domain *domain;
++	struct mts_tier *tier;
++
++	if (!memcg) {
++		bool available = false;
++
++		mutex_lock(&mts_registry_lock);
++		list_for_each_entry(domain, &mts_domains, node)
++			if (domain->status == MTS_SLO_ADMITTED) {
++				available = true;
++				break;
++			}
++		mutex_unlock(&mts_registry_lock);
++		return available;
++	}
++	tier = mts_select_tier(memcg);
++
++	if (!tier)
++		return false;
++	mts_tier_put(tier);
++	return true;
++}
++EXPORT_SYMBOL_GPL(mts_can_reclaim);
++
++static void mts_pte_object_release(struct kref *kref)
++{
++	struct mts_pte_object *pte_object =
++		container_of(kref, struct mts_pte_object, kref);
++
++	mts_tier_put(pte_object->tier);
++	kfree(pte_object);
++}
++
++static int mts_object_get_ref_locked(struct mts_tier *tier,
++				     const struct mts_object_id *id)
++{
++	struct mts_object *object = mts_object_lookup(tier, id);
++
++	if (IS_ERR(object))
++		return PTR_ERR(object);
++	if (object->frozen || object->refs == MTS_REFCOUNT_FREEZE) {
++		object->frozen = true;
++		return -EOVERFLOW;
++	}
++	object->refs++;
++	if (object->refs == MTS_REFCOUNT_FREEZE)
++		object->frozen = true;
++	return 0;
++}
++
++static int mts_object_put_ref_locked(struct mts_tier *tier,
++				     const struct mts_object_id *id)
++{
++	struct mts_object *object = mts_object_lookup(tier, id);
++
++	if (IS_ERR(object))
++		return PTR_ERR(object);
++	object->refs--;
++	return 0;
++}
++
++int mts_prepare_folio(struct folio *folio)
++{
++	struct mts_pte_object *pte_object;
++	struct mts_tier *tier;
++	unsigned long pfn;
++	u32 cookie;
++	int err;
++
++	if (folio_test_large(folio) || folio_mapped(folio))
++		return -EAGAIN;
++	tier = mts_select_tier(folio_memcg(folio));
++	if (!tier)
++		return -ENODEV;
++	pte_object = kzalloc_obj(*pte_object);
++	if (!pte_object) {
++		err = -ENOMEM;
++		goto put_tier;
++	}
++	kref_init(&pte_object->kref);
++	pte_object->tier = tier;
++	err = mts_tier_put_page(tier->slot, &folio->page, &pte_object->id);
++	if (err)
++		goto free_object;
++
++	mutex_lock(&mts_pte_lock);
++	err = xa_alloc(&mts_pte_objects, &cookie, pte_object,
++		       XA_LIMIT(1, U32_MAX), GFP_NOWAIT);
++	if (err)
++		goto unlock_put_object;
++	pte_object->cookie = cookie;
++	pfn = folio_pfn(folio);
++	err = xa_insert(&mts_prepared_pages, pfn, pte_object, GFP_NOWAIT);
++	if (err) {
++		xa_erase(&mts_pte_objects, cookie);
++		goto unlock_put_object;
++	}
++	mutex_unlock(&mts_pte_lock);
++	return 0;
++
++unlock_put_object:
++	mutex_unlock(&mts_pte_lock);
++	mutex_lock(&tier->lock);
++	mts_object_put_ref_locked(tier, &pte_object->id);
++	mutex_unlock(&tier->lock);
++free_object:
++	kref_put(&pte_object->kref, mts_pte_object_release);
++	return err;
++put_tier:
++	mts_tier_put(tier);
++	return err;
++}
++EXPORT_SYMBOL_GPL(mts_prepare_folio);
++
++bool mts_folio_entry(struct page *page, swp_entry_t *entry)
++{
++	struct mts_pte_object *pte_object;
++	bool found = false;
++
++	mutex_lock(&mts_pte_lock);
++	pte_object = xa_load(&mts_prepared_pages, page_to_pfn(page));
++	if (!pte_object)
++		goto unlock;
++	if (pte_object->pte_refs) {
++		mutex_lock(&pte_object->tier->lock);
++		if (mts_object_get_ref_locked(pte_object->tier,
++					      &pte_object->id)) {
++			mutex_unlock(&pte_object->tier->lock);
++			goto unlock;
++		}
++		mutex_unlock(&pte_object->tier->lock);
++	}
++	pte_object->pte_refs++;
++	*entry = swp_entry(SWP_MTS, pte_object->cookie);
++	found = true;
++unlock:
++	mutex_unlock(&mts_pte_lock);
++	return found;
++}
++EXPORT_SYMBOL_GPL(mts_folio_entry);
++
++bool mts_finish_folio(struct folio *folio)
++{
++	struct mts_pte_object *pte_object;
++	unsigned long pfn = folio_pfn(folio);
++
++	mutex_lock(&mts_pte_lock);
++	pte_object = xa_erase(&mts_prepared_pages, pfn);
++	if (!pte_object) {
++		mutex_unlock(&mts_pte_lock);
++		return false;
++	}
++	if (!pte_object->pte_refs) {
++		xa_erase(&mts_pte_objects, pte_object->cookie);
++		mutex_lock(&pte_object->tier->lock);
++		mts_object_put_ref_locked(pte_object->tier, &pte_object->id);
++		mutex_unlock(&pte_object->tier->lock);
++		kref_put(&pte_object->kref, mts_pte_object_release);
++	}
++	mutex_unlock(&mts_pte_lock);
++	return true;
++}
++EXPORT_SYMBOL_GPL(mts_finish_folio);
++
++int mts_entry_dup(swp_entry_t entry)
++{
++	struct mts_pte_object *pte_object;
++	int err = -ESTALE;
++
++	mutex_lock(&mts_pte_lock);
++	pte_object = xa_load(&mts_pte_objects, swp_offset(entry));
++	if (!pte_object)
++		goto unlock;
++	mutex_lock(&pte_object->tier->lock);
++	err = mts_object_get_ref_locked(pte_object->tier, &pte_object->id);
++	mutex_unlock(&pte_object->tier->lock);
++	if (!err)
++		pte_object->pte_refs++;
++unlock:
++	mutex_unlock(&mts_pte_lock);
++	return err;
++}
++EXPORT_SYMBOL_GPL(mts_entry_dup);
++
++void mts_entry_put(swp_entry_t entry)
++{
++	struct mts_pte_object *pte_object;
++
++	mutex_lock(&mts_pte_lock);
++	pte_object = xa_load(&mts_pte_objects, swp_offset(entry));
++	if (!pte_object || !pte_object->pte_refs)
++		goto unlock;
++	mutex_lock(&pte_object->tier->lock);
++	mts_object_put_ref_locked(pte_object->tier, &pte_object->id);
++	mutex_unlock(&pte_object->tier->lock);
++	pte_object->pte_refs--;
++	if (!pte_object->pte_refs) {
++		xa_erase(&mts_pte_objects, pte_object->cookie);
++		kref_put(&pte_object->kref, mts_pte_object_release);
++	}
++unlock:
++	mutex_unlock(&mts_pte_lock);
++}
++EXPORT_SYMBOL_GPL(mts_entry_put);
++
++int mts_entry_read(swp_entry_t entry, struct page *page,
++		   struct mts_object_id *id, u8 uuid[16])
++{
++	struct mts_pte_object *pte_object;
++	struct mts_object *object;
++	int err = -ESTALE;
++
++	mutex_lock(&mts_pte_lock);
++	pte_object = xa_load(&mts_pte_objects, swp_offset(entry));
++	if (pte_object)
++		kref_get(&pte_object->kref);
++	mutex_unlock(&mts_pte_lock);
++	if (!pte_object)
++		return err;
++
++	mutex_lock(&pte_object->tier->lock);
++	object = mts_object_lookup(pte_object->tier, &pte_object->id);
++	if (IS_ERR(object)) {
++		err = PTR_ERR(object);
++		mutex_unlock(&pte_object->tier->lock);
++		goto put_object;
++	}
++	mutex_lock(&object->lock);
++	mutex_unlock(&pte_object->tier->lock);
++	err = mts_provider_read(pte_object->tier, pte_object->id.slot, page,
++				object->checksum);
++	mutex_unlock(&object->lock);
++	if (!err) {
++		*id = pte_object->id;
++		memcpy(uuid, pte_object->tier->desc.uuid, MTS_UUID_BYTES);
++	}
++put_object:
++	kref_put(&pte_object->kref, mts_pte_object_release);
++	return err;
++}
++EXPORT_SYMBOL_GPL(mts_entry_read);
++
+ static int mts_validate_registration(const struct mts_register_tier_v2 *request)
+ {
+ 	const struct mts_tier_desc_v2 *desc = &request->tier;
+diff --git a/mm/rmap.c b/mm/rmap.c
+index 99e1b3d..486c728 100644
+--- a/mm/rmap.c
++++ b/mm/rmap.c
+@@ -74,6 +74,7 @@
+ #include <linux/memremap.h>
+ #include <linux/userfaultfd_k.h>
+ #include <linux/mm_inline.h>
++#include <linux/mts.h>
+ #include <linux/oom.h>
+ 
+ #include <asm/tlb.h>
+@@ -2226,6 +2227,7 @@ static bool try_to_unmap_one(struct folio *folio, struct vm_area_struct *vma,
+ 		} else if (folio_test_anon(folio)) {
+ 			swp_entry_t entry = page_swap_entry(subpage);
+ 			pte_t swp_pte;
++
+ 			/*
+ 			 * Store the swap location in the pte.
+ 			 * See handle_pte_fault() ...
+@@ -2728,6 +2730,65 @@ static bool try_to_migrate_one(struct folio *folio, struct vm_area_struct *vma,
+ 	return ret;
+ }
+ 
++struct mts_install_arg {
++	bool installed;
++	bool failed;
++};
++
++static bool install_mts_pte(struct folio *folio, struct vm_area_struct *vma,
++			    unsigned long addr, void *arg)
++{
++	struct mts_install_arg *install = arg;
++	DEFINE_FOLIO_VMA_WALK(pvmw, folio, vma, addr,
++			      PVMW_SYNC | PVMW_MIGRATION);
++
++	while (page_vma_mapped_walk(&pvmw)) {
++		softleaf_t migration;
++		swp_entry_t mts_entry;
++		pte_t old_pte;
++		pte_t new_pte;
++
++		if (!pvmw.pte)
++			continue;
++		old_pte = ptep_get(pvmw.pte);
++		migration = softleaf_from_pte(old_pte);
++		if (!softleaf_is_migration(migration) ||
++		    softleaf_to_pfn(migration) != folio_pfn(folio))
++			continue;
++		if (!mts_folio_entry(&folio->page, &mts_entry)) {
++			install->failed = true;
++			return false;
++		}
++		new_pte = swp_entry_to_pte(mts_entry);
++		if (softleaf_is_migration_read_exclusive(migration))
++			new_pte = pte_swp_mkexclusive(new_pte);
++		if (pte_swp_soft_dirty(old_pte))
++			new_pte = pte_swp_mksoft_dirty(new_pte);
++		if (pte_swp_uffd_wp(old_pte))
++			new_pte = pte_swp_mkuffd_wp(new_pte);
++		set_pte_at(vma->vm_mm, pvmw.address, pvmw.pte, new_pte);
++		dec_mm_counter(vma->vm_mm, MM_ANONPAGES);
++		inc_mm_counter(vma->vm_mm, MM_SWAPENTS);
++		update_mmu_cache(vma, pvmw.address, pvmw.pte);
++		install->installed = true;
++	}
++	return true;
++}
++
++bool mts_install_folio_ptes(struct folio *folio)
++{
++	struct mts_install_arg install = {};
++	struct rmap_walk_control rwc = {
++		.rmap_one = install_mts_pte,
++		.arg = &install,
++		.anon_lock = folio_lock_anon_vma_read,
++	};
++
++	rmap_walk(folio, &rwc);
++	return install.installed && !install.failed;
++}
++EXPORT_SYMBOL_GPL(mts_install_folio_ptes);
++
+ /**
+  * try_to_migrate - try to replace all page table mappings with swap entries
+  * @folio: the folio to replace page table entries for
+diff --git a/mm/vmscan.c b/mm/vmscan.c
+index 9b01a42..96b0d96 100644
+--- a/mm/vmscan.c
++++ b/mm/vmscan.c
+@@ -346,6 +346,8 @@ static inline bool can_reclaim_anon_pages(struct mem_cgroup *memcg,
+ 					  int nid,
+ 					  struct scan_control *sc)
+ {
++	if (mts_can_reclaim(memcg))
++		return true;
+ 	if (memcg == NULL) {
+ 		/*
+ 		 * For non-memcg reclaim, is there
+@@ -367,6 +369,31 @@ static inline bool can_reclaim_anon_pages(struct mem_cgroup *memcg,
+ 	return can_demote(nid, sc, memcg);
+ }
+ 
++static bool mts_try_demote_folio(struct folio *folio)
++{
++	if (folio_test_large(folio) || folio_mapcount(folio) != 1 ||
++	    !mts_can_reclaim(folio_memcg(folio)))
++		return false;
++	/*
++	 * Migration entries freeze the only mapping before the provider
++	 * observes payload bytes. This first path uses an immediate TLB flush;
++	 * batched conversion must preserve the same write-exclusion invariant.
++	 */
++	try_to_migrate(folio, TTU_SYNC);
++	if (folio_mapped(folio))
++		return false;
++	if (mts_prepare_folio(folio))
++		goto restore;
++	if (mts_install_folio_ptes(folio)) {
++		mts_finish_folio(folio);
++		return true;
++	}
++	mts_finish_folio(folio);
++restore:
++	remove_migration_ptes(folio, folio, 0);
++	return false;
++}
++
+ /*
+  * This misses isolated folios which are not accounted for to save counters.
+  * As the data only determines if reclaim or compaction continues, it is
+@@ -1267,6 +1294,10 @@ retry:
+ 				goto keep_locked;
+ 			if (folio_maybe_dma_pinned(folio))
+ 				goto keep_locked;
++			if (mts_try_demote_folio(folio)) {
++				folio_unlock(folio);
++				goto free_it;
++			}
+ 			if (folio_test_large(folio)) {
+ 				/* cannot split folio, skip it */
+ 				if (folio_expected_ref_count(folio) !=
+-- 
+2.51.1
+

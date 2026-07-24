@@ -5,4 +5,5 @@
 /rootfs-staging/
 /initrd-staging/
 /artifacts/
-*.logpackage/atom-firstboot/atom-firstboot
+*.log
+package/atom-firstboot/atom-firstboot

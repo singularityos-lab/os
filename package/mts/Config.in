@@ -1,0 +1,8 @@
+config BR2_PACKAGE_MTS
+	bool "mts (memory tiering standard userspace)"
+	help
+	  Memory Tiering Standard userspace: the mtsd daemon that
+	  registers declarative cgroup-v2 tiers and admits domains, and
+	  the mtsctl control tool. Requires the MTS kernel patches
+	  (CONFIG_MTS_OBSERVE / CONFIG_MTS_TIER) which expose /dev/mts.
+	  Built with Zig 0.16.x (host).

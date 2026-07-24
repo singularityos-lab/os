@@ -1,0 +1,596 @@
+From 3d4290e44462472dda8e8945970730cdbfa0207a Mon Sep 17 00:00:00 2001
+From: Mirko Brombin <9479903+mirkobrombin@users.noreply.github.com>
+Date: Sat, 18 Jul 2026 19:13:40 +0100
+Subject: [PATCH 3/3] mm: add generation-checked native object tiers
+
+Register FD-scoped declarative tiers through /dev/mts and keep provider identity behind the MTS object interface. Store authoritative pages by slot, validate every fill with CRC32, and reject stale generations.
+
+Preserve exact fork references through the 24-bit sticky freeze boundary. Drain a provider before removing its global tier slot so an in-flight lookup cannot observe freed state.
+
+Evidence: CONFIG_MTS_OBSERVE=y CONFIG_MTS_TIER=y make -j4 mm/mts.o mm/mts_tier.o.
+Signed-off-by: Mirko Brombin <9479903+mirkobrombin@users.noreply.github.com>
+---
+ MAINTAINERS         |   2 +-
+ include/linux/mts.h |  41 ++++
+ mm/Kconfig          |  10 +
+ mm/Makefile         |   1 +
+ mm/mts_tier.c       | 461 ++++++++++++++++++++++++++++++++++++++++++++
+ 5 files changed, 514 insertions(+), 1 deletion(-)
+ create mode 100644 mm/mts_tier.c
+
+diff --git a/MAINTAINERS b/MAINTAINERS
+index 6ae074c..815706b 100644
+--- a/MAINTAINERS
++++ b/MAINTAINERS
+@@ -17179,7 +17179,7 @@ F:	Documentation/userspace-api/mts.rst
+ F:	include/linux/mts.h
+ F:	include/trace/events/mts.h
+ F:	include/uapi/linux/mts.h
+-F:	mm/mts.c
++F:	mm/mts*.c
+ 
+ MEMORY TECHNOLOGY DEVICES (MTD)
+ M:	Miquel Raynal <miquel.raynal@bootlin.com>
+diff --git a/include/linux/mts.h b/include/linux/mts.h
+index 569953c..ec5dc22 100644
+--- a/include/linux/mts.h
++++ b/include/linux/mts.h
+@@ -2,9 +2,16 @@
+ #ifndef _LINUX_MTS_H
+ #define _LINUX_MTS_H
+ 
++#include <linux/errno.h>
+ #include <linux/types.h>
+ 
+ struct folio;
++struct page;
++
++struct mts_object_id {
++	u32 slot;
++	u32 generation;
++};
+ 
+ #ifdef CONFIG_MTS_OBSERVE
+ #include <linux/page_ext.h>
+@@ -18,4 +25,38 @@ static inline void mts_observe_access(struct folio *folio) { }
+ static inline void mts_observe_consider(struct folio *folio, bool referenced) { }
+ #endif
+ 
++#ifdef CONFIG_MTS_TIER
++int mts_tier_put_page(u8 tier_slot, struct page *page,
++		      struct mts_object_id *id);
++int mts_tier_get_page(u8 tier_slot, const struct mts_object_id *id,
++		      struct page *page);
++int mts_tier_get_ref(u8 tier_slot, const struct mts_object_id *id);
++int mts_tier_put_ref(u8 tier_slot, const struct mts_object_id *id);
++#else
++static inline int mts_tier_put_page(u8 tier_slot, struct page *page,
++				    struct mts_object_id *id)
++{
++	return -EOPNOTSUPP;
++}
++
++static inline int mts_tier_get_page(u8 tier_slot,
++				    const struct mts_object_id *id,
++				    struct page *page)
++{
++	return -EOPNOTSUPP;
++}
++
++static inline int mts_tier_get_ref(u8 tier_slot,
++				   const struct mts_object_id *id)
++{
++	return -EOPNOTSUPP;
++}
++
++static inline int mts_tier_put_ref(u8 tier_slot,
++				   const struct mts_object_id *id)
++{
++	return -EOPNOTSUPP;
++}
++#endif
++
+ #endif /* _LINUX_MTS_H */
+diff --git a/mm/Kconfig b/mm/Kconfig
+index 47e993a..73a31a8 100644
+--- a/mm/Kconfig
++++ b/mm/Kconfig
+@@ -29,6 +29,16 @@ config MTS_OBSERVE
+ 	  the M0 measurement prototype; it never demotes or promotes a page.
+ 	  All reclaim and placement decisions remain unchanged.
+ 
++config MTS_TIER
++	bool "Memory Tiering Standard native object tiers"
++	depends on MTS_OBSERVE && BLOCK
++	select CRC32
++	help
++	  Register declarative file-backed tiers through /dev/mts and expose the
++	  generation-checked object operations used by the MTS fault path. Tier
++	  descriptors remain independent of the backing provider type. Provider
++	  closure drains the tier before the final reference can disappear.
++
+ config ZSWAP
+ 	bool "Compressed cache for swap pages"
+ 	depends on SWAP
+diff --git a/mm/Makefile b/mm/Makefile
+index dda833d..b9d8581 100644
+--- a/mm/Makefile
++++ b/mm/Makefile
+@@ -78,6 +78,7 @@ endif
+ obj-$(CONFIG_SWAP)	+= page_io.o swap_state.o swapfile.o
+ obj-$(CONFIG_ZSWAP)	+= zswap.o
+ obj-$(CONFIG_MTS_OBSERVE) += mts.o
++obj-$(CONFIG_MTS_TIER) += mts_tier.o
+ obj-$(CONFIG_HAS_DMA)	+= dmapool.o
+ obj-$(CONFIG_HUGETLBFS)	+= hugetlb.o hugetlb_sysfs.o hugetlb_sysctl.o
+ ifdef CONFIG_CMA
+diff --git a/mm/mts_tier.c b/mm/mts_tier.c
+new file mode 100644
+index 0000000..02a138f
+--- /dev/null
++++ b/mm/mts_tier.c
+@@ -0,0 +1,461 @@
++// SPDX-License-Identifier: GPL-2.0-only
++#include <linux/anon_inodes.h>
++#include <linux/crc32.h>
++#include <linux/file.h>
++#include <linux/fdtable.h>
++#include <linux/fs.h>
++#include <linux/idr.h>
++#include <linux/kref.h>
++#include <linux/miscdevice.h>
++#include <linux/mm.h>
++#include <linux/module.h>
++#include <linux/mts.h>
++#include <linux/mutex.h>
++#include <linux/pagemap.h>
++#include <linux/slab.h>
++#include <linux/uaccess.h>
++#include <linux/xarray.h>
++#include <uapi/linux/mts.h>
++
++#define MTS_REFCOUNT_FREEZE	0x00fffffeU
++#define MTS_MAX_TIER_SLOTS	254
++
++enum mts_tier_state {
++	MTS_TIER_ACTIVE,
++	MTS_TIER_DRAINING,
++	MTS_TIER_FAILED,
++};
++
++struct mts_object {
++	/* Serializes provider I/O for one stable slot and generation. */
++	struct mutex lock;
++	u32 generation;
++	u32 refs;
++	u32 checksum;
++	bool frozen;
++	bool retired;
++};
++
++struct mts_tier {
++	struct kref kref;
++	/* Protects state, allocation, generation and reference counts. */
++	struct mutex lock;
++	struct xarray objects;
++	struct file *provider;
++	struct mts_tier_desc_v2 desc;
++	enum mts_tier_state state;
++	u8 slot;
++	u32 next_slot;
++};
++
++static DEFINE_XARRAY(mts_tiers);
++static DEFINE_IDA(mts_tier_ids);
++static DEFINE_MUTEX(mts_registry_lock);
++
++static struct mts_tier *mts_tier_lookup(u8 tier_slot)
++{
++	struct mts_tier *tier;
++
++	rcu_read_lock();
++	tier = xa_load(&mts_tiers, tier_slot);
++	if (tier && !kref_get_unless_zero(&tier->kref))
++		tier = NULL;
++	rcu_read_unlock();
++	return tier;
++}
++
++static void mts_tier_release(struct kref *kref)
++{
++	struct mts_tier *tier = container_of(kref, struct mts_tier, kref);
++	unsigned long index;
++	struct mts_object *object;
++
++	xa_for_each(&tier->objects, index, object)
++		kfree(object);
++	xa_destroy(&tier->objects);
++	fput(tier->provider);
++	ida_free(&mts_tier_ids, tier->slot);
++	kfree(tier);
++}
++
++static void mts_tier_put(struct mts_tier *tier)
++{
++	if (tier)
++		kref_put(&tier->kref, mts_tier_release);
++}
++
++static int mts_provider_write(struct mts_tier *tier, u32 slot,
++			      struct page *page, u32 *checksum)
++{
++	loff_t pos = (loff_t)slot << PAGE_SHIFT;
++	void *address;
++	ssize_t written;
++
++	address = kmap_local_page(page);
++	*checksum = crc32(~0, address, PAGE_SIZE);
++	written = kernel_write(tier->provider, address, PAGE_SIZE, &pos);
++	kunmap_local(address);
++	if (written < 0)
++		return written;
++	return written == PAGE_SIZE ? 0 : -EIO;
++}
++
++static int mts_provider_read(struct mts_tier *tier, u32 slot,
++			     struct page *page, u32 checksum)
++{
++	loff_t pos = (loff_t)slot << PAGE_SHIFT;
++	void *address;
++	ssize_t read;
++	u32 actual;
++
++	address = kmap_local_page(page);
++	read = kernel_read(tier->provider, address, PAGE_SIZE, &pos);
++	if (read == PAGE_SIZE) {
++		actual = crc32(~0, address, PAGE_SIZE);
++		if (actual != checksum)
++			read = -EILSEQ;
++	}
++	kunmap_local(address);
++	if (read < 0)
++		return read;
++	return read == PAGE_SIZE ? 0 : -EIO;
++}
++
++static int mts_allocate_object(struct mts_tier *tier,
++			       struct mts_object_id *id,
++			       struct mts_object **result)
++{
++	struct mts_object *object;
++	u32 slot;
++	int err;
++
++	mutex_lock(&tier->lock);
++	if (tier->state != MTS_TIER_ACTIVE) {
++		err = -ESHUTDOWN;
++		goto out_unlock;
++	}
++
++	for (slot = 0; slot < tier->next_slot; slot++) {
++		object = xa_load(&tier->objects, slot);
++		if (!object || object->refs || object->retired)
++			continue;
++		goto found;
++	}
++	if ((u64)tier->next_slot * PAGE_SIZE >= tier->desc.capacity_bytes) {
++		err = -ENOSPC;
++		goto out_unlock;
++	}
++	object = kzalloc(sizeof(*object), GFP_KERNEL);
++	if (!object) {
++		err = -ENOMEM;
++		goto out_unlock;
++	}
++	mutex_init(&object->lock);
++	slot = tier->next_slot++;
++	err = xa_err(xa_store(&tier->objects, slot, object, GFP_KERNEL));
++	if (err) {
++		kfree(object);
++		goto out_unlock;
++	}
++
++found:
++	if (object->generation == U32_MAX) {
++		object->retired = true;
++		err = -EOVERFLOW;
++		goto out_unlock;
++	}
++	object->generation++;
++	object->refs = 1;
++	object->frozen = false;
++	id->slot = slot;
++	id->generation = object->generation;
++	*result = object;
++	mutex_unlock(&tier->lock);
++	return 0;
++
++out_unlock:
++	mutex_unlock(&tier->lock);
++	return err;
++}
++
++static struct mts_object *mts_object_lookup(struct mts_tier *tier,
++					    const struct mts_object_id *id)
++{
++	struct mts_object *object;
++
++	object = xa_load(&tier->objects, id->slot);
++	if (!object || !object->refs || object->generation != id->generation)
++		return ERR_PTR(-ESTALE);
++	return object;
++}
++
++int mts_tier_put_page(u8 tier_slot, struct page *page,
++		      struct mts_object_id *id)
++{
++	struct mts_object *object;
++	struct mts_tier *tier;
++	int err;
++
++	tier = mts_tier_lookup(tier_slot);
++	if (!tier)
++		return -ENODEV;
++	err = mts_allocate_object(tier, id, &object);
++	if (!err) {
++		err = mts_provider_write(tier, id->slot, page, &object->checksum);
++		if (err) {
++			mutex_lock(&tier->lock);
++			object->refs = 0;
++			mutex_unlock(&tier->lock);
++		}
++	}
++	mts_tier_put(tier);
++	return err;
++}
++EXPORT_SYMBOL_GPL(mts_tier_put_page);
++
++int mts_tier_get_page(u8 tier_slot, const struct mts_object_id *id,
++		      struct page *page)
++{
++	struct mts_object *object;
++	struct mts_tier *tier;
++	int err;
++
++	tier = mts_tier_lookup(tier_slot);
++	if (!tier)
++		return -ENODEV;
++	mutex_lock(&tier->lock);
++	object = mts_object_lookup(tier, id);
++	if (IS_ERR(object)) {
++		err = PTR_ERR(object);
++		mutex_unlock(&tier->lock);
++		goto out;
++	}
++	mutex_lock(&object->lock);
++	mutex_unlock(&tier->lock);
++	err = mts_provider_read(tier, id->slot, page, object->checksum);
++	mutex_unlock(&object->lock);
++out:
++	mts_tier_put(tier);
++	return err;
++}
++EXPORT_SYMBOL_GPL(mts_tier_get_page);
++
++int mts_tier_get_ref(u8 tier_slot, const struct mts_object_id *id)
++{
++	struct mts_object *object;
++	struct mts_tier *tier;
++	int err = 0;
++
++	tier = mts_tier_lookup(tier_slot);
++	if (!tier)
++		return -ENODEV;
++	mutex_lock(&tier->lock);
++	object = mts_object_lookup(tier, id);
++	if (IS_ERR(object)) {
++		err = PTR_ERR(object);
++	} else if (object->frozen || object->refs == MTS_REFCOUNT_FREEZE) {
++		object->frozen = true;
++		err = -EOVERFLOW;
++	} else {
++		object->refs++;
++		if (object->refs == MTS_REFCOUNT_FREEZE)
++			object->frozen = true;
++	}
++	mutex_unlock(&tier->lock);
++	mts_tier_put(tier);
++	return err;
++}
++EXPORT_SYMBOL_GPL(mts_tier_get_ref);
++
++int mts_tier_put_ref(u8 tier_slot, const struct mts_object_id *id)
++{
++	struct mts_object *object;
++	struct mts_tier *tier;
++	int err = 0;
++
++	tier = mts_tier_lookup(tier_slot);
++	if (!tier)
++		return -ENODEV;
++	mutex_lock(&tier->lock);
++	object = mts_object_lookup(tier, id);
++	if (IS_ERR(object))
++		err = PTR_ERR(object);
++	else
++		object->refs--;
++	mutex_unlock(&tier->lock);
++	mts_tier_put(tier);
++	return err;
++}
++EXPORT_SYMBOL_GPL(mts_tier_put_ref);
++
++static int mts_validate_registration(const struct mts_register_tier_v2 *request)
++{
++	const struct mts_tier_desc_v2 *desc = &request->tier;
++
++	if (request->version != MTS_UAPI_VERSION ||
++	    request->size != sizeof(*request) ||
++	    desc->version != MTS_UAPI_VERSION)
++		return -EPROTO;
++	if (desc->flags != MTS_TIER_F_FD_SCOPED &&
++	    desc->flags != MTS_TIER_F_PERSISTENT)
++		return -EINVAL;
++	if (request->provider_fd < 0)
++		return -EINVAL;
++	if (!desc->capacity_bytes || desc->capacity_bytes % PAGE_SIZE ||
++	    desc->allocation_granule_bytes != PAGE_SIZE)
++		return -EINVAL;
++	return 0;
++}
++
++static int mts_tier_fd_release(struct inode *inode, struct file *file)
++{
++	struct mts_tier *tier = file->private_data;
++
++	if (tier->desc.flags & MTS_TIER_F_FD_SCOPED) {
++		mutex_lock(&mts_registry_lock);
++		mutex_lock(&tier->lock);
++		tier->state = MTS_TIER_DRAINING;
++		mutex_unlock(&tier->lock);
++		xa_erase(&mts_tiers, tier->slot);
++		mutex_unlock(&mts_registry_lock);
++		synchronize_rcu();
++		/* Drop the registry reference after lookups leave their RCU read. */
++		mts_tier_put(tier);
++	}
++	/* Every returned tier descriptor owns one independent fd reference. */
++	mts_tier_put(tier);
++	return 0;
++}
++
++static const struct file_operations mts_tier_fops = {
++	.owner = THIS_MODULE,
++	.release = mts_tier_fd_release,
++	.llseek = noop_llseek,
++};
++
++static int mts_unregister_tier(void __user *argument)
++{
++	u8 uuid[MTS_UUID_BYTES];
++	struct mts_tier *tier;
++	unsigned long index;
++	int err = -ENOENT;
++
++	if (copy_from_user(uuid, argument, sizeof(uuid)))
++		return -EFAULT;
++	mutex_lock(&mts_registry_lock);
++	xa_for_each(&mts_tiers, index, tier) {
++		if (memcmp(uuid, tier->desc.uuid, sizeof(uuid)))
++			continue;
++		if (!(tier->desc.flags & MTS_TIER_F_PERSISTENT)) {
++			err = -EINVAL;
++			break;
++		}
++		mutex_lock(&tier->lock);
++		tier->state = MTS_TIER_DRAINING;
++		mutex_unlock(&tier->lock);
++		xa_erase(&mts_tiers, index);
++		err = 0;
++		break;
++	}
++	mutex_unlock(&mts_registry_lock);
++	if (!err) {
++		synchronize_rcu();
++		mts_tier_put(tier);
++	}
++	return err;
++}
++
++static long mts_control_ioctl(struct file *file, unsigned int command,
++			      unsigned long argument)
++{
++	struct mts_register_tier_v2 request;
++	struct mts_tier *tier;
++	int fd;
++	int slot;
++	int err;
++
++	if (command == MTS_IOC_UNREGISTER_TIER)
++		return mts_unregister_tier((void __user *)argument);
++	if (command != MTS_IOC_REGISTER_TIER)
++		return -ENOTTY;
++	if (copy_from_user(&request, (void __user *)argument, sizeof(request)))
++		return -EFAULT;
++	err = mts_validate_registration(&request);
++	if (err)
++		return err;
++
++	tier = kzalloc_obj(*tier);
++	if (!tier)
++		return -ENOMEM;
++	tier->provider = fget(request.provider_fd);
++	if (!tier->provider) {
++		err = -EBADF;
++		goto free_tier;
++	}
++	kref_init(&tier->kref);
++	mutex_init(&tier->lock);
++	xa_init(&tier->objects);
++	tier->desc = request.tier;
++	tier->state = MTS_TIER_ACTIVE;
++	slot = ida_alloc_range(&mts_tier_ids, 1, MTS_MAX_TIER_SLOTS, GFP_KERNEL);
++	if (slot < 0) {
++		err = slot;
++		goto put_provider;
++	}
++	tier->slot = slot;
++	mutex_lock(&mts_registry_lock);
++	err = xa_err(xa_store(&mts_tiers, slot, tier, GFP_KERNEL));
++	mutex_unlock(&mts_registry_lock);
++	if (err)
++		goto free_slot;
++	/* The descriptor fd and registry must never share a lifetime count. */
++	kref_get(&tier->kref);
++	fd = anon_inode_getfd("mts-tier", &mts_tier_fops, tier,
++			      O_RDWR | O_CLOEXEC);
++	if (fd < 0) {
++		err = fd;
++		mts_tier_put(tier);
++		goto erase_tier;
++	}
++	request.mtsfd = fd;
++	if (copy_to_user((void __user *)argument, &request, sizeof(request))) {
++		close_fd(fd);
++		return -EFAULT;
++	}
++	return 0;
++
++erase_tier:
++	mutex_lock(&mts_registry_lock);
++	xa_erase(&mts_tiers, slot);
++	mutex_unlock(&mts_registry_lock);
++	synchronize_rcu();
++	mts_tier_put(tier);
++	return err;
++free_slot:
++	ida_free(&mts_tier_ids, slot);
++put_provider:
++	fput(tier->provider);
++free_tier:
++	kfree(tier);
++	return err;
++}
++
++static const struct file_operations mts_control_fops = {
++	.owner = THIS_MODULE,
++	.unlocked_ioctl = mts_control_ioctl,
++	.compat_ioctl = compat_ptr_ioctl,
++	.llseek = noop_llseek,
++};
++
++static struct miscdevice mts_control_device = {
++	.minor = MISC_DYNAMIC_MINOR,
++	.name = "mts",
++	.fops = &mts_control_fops,
++	.mode = 0600,
++};
++
++static int __init mts_tier_init(void)
++{
++	return misc_register(&mts_control_device);
++}
++subsys_initcall(mts_tier_init);
+-- 
+2.51.1
+

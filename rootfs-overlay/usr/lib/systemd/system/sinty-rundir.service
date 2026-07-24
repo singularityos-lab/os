@@ -7,7 +7,7 @@ Before=sysinit.target
 Type=oneshot
 RemainAfterExit=yes
 # /run/sinty: 1777 session registry (users write session-<uid>). /run/sintykey: root:root
-# 0700 scratch for sintykey's transient CE-key/PIN files (R-C4) -- created here, early and
+# 0700 scratch for sintykey's transient CE-key/PIN files -- created here, early and
 # root-owned, so no user can pre-create it as a symlink before sintykey runs. A single Go
 # exec (sintykey mkdirs) instead of /bin/sh in the pre-sysinit path: it creates both with the
 # right mode and refuses a pre-planted symlink (Tier-1: no shell before sysinit).

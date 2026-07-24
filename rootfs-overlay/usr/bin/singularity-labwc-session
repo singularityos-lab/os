@@ -3,30 +3,39 @@ SELF="$(readlink -f "$0")"
 BIN="$(dirname "$SELF")"
 PREFIX="$(dirname "$BIN")"
 
+. /usr/bin/singularity-session-common
+
 export PATH="$BIN:$PATH"
 export LD_LIBRARY_PATH="$PREFIX/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 export SINGULARITY_BLUR_ENABLED=1
+export XDG_CURRENT_DESKTOP=Singularity:labwc:wlroots
+export GTK_USE_PORTAL=1
 
-[ -r /var/lib/singularity/vconsole.conf ] && . /var/lib/singularity/vconsole.conf
-[ -n "$XKBLAYOUT" ] && export XKB_DEFAULT_LAYOUT="$XKBLAYOUT"
-[ -n "$XKBVARIANT" ] && export XKB_DEFAULT_VARIANT="$XKBVARIANT"
-[ -r /var/lib/singularity/locale.conf ] && . /var/lib/singularity/locale.conf
-[ -n "$LANG" ] && export LANG
+# Single-compositor: the desktop shell connects as a CLIENT to the persistent
+# compositor (singularity-compositor, one labwc for the whole session) instead of
+# launching a second labwc. That is what removes the second cold start at login.
+#
+# WAYLAND_DISPLAY is SET here (the opposite of the compositor, which unsets it to
+# select the DRM backend). Use the ABSOLUTE socket path so XDG_RUNTIME_DIR stays
+# the user's own runtime dir (/run/user/1000) for pipewire, the session bus and
+# the portals; only the Wayland connection points at the shared compositor.
+export WAYLAND_DISPLAY=/run/singularity/wayland-0
 
-# Run the whole session under a private session bus that dbus-run-session creates
-# before launch and tears down when the session exits. This replaces manually
-# backgrounding dbus-daemon, which orphaned the daemon at logout and left a dead
-# $XDG_RUNTIME_DIR/bus socket that the next login connected to (timeout/retry
-# storm, slow load, black screen on the second login). The audio stack starts
-# from singularity-desktop-session, after the bus is up.
-if [ -z "$DBUS_SESSION_BUS_ADDRESS" ] && [ -z "$GDM_SESSION_DBUS_ADDRESS" ] \
-   && command -v dbus-run-session >/dev/null 2>&1; then
-    exec dbus-run-session -- "$BIN/labwc" -s "$BIN/singularity-desktop-session" \
-        2>>"${XDG_RUNTIME_DIR:-/tmp}/labwc.log"
+sscommon_locale
+sscommon_softrender_backstop
+
+# Wait for the persistent compositor's socket, fail loud rather than black.
+_i=0
+while [ ! -S "$WAYLAND_DISPLAY" ] && [ "$_i" -lt 100 ]; do
+    sleep 0.1
+    _i=$((_i + 1))
+done
+if [ ! -S "$WAYLAND_DISPLAY" ]; then
+    sscommon_log "labwc-session: compositor socket $WAYLAND_DISPLAY never appeared, aborting"
+    exit 1
 fi
+sscommon_log "labwc-session: connecting desktop shell to persistent compositor as client"
 
-if [ -n "$GDM_SESSION_DBUS_ADDRESS" ] && [ -x "/usr/libexec/gdm-wayland-session" ]; then
-    exec /usr/libexec/gdm-wayland-session "$BIN/labwc" -s "$BIN/singularity-desktop-session"
-else
-    exec "$BIN/labwc" -s "$BIN/singularity-desktop-session" 2>>"${XDG_RUNTIME_DIR:-/tmp}/labwc.log"
-fi
+# No labwc here: exactly one compositor for the whole session. Just the desktop
+# shell, under its own session bus.
+exec dbus-run-session -- "$BIN/singularity-desktop-session"

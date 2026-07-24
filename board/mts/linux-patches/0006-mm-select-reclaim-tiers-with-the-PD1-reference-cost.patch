@@ -1,0 +1,257 @@
+From 0d0ee9164cdbd0de976c6edbafbf0c9d2ded05a4 Mon Sep 17 00:00:00 2001
+From: Mirko Brombin <9479903+mirkobrombin@users.noreply.github.com>
+Date: Sat, 18 Jul 2026 20:02:07 +0100
+Subject: [PATCH 6/6] mm: select reclaim tiers with the PD1 reference cost
+
+Expose the calibrated per-folio ISO16 probability to the placement path and rank every admitted active tier with recovery, transfer, write, capacity, bandwidth, and queue-price terms.
+
+Update all four non-negative prices when reservation demand changes using the v0.2 target and projected-dual step. Count direct-reclaim placement as the specified emergency hysteresis bypass rather than silently claiming the three-epoch path.
+
+Evidence: Linux 7.1.3 CONFIG_MTS_TIER=y make -j4 mm/; checkpatch.pl --strict (clean).
+Signed-off-by: Mirko Brombin <9479903+mirkobrombin@users.noreply.github.com>
+---
+ include/linux/mts.h |   2 +
+ mm/mts.c            |  15 ++++++
+ mm/mts_tier.c       | 109 ++++++++++++++++++++++++++++++++++++++++++--
+ 3 files changed, 121 insertions(+), 5 deletions(-)
+
+diff --git a/include/linux/mts.h b/include/linux/mts.h
+index c90ab70..5b83394 100644
+--- a/include/linux/mts.h
++++ b/include/linux/mts.h
+@@ -22,9 +22,11 @@ extern struct page_ext_operations mts_page_ext_ops;
+ 
+ void mts_observe_access(struct folio *folio);
+ void mts_observe_consider(struct folio *folio, bool referenced);
++u16 mts_folio_reuse_q12(struct folio *folio);
+ #else
+ static inline void mts_observe_access(struct folio *folio) { }
+ static inline void mts_observe_consider(struct folio *folio, bool referenced) { }
++static inline u16 mts_folio_reuse_q12(struct folio *folio) { return 0; }
+ #endif
+ 
+ #ifdef CONFIG_MTS_TIER
+diff --git a/mm/mts.c b/mm/mts.c
+index b4e1bdf..c1af235 100644
+--- a/mm/mts.c
++++ b/mm/mts.c
+@@ -104,6 +104,21 @@ static u64 mts_update_page(struct page *page, bool accessed)
+ 	return new;
+ }
+ 
++u16 mts_folio_reuse_q12(struct folio *folio)
++{
++	struct page_ext *page_ext = page_ext_get(&folio->page);
++	struct mts_page_ext *data;
++	u64 attr;
++
++	if (!page_ext)
++		return 0;
++	data = page_ext_data(page_ext, &mts_page_ext_ops);
++	attr = atomic64_read(&data->attr);
++	page_ext_put(page_ext);
++	return (attr & MTS_ATTR_REUSE_MASK) >> MTS_ATTR_REUSE_SHIFT;
++}
++EXPORT_SYMBOL_GPL(mts_folio_reuse_q12);
++
+ static void mts_mark_reused(unsigned long pfn)
+ {
+ 	struct mts_sample *sample = &mts_samples[hash_long(pfn, MTS_SAMPLE_BITS)];
+diff --git a/mm/mts_tier.c b/mm/mts_tier.c
+index 9274804..350b6fc 100644
+--- a/mm/mts_tier.c
++++ b/mm/mts_tier.c
+@@ -8,6 +8,7 @@
+ #include <linux/idr.h>
+ #include <linux/kref.h>
+ #include <linux/list.h>
++#include <linux/math64.h>
+ #include <linux/miscdevice.h>
+ #include <linux/mm.h>
+ #include <linux/memcontrol.h>
+@@ -57,6 +58,10 @@ struct mts_tier {
+ 	u64 reserved_read_bw;
+ 	u64 reserved_write_bw;
+ 	u32 reserved_queue_slots;
++	u64 price_capacity_q32;
++	u64 price_read_bw_q32;
++	u64 price_write_bw_q32;
++	u64 price_queue_q32;
+ };
+ 
+ struct mts_domain_tier {
+@@ -90,6 +95,7 @@ static LIST_HEAD(mts_domains);
+ static DEFINE_XARRAY_ALLOC1(mts_pte_objects);
+ static DEFINE_XARRAY(mts_prepared_pages);
+ static DEFINE_MUTEX(mts_pte_lock);
++static atomic64_t mts_hysteresis_bypass = ATOMIC64_INIT(0);
+ 
+ static struct mts_tier *mts_tier_lookup(u8 tier_slot)
+ {
+@@ -330,10 +336,47 @@ int mts_tier_put_ref(u8 tier_slot, const struct mts_object_id *id)
+ }
+ EXPORT_SYMBOL_GPL(mts_tier_put_ref);
+ 
+-static struct mts_tier *mts_select_tier(struct mem_cgroup *memcg)
++static u64 mts_cost_add(u64 left, u64 right)
++{
++	return left > U64_MAX - right ? U64_MAX : left + right;
++}
++
++static u64 mts_price_cost(u64 price_q32, u64 amount)
++{
++	return mul_u64_u64_div_u64(price_q32, amount, 1ULL << 32);
++}
++
++static u64 mts_pd1_cost(struct mts_tier *tier, u16 reuse_q12)
++{
++	u64 transfer_ns;
++	u64 recover_ns;
++	u64 cost;
++	u64 read_bw = tier->desc.read_bandwidth_bytes_s;
++
++	if (!read_bw)
++		return U64_MAX;
++	transfer_ns = mul_u64_u64_div_u64(PAGE_SIZE, NSEC_PER_SEC, read_bw);
++	recover_ns = mts_cost_add(tier->desc.read_latency_p50_ns,
++				  transfer_ns);
++	cost = mul_u64_u64_div_u64(reuse_q12, recover_ns, 4095);
++	cost = mts_cost_add(cost, tier->desc.write_latency_p50_ns);
++	cost = mts_cost_add(cost,
++			    mts_price_cost(tier->price_capacity_q32, PAGE_SIZE));
++	cost = mts_cost_add(cost,
++			    mts_price_cost(tier->price_read_bw_q32, PAGE_SIZE));
++	cost = mts_cost_add(cost,
++			    mts_price_cost(tier->price_write_bw_q32, PAGE_SIZE));
++	cost = mts_cost_add(cost, tier->price_queue_q32 >> 32);
++	return cost;
++}
++
++static struct mts_tier *mts_select_tier(struct mem_cgroup *memcg,
++					u16 reuse_q12)
+ {
+ 	struct mts_domain *domain;
+ 	struct mts_tier *tier = NULL;
++	u64 best_cost = U64_MAX;
++	u32 index;
+ 
+ 	if (!memcg)
+ 		return NULL;
+@@ -343,8 +386,20 @@ static struct mts_tier *mts_select_tier(struct mem_cgroup *memcg)
+ 			continue;
+ 		if (domain->cgroup != memcg->css.cgroup)
+ 			continue;
+-		tier = domain->tiers[0].tier;
+-		kref_get(&tier->kref);
++		for (index = 0; index < domain->tier_count; index++) {
++			struct mts_tier *candidate = domain->tiers[index].tier;
++			u64 candidate_cost;
++
++			if (candidate->state != MTS_TIER_ACTIVE)
++				continue;
++			candidate_cost = mts_pd1_cost(candidate, reuse_q12);
++			if (candidate_cost >= best_cost)
++				continue;
++			tier = candidate;
++			best_cost = candidate_cost;
++		}
++		if (tier)
++			kref_get(&tier->kref);
+ 		break;
+ 	}
+ 	mutex_unlock(&mts_registry_lock);
+@@ -368,7 +423,7 @@ bool mts_can_reclaim(struct mem_cgroup *memcg)
+ 		mutex_unlock(&mts_registry_lock);
+ 		return available;
+ 	}
+-	tier = mts_select_tier(memcg);
++	tier = mts_select_tier(memcg, 0);
+ 
+ 	if (!tier)
+ 		return false;
+@@ -424,9 +479,12 @@ int mts_prepare_folio(struct folio *folio)
+ 
+ 	if (folio_test_large(folio) || folio_mapped(folio))
+ 		return -EAGAIN;
+-	tier = mts_select_tier(folio_memcg(folio));
++	tier = mts_select_tier(folio_memcg(folio),
++			       mts_folio_reuse_q12(folio));
+ 	if (!tier)
+ 		return -ENODEV;
++	/* Direct reclaim is the normative emergency hysteresis bypass. */
++	atomic64_inc(&mts_hysteresis_bypass);
+ 	pte_object = kzalloc_obj(*pte_object);
+ 	if (!pte_object) {
+ 		err = -ENOMEM;
+@@ -675,6 +733,44 @@ static int mts_add_headroom(u64 value, u64 *result)
+ 	return 0;
+ }
+ 
++static void mts_update_price(u64 *price_q32, u64 demand, u64 usable,
++			     u64 service_p99)
++{
++	u64 target;
++	u64 distance;
++	u64 denominator;
++	u64 step;
++
++	if (!usable || !service_p99)
++		return;
++	target = mul_u64_u64_div_u64(usable, 4, 5);
++	distance = demand > target ? demand - target : target - demand;
++	denominator = usable > U64_MAX / 8 ? U64_MAX : 8 * usable;
++	step = mul_u64_u64_div_u64(distance, service_p99, denominator);
++	step = min_t(u64, step, U32_MAX) << 32;
++	if (demand > target)
++		*price_q32 = mts_cost_add(*price_q32, step);
++	else
++		*price_q32 = *price_q32 > step ? *price_q32 - step : 0;
++}
++
++static void mts_update_prices_locked(struct mts_tier *tier)
++{
++	mts_update_price(&tier->price_capacity_q32, tier->reserved_capacity,
++			 tier->desc.capacity_bytes,
++			 tier->desc.write_latency_p99_ns);
++	mts_update_price(&tier->price_read_bw_q32, tier->reserved_read_bw,
++			 tier->desc.read_bandwidth_bytes_s,
++			 tier->desc.read_latency_p99_ns);
++	mts_update_price(&tier->price_write_bw_q32, tier->reserved_write_bw,
++			 tier->desc.write_bandwidth_bytes_s,
++			 tier->desc.write_latency_p99_ns);
++	mts_update_price(&tier->price_queue_q32, tier->reserved_queue_slots,
++			 tier->desc.max_inflight_batches,
++			 max(tier->desc.read_latency_p99_ns,
++			     tier->desc.write_latency_p99_ns));
++}
++
+ static int mts_domain_fd_release(struct inode *inode, struct file *file)
+ {
+ 	struct mts_domain *domain = file->private_data;
+@@ -691,6 +787,7 @@ static int mts_domain_fd_release(struct inode *inode, struct file *file)
+ 		tier->reserved_read_bw -= binding->request.read_bandwidth_bytes_s;
+ 		tier->reserved_write_bw -= binding->request.write_bandwidth_bytes_s;
+ 		tier->reserved_queue_slots -= binding->request.queue_slots;
++		mts_update_prices_locked(tier);
+ 		mutex_unlock(&tier->lock);
+ 	}
+ 	mutex_unlock(&mts_registry_lock);
+@@ -736,6 +833,7 @@ static int mts_charge_reservation(struct mts_tier *tier,
+ 	tier->reserved_read_bw += read_bw;
+ 	tier->reserved_write_bw += write_bw;
+ 	tier->reserved_queue_slots += queue;
++	mts_update_prices_locked(tier);
+ 	reservation->capacity_bytes = capacity;
+ 	reservation->read_bandwidth_bytes_s = read_bw;
+ 	reservation->write_bandwidth_bytes_s = write_bw;
+@@ -756,6 +854,7 @@ static void mts_uncharge_bindings(struct mts_domain *domain, u32 count)
+ 		tier->reserved_read_bw -= binding->request.read_bandwidth_bytes_s;
+ 		tier->reserved_write_bw -= binding->request.write_bandwidth_bytes_s;
+ 		tier->reserved_queue_slots -= binding->request.queue_slots;
++		mts_update_prices_locked(tier);
+ 		mutex_unlock(&tier->lock);
+ 		mts_tier_put(tier);
+ 	}
+-- 
+2.51.1
+

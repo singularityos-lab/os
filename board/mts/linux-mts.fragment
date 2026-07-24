@@ -1,0 +1,6 @@
+CONFIG_MTS_OBSERVE=y
+CONFIG_MTS_TIER=y
+# DEBUG_FS intentionally NOT enabled: Sinty ships hardened, no debugfs surface.
+# MTS_OBSERVE's ISO16 collector still runs and feeds the predictor's calibration;
+# only the debugfs read-out (/sys/kernel/debug/mts/observe) is unavailable, which
+# is a deliberate hardening trade-off, not a lost MTS feature.

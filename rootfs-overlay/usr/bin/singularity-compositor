@@ -1,0 +1,83 @@
+#!/bin/sh
+# The persistent Singularity compositor: one labwc for the whole life of the
+# session, started once at boot BEFORE greetd (see singularity-compositor.service)
+# and never a child of greetd, so greetd's end-of-session SIGTERM never reaches
+# it. The greeter and, later, the user's shell connect to it as ordinary Wayland
+# clients on /run/singularity/wayland-0. This removes the second cold start and
+# the greeter->desktop black frame by construction: the compositor never dies.
+#
+# It holds seat0 (DRM master via seatd) as the greeter system user for the whole
+# session; clients never touch the seat. It is born menu-less (-C labwc-locked +
+# the emptied menu.c fork) and stays locked even if every client exits, so a
+# dead greeter can never expose the openbox root menu.
+. /usr/bin/singularity-session-common
+
+export XDG_RUNTIME_DIR=/run/singularity
+# WAYLAND_DISPLAY must be UNSET here: with it set, wlroots picks the nested
+# Wayland backend (tries to connect to a parent compositor) instead of the DRM
+# backend, and labwc fails with "unable to create backend". As a real KMS
+# compositor labwc creates the socket itself (wayland-0, first free in
+# XDG_RUNTIME_DIR); the clients set WAYLAND_DISPLAY=wayland-0 to reach it.
+unset WAYLAND_DISPLAY
+# Group-shared but not world: the Wayland socket must be reachable by the
+# singularity-session group (greeter + the logged-in user) and nobody else.
+umask 007
+mkdir -p "$XDG_RUNTIME_DIR" 2>/dev/null || true
+
+sscommon_locale
+sscommon_softrender_backstop
+# Force software (pixman) compositing unconditionally, overriding the per-GPU
+# backstop. On real hardware the backstop leaves the native wlroots GLES renderer,
+# but Mesa 26 on this Intel GPU crashes labwc's GL render passes: the greeter (a
+# single shm surface, no effects) composites fine, but once the desktop is up and
+# requests the frosted-glass blur (singularity-blur.c does real GL downsample/
+# upsample passes on server.renderer), the GL path fails -> the scene never paints
+# (black), only the hardware cursor plane survives, and the session loops back to
+# the greeter. pixman/llvmpipe composites on the CPU on ANY GPU -- the exact path
+# the VM already runs end-to-end (compositor pixman + clients cairo). A slow but
+# solid desktop beats a login loop; native GL returns once Mesa-26-on-ADL is fixed.
+export WLR_RENDERER=pixman WLR_RENDERER_ALLOW_SOFTWARE=1
+export LIBGL_ALWAYS_SOFTWARE=1 GALLIUM_DRIVER=llvmpipe
+sscommon_log "compositor: forcing software render (WLR_RENDERER=pixman) to bypass the Intel GL crash"
+
+# We start Before=greetd, early in boot, and may beat udev to the DRM device.
+# labwc's DRM backend fails hard if /dev/dri/card0 is not there yet, so wait for
+# it (fail-loud on timeout rather than crash-loop against a missing node).
+_i=0
+while [ ! -e /dev/dri/card0 ] && [ "$_i" -lt 150 ]; do
+    sleep 0.1
+    _i=$((_i + 1))
+done
+if [ ! -e /dev/dri/card0 ]; then
+    sscommon_log "compositor: /dev/dri/card0 never appeared after ${_i} ticks, starting anyway"
+else
+    sscommon_log "compositor: /dev/dri/card0 ready after ${_i} ticks"
+fi
+
+# Take DRM master over from the boot-splash. The splash holds the master (so the
+# boot is never black) until this sentinel appears, then it drops the master and
+# exits. We MUST wait for that release before labwc tries to become master: with
+# the splash still holding it, wlroots cannot create its allocator ("Failed to
+# create allocator") and the compositor crash-loops until the splash's safety
+# timeout. Signalling the handoff makes it deterministic instead of a race.
+: > /run/singularity/compositor-taking-over 2>/dev/null || true
+_j=0
+# Zero-gap handoff: the splash drops the DRM master and writes this marker while
+# it KEEPS showing its logo for a grace period. We wait for the marker (master is
+# free) rather than the process exit, so labwc takes the master and paints its
+# own #45 logo while the splash logo is still up: logo->logo overlap, no black.
+# The pidof clause is the fallback for a splash that exits without the marker or a
+# boot with no splash at all, so we never stall the full cap.
+while [ ! -e /run/singularity/boot-splash-master-released ] \
+      && pidof singularity-boot-splash >/dev/null 2>&1 \
+      && [ "$_j" -lt 100 ]; do
+    sleep 0.1
+    _j=$((_j + 1))
+done
+sscommon_log "compositor: DRM master free after ${_j} ticks (marker=$([ -e /run/singularity/boot-splash-master-released ] && echo yes || echo no))"
+
+sscommon_log "persistent compositor starting (DRM backend) on $XDG_RUNTIME_DIR, socket wayland-0"
+# No -s: the compositor outlives every client. #45's splash paints the logo on
+# the first presented frame and retires it when the first client (the greeter)
+# maps, so the boot carries the brand instead of black.
+exec labwc -C /usr/share/singularity/labwc-locked

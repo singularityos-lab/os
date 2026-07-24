@@ -10,7 +10,7 @@ SINIT_LICENSE = GPL-3.0-or-later
 
 # Module path from go.mod. sinit has NO external dependencies (stdlib only), so
 # the build is fully offline once the source is present.
-SINIT_GOMOD = github.com/mirkobrombin/atom
+SINIT_GOMOD = github.com/singularityos-lab/atom
 SINIT_BUILD_TARGETS = cmd/sinit
 
 # Install to /usr/lib/sinit/sinit and wire the multicall symlinks by argv[0].

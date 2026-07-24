@@ -1,0 +1,54 @@
+<?xml version="1.0"?>
+<!-- Config for the ONE persistent compositor, which serves BOTH the greeter
+     (pre-login, no shell) and the desktop session (the shell is a client, not the
+     parent of labwc). Because labwc's -C is exclusive (it reads only this dir and
+     never the shell's ~/.config/labwc/rc.xml on the single-compositor setup), this
+     file has two jobs:
+
+     1. Lock the root menu so an unauthenticated shell can never be reached from the
+        greeter: the <mouse> Root binds below reassign every root click to nothing,
+        and menu.xml leaves the root menu empty.
+
+     2. Bind the desktop keyboard shortcuts. Without any <keybind> here labwc loads
+        its BUILT-IN defaults, whose Alt-Tab is labwc's own window-switcher OSD, so
+        the shell's switcher never sees Alt-Tab (the "shortcuts half-work" bug on the
+        single-compositor setup; on Fedora the shell owns its own labwc which reads
+        the shell's rc.xml, so they worked there). Desktop-switch and close are labwc
+        native actions and run directly. The shell actions (Alt-Tab, launcher, media)
+        cannot call the shell's dev.sinty.desktop directly: this compositor runs as
+        the greeter user and the shell owns that name on the logged-in user's own
+        session bus, which D-Bus refuses to a cross-uid peer. So they go through
+        /usr/bin/singularity-shortcut, whose per-session --serve half (started by
+        singularity-desktop-session as the user) forwards over a group-owned socket.
+        Pre-login no session is serving, so those Execute calls no-op and only the
+        lock is in force. (Live per-user rebinds and xkb/theme still need the shell's
+        dynamic rc.xml to reach this compositor, tracked separately.) -->
+<labwc_config>
+  <mouse>
+    <context name="Root">
+      <mousebind button="Right" action="Press"><action name="None"/></mousebind>
+      <mousebind button="Left" action="Press"><action name="None"/></mousebind>
+      <mousebind button="Middle" action="Press"><action name="None"/></mousebind>
+    </context>
+  </mouse>
+  <keyboard>
+    <keybind key="C-A-1"><action name="GoToDesktop" to="1" /></keybind>
+    <keybind key="C-A-2"><action name="GoToDesktop" to="2" /></keybind>
+    <keybind key="C-A-3"><action name="GoToDesktop" to="3" /></keybind>
+    <keybind key="C-A-4"><action name="GoToDesktop" to="4" /></keybind>
+    <keybind key="C-A-S-1"><action name="SendToDesktop" to="1" /></keybind>
+    <keybind key="C-A-S-2"><action name="SendToDesktop" to="2" /></keybind>
+    <keybind key="C-A-S-3"><action name="SendToDesktop" to="3" /></keybind>
+    <keybind key="C-A-S-4"><action name="SendToDesktop" to="4" /></keybind>
+    <keybind key="A-F4"><action name="Close" /></keybind>
+    <keybind key="A-Tab"><action name="Execute"><command>/usr/bin/singularity-shortcut switch_windows_next</command></action></keybind>
+    <keybind key="A-S-Tab"><action name="Execute"><command>/usr/bin/singularity-shortcut switch_windows_prev</command></action></keybind>
+    <keybind key="Super_L" onRelease="yes"><action name="Execute"><command>/usr/bin/singularity-shortcut toggle_launcher</command></action></keybind>
+    <keybind key="Super_R" onRelease="yes"><action name="Execute"><command>/usr/bin/singularity-shortcut toggle_launcher</command></action></keybind>
+    <keybind key="XF86AudioRaiseVolume"><action name="Execute"><command>/usr/bin/singularity-shortcut volume_up</command></action></keybind>
+    <keybind key="XF86AudioLowerVolume"><action name="Execute"><command>/usr/bin/singularity-shortcut volume_down</command></action></keybind>
+    <keybind key="XF86AudioMute"><action name="Execute"><command>/usr/bin/singularity-shortcut volume_mute</command></action></keybind>
+    <keybind key="XF86MonBrightnessUp"><action name="Execute"><command>/usr/bin/singularity-shortcut brightness_up</command></action></keybind>
+    <keybind key="XF86MonBrightnessDown"><action name="Execute"><command>/usr/bin/singularity-shortcut brightness_down</command></action></keybind>
+  </keyboard>
+</labwc_config>

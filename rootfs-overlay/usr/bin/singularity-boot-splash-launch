@@ -1,0 +1,5 @@
+#!/bin/sh
+# Raw DRM-master splash (plymouth-style): no seatd needed. Start immediately so
+# the logo paints before greetd/labwc take the master. Set BOOT_SPLASH_USE_SEATD=1
+# to opt into the libseat path instead (fallback only).
+exec /usr/bin/singularity-boot-splash --max-life 8 --log-file /run/boot-splash.log

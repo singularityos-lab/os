@@ -29,12 +29,34 @@ if [ -n "$GITHUB_ENV" ]; then
     echo "ROOT_HASH=${ROOT_HASH}" >> "$GITHUB_ENV"
 fi
 
+# Firmware add-on trust anchor: build the statically linked fw-verify and bake it plus
+# the release root public key into the (signed) initramfs. The firmware dm-verity root
+# hash is NOT carried in the UKI cmdline anymore -- a signed cmdline is fixed at build
+# time, so an OTA could never update it. Instead the initramfs re-verifies the release-
+# signed anchor beside the image (root pubkey -> signing cert -> manifest) and opens
+# dm-verity with the hash it extracts. Absent verifier/anchor -> base survival firmware.
+ATOMLOOPS="${ATOMLOOPS:-/home/mirko/Projects/personal/AtomLoops}"
+# FW_ROOT_PUB may be pre-set (e.g. a test trust root for a VM trial); default to the
+# release root the loader verifies the UKI with.
+: "${FW_ROOT_PUB:=${ATOMLOOPS}/loader/src/root.pub}"
+if [ -f "${FW_ROOT_PUB}" ]; then
+    # FW_VERIFY_BIN may be pre-set to a known-good build (e.g. when AtomLoops HEAD is
+    # mid-refactor); otherwise build it from source.
+    if [ -z "${FW_VERIFY_BIN}" ] || [ ! -x "${FW_VERIFY_BIN}" ]; then
+        ( cd "${ATOMLOOPS}" && CGO_ENABLED=0 "${ATOMLOOPS_GO:-go}" build -ldflags '-s -w' \
+            -o "${REPO_DIR}/artifacts/fw-verify" ./cmd/fw-verify )
+        FW_VERIFY_BIN="${REPO_DIR}/artifacts/fw-verify"
+    fi
+    export FW_VERIFY_BIN FW_ROOT_PUB
+fi
+
 # Initramfs: the dm-verity aware init that waits for the kernel-created
 # verity device, mounts the verified erofs read-only and overlays a tmpfs.
 bash scripts/build-initramfs.sh buildroot-build/target artifacts/initrd.cpio.xz
 
 # The initramfs finds the data/hash partitions by GPT PARTLABEL and opens the
-# verity device with this root hash, so no device names are baked in.
+# verity device with this root hash, so no device names are baked in. The firmware
+# add-on's dm-verity hash is intentionally NOT here (see the anchor note above).
 CMDLINE="console=ttyS0,115200 ro quiet loglevel=3 vt.global_cursor_default=0 udev.log_level=0 rd.systemd.show_status=0 systemd.show_status=0 rootwait sing.roothash=${ROOT_HASH} lsm=landlock,lockdown,yama,bpf lockdown=integrity module.sig_enforce=1 init_on_alloc=1 slab_nomerge page_alloc.shuffle=1 randomize_kstack_offset=1 vsyscall=none cfg80211.ieee80211_regdom=IT${EXTRA_CMDLINE:+ ${EXTRA_CMDLINE}}"
 
 # UKI: place the added sections above the stub's image so they do not fall
@@ -49,7 +71,7 @@ OSREL=""
 
 printf '%s' "$CMDLINE" > artifacts/cmdline.txt
 # .atomver: the kernelcache version baked into the SIGNED UKI, read by the loader to
-# enforce anti-rollback (R-OTA4b). The daemon's NV counter (index 0x0150A701) is the floor.
+# enforce anti-rollback. The daemon's NV counter (index 0x0150A701) is the floor.
 printf '%s' "${ATOM_VERSION:-1}" > artifacts/atomver.txt
 
 objcopy \

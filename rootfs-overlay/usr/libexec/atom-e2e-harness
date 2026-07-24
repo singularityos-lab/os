@@ -73,7 +73,7 @@ P "ASSERT recover-after-cat: [$(cat /mnt/t/home/"$U"/secret 2>&1)] (exp TOPSECRE
 # wrong-PIN LAST (DA-counter poison cannot reach the asserts above)
 printf 'wrong0' | sintykey verify-pin --uid "$TUID"; P "ASSERT verify-WRONG-exit: $? (exp non-zero)"
 printf 'wrong0' | pamtester greetd "$U" authenticate; P "ASSERT pamtester-WRONG-exit: $? (exp non-zero)"
-# FB-13 wrong PIN via the daemon (kept last: hits the TPM -> DA counter, like the others)
+# wrong PIN via the daemon (kept last: hits the TPM -> DA counter, like the others)
 cat > /tmp/dvw.py <<'PYEOF'
 import socket,sys
 s=socket.socket(socket.AF_UNIX); s.connect("/run/sinty-recoverd.sock")

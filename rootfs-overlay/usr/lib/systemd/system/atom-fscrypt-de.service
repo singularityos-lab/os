@@ -9,8 +9,14 @@ ConditionPathExists=/var/lib/sinty/device.pub
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-# unseal the device key (no PIN, TPM-bound) and add it -> /var/log,cache,spool decrypt
-ExecStart=/usr/bin/sintykey unlock-device --mount /var
+# Unseal the device key (no PIN, TPM-bound) and add it -> /var/log,cache,spool decrypt.
+# Capture sintykey's stderr + exit code to /run/atom/crypto-error.txt on FAILURE: under sinit
+# a service's stderr goes to the serial console (not dmesg/logcollect), so the real TPM error
+# (why sintykey exits non-zero) is otherwise invisible on a locked RC with no serial. The
+# greeter reads this file and shows it PRE-LOGIN, so the user can photograph the TPM RC without
+# having to log in (which a broken device/PIN key prevents). Non-zero exit is preserved so the
+# unit still reports the failure. /run/atom is tmpfs (non-encrypted, survives to the greeter).
+ExecStart=/bin/sh -c 'mkdir -p /run/atom 2>/dev/null; /usr/bin/sintykey unlock-device --mount /var 2>/run/atom/.crypto-de.err; rc=$?; if [ $rc -ne 0 ]; then { echo "atom-fscrypt-de: device-key unlock FAILED rc=$rc ($(date 2>/dev/null))"; echo "--- sintykey stderr ---"; cat /run/atom/.crypto-de.err 2>/dev/null; } > /run/atom/crypto-error.txt 2>/dev/null; chmod 0644 /run/atom/crypto-error.txt 2>/dev/null; fi; rm -f /run/atom/.crypto-de.err 2>/dev/null; exit $rc'
 
 [Install]
 WantedBy=sysinit.target

@@ -13,8 +13,15 @@ for c in /sys/class/drm/card[0-9]*; do
 done
 if [ "$hw" = 0 ]; then
     {
-        echo "MESA_LOADER_DRIVER_OVERRIDE=kms_swrast"
+        # Match the desktop session's proven software path (singularity-labwc-session,
+        # e58dd90): cairo + pixman + llvmpipe. Do NOT set MESA_LOADER_DRIVER_OVERRIDE:
+        # forcing kms_swrast at the mesa loader level re-pins the swrast DRM driver and
+        # overrides GALLIUM_DRIVER=llvmpipe, so on a modeset-less simpledrm framebuffer
+        # it stays black. llvmpipe is pure software and needs no DRM.
         echo "GSK_RENDERER=cairo"
         echo "WLR_RENDERER=pixman"
+        echo "WLR_RENDERER_ALLOW_SOFTWARE=1"
+        echo "LIBGL_ALWAYS_SOFTWARE=1"
+        echo "GALLIUM_DRIVER=llvmpipe"
     } >> /etc/environment
 fi

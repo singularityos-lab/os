@@ -1,0 +1,11 @@
+config BR2_PACKAGE_ATOM_RECOVERY
+	bool "atom-recovery"
+	depends on BR2_PACKAGE_HOST_GO_TARGET_ARCH_SUPPORTS
+	depends on BR2_PACKAGE_HOST_GO_TARGET_CGO_LINKING_SUPPORTS
+	help
+	  The Sinty recovery agent: drives the recovery Core (wifi
+	  bring-up, reinstall, repair, rollback) and exposes a local
+	  HTTP API over /run/atom-recovery.sock so the graphical
+	  recovery UI drives the same Core the text UI uses.
+
+	  https://github.com/singularityos-lab/sinty-recovery

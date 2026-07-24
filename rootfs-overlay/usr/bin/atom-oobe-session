@@ -1,5 +1,4 @@
 #!/bin/sh
-
 set -eu
 
 MARKER=/var/lib/sinty/.oobe-done
@@ -7,21 +6,79 @@ if [ -f "${MARKER}" ]; then
     exit 0
 fi
 
-export ATOM_OOBE_APPLY=1
-export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/0}"
-mkdir -p "${XDG_RUNTIME_DIR}"
-# OOBE runs as root, whose HOME is /root on the read-only erofs. Point HOME and the
-# XDG config/cache dirs at a writable tmpfs so GTK/GLib do not warn-storm trying to
-# write /root/.config (glib settings, gtk accent css, etc.).
-export HOME="$XDG_RUNTIME_DIR"
-export XDG_CONFIG_HOME="$XDG_RUNTIME_DIR/.config"
-export XDG_CACHE_HOME="$XDG_RUNTIME_DIR/.cache"
-mkdir -p "$XDG_CONFIG_HOME" "$XDG_CACHE_HOME"
+. /usr/bin/singularity-session-common
 
-mkdir -p /run/singularity && : > /run/singularity/greeter-ready && chmod 666 /run/singularity/greeter-ready
-# Run under a session bus so the installer (GTK) does not try dbus-launch --autolaunch
-# for the a11y bus and warn "Unable to acquire session bus" during the OOBE handoff.
-if [ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ] && command -v dbus-run-session >/dev/null 2>&1; then
-    exec dbus-run-session -- labwc -s "atom-installer-launch --oobe"
+export ATOM_OOBE_APPLY=1
+
+# Prefer CLIENT mode (like singularity-greeter-client): connect to the persistent
+# compositor's wayland socket instead of starting our own labwc DRM backend. On the
+# installed firstboot singularity-compositor.service already owns the seat/DRM master,
+# so an own labwc fails ("Failed to start a DRM session") and the OOBE never renders,
+# leaving the greeter with no PIN provisioned -> the user is locked out. Root connects
+# fine to /run/singularity (0770 greeter:singularity-session) since root bypasses the
+# mode. exec singularity-installer DIRECT (not atom-installer-launch): the persistent
+# compositor + boot-splash already paint the logo, so a second splash client just competes.
+export XDG_RUNTIME_DIR=/run/singularity
+export WAYLAND_DISPLAY=wayland-0
+export HOME=/run/user/0
+export XDG_CACHE_HOME=/run/user/0/.cache XDG_CONFIG_HOME=/run/user/0/.config
+mkdir -p "$XDG_CACHE_HOME" "$XDG_CONFIG_HOME" 2>/dev/null || true
+sscommon_locale
+sscommon_softrender_backstop
+# Force software rendering for the OOBE unconditionally, overriding the backstop's
+# per-GPU choice. sscommon_softrender_backstop picks NATIVE GL when a known GPU driver
+# is present (i915/xe/amdgpu/...), which is right for the everyday desktop but wrong
+# here: the OOBE is a one-time provisioning wizard that MUST paint (no wizard -> no PIN
+# -> lockout), and singularity-installer (GTK4) on the real-hardware GL path can hard
+# crash where GTK's own GL->cairo fallback does not save it (the installed-firstboot
+# "boots to the greeter" symptom on metal = installer exits on GL, retry loop exhausts,
+# greetd falls back to the greeter). cairo/llvmpipe renders on ANY GPU and a wizard has
+# no perf need for GL. The everyday desktop keeps native GL (its own session, not here).
+export GSK_RENDERER=cairo
+export LIBGL_ALWAYS_SOFTWARE=1 GALLIUM_DRIVER=llvmpipe
+sscommon_log "oobe: forcing software render (GSK_RENDERER=cairo) for the wizard"
+# Retry loop: if the installer dies (render bug, transient crash) greetd would fall
+# back to the greeter with NO account provisioned = lockout. On a firstboot there is
+# nothing better to show than the wizard, so retry it; give up only after 5 exits
+# (then the greeter fallback at least paints something). Socket wait is 30s: a slow
+# installed boot (cold f2fs /var, no KVM) can exceed the old 10s and the old fallback
+# own-labwc is guaranteed-fail on installed (persistent compositor owns the seat).
+# /run/atom/installed is the same condition that gates the persistent compositor:
+# only wait for its socket where it is supposed to exist, else go straight to the
+# own-labwc fallback (live boot: no dead wait).
+_try=0
+_i=0
+while [ -f /run/atom/installed ] && [ "$_try" -lt 5 ]; do
+    _i=0
+    while [ ! -S "$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY" ] && [ "$_i" -lt 300 ]; do
+        sleep 0.1
+        _i=$((_i + 1))
+    done
+    [ -S "$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY" ] || break
+    _try=$((_try + 1))
+    sscommon_log "oobe: compositor socket up (${_i} ticks), running OOBE as client (attempt ${_try})"
+    sscommon_mark_greeter_ready
+    _rc=0
+    dbus-run-session -- singularity-installer --oobe || _rc=$?
+    if [ -f "${MARKER}" ]; then
+        sscommon_log "oobe: provisioning complete (rc=${_rc}), handing over to greetd"
+        exit 0
+    fi
+    sscommon_log "oobe: installer exited rc=${_rc} without completing, retrying"
+    sleep 1
+done
+if [ "$_try" -ge 5 ]; then
+    sscommon_log "oobe: giving up after ${_try} attempts, falling back to greeter"
+    exit 1
 fi
-exec labwc -s "atom-installer-launch --oobe"
+
+# Fallback: no persistent compositor (e.g. a live/uninstalled boot where it is gated
+# off by ConditionPathExists) -> start our own labwc, as before. Never worse than today.
+sscommon_log "oobe: compositor socket absent (${_i} ticks), fallback own-labwc"
+export XDG_RUNTIME_DIR=/run/user/0
+export HOME="$XDG_RUNTIME_DIR"
+sscommon_xdg_dirs
+sscommon_wait_splash 50
+sscommon_mark_greeter_ready chmod
+sleep 0.3
+sscommon_exec_labwc -s "atom-installer-launch --oobe"

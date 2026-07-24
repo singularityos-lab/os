@@ -1,0 +1,5 @@
+{
+  "rootfs":      { "current": "v1", "pending": "", "rollback": "", "boot_attempts": 0, "max_attempts": 3, "last_known_good": "v1" },
+  "kernelcache": { "state": "stable", "stable_boots": 0, "stable_threshold": 3, "format": "uki" },
+  "security":    { "level": 2, "dm_verity": true, "secure_boot": false }
+}

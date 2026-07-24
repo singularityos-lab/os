@@ -1,20 +1,18 @@
 #!/bin/sh
 set -eu
+
+. /usr/bin/singularity-session-common
+
 export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/0}"
-mkdir -p "$XDG_RUNTIME_DIR"
-# The installer session runs as root, whose HOME is /root on the read-only erofs.
-# Point HOME and the XDG config/cache dirs at a writable tmpfs so GTK/GLib do not
-# warn-storm trying to write /root/.config (glib settings, gtk accent css, etc.).
 export HOME="$XDG_RUNTIME_DIR"
-export XDG_CONFIG_HOME="$XDG_RUNTIME_DIR/.config"
-export XDG_CACHE_HOME="$XDG_RUNTIME_DIR/.cache"
-mkdir -p "$XDG_CONFIG_HOME" "$XDG_CACHE_HOME"
+sscommon_xdg_dirs
+
+command -v singularity-render-setup >/dev/null 2>&1 && singularity-render-setup 2>/dev/null || true
 if [ -r /etc/environment ]; then set -a; . /etc/environment; set +a; fi
-mkdir -p /run/singularity && : > /run/singularity/greeter-ready && chmod 666 /run/singularity/greeter-ready
+sscommon_softrender_backstop
+
+sscommon_mark_greeter_ready chmod
 export LIBSEAT_BACKEND=builtin
-# Run under a session bus so the installer (GTK) does not try dbus-launch --autolaunch
-# for the a11y bus and warn "Unable to acquire session bus" during the handoff.
-if [ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ] && command -v dbus-run-session >/dev/null 2>&1; then
-    exec dbus-run-session -- labwc -s "atom-installer-launch"
-fi
-exec labwc -s "atom-installer-launch"
+sscommon_log "LIBSEAT_BACKEND=builtin (installer only: seatd may be absent at install time)"
+
+sscommon_exec_labwc -s "atom-installer-launch"

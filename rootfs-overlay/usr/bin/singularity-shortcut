@@ -1,0 +1,77 @@
+#!/usr/bin/python3
+# Bridges compositor keybinds to the desktop shell across the greeter/user D-Bus
+# boundary. On the single-compositor setup the persistent labwc runs as the
+# 'greeter' user, while the shell owns dev.sinty.desktop on the logged-in user's
+# own session bus. The greeter cannot reach that bus: D-Bus rejects a peer whose
+# uid differs from the bus owner (EXTERNAL auth), even with a world-writable
+# socket. So the user session runs this in serve mode (it reaches its own bus)
+# and labwc's Execute action runs it in send mode, handing the action name over a
+# group-owned socket that both the greeter and the user can open.
+import grp
+import os
+import socket
+import subprocess
+import sys
+
+SOCK = "/run/singularity/shortcuts.sock"
+
+
+def send(action):
+    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    try:
+        s.connect(SOCK)
+        s.sendall(action.encode() + b"\n")
+    except OSError:
+        # No session is listening (for example the greeter before any login).
+        # Do nothing, so the pre-login lock stays in force.
+        pass
+    finally:
+        s.close()
+
+
+def serve():
+    try:
+        os.unlink(SOCK)
+    except FileNotFoundError:
+        pass
+    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    s.bind(SOCK)
+    # Group singularity-session, mode 0660: the greeter-owned compositor is in
+    # that group and can connect, nothing wider can.
+    try:
+        os.chown(SOCK, -1, grp.getgrnam("singularity-session").gr_gid)
+        os.chmod(SOCK, 0o660)
+    except (KeyError, OSError):
+        pass
+    s.listen(8)
+    while True:
+        try:
+            conn, _ = s.accept()
+        except OSError:
+            continue
+        with conn:
+            raw = conn.recv(256).decode("utf-8", "replace")
+        action = raw.splitlines()[0].strip() if raw else ""
+        # Only a bare [a-z_] action name is ever forwarded, as argv, never through
+        # a shell: a caller cannot smuggle arguments or a command into gdbus.
+        if action and all(ch.islower() or ch == "_" for ch in action):
+            subprocess.run(
+                [
+                    "gdbus", "call", "--session",
+                    "--dest", "dev.sinty.desktop",
+                    "--object-path", "/dev/sinty/desktop/Shortcuts",
+                    "--method", "dev.sinty.desktop.Shortcuts.ExecuteAction",
+                    action,
+                ],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+
+
+if __name__ == "__main__":
+    if len(sys.argv) == 2 and sys.argv[1] == "--serve":
+        serve()
+    elif len(sys.argv) == 2:
+        send(sys.argv[1])
+    else:
+        sys.exit("usage: singularity-shortcut --serve | <action_name>")

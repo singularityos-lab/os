@@ -1,14 +1,13 @@
 [Unit]
 Description=Singularity boot splash
 DefaultDependencies=no
-Wants=systemd-udevd.service modules-load.service
-After=systemd-udevd.service modules-load.service
-Before=greetd.service shutdown.target
-Conflicts=shutdown.target
+After=systemd-udevd.service seatd.service
+Wants=seatd.service
 
 [Service]
 Type=simple
-ExecStart=/bin/sh -c 'exec /usr/bin/singularity-boot-splash --max-life 8 >/run/boot-splash.log 2>&1'
+ExecStart=/usr/bin/singularity-boot-splash-launch
+Restart=no
 StandardOutput=journal
 StandardError=journal
 KillMode=mixed

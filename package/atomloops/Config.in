@@ -1,0 +1,10 @@
+config BR2_PACKAGE_ATOMLOOPS
+	bool "atomloops"
+	depends on BR2_PACKAGE_HOST_GO_TARGET_ARCH_SUPPORTS
+	help
+	  The Atom Loops OTA daemons (atomd, updated) plus fw-verify, the
+	  firmware-bundle anchor verifier used by the initramfs and the
+	  post-boot firmware device-probe. Installs the release root public
+	  key at /etc/atom-fw-root.pub.
+
+	  https://github.com/mirkobrombin/atomloops

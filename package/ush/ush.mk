@@ -23,6 +23,11 @@ define USH_INSTALL_TARGET_CMDS
 	$(INSTALL) -D -m 0755 $(@D)/ush-broker       $(TARGET_DIR)/usr/bin/ush-broker
 	$(INSTALL) -D -m 0644 $(@D)/ush-chown-shim.so $(TARGET_DIR)/usr/lib/ush/ush-chown-shim.so
 	ln -sf ush $(TARGET_DIR)/usr/bin/dsh
+	# Pre-bake the apt/dpkg tools tree into the image so the first `pkg install`
+	# needs no download. Built with the just-compiled ush (native binary, runs on
+	# the build host) via its --bake-tools path; ToolsDir() finds it read-only at
+	# SystemToolsDir at runtime. Needs network at build time.
+	cd $(@D) && CGO_ENABLED=0 $(HOST_DIR)/bin/go run -buildvcs=false ./cmd/ush --bake-tools $(TARGET_DIR)/usr/share/ush/tools
 endef
 
 $(eval $(golang-package))

@@ -1,0 +1,28 @@
+[Unit]
+Description=Singularity persistent Wayland compositor
+After=seatd.service systemd-udevd.service udev-coldplug.service
+Before=greetd.service
+# Only on an installed system. The live installer runs its own labwc through
+# atom-install-session; a second persistent compositor there would fight it for
+# the seat. sinit honours this condition (fail-closed when absent).
+ConditionPathExists=/run/atom/installed
+
+[Service]
+Type=simple
+User=greeter
+# Primary group singularity-session so the Wayland socket is group-owned by it
+# and BOTH the greeter (greeter user) and the logged-in desktop (sinty user),
+# both members of that group, can connect as clients. sinit keeps greeter's
+# supplementary groups (video/input), so seat access via seatd -g video is kept.
+Group=singularity-session
+# 0770 + the compositor's umask 007 make the runtime dir and the socket
+# group-accessible to singularity-session, and no wider.
+RuntimeDirectory=singularity
+RuntimeDirectoryMode=0770
+RuntimeDirectoryPreserve=yes
+ExecStart=/usr/bin/singularity-compositor
+Restart=always
+RestartSec=1
+
+[Install]
+WantedBy=graphical.target

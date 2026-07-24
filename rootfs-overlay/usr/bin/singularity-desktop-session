@@ -8,7 +8,19 @@ SHARE="$PREFIX/share"
 export LD_LIBRARY_PATH="$LIB${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 export PATH="$BIN:$PATH"
 export GDK_BACKEND=wayland
-export GSK_RENDERER="${GSK_RENDERER:-gl}"
+# Renderer: default to SOFTWARE (cairo/llvmpipe) when the parent did not already pick one.
+# sscommon_softrender_backstop leaves GSK_RENDERER unset ("native") on real hardware; this
+# line used to pin "gl", which not only ran GskGLRenderer but DISABLED GTK4's own GL->cairo
+# fallback (GTK self-falls-back only when the renderer is NOT pinned). On this demo's GPU
+# (Alder Lake i915 + bleeding-edge Mesa 26) native GL hard-crashes the shell, and the pinned
+# "gl" turned that into a crash-loop -> the desktop supervise-loop gives up -> greetd back to
+# the greeter (the metal login loop). Software renders on ANY GPU and a panel/dock needs no
+# GPU accel; a VM already runs exactly this (virtio_gpu is not a known HW GPU so the backstop
+# forces software) -- that path is proven. If the parent already forced software, keep it.
+# Demo-safe default; revert to gl / a per-GPU rendering-mode once the Mesa/ADL GL crash is fixed.
+if [ -z "$GSK_RENDERER" ]; then
+    export GSK_RENDERER=cairo LIBGL_ALWAYS_SOFTWARE=1 GALLIUM_DRIVER=llvmpipe
+fi
 export QT_QPA_PLATFORMTHEME=xdgdesktopportal
 export XDG_CURRENT_DESKTOP=Singularity
 export XDG_DATA_DIRS="$HOME/.local/share/flatpak/exports/share:/var/lib/flatpak/exports/share:$SHARE:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
@@ -65,7 +77,7 @@ fi
 _STATE="${XDG_STATE_HOME:-$HOME/.local/state}/singularity"
 mkdir -p "$_STATE"
 # labwc does not run /etc/xdg/autostart, so create the XDG user dirs here (idempotent,
-# locale-aware): Desktop/Documents/Downloads/... on the now-decrypted /home (FB-15).
+# locale-aware): Desktop/Documents/Downloads/... on the now-decrypted /home.
 command -v xdg-user-dirs-update >/dev/null 2>&1 && xdg-user-dirs-update 2>/dev/null || true
 _LOG="$_STATE/desktop.log"
 [ -f "$_LOG" ] && mv -f "$_LOG" "$_LOG.1"
@@ -85,6 +97,12 @@ pkill -TERM -x singularity-desktop 2>/dev/null || true
 pkill -x singularity-polkit-agent 2>/dev/null || true
 sleep 0.3
 nohup "$BIN/singularity-polkit-agent" >> "$_STATE/polkit.log" 2>&1 &
+# Bridge compositor keybinds (Alt-Tab, launcher, media keys) from the persistent
+# labwc (which runs as greeter) to this session's shell. See singularity-shortcut.
+if [ -x "$BIN/singularity-shortcut" ]; then
+    pkill -f 'singularity-shortcut --serve' 2>/dev/null || true
+    nohup "$BIN/singularity-shortcut" --serve >> "$_STATE/shortcut-relay.log" 2>&1 &
+fi
 # Restart the portal so it picks up the live session environment, but do NOT
 # block on it: xdg-desktop-portal can hang ~25s on its settings-proxy timeout
 # waiting for our portal backend, which would delay the shell launch below.
@@ -96,6 +114,7 @@ if [ -x "$BIN/singularity-splash" ]; then
 fi
 
 _fails=0
+_swfallback=0
 while true; do
     _t0=$SECONDS
     "$BIN/singularity-desktop" >> "$_LOG" 2>&1
@@ -107,6 +126,44 @@ while true; do
         sleep 5
     else
         if [ $_dt -lt 3 ]; then _fails=$((_fails + 1)); else _fails=0; fi
+        # Mirror the crash tail to a NON-encrypted tmpfs file the greeter can read + show.
+        # $_LOG lives under the fscrypt-encrypted /home, so it is unreadable once the session
+        # ends, and a locked RC has no shell/TTY. On a crash-loop -> greeter, this is the only
+        # way to see WHY the desktop died: the greeter reads /run/singularity/last-crash.txt and
+        # displays it, the user photographs it -> one targeted fix, no USB. /run/singularity is
+        # greeter:singularity-session 0770 and this session's user is a member, so we can write
+        # here; make the file group-readable so the greeter (also a member) can read it.
+        if [ -d /run/singularity ]; then
+            {
+                echo "singularity-desktop exit=$_EC after ${_dt}s ($(date 2>/dev/null))"
+                echo "--- last 80 lines of desktop.log (wrapper stdout) ---"
+                tail -n 80 "$_LOG" 2>/dev/null
+                # The shell's own GTK/Vala/GLib trace goes to singularity-desktop.log
+                # (main.vala redirects its stderr there), NOT to the wrapper's $_LOG, so
+                # the actual crash reason lives here. Mirror it too while /home is still
+                # unlocked, else it locks with the session and no one ever sees the cause.
+                echo "--- last 80 lines of singularity-desktop.log (GTK/Vala trace) ---"
+                tail -n 80 "$_STATE/singularity-desktop.log" 2>/dev/null
+            } > /run/singularity/last-crash.txt 2>/dev/null || true
+            chmod 0644 /run/singularity/last-crash.txt 2>/dev/null || true
+        fi
+        # Software-render fallback (metal-only). On real hardware whose GPU GL stack is
+        # broken (missing GPU firmware in the base image, or a Mesa driver bug) the GTK4
+        # GskGLRenderer crashes at startup while the greeter (C/shm/pixman, no GL) still
+        # renders -- so login "works" but the desktop crash-loops and greetd falls back to
+        # the greeter after 5 fast fails. A VM never showed this: virtio_gpu is not matched
+        # as a HW GPU driver, so softrender_backstop already forces cairo/llvmpipe there.
+        # If the desktop crashes fast twice under native GL and we have not tried software
+        # yet, switch to the same software path the VM uses and give it a fresh set of
+        # attempts. A software-rendered desktop beats a login loop; where GL works this
+        # branch is never taken and native render is kept.
+        if [ $_dt -lt 3 ] && [ "$_swfallback" -eq 0 ] && [ $_fails -ge 1 ]; then
+            export GSK_RENDERER=cairo LIBGL_ALWAYS_SOFTWARE=1 GALLIUM_DRIVER=llvmpipe
+            _swfallback=1
+            _fails=0
+            echo "[$(date)] singularity-desktop crashed fast under native GL; falling back to software render (cairo/llvmpipe)." >> "$_LOG"
+            continue
+        fi
         if [ $_fails -ge 5 ]; then
             echo "[$(date)] singularity-desktop failed fast $_fails times (compositor gone?), ending the session instead of looping." >> "$_LOG"
             kill "$PPID" 2>/dev/null || true

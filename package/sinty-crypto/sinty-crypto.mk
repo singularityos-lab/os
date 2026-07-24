@@ -15,6 +15,8 @@ define SINTY_CRYPTO_BUILD_CMDS
 	cd $(@D) && $(SINTY_CRYPTO_ZIG) build -Doptimize=ReleaseSafe \
 		-Dtarget=$(SINTY_CRYPTO_ZIG_TARGET) \
 		-Dcpu=x86_64_v2 \
+		-Denforce-tpm=false \
+		-Denforce-fscrypt=true \
 		--search-prefix $(STAGING_DIR)/usr
 endef
 

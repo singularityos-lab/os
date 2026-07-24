@@ -1,0 +1,17 @@
+config BR2_PACKAGE_SINTY_RECOVERY_UI
+	bool "sinty-recovery-ui"
+	select BR2_PACKAGE_CAIRO
+	select BR2_PACKAGE_PANGO
+	select BR2_PACKAGE_GDK_PIXBUF
+	select BR2_PACKAGE_WAYLAND
+	select BR2_PACKAGE_LIBDRM
+	select BR2_PACKAGE_LIBINPUT
+	select BR2_PACKAGE_LIBXKBCOMMON
+	help
+	  The graphical recovery front-end: a toolkit-less KMS-direct wifi
+	  picker, progress view and Reinstall / Repair / Wipe menu, rendered
+	  with Cairo through the shared singularity-loginui renderer, exactly
+	  like singularity-boot-splash. Drives the recovery Core over the
+	  atom-recovery local API.
+
+	  https://github.com/singularityos-lab/sinty-recovery

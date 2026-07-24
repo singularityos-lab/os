@@ -11,6 +11,7 @@ SINGULARITY_BOOT_SPLASH_LICENSE_FILES = LICENSE
 SINGULARITY_BOOT_SPLASH_DEPENDENCIES = \
 	host-pkgconf \
 	singularity-loginui \
-	libdrm
+	libdrm \
+	seatd
 
 $(eval $(meson-package))

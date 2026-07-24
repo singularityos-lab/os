@@ -165,8 +165,14 @@ func main() {
 	// old shell, so the user would not get ush as their terminal shell (#65).
 	run("usermod", "--shell", shell, user)
 
-	// 2. groups (best-effort; a missing group is not fatal)
-	for _, g := range []string{"wheel", "sudo", "audio", "video", "input", "render", "seat", "netdev", "plugdev", "bluetooth"} {
+	// 2. groups (best-effort; a missing group is not fatal). singularity-session is
+	// REQUIRED, not optional: the persistent compositor's wayland socket is
+	// 0770 greeter:singularity-session, so a user outside the group gets EACCES on it,
+	// singularity-labwc-session aborts ("compositor socket never appeared"), and the
+	// session dies to a black screen back to the greeter on every login. Only the baked
+	// template account (sinty) was pre-added in /etc/group, so demos with it worked while
+	// any OOBE-created account was locked out.
+	for _, g := range []string{"singularity-session", "wheel", "sudo", "audio", "video", "input", "render", "seat", "netdev", "plugdev", "bluetooth"} {
 		run("usermod", "-aG", g, user)
 	}
 
@@ -186,9 +192,12 @@ func main() {
 				os.WriteFile("/run/sinty-recovery-code", []byte(strings.TrimSpace(rec)+"\n"), 0o600)
 				logf("PIN provisioned via sintykey (recovery code staged)")
 			} else {
-				// Log sintykey's own output (the die reason), not just a generic line, so the
-				// exact provisioning failure is diagnosable from the boot log (#75).
-				logf("sintykey provision failed (%v): %s; account has no Unix password", err, strings.TrimSpace(rec))
+				// A failed seal leaves the account with a locked Unix password (usermod -p '*'
+				// above) and no PIN to unseal, so finishing the OOBE would write the done marker
+				// and reboot into a greeter no one can log into, with no retry. Die instead: the
+				// wizard shows "Setup failed", the marker is never written, and the next boot
+				// re-runs the OOBE. sintykey's own output (the die reason) is preserved for #75.
+				fail("sintykey provision failed (%v): %s", err, strings.TrimSpace(rec))
 			}
 		} else {
 			hash, err := run("mkpasswd", "-m", "sha512", pin)

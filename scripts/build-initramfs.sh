@@ -68,6 +68,21 @@ resolve_libs() {
 copy_bin busybox bin
 copy_bin veritysetup sbin
 
+# Firmware add-on trust anchor verifier + baked release root public key. fw-verify is
+# a statically linked (CGO_ENABLED=0) binary that re-verifies the on-disk firmware
+# anchor (root pubkey -> signing cert -> manifest) and prints the trusted dm-verity
+# root hash. Baked here so it lives inside the Ed25519-signed UKI: the root.pub cannot
+# be swapped without re-signing the whole image. Both optional -- absent, the init
+# simply never activates a firmware add-on and boots on base survival firmware.
+if [ -n "$FW_VERIFY_BIN" ] && [ -f "$FW_VERIFY_BIN" ]; then
+	cp "$FW_VERIFY_BIN" "$WORK/sbin/fw-verify"
+	chmod 0755 "$WORK/sbin/fw-verify"
+fi
+if [ -n "$FW_ROOT_PUB" ] && [ -f "$FW_ROOT_PUB" ]; then
+	mkdir -p "$WORK/etc"
+	cp "$FW_ROOT_PUB" "$WORK/etc/atom-fw-root.pub"
+fi
+
 # Kernel modules for the persistent /var (ext4 is a module in the Sinty kernel).
 KVER="$(basename "$(ls -d "$TARGET_DIR"/lib/modules/*/ 2>/dev/null | head -1)")"
 if [ -n "$KVER" ]; then
@@ -151,6 +166,80 @@ for tok in $(busybox cat /proc/cmdline); do
 done
 [ -n "$ROOTHASH" ] || rescue "no sing.roothash= on the kernel command line"
 
+# Firmware add-on bundles: union each verified /boot/firmware/<bundle>/ over the base
+# survival firmware baked in the rootfs. UNLIKE the rootfs this is FAIL-OPEN and per-bundle:
+# a missing, tampered or unmountable bundle is dropped and the rest (plus base) still mount,
+# and the system STILL boots -- a firmware failure must never brick. Each bundle's dm-verity
+# root hash comes from its own release-signed anchor, re-verified here by fw-verify (root
+# pubkey -> signing cert -> manifest, matched to the bundle name); an unverified bundle is
+# never mounted. (Shell mirror of AtomLoops' Go mountFirmware, kept in lockstep.)
+mount_firmware() {
+	_fwroot=/sysroot/boot/firmware
+	[ -d "$_fwroot" ] || { busybox echo "[init] no firmware dir, base firmware only"; return 0; }
+	[ -x /sbin/fw-verify ] || { busybox echo "[init] no firmware verifier, base firmware only"; return 0; }
+
+	# Accumulated across bundles so a degraded union tears everything down cleanly: no loop
+	# device or verity mapper may leak across switch_root.
+	_fw_loops="" ; _fw_maps="" ; _fw_mnts="" ; _lowers=""
+	_fw_cleanup() {
+		for _m in $_fw_mnts; do busybox umount "$_m" 2>/dev/null; done
+		for _v in $_fw_maps; do veritysetup close "$_v" 2>/dev/null; done
+		for _l in $_fw_loops; do busybox losetup -d "$_l" 2>/dev/null; done
+	}
+
+	# Each /boot/firmware/<bundle>/ is an independently signed + versioned add-on. Verify,
+	# verity-open and mount each; PER-BUNDLE never-brick: a bundle whose anchor/verity/mount
+	# fails is skipped (its partial state cleaned up inline) and the others still mount.
+	for _bdir in "$_fwroot"/*/; do
+		[ -d "$_bdir" ] || continue
+		_b=$(busybox basename "$_bdir")
+		_img="${_bdir}firmware-active.img"
+		_hsh="${_bdir}firmware-active.hash"
+		[ -f "$_img" ] || continue
+
+		_bh=$(/sbin/fw-verify "$_bdir" active /etc/atom-fw-root.pub "$_b" 2>/dev/null)
+		[ -n "$_bh" ] || { busybox echo "[init] firmware bundle $_b unverified, skipped"; continue; }
+
+		_dev=$(busybox losetup -f) && busybox losetup "$_dev" "$_img" 2>/dev/null \
+			|| { busybox echo "[init] firmware bundle $_b attach failed, skipped"; busybox losetup -d "$_dev" 2>/dev/null; continue; }
+		_hdev=$(busybox losetup -f) && busybox losetup "$_hdev" "$_hsh" 2>/dev/null
+		[ -n "$_hdev" ] || { busybox echo "[init] firmware bundle $_b hash attach failed, skipped"; busybox losetup -d "$_dev" 2>/dev/null; continue; }
+		if ! veritysetup open "$_dev" "${_b}-fwverity" "$_hdev" "$_bh" 2>/dev/null; then
+			busybox echo "[init] firmware bundle $_b verity failed, skipped"
+			busybox losetup -d "$_dev" 2>/dev/null; busybox losetup -d "$_hdev" 2>/dev/null; continue
+		fi
+		_mnt="/sysroot/var/.fw-$_b"
+		busybox mkdir -p "$_mnt"
+		if ! busybox mount -t erofs -o ro "/dev/mapper/${_b}-fwverity" "$_mnt" 2>/dev/null; then
+			busybox echo "[init] firmware bundle $_b mount failed, skipped"
+			veritysetup close "${_b}-fwverity" 2>/dev/null
+			busybox losetup -d "$_dev" 2>/dev/null; busybox losetup -d "$_hdev" 2>/dev/null; continue
+		fi
+		_fw_loops="$_dev $_hdev $_fw_loops"
+		_fw_maps="${_b}-fwverity $_fw_maps"
+		_fw_mnts="$_mnt $_fw_mnts"
+		_lowers="${_mnt}:${_lowers}"
+		busybox echo "[init] firmware bundle $_b verified + mounted (anchor-verified)"
+	done
+
+	[ -n "$_lowers" ] || { busybox echo "[init] no firmware bundle mounted, base firmware only"; return 0; }
+
+	# Union every mounted bundle over the base survival firmware in one overlay (bundles
+	# highest priority, base last).
+	busybox mkdir -p /sysroot/var/.base-firmware
+	busybox mount --bind /sysroot/usr/lib/firmware /sysroot/var/.base-firmware 2>/dev/null \
+		|| { busybox echo "[init] firmware base bind failed, base only"; _fw_cleanup; return 0; }
+	if busybox mount -t overlay overlay \
+		-o "ro,lowerdir=${_lowers}/sysroot/var/.base-firmware" /sysroot/usr/lib/firmware 2>/dev/null; then
+		busybox echo "[init] firmware add-on bundles unioned over base firmware"
+		return 0
+	fi
+	busybox echo "[init] firmware overlay failed, using base firmware"
+	busybox umount /sysroot/var/.base-firmware 2>/dev/null
+	_fw_cleanup
+	return 0
+}
+
 # Collect ALL erofs data + dm-verity hash partitions -- there can be several (a USB
 # stick AND an already-installed disk) -- then verity-open the pair whose hash matches
 # the baked sing.roothash. This picks the correct rootfs regardless of extra installs.
@@ -228,6 +317,10 @@ else
 	done
 fi
 [ -n "$INIT" ] || rescue "no init found in root"
+
+# Union the firmware add-on over the base firmware before handing off. Fail-open:
+# never blocks the boot, only enriches /usr/lib/firmware when a valid image exists.
+mount_firmware
 
 exec busybox switch_root /sysroot "$INIT"
 INIT

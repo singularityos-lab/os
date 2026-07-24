@@ -1,0 +1,36 @@
+#!/bin/sh
+# The greeter as a CLIENT of the persistent compositor (singularity-compositor),
+# launched by greetd instead of a labwc of its own. greetd still does the auth
+# and the privilege drop to the greeter user; this script only points the greeter
+# at the persistent Wayland socket and runs it. It NEVER starts a compositor, so
+# there is exactly one labwc for the whole session and no second cold start.
+. /usr/bin/singularity-session-common
+
+# The compositor's socket lives in its runtime dir; HOME/cache stay in the
+# greeter's own writable runtime dir (greetd creates /run/user/102).
+export XDG_RUNTIME_DIR=/run/singularity
+export WAYLAND_DISPLAY=wayland-0
+export HOME=/run/user/102
+export XDG_CACHE_HOME=/run/user/102/.cache XDG_CONFIG_HOME=/run/user/102/.config
+mkdir -p "$XDG_CACHE_HOME" "$XDG_CONFIG_HOME" 2>/dev/null || true
+
+sscommon_locale
+sscommon_softrender_backstop
+
+# Wait for the persistent compositor's socket. Fail LOUD: better a logged abort
+# than a silent black screen that looks like a hang.
+_i=0
+while [ ! -S "$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY" ] && [ "$_i" -lt 100 ]; do
+    sleep 0.1
+    _i=$((_i + 1))
+done
+if [ ! -S "$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY" ]; then
+    sscommon_log "greeter-client: $XDG_RUNTIME_DIR/$WAYLAND_DISPLAY never appeared after ${_i} ticks, aborting"
+    exit 1
+fi
+sscommon_log "greeter-client: compositor socket up after ${_i} ticks, connecting as client"
+sscommon_mark_greeter_ready
+
+# No compositor, no splash here: the persistent labwc owns the seat and #45 paints
+# the boot logo. Just the greeter UI, under its own session bus.
+exec dbus-run-session -- /usr/bin/singularity-greeter

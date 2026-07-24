@@ -132,7 +132,7 @@ chmod 600 "$TARGET_DIR"/etc/NetworkManager/system-connections/*.nmconnection 2>/
 chmod 700 "$TARGET_DIR/root/.atom-probe" 2>/dev/null || true
 chmod 600 "$TARGET_DIR"/root/.atom-probe/token "$TARGET_DIR"/root/.atom-probe/probe.key 2>/dev/null || true
 
-# Ubuntu-parity firmware (FB-10): the buildroot linux-firmware selection ships only a few
+# Ubuntu-parity firmware: the buildroot linux-firmware selection ships only a few
 # blobs (whack-a-mole per machine). A general OS ships a broad set so drivers already in
 # the kernel can init generic wifi/GPU/BT out of the box; per-card verification stays a
 # hardware test, this only provides the capability. Mode: none | curated | full.
@@ -182,7 +182,15 @@ if [ "${ATOM_BUILD:-}" = "rc" ]; then
     rm -f "$TARGET_DIR/etc/atom/dev.enabled" "$TARGET_DIR/etc/atom/probe.enabled"
     rm -f "$TARGET_DIR/usr/bin/sinty-devlink" "$TARGET_DIR/usr/bin/sinty-online" "$TARGET_DIR/usr/bin/wifi" "$TARGET_DIR/usr/bin/wifi-verify" "$TARGET_DIR/usr/sbin/dropbear" "$TARGET_DIR/usr/sbin/dropbearkey"
     rm -rf "$TARGET_DIR/usr/share/atom/devlink"
-    echo "[singularity] post-build: RC build -- stripped dev markers (dev.enabled, probe.enabled)"
+    # Defense in depth: also remove the root-shell unit files AND their target.wants
+    # symlinks. The dev-marker strip above already fences them via ConditionPathExists,
+    # but sinit does not evaluate unit Conditions, so a lingering .wants symlink would
+    # still land a root shell on a VT in the RC. Delete both so the backdoor cannot boot.
+    rm -f "$TARGET_DIR"/etc/systemd/system/*.target.wants/root-vt.service \
+          "$TARGET_DIR"/etc/systemd/system/*.target.wants/diag-console.service \
+          "$TARGET_DIR/usr/lib/systemd/system/root-vt.service" \
+          "$TARGET_DIR/usr/lib/systemd/system/diag-console.service"
+    echo "[singularity] post-build: RC build -- stripped dev markers + root-shell units"
 fi
 
 # Generate /etc/ld.so.cache. The image has no runtime ldconfig, and several binaries
@@ -197,4 +205,58 @@ if command -v ldconfig >/dev/null 2>&1; then
     ldconfig -r "$TARGET_DIR" \
         /usr/lib/systemd /usr/lib/tracker-3.0 /usr/lib/tracker-miners-3.0 2>/dev/null || true
     echo "[singularity] post-build: generated /etc/ld.so.cache (with systemd + tracker dirs)"
+fi
+
+# Pre-build the fontconfig cache into the image. Without it every process that
+# initialises fontconfig rescans all fonts at startup (measured: 2.0s for 92
+# fonts), and it can never cache the result because /var/cache/fontconfig lives
+# on the read-only rootfs, so the cost is paid on every boot rather than once.
+# The host fc-cache comes from the same buildroot, so the cache format matches
+# the target's fontconfig. Non-fatal: a host without it still produces an image.
+FC_CACHE_BIN="${HOST_DIR}/bin/fc-cache"
+if [ -x "$FC_CACHE_BIN" ] && [ -r "${TARGET_DIR}/etc/fonts/fonts.conf" ]; then
+    FONTCONFIG_FILE="${TARGET_DIR}/etc/fonts/fonts.conf" \
+        "$FC_CACHE_BIN" -y "$TARGET_DIR" -f >/dev/null 2>&1 || true
+    # -y prefixes every path with the sysroot, including the host fc-cache's own
+    # built-in cache dir, which leaves a mirror of $HOST_DIR inside the target.
+    # Remove exactly that mirror and prune only the empty parents it created, so
+    # real target dirs (notably /home/sinty from the users table) are untouched.
+    FC_MIRROR="${TARGET_DIR}${HOST_DIR}"
+    if [ -d "$FC_MIRROR" ]; then
+        rm -rf "$FC_MIRROR"
+        rmdir -p --ignore-fail-on-non-empty "$(dirname "$FC_MIRROR")" 2>/dev/null || true
+    fi
+    echo "[singularity] post-build: fontconfig cache pre-built ($(ls "${TARGET_DIR}/var/cache/fontconfig" 2>/dev/null | wc -l) files)"
+fi
+
+# Pre-build the GTK icon caches, same class of problem as the fontconfig cache
+# above: a theme without icon-theme.cache is rescanned by every GTK process at
+# startup, and the rootfs is read-only so the result is never persisted, making
+# it a per-boot cost forever. Adwaita ships one; hicolor (4MB) and Singularity
+# do not. Non-fatal per theme so a malformed theme cannot break the image.
+GTK_ICON_CACHE_BIN="${HOST_DIR}/bin/gtk-update-icon-cache"
+if [ -x "$GTK_ICON_CACHE_BIN" ]; then
+    for _theme in "${TARGET_DIR}"/usr/share/icons/*/; do
+        [ -f "${_theme}index.theme" ] || continue
+        "$GTK_ICON_CACHE_BIN" -f -q -t "$_theme" >/dev/null 2>&1 || true
+    done
+    echo "[singularity] post-build: GTK icon caches pre-built ($(find "${TARGET_DIR}/usr/share/icons" -name icon-theme.cache 2>/dev/null | wc -l) themes)"
+fi
+
+# Drop firmware and modules the shipped system cannot use (NVIDIA, orphaned
+# kernel modules, hardware predating the TPM/Secure Boot requirement). This is a
+# post-build filter rather than a .config change so nothing has to be rebuilt and
+# every cut is reversible in trim-image.sh. Non-fatal so a stale tree cannot break
+# the image.
+_TRIM="$(dirname "$0")/trim-image.sh"
+[ -x "$_TRIM" ] && "$_TRIM" "$TARGET_DIR" || true
+
+# De-systemd: the stock systemd timedatectl refuses to run without systemd as
+# PID 1 ("System has not been booted with systemd"). Replace it with the native
+# sinty-timedate drop-in (package sinty-timedate installs /usr/bin/sinty-timedate).
+# Wired here, at the end, so it wins regardless of package build order.
+if [ -x "$TARGET_DIR/usr/bin/sinty-timedate" ]; then
+    rm -f "$TARGET_DIR/usr/bin/timedatectl"
+    ln -sf sinty-timedate "$TARGET_DIR/usr/bin/timedatectl"
+    echo "[singularity] post-build: timedatectl -> sinty-timedate (de-systemd)"
 fi

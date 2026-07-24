@@ -1,0 +1,55 @@
+# Singularity OS SDK image.
+#
+# Builds the buildroot SDK (the cross toolchain plus the target staging sysroot)
+# for this exact OS config and ships it as a reusable build environment. Every
+# component CI (sinit, sinty-nm, sinty-sdb, ...) runs inside this image and
+# cross-builds against the SAME toolchain and libraries the OS itself uses, so a
+# release binary is bit-for-bit what the image would build. No component ever
+# needs the buildroot tree or a host Go; they get /opt/sdk.
+#
+# Heavy on first build (make sdk pulls in `world`, the full OS build) but the
+# result is a single cacheable image. Pin BUILDROOT_VERSION to the tree the OS
+# targets.
+
+ARG BUILDROOT_VERSION=2026.02.2
+
+# ---- stage 1: build the SDK tarball ------------------------------------------
+FROM debian:trixie-slim AS builder
+ARG BUILDROOT_VERSION
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends \
+	bash bc build-essential ca-certificates cpio file git gawk \
+	libssl-dev python3 rsync sed unzip wget which bzip2 xz-utils \
+	&& rm -rf /var/lib/apt/lists/*
+
+WORKDIR /build
+# The build context is the singularity-os repo: it is the br2-external tree.
+COPY . /build/singularity-os
+RUN wget -q "https://buildroot.org/downloads/buildroot-${BUILDROOT_VERSION}.tar.xz" -O br.tar.xz \
+	&& tar xf br.tar.xz && mv "buildroot-${BUILDROOT_VERSION}" buildroot-src && rm br.tar.xz
+
+# Configure for this OS and produce the relocatable SDK tarball under out/images.
+RUN cd buildroot-src \
+	&& make O=/build/out BR2_EXTERNAL=/build/singularity-os singularity_defconfig \
+	&& make O=/build/out BR2_EXTERNAL=/build/singularity-os -j"$(nproc)" sdk
+
+# ---- stage 2: the slim SDK image ---------------------------------------------
+FROM debian:trixie-slim
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends \
+	bash build-essential ca-certificates file git rsync python3 \
+	&& rm -rf /var/lib/apt/lists/*
+
+# Unpack the SDK to /opt/sdk and relocate it to that prefix.
+COPY --from=builder /build/out/images/*_sdk-buildroot.tar.gz /tmp/sdk.tar.gz
+RUN mkdir -p /opt/sdk \
+	&& tar xf /tmp/sdk.tar.gz -C /opt/sdk --strip-components=1 \
+	&& rm /tmp/sdk.tar.gz \
+	&& /opt/sdk/relocate-sdk.sh
+
+# The cross toolchain (and the bundled Go) live in /opt/sdk/bin. A component CI
+# builds with, for example:
+#   go build -trimpath -o out/binary ./cmd/binary
+# using the SDK Go and CC=/opt/sdk/bin/*-linux-*-gcc for cgo packages.
+ENV PATH=/opt/sdk/bin:$PATH
+ENV SDK_DIR=/opt/sdk

@@ -2,14 +2,14 @@
  *
  * The desktop shell drives power via login1 D-Bus (SessionManager -> Manager.Reboot/
  * PowerOff/Suspend, Session.Terminate). Without logind those calls die -> power buttons
- * do nothing (FB-17). This root daemon owns org.freedesktop.login1 on the system bus and
+ * do nothing. This root daemon owns org.freedesktop.login1 on the system bus and
  * maps the Manager power methods to sinit's /bin/reboot|poweroff and the kernel suspend.
  *
  * Authorization: real logind gates these via polkit (only the active local session). We
  * have no session tracking, but we MUST NOT let any process on the bus power off the
  * machine (a system daemon or background task could DoS it). So the action methods are
  * gated to the caller's uid: root or a human user (uid >= UID_MIN); system-service uids
- * (1..UID_MIN-1) are denied. The desktop user (uid >= 1000) keeps working (FB-17); the
+ * (1..UID_MIN-1) are denied. The desktop user (uid >= 1000) keeps working; the
  * pre-login greeter reboots via its own `systemctl` path, not this socket.
  */
 #include <gio/gio.h>

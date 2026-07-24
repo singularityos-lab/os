@@ -1,0 +1,9 @@
+config BR2_PACKAGE_SINTY_NMD
+	bool "sinty-nmd"
+	help
+	  sinty-nmd: the Sinty OS network manager daemon. Installed from the
+	  prebuilt binary attached to the sinty-nm GitHub release (built by
+	  that repository's CI), so the image never carries a committed binary.
+	  Installs /usr/bin/sinty-nmd.
+
+	  https://github.com/singularityos-lab/sinty-nm

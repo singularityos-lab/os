@@ -1,0 +1,27 @@
+#!/bin/sh
+# Post-boot device-probe for the firmware add-on OTA trial, PER-BUNDLE. For each firmware
+# bundle it tells atomd whether that bundle's add-on actually activated this boot, so the
+# daemon promotes it (clean, toward its stable threshold) or rolls just that bundle back
+# (bad) -- the trial half of the never-brick firmware track. atomd no-ops for any bundle
+# with no candidate in flight, so this runs every boot; it never bricks, since a failed
+# probe only rolls one bundle back to its previous image (or drops it to base survival).
+#
+# A bundle is good iff its verified erofs actually mounted: mount_firmware puts each mounted
+# bundle at /var/.fw-<bundle>; a bundle that failed verify/mount in the initramfs is absent
+# there (it degraded, base survival covers it). /proc/mounts is ground truth. On a base-only
+# install there are no bundles, so this is a no-op.
+ATOMD=/usr/libexec/atomd
+FWROOT=/boot/firmware
+[ -e /run/atom/installed ] || exit 0
+[ -x "$ATOMD" ] || exit 0
+[ -d "$FWROOT" ] || exit 0
+
+for bdir in "$FWROOT"/*/; do
+	[ -d "$bdir" ] || continue
+	b=$(basename "$bdir")
+	if grep -q " /var/.fw-$b erofs " /proc/mounts; then
+		"$ATOMD" firmware-confirm --bundle "$b" --probe-ok=true
+	else
+		"$ATOMD" firmware-confirm --bundle "$b" --probe-ok=false
+	fi
+done

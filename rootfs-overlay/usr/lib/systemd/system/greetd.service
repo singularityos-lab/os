@@ -5,12 +5,31 @@ After=multi-user.target
 Conflicts=getty@tty1.service
 
 [Service]
+# The greeter user's home /var/lib/greetd is NOT baked/seeded on an installed system's
+# fresh /var partition (nothing creates it -- unlike /var/lib/{AccountsService,NetworkManager}).
+# greetd chdir()s into the greeter home before dropping privileges and exec'ing the greeter,
+# so a missing home -> chdir ENOENT -> the greeter never starts and the boot hangs at loading.
+# ExecStartPre runs as root (before the drop to greeter) and is init-agnostic (works under
+# sinit, where systemd-tmpfiles does not run), so this is the reliable recreate.
+ExecStartPre=-/bin/mkdir -p /var/lib/greetd
+ExecStartPre=-/bin/chown greeter:greeter /var/lib/greetd
 ExecStartPre=-/bin/mkdir -p /run/singularity
-ExecStartPre=-/bin/chmod 0777 /run/singularity
+# The persistent compositor owns /run/singularity via RuntimeDirectory=singularity
+# (greeter:singularity-session 0770), but there is a boot race: if this root mkdir wins,
+# /run/singularity ends up root:root and the greeter (running as 'greeter') cannot write
+# /run/singularity/greeter-ready -- so it never signals "ready" and the boot hangs at the
+# loading screen (seen on metal, where the race resolves the other way than in the VM).
+# Force the ownership+mode here, as root, before the drop to greeter: idempotent when the
+# compositor already owns it, corrective when root created it. NOT 0777: dbus-run-session
+# refuses a world-writable XDG_RUNTIME_DIR.
+ExecStartPre=-/bin/chown greeter:singularity-session /run/singularity
+ExecStartPre=-/bin/chmod 0770 /run/singularity
 ExecStartPre=-/bin/sh -c 'mkdir -p /run/user/102 && chown greeter /run/user/102 && chmod 0700 /run/user/102'
 ExecStartPre=-/bin/sh -c 'mkdir -p /tmp/.X11-unix && chmod 1777 /tmp/.X11-unix'
 ExecStartPre=-/usr/bin/udevadm trigger --action=add
-ExecStartPre=-/usr/bin/atomctl restart seatd.service
+# Do NOT restart seatd here: the persistent compositor (started Before=greetd)
+# already holds a seatd session, and restarting seatd under it would tear its
+# seat/DRM master away. seatd is brought up once at multi-user.target.
 ExecStart=/usr/bin/greetd
 Restart=always
 RestartSec=1

@@ -1,0 +1,544 @@
+From 06f662c616f550caa83db9c0d774c24c66122ce2 Mon Sep 17 00:00:00 2001
+From: Mirko Brombin <9479903+mirkobrombin@users.noreply.github.com>
+Date: Sat, 18 Jul 2026 19:34:12 +0100
+Subject: [PATCH 4/4] mm: admit cgroup domains across four reserved resources
+
+Add an atomic cgroup-v2 admission ioctl over capacity, read bandwidth, write bandwidth, and queue slots. Apply the normative 20 percent headroom, retain non-preemptible reservations behind a domain fd, and roll the complete vector back on any failure.
+
+Transition dependent admitted domains to AT_RISK before an FD-scoped provider drains. Publish the five frozen tracepoint schemas and emit deterministic admission and provider-loss SLO transitions.
+
+Evidence: Linux 7.1.3 CONFIG_MTS_TIER=y make -j4 mm/mts.o mm/mts_tier.o.
+Signed-off-by: Mirko Brombin <9479903+mirkobrombin@users.noreply.github.com>
+---
+ include/trace/events/mts.h | 108 +++++++++++++++
+ include/uapi/linux/mts.h   |  28 ++++
+ mm/Kconfig                 |   2 +-
+ mm/mts_tier.c              | 261 +++++++++++++++++++++++++++++++++++++
+ 4 files changed, 398 insertions(+), 1 deletion(-)
+
+diff --git a/include/trace/events/mts.h b/include/trace/events/mts.h
+index bc95234..c945ec3 100644
+--- a/include/trace/events/mts.h
++++ b/include/trace/events/mts.h
+@@ -44,6 +44,114 @@ TRACE_EVENT(mts_prediction_label,
+ 		  __entry->reused)
+ );
+ 
++DECLARE_EVENT_CLASS(mts_fault,
++	TP_PROTO(u64 cgroup_id, unsigned long address, u32 object_id,
++		 u32 generation, const u8 *tier_uuid, u64 sequence,
++		 u64 timestamp_ns, int status),
++	TP_ARGS(cgroup_id, address, object_id, generation, tier_uuid, sequence,
++		timestamp_ns, status),
++	TP_STRUCT__entry(
++		__field(u64, cgroup_id)
++		__field(unsigned long, address)
++		__field(u32, object_id)
++		__field(u32, generation)
++		__array(u8, tier_uuid, 16)
++		__field(u64, sequence)
++		__field(u64, timestamp_ns)
++		__field(int, status)
++	),
++	TP_fast_assign(
++		__entry->cgroup_id = cgroup_id;
++		__entry->address = address;
++		__entry->object_id = object_id;
++		__entry->generation = generation;
++		memcpy(__entry->tier_uuid, tier_uuid, 16);
++		__entry->sequence = sequence;
++		__entry->timestamp_ns = timestamp_ns;
++		__entry->status = status;
++	),
++	TP_printk("cgroup=%llu address=%lx object=%u generation=%u sequence=%llu timestamp_ns=%llu status=%d",
++		  __entry->cgroup_id, __entry->address, __entry->object_id,
++		  __entry->generation, __entry->sequence, __entry->timestamp_ns,
++		  __entry->status)
++);
++
++DEFINE_EVENT(mts_fault, fault_begin,
++	TP_PROTO(u64 cgroup_id, unsigned long address, u32 object_id,
++		 u32 generation, const u8 *tier_uuid, u64 sequence,
++		 u64 timestamp_ns, int status),
++	TP_ARGS(cgroup_id, address, object_id, generation, tier_uuid, sequence,
++		timestamp_ns, status)
++);
++
++DEFINE_EVENT(mts_fault, fault_end,
++	TP_PROTO(u64 cgroup_id, unsigned long address, u32 object_id,
++		 u32 generation, const u8 *tier_uuid, u64 sequence,
++		 u64 timestamp_ns, int status),
++	TP_ARGS(cgroup_id, address, object_id, generation, tier_uuid, sequence,
++		timestamp_ns, status)
++);
++
++DECLARE_EVENT_CLASS(mts_batch,
++	TP_PROTO(u64 batch_id, u8 operation, u32 pages, u64 bytes,
++		 int status, u64 timestamp_ns),
++	TP_ARGS(batch_id, operation, pages, bytes, status, timestamp_ns),
++	TP_STRUCT__entry(
++		__field(u64, batch_id)
++		__field(u8, operation)
++		__field(u32, pages)
++		__field(u64, bytes)
++		__field(int, status)
++		__field(u64, timestamp_ns)
++	),
++	TP_fast_assign(
++		__entry->batch_id = batch_id;
++		__entry->operation = operation;
++		__entry->pages = pages;
++		__entry->bytes = bytes;
++		__entry->status = status;
++		__entry->timestamp_ns = timestamp_ns;
++	),
++	TP_printk("batch=%llu operation=%u pages=%u bytes=%llu status=%d timestamp_ns=%llu",
++		  __entry->batch_id, __entry->operation, __entry->pages,
++		  __entry->bytes, __entry->status, __entry->timestamp_ns)
++);
++
++DEFINE_EVENT(mts_batch, batch_submit,
++	TP_PROTO(u64 batch_id, u8 operation, u32 pages, u64 bytes,
++		 int status, u64 timestamp_ns),
++	TP_ARGS(batch_id, operation, pages, bytes, status, timestamp_ns)
++);
++
++DEFINE_EVENT(mts_batch, batch_complete,
++	TP_PROTO(u64 batch_id, u8 operation, u32 pages, u64 bytes,
++		 int status, u64 timestamp_ns),
++	TP_ARGS(batch_id, operation, pages, bytes, status, timestamp_ns)
++);
++
++TRACE_EVENT(slo_transition,
++	TP_PROTO(u64 cgroup_id, u32 old_status, u32 new_status, u32 cause,
++		 const u8 *tier_uuid),
++	TP_ARGS(cgroup_id, old_status, new_status, cause, tier_uuid),
++	TP_STRUCT__entry(
++		__field(u64, cgroup_id)
++		__field(u32, old_status)
++		__field(u32, new_status)
++		__field(u32, cause)
++		__array(u8, tier_uuid, 16)
++	),
++	TP_fast_assign(
++		__entry->cgroup_id = cgroup_id;
++		__entry->old_status = old_status;
++		__entry->new_status = new_status;
++		__entry->cause = cause;
++		memcpy(__entry->tier_uuid, tier_uuid, 16);
++	),
++	TP_printk("cgroup=%llu old=%u new=%u cause=%u",
++		  __entry->cgroup_id, __entry->old_status,
++		  __entry->new_status, __entry->cause)
++);
++
+ #endif /* _TRACE_MTS_H */
+ 
+ #include <trace/define_trace.h>
+diff --git a/include/uapi/linux/mts.h b/include/uapi/linux/mts.h
+index 12db525..0851fe3 100644
+--- a/include/uapi/linux/mts.h
++++ b/include/uapi/linux/mts.h
+@@ -8,6 +8,7 @@
+ #define MTS_UAPI_VERSION 2U
+ #define MTS_UUID_BYTES 16U
+ #define MTS_HISTOGRAM_BUCKETS 32U
++#define MTS_MAX_DOMAIN_TIERS 8U
+ #define MTS_TIER_SLOT_DRAM 0U
+ #define MTS_TIER_SLOT_NONE 255U
+ 
+@@ -142,6 +143,31 @@ struct mts_histogram_v2 {
+ 	__u64 samples;
+ };
+ 
++struct mts_tier_reservation_v2 {
++	__s32 tier_fd;
++	__u32 reserved0;
++	__u64 capacity_bytes;
++	__u64 read_bandwidth_bytes_s;
++	__u64 write_bandwidth_bytes_s;
++	__u32 queue_slots;
++	__u32 reserved1;
++};
++
++struct mts_admit_domain_v2 {
++	__u16 version;
++	__u16 size;
++	__u32 flags;
++	__s32 cgroup_fd;
++	__s32 domain_fd;
++	__u64 fault_service_p99_ns;
++	__u64 reuse_horizon_us;
++	__u64 reservations_ptr;
++	__u32 reservation_count;
++	__u32 status;
++	__u64 stable_cgroup_id;
++	__u64 reserved[6];
++};
++
+ /* Inclusive upper bounds in ns. Instantiate this initializer in userspace. */
+ #define MTS_HISTOGRAM_UPPER_NS_V2_INIT { \
+ 	1000ULL, 2000ULL, 4000ULL, 8000ULL, \
+@@ -159,5 +185,7 @@ struct mts_histogram_v2 {
+ 	_IOWR(MTS_IOC_MAGIC, 0x01, struct mts_register_tier_v2)
+ #define MTS_IOC_UNREGISTER_TIER _IOW(MTS_IOC_MAGIC, 0x02, __u8[MTS_UUID_BYTES])
+ #define MTS_IOC_QUERY_ATTR _IOWR(MTS_IOC_MAGIC, 0x03, struct mts_query_attr_v2)
++#define MTS_IOC_ADMIT_DOMAIN \
++	_IOWR(MTS_IOC_MAGIC, 0x04, struct mts_admit_domain_v2)
+ 
+ #endif /* _UAPI_LINUX_MTS_UAPI_V2_H */
+diff --git a/mm/Kconfig b/mm/Kconfig
+index 73a31a8..97658fd 100644
+--- a/mm/Kconfig
++++ b/mm/Kconfig
+@@ -31,7 +31,7 @@ config MTS_OBSERVE
+ 
+ config MTS_TIER
+ 	bool "Memory Tiering Standard native object tiers"
+-	depends on MTS_OBSERVE && BLOCK
++	depends on MTS_OBSERVE && BLOCK && CGROUPS
+ 	select CRC32
+ 	help
+ 	  Register declarative file-backed tiers through /dev/mts and expose the
+diff --git a/mm/mts_tier.c b/mm/mts_tier.c
+index 02a138f..6c8e93a 100644
+--- a/mm/mts_tier.c
++++ b/mm/mts_tier.c
+@@ -1,20 +1,24 @@
+ // SPDX-License-Identifier: GPL-2.0-only
+ #include <linux/anon_inodes.h>
++#include <linux/cgroup.h>
+ #include <linux/crc32.h>
+ #include <linux/file.h>
+ #include <linux/fdtable.h>
+ #include <linux/fs.h>
+ #include <linux/idr.h>
+ #include <linux/kref.h>
++#include <linux/list.h>
+ #include <linux/miscdevice.h>
+ #include <linux/mm.h>
+ #include <linux/module.h>
+ #include <linux/mts.h>
+ #include <linux/mutex.h>
+ #include <linux/pagemap.h>
++#include <linux/overflow.h>
+ #include <linux/slab.h>
+ #include <linux/uaccess.h>
+ #include <linux/xarray.h>
++#include <trace/events/mts.h>
+ #include <uapi/linux/mts.h>
+ 
+ #define MTS_REFCOUNT_FREEZE	0x00fffffeU
+@@ -46,11 +50,32 @@ struct mts_tier {
+ 	enum mts_tier_state state;
+ 	u8 slot;
+ 	u32 next_slot;
++	u64 reserved_capacity;
++	u64 reserved_read_bw;
++	u64 reserved_write_bw;
++	u32 reserved_queue_slots;
++};
++
++struct mts_domain_tier {
++	struct mts_tier *tier;
++	struct mts_tier_reservation_v2 request;
++};
++
++struct mts_domain {
++	struct list_head node;
++	struct cgroup *cgroup;
++	u64 stable_id;
++	u64 fault_service_p99_ns;
++	u64 reuse_horizon_us;
++	u32 status;
++	u32 tier_count;
++	struct mts_domain_tier tiers[MTS_MAX_DOMAIN_TIERS];
+ };
+ 
+ static DEFINE_XARRAY(mts_tiers);
+ static DEFINE_IDA(mts_tier_ids);
+ static DEFINE_MUTEX(mts_registry_lock);
++static LIST_HEAD(mts_domains);
+ 
+ static struct mts_tier *mts_tier_lookup(u8 tier_slot)
+ {
+@@ -307,6 +332,31 @@ static int mts_validate_registration(const struct mts_register_tier_v2 *request)
+ 	return 0;
+ }
+ 
++static bool mts_domain_uses_tier(const struct mts_domain *domain,
++				 const struct mts_tier *tier)
++{
++	u32 index;
++
++	for (index = 0; index < domain->tier_count; index++)
++		if (domain->tiers[index].tier == tier)
++			return true;
++	return false;
++}
++
++static void mts_mark_tier_domains_at_risk(struct mts_tier *tier, u32 cause)
++{
++	struct mts_domain *domain;
++
++	list_for_each_entry(domain, &mts_domains, node)
++		if (domain->status == MTS_SLO_ADMITTED &&
++		    mts_domain_uses_tier(domain, tier)) {
++			domain->status = MTS_SLO_AT_RISK;
++			trace_slo_transition(domain->stable_id, MTS_SLO_ADMITTED,
++					     MTS_SLO_AT_RISK, cause,
++					     tier->desc.uuid);
++		}
++}
++
+ static int mts_tier_fd_release(struct inode *inode, struct file *file)
+ {
+ 	struct mts_tier *tier = file->private_data;
+@@ -316,6 +366,8 @@ static int mts_tier_fd_release(struct inode *inode, struct file *file)
+ 		mutex_lock(&tier->lock);
+ 		tier->state = MTS_TIER_DRAINING;
+ 		mutex_unlock(&tier->lock);
++		mts_mark_tier_domains_at_risk(tier,
++					      MTS_CAUSE_PROVIDER_FD_CLOSED);
+ 		xa_erase(&mts_tiers, tier->slot);
+ 		mutex_unlock(&mts_registry_lock);
+ 		synchronize_rcu();
+@@ -333,6 +385,198 @@ static const struct file_operations mts_tier_fops = {
+ 	.llseek = noop_llseek,
+ };
+ 
++static int mts_add_headroom(u64 value, u64 *result)
++{
++	if (check_mul_overflow(value, 6ULL, result))
++		return -EOVERFLOW;
++	*result = DIV_ROUND_UP_ULL(*result, 5);
++	return 0;
++}
++
++static int mts_domain_fd_release(struct inode *inode, struct file *file)
++{
++	struct mts_domain *domain = file->private_data;
++	u32 index;
++
++	mutex_lock(&mts_registry_lock);
++	list_del(&domain->node);
++	for (index = 0; index < domain->tier_count; index++) {
++		struct mts_domain_tier *binding = &domain->tiers[index];
++		struct mts_tier *tier = binding->tier;
++
++		mutex_lock(&tier->lock);
++		tier->reserved_capacity -= binding->request.capacity_bytes;
++		tier->reserved_read_bw -= binding->request.read_bandwidth_bytes_s;
++		tier->reserved_write_bw -= binding->request.write_bandwidth_bytes_s;
++		tier->reserved_queue_slots -= binding->request.queue_slots;
++		mutex_unlock(&tier->lock);
++	}
++	mutex_unlock(&mts_registry_lock);
++	for (index = 0; index < domain->tier_count; index++)
++		mts_tier_put(domain->tiers[index].tier);
++	cgroup_put(domain->cgroup);
++	kfree(domain);
++	return 0;
++}
++
++static const struct file_operations mts_domain_fops = {
++	.owner = THIS_MODULE,
++	.release = mts_domain_fd_release,
++	.llseek = noop_llseek,
++};
++
++static int mts_charge_reservation(struct mts_tier *tier,
++				  struct mts_tier_reservation_v2 *reservation)
++{
++	u64 capacity;
++	u64 read_bw;
++	u64 write_bw;
++	u64 queue;
++	int err;
++
++	err = mts_add_headroom(reservation->capacity_bytes, &capacity);
++	err = err ?: mts_add_headroom(reservation->read_bandwidth_bytes_s,
++				      &read_bw);
++	err = err ?: mts_add_headroom(reservation->write_bandwidth_bytes_s,
++				      &write_bw);
++	err = err ?: mts_add_headroom(reservation->queue_slots, &queue);
++	if (err)
++		return err;
++	if (capacity > tier->desc.capacity_bytes - tier->reserved_capacity ||
++	    !tier->desc.read_bandwidth_bytes_s ||
++	    read_bw > tier->desc.read_bandwidth_bytes_s - tier->reserved_read_bw ||
++	    !tier->desc.write_bandwidth_bytes_s ||
++	    write_bw > tier->desc.write_bandwidth_bytes_s - tier->reserved_write_bw ||
++	    !tier->desc.max_inflight_batches ||
++	    queue > tier->desc.max_inflight_batches - tier->reserved_queue_slots)
++		return -ENOSPC;
++	tier->reserved_capacity += capacity;
++	tier->reserved_read_bw += read_bw;
++	tier->reserved_write_bw += write_bw;
++	tier->reserved_queue_slots += queue;
++	reservation->capacity_bytes = capacity;
++	reservation->read_bandwidth_bytes_s = read_bw;
++	reservation->write_bandwidth_bytes_s = write_bw;
++	reservation->queue_slots = queue;
++	return 0;
++}
++
++static void mts_uncharge_bindings(struct mts_domain *domain, u32 count)
++{
++	u32 index;
++
++	for (index = 0; index < count; index++) {
++		struct mts_domain_tier *binding = &domain->tiers[index];
++		struct mts_tier *tier = binding->tier;
++
++		mutex_lock(&tier->lock);
++		tier->reserved_capacity -= binding->request.capacity_bytes;
++		tier->reserved_read_bw -= binding->request.read_bandwidth_bytes_s;
++		tier->reserved_write_bw -= binding->request.write_bandwidth_bytes_s;
++		tier->reserved_queue_slots -= binding->request.queue_slots;
++		mutex_unlock(&tier->lock);
++		mts_tier_put(tier);
++	}
++}
++
++static int mts_admit_domain(struct mts_admit_domain_v2 *request)
++{
++	struct mts_tier_reservation_v2 reservations[MTS_MAX_DOMAIN_TIERS];
++	struct mts_domain *domain;
++	struct fd descriptor;
++	u32 charged = 0;
++	u32 index;
++	int fd;
++	int err;
++
++	if (request->version != MTS_UAPI_VERSION ||
++	    request->size != sizeof(*request) || !request->fault_service_p99_ns ||
++	    !request->reuse_horizon_us || !request->reservation_count ||
++	    request->reservation_count > MTS_MAX_DOMAIN_TIERS)
++		return -EINVAL;
++	if (copy_from_user(reservations,
++			   u64_to_user_ptr(request->reservations_ptr),
++			   array_size(request->reservation_count,
++				      sizeof(reservations[0]))))
++		return -EFAULT;
++	domain = kzalloc_obj(*domain);
++	if (!domain)
++		return -ENOMEM;
++	domain->cgroup = cgroup_get_from_fd(request->cgroup_fd);
++	if (IS_ERR(domain->cgroup)) {
++		err = PTR_ERR(domain->cgroup);
++		goto free_domain;
++	}
++	domain->stable_id = cgroup_id(domain->cgroup);
++	domain->fault_service_p99_ns = request->fault_service_p99_ns;
++	domain->reuse_horizon_us = request->reuse_horizon_us;
++	domain->status = MTS_SLO_UNADMITTED;
++	domain->tier_count = request->reservation_count;
++	INIT_LIST_HEAD(&domain->node);
++
++	mutex_lock(&mts_registry_lock);
++	for (index = 0; index < request->reservation_count; index++) {
++		struct mts_tier_reservation_v2 *tier_request;
++		struct mts_tier *tier;
++
++		descriptor = fdget(reservations[index].tier_fd);
++		if (!fd_file(descriptor) ||
++		    fd_file(descriptor)->f_op != &mts_tier_fops) {
++			err = -EBADF;
++			if (fd_file(descriptor))
++				fdput(descriptor);
++			goto rollback;
++		}
++		tier = fd_file(descriptor)->private_data;
++		kref_get(&tier->kref);
++		fdput(descriptor);
++		domain->tiers[index].tier = tier;
++		domain->tiers[index].request = reservations[index];
++		tier_request = &domain->tiers[index].request;
++		mutex_lock(&tier->lock);
++		if (tier->state == MTS_TIER_ACTIVE)
++			err = mts_charge_reservation(tier, tier_request);
++		else
++			err = -ESHUTDOWN;
++		mutex_unlock(&tier->lock);
++		if (err) {
++			mts_tier_put(tier);
++			goto rollback;
++		}
++		charged++;
++	}
++	domain->status = MTS_SLO_ADMITTED;
++	list_add_tail(&domain->node, &mts_domains);
++	trace_slo_transition(domain->stable_id, MTS_SLO_UNADMITTED,
++			     MTS_SLO_ADMITTED, MTS_CAUSE_NONE,
++			     domain->tiers[0].tier->desc.uuid);
++	mutex_unlock(&mts_registry_lock);
++
++	fd = anon_inode_getfd("mts-domain", &mts_domain_fops, domain,
++			      O_RDWR | O_CLOEXEC);
++	if (fd < 0) {
++		mutex_lock(&mts_registry_lock);
++		list_del(&domain->node);
++		mts_uncharge_bindings(domain, charged);
++		mutex_unlock(&mts_registry_lock);
++		err = fd;
++		goto put_cgroup;
++	}
++	request->domain_fd = fd;
++	request->status = domain->status;
++	request->stable_cgroup_id = domain->stable_id;
++	return 0;
++
++rollback:
++	mts_uncharge_bindings(domain, charged);
++	mutex_unlock(&mts_registry_lock);
++put_cgroup:
++	cgroup_put(domain->cgroup);
++free_domain:
++	kfree(domain);
++	return err;
++}
++
+ static int mts_unregister_tier(void __user *argument)
+ {
+ 	u8 uuid[MTS_UUID_BYTES];
+@@ -353,6 +597,8 @@ static int mts_unregister_tier(void __user *argument)
+ 		mutex_lock(&tier->lock);
+ 		tier->state = MTS_TIER_DRAINING;
+ 		mutex_unlock(&tier->lock);
++		mts_mark_tier_domains_at_risk(tier,
++					      MTS_CAUSE_RESERVATION_REVOKED);
+ 		xa_erase(&mts_tiers, index);
+ 		err = 0;
+ 		break;
+@@ -368,12 +614,27 @@ static int mts_unregister_tier(void __user *argument)
+ static long mts_control_ioctl(struct file *file, unsigned int command,
+ 			      unsigned long argument)
+ {
++	struct mts_admit_domain_v2 admission;
+ 	struct mts_register_tier_v2 request;
+ 	struct mts_tier *tier;
+ 	int fd;
+ 	int slot;
+ 	int err;
+ 
++	if (command == MTS_IOC_ADMIT_DOMAIN) {
++		if (copy_from_user(&admission, (void __user *)argument,
++				   sizeof(admission)))
++			return -EFAULT;
++		err = mts_admit_domain(&admission);
++		if (err)
++			return err;
++		if (copy_to_user((void __user *)argument, &admission,
++				 sizeof(admission))) {
++			close_fd(admission.domain_fd);
++			return -EFAULT;
++		}
++		return 0;
++	}
+ 	if (command == MTS_IOC_UNREGISTER_TIER)
+ 		return mts_unregister_tier((void __user *)argument);
+ 	if (command != MTS_IOC_REGISTER_TIER)
+-- 
+2.51.1
+

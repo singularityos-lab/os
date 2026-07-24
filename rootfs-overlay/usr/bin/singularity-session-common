@@ -1,0 +1,88 @@
+sscommon_log() {
+    # Log ONLY to a file, never to stderr/tty: during the boot handoff the session
+    # runs on the console before the compositor takes the display, so a stderr write
+    # leaks text (e.g. "launching labwc") onto the seamless one-continuous-surface boot.
+    _msg="[session-common] $*"
+    _logdir="${XDG_RUNTIME_DIR:-/tmp}"
+    # 2>/dev/null MUST come before >>file: redirections apply left-to-right, so if the file
+    # open fails (e.g. the greeter's XDG_RUNTIME_DIR=/run/singularity is not writable by it),
+    # the shell must already have stderr on /dev/null, or busybox ash prints the open error to
+    # the tty before 2>/dev/null takes effect -- which would leak onto the seamless boot. The
+    # log stays best-effort (|| true): no file, no message, ever, on the console.
+    printf '%s %s\n' "$(date '+%H:%M:%S' 2>/dev/null || echo '--:--:--')" "$_msg" \
+        2>/dev/null >>"$_logdir/session-common.log" || true
+}
+
+sscommon_xdg_dirs() {
+    : "${XDG_RUNTIME_DIR:?sscommon_xdg_dirs: XDG_RUNTIME_DIR must be set by the caller}"
+    mkdir -p "$XDG_RUNTIME_DIR" 2>/dev/null || true
+    export XDG_CONFIG_HOME="$XDG_RUNTIME_DIR/.config"
+    export XDG_CACHE_HOME="$XDG_RUNTIME_DIR/.cache"
+    mkdir -p "$XDG_CONFIG_HOME" "$XDG_CACHE_HOME" 2>/dev/null || true
+    case "$XDG_CACHE_HOME" in
+        /run/*) sscommon_log "XDG_CACHE_HOME=$XDG_CACHE_HOME (tmpfs, stateless: prebake any needed cache into the image)";;
+        *) sscommon_log "XDG_CACHE_HOME=$XDG_CACHE_HOME";;
+    esac
+    sscommon_log "XDG_CONFIG_HOME=$XDG_CONFIG_HOME HOME=${HOME:-unset}"
+}
+
+sscommon_locale() {
+    [ -r /var/lib/singularity/vconsole.conf ] && . /var/lib/singularity/vconsole.conf
+    [ -r /var/lib/singularity/locale.conf ] && . /var/lib/singularity/locale.conf
+    [ -n "${XKBLAYOUT:-}" ] && export XKB_DEFAULT_LAYOUT="$XKBLAYOUT"
+    [ -n "${XKBVARIANT:-}" ] && export XKB_DEFAULT_VARIANT="$XKBVARIANT"
+    export LANG="${LANG:-C.UTF-8}"
+    sscommon_log "locale LANG=$LANG XKB_DEFAULT_LAYOUT=${XKB_DEFAULT_LAYOUT:-unset} XKB_DEFAULT_VARIANT=${XKB_DEFAULT_VARIANT:-}"
+}
+
+sscommon_wait_splash() {
+    _limit="${1:-50}"
+    _i=0
+    while [ ! -e /run/singularity/boot-splash-up ] && [ "$_i" -lt "$_limit" ]; do
+        sleep 0.1
+        _i=$((_i + 1))
+    done
+    if [ -e /run/singularity/boot-splash-up ]; then
+        sscommon_log "boot-splash-up seen after ${_i} ticks"
+    else
+        sscommon_log "boot-splash-up not seen within ${_limit} ticks, proceeding"
+    fi
+}
+
+sscommon_mark_greeter_ready() {
+    mkdir -p /run/singularity 2>/dev/null || true
+    if : >/run/singularity/greeter-ready 2>/dev/null; then
+        [ "${1:-}" = chmod ] && chmod 666 /run/singularity/greeter-ready 2>/dev/null || true
+        sscommon_log "greeter-ready written"
+    else
+        sscommon_log "greeter-ready write failed"
+    fi
+}
+
+sscommon_softrender_backstop() {
+    _hwgpu=0
+    for _c in /sys/class/drm/card[0-9]*/device/uevent; do
+        [ -e "$_c" ] || continue
+        case "$(sed -n 's/^DRIVER=//p' "$_c")" in
+            i915|xe|amdgpu|radeon|nouveau|nova*|msm|panfrost|panthor|v3d|lima|etnaviv|tegra) _hwgpu=1 ;;
+        esac
+    done
+    if [ "$_hwgpu" = 0 ]; then
+        export GSK_RENDERER=cairo WLR_RENDERER=pixman WLR_RENDERER_ALLOW_SOFTWARE=1
+        export LIBGL_ALWAYS_SOFTWARE=1 GALLIUM_DRIVER=llvmpipe
+        sscommon_log "no HW GPU driver: forcing software render (llvmpipe/pixman/cairo)"
+    else
+        sscommon_log "HW GPU driver present: native render"
+    fi
+}
+
+sscommon_exec_labwc() {
+    _labwclog="${XDG_RUNTIME_DIR:-/tmp}/labwc.log"
+    if [ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ] && [ -z "${GDM_SESSION_DBUS_ADDRESS:-}" ] \
+       && command -v dbus-run-session >/dev/null 2>&1; then
+        sscommon_log "launching labwc under dbus-run-session: $*"
+        exec dbus-run-session -- labwc "$@" 2>>"$_labwclog"
+    fi
+    sscommon_log "launching labwc without a new session bus: $*"
+    exec labwc "$@" 2>>"$_labwclog"
+}

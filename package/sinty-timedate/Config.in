@@ -1,0 +1,12 @@
+config BR2_PACKAGE_SINTY_TIMEDATE
+	bool "sinty-timedate"
+	depends on BR2_PACKAGE_HOST_GO_TARGET_ARCH_SUPPORTS
+	depends on BR2_PACKAGE_HOST_GO_TARGET_CGO_LINKING_SUPPORTS
+	help
+	  Native timedatectl replacement for SintyOS (de-systemd). The
+	  stock systemd timedatectl refuses to operate without systemd
+	  as PID 1; this drop-in queries and sets the same fields via
+	  the Sinty stack. Installed as /usr/bin/sinty-timedate and
+	  wired as /usr/bin/timedatectl by the post-build script.
+
+	  https://github.com/singularityos-lab/sinty-timedate

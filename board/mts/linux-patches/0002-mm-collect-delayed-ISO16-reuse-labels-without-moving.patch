@@ -1,0 +1,545 @@
+From 8a56670ee02cf655dc2ad1f8e9a62503e2c39539 Mon Sep 17 00:00:00 2001
+From: Mirko Brombin <9479903+mirkobrombin@users.noreply.github.com>
+Date: Sat, 18 Jul 2026 17:26:31 +0100
+Subject: [PATCH 2/2] mm: collect delayed ISO16 reuse labels without moving
+ pages
+
+Add the MTS M0 observe-mode collector behind CONFIG_MTS_OBSERVE. An
+eight-byte page_ext descriptor records the v0.2 metadata word. Hooks in the
+classic and multi-generation reclaim paths update age and access evidence
+without changing any reclaim or placement decision.
+
+Use a bounded lock-free sample table to label reuse after a configurable
+horizon. A pool-adjacent-violators pass calibrates the 16 age buckets.
+Debugfs and tracepoints expose sample collisions, labels, and Brier error.
+This keeps the hot path allocation-free and predictor quality measurable.
+
+Document both boot parameters. Define sample_shift=0 as sample-all mode to
+avoid a zero-width hash operation.
+
+Signed-off-by: Mirko Brombin <9479903+mirkobrombin@users.noreply.github.com>
+---
+ .../admin-guide/kernel-parameters.txt         |   9 +
+ include/linux/mts.h                           |  21 ++
+ include/trace/events/mts.h                    |  49 +++
+ mm/Kconfig                                    |  10 +
+ mm/Makefile                                   |   1 +
+ mm/mts.c                                      | 316 ++++++++++++++++++
+ mm/page_ext.c                                 |   4 +
+ mm/vmscan.c                                   |   4 +
+ 8 files changed, 414 insertions(+)
+ create mode 100644 include/linux/mts.h
+ create mode 100644 include/trace/events/mts.h
+ create mode 100644 mm/mts.c
+
+diff --git a/Documentation/admin-guide/kernel-parameters.txt b/Documentation/admin-guide/kernel-parameters.txt
+index 97007f4..ed09bcc 100644
+--- a/Documentation/admin-guide/kernel-parameters.txt
++++ b/Documentation/admin-guide/kernel-parameters.txt
+@@ -4242,6 +4242,15 @@ Kernel parameters
+ 			Used for mtrr cleanup. It is spare mtrr entries number.
+ 			Set to 2 or more if your graphical card needs more.
+ 
++	mts.reuse_horizon_ms=
++			[KNL] Set the delayed reuse-label horizon for the MTS
++			observe-mode predictor. The default is 1000 milliseconds.
++
++	mts.sample_shift=
++			[KNL] Sample one out of 2^N anonymous-page reclaim
++			observations for MTS. Valid values are 0 through 20;
++			the default is 10.
++
+ 	multitce=off	[PPC]  This parameter disables the use of the pSeries
+ 			firmware feature for updating multiple TCE entries
+ 			at a time.
+diff --git a/include/linux/mts.h b/include/linux/mts.h
+new file mode 100644
+index 0000000..569953c
+--- /dev/null
++++ b/include/linux/mts.h
+@@ -0,0 +1,21 @@
++/* SPDX-License-Identifier: GPL-2.0-only */
++#ifndef _LINUX_MTS_H
++#define _LINUX_MTS_H
++
++#include <linux/types.h>
++
++struct folio;
++
++#ifdef CONFIG_MTS_OBSERVE
++#include <linux/page_ext.h>
++
++extern struct page_ext_operations mts_page_ext_ops;
++
++void mts_observe_access(struct folio *folio);
++void mts_observe_consider(struct folio *folio, bool referenced);
++#else
++static inline void mts_observe_access(struct folio *folio) { }
++static inline void mts_observe_consider(struct folio *folio, bool referenced) { }
++#endif
++
++#endif /* _LINUX_MTS_H */
+diff --git a/include/trace/events/mts.h b/include/trace/events/mts.h
+new file mode 100644
+index 0000000..bc95234
+--- /dev/null
++++ b/include/trace/events/mts.h
+@@ -0,0 +1,49 @@
++/* SPDX-License-Identifier: GPL-2.0-only */
++#undef TRACE_SYSTEM
++#define TRACE_SYSTEM mts
++
++#if !defined(_TRACE_MTS_H) || defined(TRACE_HEADER_MULTI_READ)
++#define _TRACE_MTS_H
++
++#include <linux/tracepoint.h>
++
++TRACE_EVENT(mts_observe_sample,
++	TP_PROTO(unsigned long pfn, u8 age, u16 reuse_q12),
++	TP_ARGS(pfn, age, reuse_q12),
++	TP_STRUCT__entry(
++		__field(unsigned long, pfn)
++		__field(u8, age)
++		__field(u16, reuse_q12)
++	),
++	TP_fast_assign(
++		__entry->pfn = pfn;
++		__entry->age = age;
++		__entry->reuse_q12 = reuse_q12;
++	),
++	TP_printk("pfn=%lu age=%u reuse_q12=%u",
++		  __entry->pfn, __entry->age, __entry->reuse_q12)
++);
++
++TRACE_EVENT(mts_prediction_label,
++	TP_PROTO(unsigned long pfn, u8 age, u16 reuse_q12, bool reused),
++	TP_ARGS(pfn, age, reuse_q12, reused),
++	TP_STRUCT__entry(
++		__field(unsigned long, pfn)
++		__field(u8, age)
++		__field(u16, reuse_q12)
++		__field(bool, reused)
++	),
++	TP_fast_assign(
++		__entry->pfn = pfn;
++		__entry->age = age;
++		__entry->reuse_q12 = reuse_q12;
++		__entry->reused = reused;
++	),
++	TP_printk("pfn=%lu age=%u reuse_q12=%u reused=%d",
++		  __entry->pfn, __entry->age, __entry->reuse_q12,
++		  __entry->reused)
++);
++
++#endif /* _TRACE_MTS_H */
++
++#include <trace/define_trace.h>
+diff --git a/mm/Kconfig b/mm/Kconfig
+index e8bf1e9..47e993a 100644
+--- a/mm/Kconfig
++++ b/mm/Kconfig
+@@ -19,6 +19,16 @@ menuconfig SWAP
+ 	  used to provide more virtual memory than the actual RAM present
+ 	  in your computer.  If unsure say Y.
+ 
++config MTS_OBSERVE
++	bool "Memory Tiering Standard observe-mode prototype"
++	depends on MMU && 64BIT
++	select PAGE_EXTENSION
++	help
++	  Allocate the v0.2 eight-byte anonymous-page descriptor and collect
++	  delayed ISO16 reuse labels without changing reclaim placement. This is
++	  the M0 measurement prototype; it never demotes or promotes a page.
++	  All reclaim and placement decisions remain unchanged.
++
+ config ZSWAP
+ 	bool "Compressed cache for swap pages"
+ 	depends on SWAP
+diff --git a/mm/Makefile b/mm/Makefile
+index 8ad2ab0..dda833d 100644
+--- a/mm/Makefile
++++ b/mm/Makefile
+@@ -77,6 +77,7 @@ endif
+ 
+ obj-$(CONFIG_SWAP)	+= page_io.o swap_state.o swapfile.o
+ obj-$(CONFIG_ZSWAP)	+= zswap.o
++obj-$(CONFIG_MTS_OBSERVE) += mts.o
+ obj-$(CONFIG_HAS_DMA)	+= dmapool.o
+ obj-$(CONFIG_HUGETLBFS)	+= hugetlb.o hugetlb_sysfs.o hugetlb_sysctl.o
+ ifdef CONFIG_CMA
+diff --git a/mm/mts.c b/mm/mts.c
+new file mode 100644
+index 0000000..b4e1bdf
+--- /dev/null
++++ b/mm/mts.c
+@@ -0,0 +1,316 @@
++// SPDX-License-Identifier: GPL-2.0-only
++#define CREATE_TRACE_POINTS
++#include <trace/events/mts.h>
++
++#include <linux/atomic.h>
++#include <linux/debugfs.h>
++#include <linux/hash.h>
++#include <linux/jiffies.h>
++#include <linux/mm.h>
++#include <linux/mts.h>
++#include <linux/page_ext.h>
++#include <linux/seq_file.h>
++#include <linux/workqueue.h>
++
++#define MTS_ISO_BUCKETS	16
++#define MTS_Q12_MAX	4095
++#define MTS_SAMPLE_BITS	12
++#define MTS_SAMPLE_COUNT	BIT(MTS_SAMPLE_BITS)
++#define MTS_SAMPLE_RESERVED	LONG_MIN
++
++#define MTS_ATTR_VERSION_SHIFT	0
++#define MTS_ATTR_STATE_SHIFT	4
++#define MTS_ATTR_REUSE_SHIFT	8
++#define MTS_ATTR_AGE_SHIFT	56
++#define MTS_ATTR_VERSION_MASK	GENMASK_ULL(3, 0)
++#define MTS_ATTR_STATE_MASK	GENMASK_ULL(7, 4)
++#define MTS_ATTR_REUSE_MASK	GENMASK_ULL(19, 8)
++#define MTS_ATTR_AGE_MASK	GENMASK_ULL(63, 56)
++
++#define MTS_SAMPLE_EXPIRY_MASK	GENMASK_ULL(31, 0)
++#define MTS_SAMPLE_PRED_SHIFT	32
++#define MTS_SAMPLE_PRED_MASK	GENMASK_ULL(43, 32)
++#define MTS_SAMPLE_BUCKET_SHIFT	44
++#define MTS_SAMPLE_BUCKET_MASK	GENMASK_ULL(47, 44)
++#define MTS_SAMPLE_REUSED	BIT_ULL(48)
++
++struct mts_page_ext {
++	atomic64_t attr;
++};
++
++struct mts_sample {
++	atomic_long_t key;
++	atomic64_t meta;
++};
++
++static struct mts_sample mts_samples[MTS_SAMPLE_COUNT];
++static atomic64_t mts_positive[MTS_ISO_BUCKETS];
++static atomic64_t mts_total[MTS_ISO_BUCKETS];
++static atomic_t mts_probability_q12[MTS_ISO_BUCKETS];
++static atomic64_t mts_brier_sum_q32;
++static atomic64_t mts_labeled_samples;
++static atomic64_t mts_sample_attempts;
++static atomic64_t mts_sample_collisions;
++static atomic64_t mts_access_events;
++static atomic64_t mts_consider_events;
++static struct delayed_work mts_label_work;
++
++static unsigned int mts_reuse_horizon_ms = 1000;
++static unsigned int mts_sample_shift = 10;
++
++static bool mts_need_page_ext(void)
++{
++	return true;
++}
++
++struct page_ext_operations mts_page_ext_ops = {
++	.size = sizeof(struct mts_page_ext),
++	.need = mts_need_page_ext,
++};
++
++static u8 mts_attr_age(u64 attr)
++{
++	return min_t(u8, (attr & MTS_ATTR_AGE_MASK) >> MTS_ATTR_AGE_SHIFT, 15);
++}
++
++static u64 mts_attr_update(u64 old, u8 age, u16 probability)
++{
++	old &= ~(MTS_ATTR_VERSION_MASK | MTS_ATTR_STATE_MASK |
++		 MTS_ATTR_REUSE_MASK | MTS_ATTR_AGE_MASK);
++	old |= 2ULL << MTS_ATTR_VERSION_SHIFT;
++	old |= (u64)probability << MTS_ATTR_REUSE_SHIFT;
++	old |= (u64)age << MTS_ATTR_AGE_SHIFT;
++	return old;
++}
++
++static u64 mts_update_page(struct page *page, bool accessed)
++{
++	struct page_ext *page_ext = page_ext_get(page);
++	struct mts_page_ext *data;
++	u64 old, new;
++	u8 age;
++	u16 probability;
++
++	if (!page_ext)
++		return 0;
++	data = page_ext_data(page_ext, &mts_page_ext_ops);
++	do {
++		old = atomic64_read(&data->attr);
++		age = accessed ? 0 : min_t(u8, mts_attr_age(old) + 1, 15);
++		probability = atomic_read(&mts_probability_q12[age]);
++		new = mts_attr_update(old, age, probability);
++	} while (atomic64_cmpxchg(&data->attr, old, new) != old);
++	page_ext_put(page_ext);
++	return new;
++}
++
++static void mts_mark_reused(unsigned long pfn)
++{
++	struct mts_sample *sample = &mts_samples[hash_long(pfn, MTS_SAMPLE_BITS)];
++	unsigned long key = atomic_long_read_acquire(&sample->key);
++
++	if (key == pfn + 1)
++		atomic64_or(MTS_SAMPLE_REUSED, &sample->meta);
++}
++
++void mts_observe_access(struct folio *folio)
++{
++	unsigned int i;
++
++	if (!folio_test_anon(folio))
++		return;
++	atomic64_add(folio_nr_pages(folio), &mts_access_events);
++	for (i = 0; i < folio_nr_pages(folio); i++) {
++		struct page *page = folio_page(folio, i);
++
++		mts_update_page(page, true);
++		mts_mark_reused(page_to_pfn(page));
++	}
++}
++
++static bool mts_should_sample(unsigned long pfn)
++{
++	u64 epoch = get_jiffies_64() / max_t(unsigned long, 1,
++		msecs_to_jiffies(mts_reuse_horizon_ms));
++
++	if (!mts_sample_shift)
++		return true;
++	return hash_long(pfn ^ epoch, mts_sample_shift) == 0;
++}
++
++static void mts_start_sample(struct page *page, u64 attr)
++{
++	unsigned long pfn = page_to_pfn(page);
++	struct mts_sample *sample;
++	unsigned long old;
++	u64 meta;
++	u8 age;
++	u16 prediction;
++
++	if (!mts_should_sample(pfn))
++		return;
++	atomic64_inc(&mts_sample_attempts);
++	sample = &mts_samples[hash_long(pfn, MTS_SAMPLE_BITS)];
++	old = atomic_long_cmpxchg(&sample->key, 0, MTS_SAMPLE_RESERVED);
++	if (old) {
++		atomic64_inc(&mts_sample_collisions);
++		return;
++	}
++
++	age = mts_attr_age(attr);
++	prediction = (attr & MTS_ATTR_REUSE_MASK) >> MTS_ATTR_REUSE_SHIFT;
++	meta = (u32)(jiffies + msecs_to_jiffies(mts_reuse_horizon_ms));
++	meta |= (u64)prediction << MTS_SAMPLE_PRED_SHIFT;
++	meta |= (u64)age << MTS_SAMPLE_BUCKET_SHIFT;
++	atomic64_set(&sample->meta, meta);
++	atomic_long_set_release(&sample->key, pfn + 1);
++	trace_mts_observe_sample(pfn, age, prediction);
++}
++
++void mts_observe_consider(struct folio *folio, bool referenced)
++{
++	unsigned int i;
++
++	if (!folio_test_anon(folio))
++		return;
++	atomic64_add(folio_nr_pages(folio), &mts_consider_events);
++	for (i = 0; i < folio_nr_pages(folio); i++) {
++		struct page *page = folio_page(folio, i);
++		u64 attr = mts_update_page(page, referenced);
++
++		mts_start_sample(page, attr);
++	}
++}
++
++static void mts_recalibrate(void)
++{
++	u64 positive[MTS_ISO_BUCKETS], total[MTS_ISO_BUCKETS];
++	u64 block_positive[MTS_ISO_BUCKETS], block_total[MTS_ISO_BUCKETS];
++	u8 first[MTS_ISO_BUCKETS], last[MTS_ISO_BUCKETS];
++	int blocks = 0, i, g;
++
++	for (g = 0; g < MTS_ISO_BUCKETS; g++) {
++		positive[g] = atomic64_read(&mts_positive[g]) + 1;
++		total[g] = atomic64_read(&mts_total[g]) + 2;
++		block_positive[blocks] = positive[g];
++		block_total[blocks] = total[g];
++		first[blocks] = g;
++		last[blocks] = g;
++		blocks++;
++
++		while (blocks >= 2 &&
++		       block_positive[blocks - 2] * block_total[blocks - 1] <
++		       block_positive[blocks - 1] * block_total[blocks - 2]) {
++			block_positive[blocks - 2] += block_positive[blocks - 1];
++			block_total[blocks - 2] += block_total[blocks - 1];
++			last[blocks - 2] = last[blocks - 1];
++			blocks--;
++		}
++	}
++
++	for (i = 0; i < blocks; i++) {
++		u16 q12 = div64_u64(block_positive[i] * MTS_Q12_MAX +
++				     block_total[i] / 2, block_total[i]);
++
++		for (g = first[i]; g <= last[i]; g++)
++			atomic_set(&mts_probability_q12[g], q12);
++	}
++}
++
++static void mts_finish_sample(struct mts_sample *sample, unsigned long pfn, u64 meta)
++{
++	u16 prediction = (meta & MTS_SAMPLE_PRED_MASK) >> MTS_SAMPLE_PRED_SHIFT;
++	u8 age = (meta & MTS_SAMPLE_BUCKET_MASK) >> MTS_SAMPLE_BUCKET_SHIFT;
++	bool reused = meta & MTS_SAMPLE_REUSED;
++	s64 error = (s64)prediction - (reused ? MTS_Q12_MAX : 0);
++	u64 squared_q32 = div64_u64((u64)(error * error) << 32,
++				     (u64)MTS_Q12_MAX * MTS_Q12_MAX);
++
++	atomic64_inc(&mts_total[age]);
++	if (reused)
++		atomic64_inc(&mts_positive[age]);
++	atomic64_add(squared_q32, &mts_brier_sum_q32);
++	atomic64_inc(&mts_labeled_samples);
++	trace_mts_prediction_label(pfn, age, prediction, reused);
++}
++
++static void mts_label_worker(struct work_struct *work)
++{
++	u32 now = (u32)jiffies;
++	unsigned int i;
++
++	for (i = 0; i < MTS_SAMPLE_COUNT; i++) {
++		struct mts_sample *sample = &mts_samples[i];
++		unsigned long key = atomic_long_read_acquire(&sample->key);
++		u64 meta;
++
++		if (!key || key == MTS_SAMPLE_RESERVED)
++			continue;
++		meta = atomic64_read(&sample->meta);
++		if ((s32)(now - (u32)(meta & MTS_SAMPLE_EXPIRY_MASK)) < 0)
++			continue;
++		if (atomic_long_cmpxchg(&sample->key, key, 0) != key)
++			continue;
++		mts_finish_sample(sample, key - 1, meta);
++	}
++
++	mts_recalibrate();
++	schedule_delayed_work(&mts_label_work,
++			      max_t(unsigned long, 1,
++				    msecs_to_jiffies(mts_reuse_horizon_ms / 16)));
++}
++
++static int mts_observe_show(struct seq_file *m, void *unused)
++{
++	u64 labels = atomic64_read(&mts_labeled_samples);
++	int g;
++
++	seq_printf(m, "version 2\nlabels %llu\nbrier_sum_q32 %llu\n",
++		   labels, atomic64_read(&mts_brier_sum_q32));
++	seq_printf(m, "sample_attempts %llu\nsample_collisions %llu\n",
++		   atomic64_read(&mts_sample_attempts),
++		   atomic64_read(&mts_sample_collisions));
++	seq_printf(m, "access_events %llu\nconsider_events %llu\n",
++		   atomic64_read(&mts_access_events),
++		   atomic64_read(&mts_consider_events));
++	for (g = 0; g < MTS_ISO_BUCKETS; g++)
++		seq_printf(m, "bucket %d probability_q12 %d positive %llu total %llu\n",
++			   g, atomic_read(&mts_probability_q12[g]),
++			   atomic64_read(&mts_positive[g]),
++			   atomic64_read(&mts_total[g]));
++	return 0;
++}
++DEFINE_SHOW_ATTRIBUTE(mts_observe);
++
++static int __init mts_observe_init(void)
++{
++	struct dentry *dir;
++	int g;
++
++	for (g = 0; g < MTS_ISO_BUCKETS; g++)
++		atomic_set(&mts_probability_q12[g], MTS_Q12_MAX / 2);
++	INIT_DELAYED_WORK(&mts_label_work, mts_label_worker);
++	schedule_delayed_work(&mts_label_work,
++			      max_t(unsigned long, 1,
++				    msecs_to_jiffies(mts_reuse_horizon_ms / 16)));
++	dir = debugfs_create_dir("mts", NULL);
++	debugfs_create_file("observe", 0444, dir, NULL, &mts_observe_fops);
++	return 0;
++}
++late_initcall(mts_observe_init);
++
++static int __init mts_horizon_setup(char *value)
++{
++	return kstrtouint(value, 0, &mts_reuse_horizon_ms) ? 0 : 1;
++}
++__setup("mts.reuse_horizon_ms=", mts_horizon_setup);
++
++static int __init mts_sample_shift_setup(char *value)
++{
++	int ret = kstrtouint(value, 0, &mts_sample_shift);
++
++	if (ret || mts_sample_shift > 20)
++		return 0;
++	return 1;
++}
++__setup("mts.sample_shift=", mts_sample_shift_setup);
+diff --git a/mm/page_ext.c b/mm/page_ext.c
+index e2e92bd..4aae3c4 100644
+--- a/mm/page_ext.c
++++ b/mm/page_ext.c
+@@ -12,6 +12,7 @@
+ #include <linux/rcupdate.h>
+ #include <linux/pgalloc_tag.h>
+ #include <linux/iommu-debug-pagealloc.h>
++#include <linux/mts.h>
+ 
+ /*
+  * struct page extension
+@@ -78,6 +79,9 @@ static struct page_ext_operations page_idle_ops __initdata = {
+ #endif
+ 
+ static struct page_ext_operations *page_ext_ops[] __initdata = {
++#ifdef CONFIG_MTS_OBSERVE
++	&mts_page_ext_ops,
++#endif
+ #ifdef CONFIG_PAGE_OWNER
+ 	&page_owner_ops,
+ #endif
+diff --git a/mm/vmscan.c b/mm/vmscan.c
+index bd1b1aa..9b01a42 100644
+--- a/mm/vmscan.c
++++ b/mm/vmscan.c
+@@ -14,6 +14,7 @@
+ 
+ #include <linux/mm.h>
+ #include <linux/sched/mm.h>
++#include <linux/mts.h>
+ #include <linux/module.h>
+ #include <linux/gfp.h>
+ #include <linux/kernel_stat.h>
+@@ -868,6 +869,8 @@ static enum folio_references folio_check_references(struct folio *folio,
+ 
+ 	referenced_ptes = folio_referenced(folio, 1, sc->target_mem_cgroup,
+ 					   &vm_flags);
++	if (referenced_ptes >= 0)
++		mts_observe_consider(folio, referenced_ptes > 0);
+ 
+ 	/*
+ 	 * The supposedly reclaimable folio was found to be in a VM_LOCKED vma.
+@@ -3443,6 +3446,7 @@ static void walk_update_folio(struct lru_gen_mm_walk *walk, struct folio *folio,
+ 
+ 	if (!folio)
+ 		return;
++	mts_observe_access(folio);
+ 
+ 	if (dirty && !folio_test_dirty(folio) &&
+ 	    !(folio_test_anon(folio) && folio_test_swapbacked(folio) &&
+-- 
+2.51.1
+

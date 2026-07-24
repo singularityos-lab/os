@@ -1,0 +1,12 @@
+[Unit]
+Description=Firmware add-on OTA device-probe (confirm or roll back a candidate add-on)
+After=graphical.target
+DefaultDependencies=no
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/firmware-probe
+RemainAfterExit=yes
+
+[Install]
+WantedBy=graphical.target
