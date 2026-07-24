@@ -1,6 +1,6 @@
-# Singularity OS
+# Sinty OS
 
-Build system for the Singularity OS root and kernelcache images.
+Build system for the Sinty OS root and kernelcache images.
 
 ## Prerequisites
 

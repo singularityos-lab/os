@@ -1,6 +1,6 @@
 [Desktop Entry]
-Name=Singularity
-Comment=Singularity Desktop Environment
+Name=Sinty
+Comment=Sinty Desktop Environment
 Exec=/usr/bin/singularity-labwc-session
 TryExec=/usr/bin/singularity-desktop
 Type=Application
