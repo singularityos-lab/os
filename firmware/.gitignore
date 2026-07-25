@@ -1,0 +1,5 @@
+# Build outputs and tooling stay local, never committed.
+out/
+.tools/
+# Never commit signing keys of any kind.
+*.key
