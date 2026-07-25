@@ -4,8 +4,7 @@
 # Pin to a released commit/tag. B: set SITE to the real sinit repo (or use the
 # local method against a vendored copy for a fully offline build).
 SINIT_VERSION = 725c35c
-SINIT_SITE = /home/mirko/Projects/personal/atom
-SINIT_SITE_METHOD = local
+SINIT_SITE = $(call github,singularityos-lab,atom,$(SINIT_VERSION))
 SINIT_LICENSE = GPL-3.0-or-later
 
 # Module path from go.mod. sinit has NO external dependencies (stdlib only), so
