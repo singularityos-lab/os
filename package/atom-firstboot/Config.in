@@ -1,0 +1,6 @@
+config BR2_PACKAGE_ATOM_FIRSTBOOT
+	bool "atom-firstboot"
+	depends on BR2_PACKAGE_HOST_GO_TARGET_ARCH_SUPPORTS
+	help
+	  First-boot provisioning agent (OOBE): creates the user,
+	  seals the PIN and sets up the initial system state.

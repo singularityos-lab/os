@@ -21,6 +21,7 @@ BR2_LINUX_KERNEL_CUSTOM_CONFIG_FILE="$(BR2_EXTERNAL_SINGULARITY_PATH)/buildroot-
 BR2_LINUX_KERNEL_CONFIG_FRAGMENT_FILES="$(BR2_EXTERNAL_SINGULARITY_PATH)/board/mts/linux-mts.fragment"
 BR2_LINUX_KERNEL_PATCH="$(BR2_EXTERNAL_SINGULARITY_PATH)/board/mts/linux-patches"
 BR2_LINUX_KERNEL_NEEDS_HOST_LIBELF=y
+BR2_PACKAGE_ATOM_FIRSTBOOT=y
 BR2_PACKAGE_MTS=y
 # Toolchain kernel-headers are pinned to 6.19 (the newest Buildroot 2026.02.2
 # knows) instead of tracking the 7.1.3 kernel image: Buildroot has no
