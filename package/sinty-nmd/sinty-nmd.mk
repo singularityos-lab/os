@@ -13,6 +13,9 @@ SINTY_NMD_VERSION = v0.1.0
 SINTY_NMD_SITE = https://github.com/singularityos-lab/sinty-nm/releases/download/$(SINTY_NMD_VERSION)
 SINTY_NMD_SOURCE = sinty-nmd-$(SINTY_NMD_VERSION)-x86_64.tar.gz
 SINTY_NMD_LICENSE = GPL-3.0-or-later
+# Flat release tarball (payload at the top level, no wrapping directory): the default
+# --strip-components=1 would strip the payload itself and leave the build dir empty.
+SINTY_NMD_STRIP_COMPONENTS = 0
 
 define SINTY_NMD_INSTALL_TARGET_CMDS
 	$(INSTALL) -D -m 0755 $(@D)/sinty-nmd $(TARGET_DIR)/usr/bin/sinty-nmd
