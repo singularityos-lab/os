@@ -1,14 +1,14 @@
 ################################################################################
 # sinty-crypto (Zig 0.16)
 ################################################################################
-SINTY_CRYPTO_SITE = /home/mirko/Projects/personal/sinty-crypto
-SINTY_CRYPTO_SITE_METHOD = local
+SINTY_CRYPTO_VERSION = v0.1.0
+SINTY_CRYPTO_SITE = $(call github,singularityos-lab,sinty-crypto,$(SINTY_CRYPTO_VERSION))
 SINTY_CRYPTO_LICENSE = GPL-3.0-only
 SINTY_CRYPTO_LICENSE_FILES = LICENSE
 SINTY_CRYPTO_INSTALL_STAGING = YES
 SINTY_CRYPTO_DEPENDENCIES = linux-pam linux-headers tpm2-tools
 
-SINTY_CRYPTO_ZIG = /home/mirko/.local/bin/zig
+SINTY_CRYPTO_ZIG = zig
 SINTY_CRYPTO_ZIG_TARGET = $(BR2_ARCH)-linux-gnu
 
 define SINTY_CRYPTO_BUILD_CMDS

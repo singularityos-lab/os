@@ -113,6 +113,13 @@ jobs:
             BR2_DL_DIR="${PWD}/buildroot-dl" \
             gtk4-layer-shell-dirclean vte-gtk4-dirclean || true
 
+      - name: Install Zig 0.16.0
+        run: |
+          curl --fail --location --silent --show-error https://ziglang.org/download/0.16.0/zig-x86_64-linux-0.16.0.tar.xz --output /tmp/zig.tar.xz
+          echo '70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00  /tmp/zig.tar.xz' | sha256sum -c -
+          tar -xJf /tmp/zig.tar.xz -C /tmp
+          echo /tmp/zig-x86_64-linux-0.16.0 >> "$GITHUB_PATH"
+
       - name: Compile
         id: compile
         run: |
