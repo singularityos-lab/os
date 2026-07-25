@@ -1,22 +1,10 @@
-################################################################################
-#
-# sinty-timedate
-#
-################################################################################
-
-SINTY_TIMEDATE_VERSION = local
-SINTY_TIMEDATE_SITE = /home/mirko/Projects/personal/sinty-timedate
-SINTY_TIMEDATE_SITE_METHOD = local
-# The repo ships no LICENSE file yet (GPL-3.0 selected for sinty-sdb; not yet
-# stated for this one). Declaring one we were not given would be a claim, so
-# leave it unset and add LICENSE + LICENSE_FILES once confirmed.
+SINTY_TIMEDATE_VERSION = v0.1.0
+SINTY_TIMEDATE_SITE = https://github.com/mirkobrombin/sinty-timedate/releases/download/$(SINTY_TIMEDATE_VERSION)
+SINTY_TIMEDATE_SOURCE = sinty-timedate-$(SINTY_TIMEDATE_VERSION)-x86_64.tar.gz
 SINTY_TIMEDATE_LICENSE = NOT-SPECIFIED
 
-SINTY_TIMEDATE_GOMOD = github.com/singularityos-lab/sinty-timedate
-SINTY_TIMEDATE_BUILD_TARGETS = cmd/sinty-timedate
-
 define SINTY_TIMEDATE_INSTALL_TARGET_CMDS
-	$(INSTALL) -D -m 0755 $(@D)/bin/sinty-timedate $(TARGET_DIR)/usr/bin/sinty-timedate
+	$(INSTALL) -D -m 0755 $(@D)/sinty-timedate $(TARGET_DIR)/usr/bin/sinty-timedate
 endef
 
-$(eval $(golang-package))
+$(eval $(generic-package))
