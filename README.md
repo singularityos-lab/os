@@ -13,8 +13,12 @@ sudo apt-get install -y \
   libncurses-dev wget rsync cpio \
   xz-utils gzip bzip2 zstd patch perl python3 \
   git unzip erofs-utils cryptsetup-bin \
-  systemd-boot binutils
+  systemd-boot binutils sassc mtools dosfstools golang-go
 ```
+
+`sassc` compiles the libsingularity GTK theme, `mtools`/`dosfstools` build the ESP
+image, and the Go toolchain builds the Atom Loops signing and recovery binaries;
+none of them come from Buildroot, so the host has to provide them.
 
 ## Build
 
