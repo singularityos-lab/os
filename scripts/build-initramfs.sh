@@ -74,11 +74,11 @@ copy_bin veritysetup sbin
 # root hash. Baked here so it lives inside the Ed25519-signed UKI: the root.pub cannot
 # be swapped without re-signing the whole image. Both optional -- absent, the init
 # simply never activates a firmware add-on and boots on base survival firmware.
-if [ -n "$FW_VERIFY_BIN" ] && [ -f "$FW_VERIFY_BIN" ]; then
+if [ -n "${FW_VERIFY_BIN:-}" ] && [ -f "$FW_VERIFY_BIN" ]; then
 	cp "$FW_VERIFY_BIN" "$WORK/sbin/fw-verify"
 	chmod 0755 "$WORK/sbin/fw-verify"
 fi
-if [ -n "$FW_ROOT_PUB" ] && [ -f "$FW_ROOT_PUB" ]; then
+if [ -n "${FW_ROOT_PUB:-}" ] && [ -f "$FW_ROOT_PUB" ]; then
 	mkdir -p "$WORK/etc"
 	cp "$FW_ROOT_PUB" "$WORK/etc/atom-fw-root.pub"
 fi
