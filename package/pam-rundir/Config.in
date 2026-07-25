@@ -1,0 +1,7 @@
+config BR2_PACKAGE_PAM_RUNDIR
+	bool "pam-rundir"
+	depends on BR2_PACKAGE_LINUX_PAM
+	help
+	  Minimal PAM session module that creates and owns /run/user/$UID
+	  and exports XDG_RUNTIME_DIR at login, for systems without
+	  systemd-logind.
