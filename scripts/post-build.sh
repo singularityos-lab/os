@@ -63,14 +63,7 @@ rm -f "$TARGET_DIR/etc/systemd/system/multi-user.target.wants/NetworkManager.ser
 rm -f "$TARGET_DIR/usr/lib/systemd/system/NetworkManager.service"
 rm -f "$TARGET_DIR/usr/lib/systemd/system/multi-user.target.wants/NetworkManager.service"
 
-# The NM-era wifi helpers (nmcli re-enumeration, managed toggles, parallel connect) were
-# workarounds for the broken NM flow and actively fight sinty-nm (e.g. sinty-online's
-# `nmcli device set managed no` disables the very device sinty-nm manages). Boot must be
-# dbus -> iwd -> sinty-nm only; the scripts stay on disk for manual debug, just unstarted.
-for h in atom-wifi-visual atom-wifi dev-autowifi singularity-wifi-kick sinty-wifi-diag; do
-    rm -f "$TARGET_DIR/etc/systemd/system/graphical.target.wants/$h.service"
-    rm -f "$TARGET_DIR/etc/systemd/system/multi-user.target.wants/$h.service"
-done
+# Boot path is dbus -> iwd -> sinty-nm only.
 
 # Remove static libs
 find "$TARGET_DIR" -name "*.a" -delete
