@@ -68,6 +68,15 @@ resolve_libs() {
 copy_bin busybox bin
 copy_bin veritysetup sbin
 
+# sintykey + its TPM helper let the init honor a bootloader unlock (mount the root
+# without dm-verity when the TPM reports the device unlocked and verity off).
+# Optional: if absent, the unlock escape hatch never triggers and the init stays on
+# full dm-verity (fail closed). Their shared-library closure (tpm2-tss) is pulled in
+# by resolve_libs below, so they must be staged before it runs.
+for _b in sintykey sintykey-tpm; do
+	copy_bin "$_b" sbin 2>/dev/null || true
+done
+
 # Firmware add-on trust anchor verifier + baked release root public key. fw-verify is
 # a statically linked (CGO_ENABLED=0) binary that re-verifies the on-disk firmware
 # anchor (root pubkey -> signing cert -> manifest) and prints the trusted dm-verity
@@ -244,32 +253,65 @@ mount_firmware() {
 # stick AND an already-installed disk) -- then verity-open the pair whose hash matches
 # the baked sing.roothash. This picks the correct rootfs regardless of extra installs.
 DATA= ; HASH= ; DATAS= ; HASHES= ; i=0
-while [ $i -lt 75 ]; do
-	DATAS= ; HASHES=
-	for d in /dev/vd*[0-9] /dev/sd*[0-9] /dev/nvme*p[0-9]* /dev/mmcblk*p[0-9]*; do
-		[ -b "$d" ] || continue
-		if [ "$(busybox dd if="$d" bs=6 count=1 2>/dev/null)" = "verity" ]; then
-			HASHES="$HASHES $d"; continue
-		fi
-		m=$(busybox dd if="$d" bs=1 skip=1024 count=4 2>/dev/null | busybox od -An -tx1 | busybox tr -d ' \n')
-		[ "$m" = "e2e1f5e0" ] && DATAS="$DATAS $d"
-	done
-	for _dt in $DATAS; do
-		for _hs in $HASHES; do
-			veritysetup close vroot 2>/dev/null
-			veritysetup open "$_dt" vroot "$_hs" "$ROOTHASH" 2>/dev/null || continue
-			vm=$(busybox dd if=/dev/mapper/vroot bs=1 skip=1024 count=4 2>/dev/null | busybox od -An -tx1 | busybox tr -d ' \n')
-			if [ "$vm" = "e2e1f5e0" ]; then
-				DATA="$_dt"; HASH="$_hs"; break
-			fi
-			veritysetup close vroot 2>/dev/null
+
+# Bootloader-unlock escape hatch. KEEP IN LOCKSTEP with the AtomLoops standalone
+# init (scripts/boot/initramfs-main.go unlockGrantsNoVerity): a device the owner
+# deliberately unlocked in recovery has its dm-verity toggle turned off in the TPM.
+# Honor it ONLY when sintykey asserts BOTH facts (lock bit unlocked AND verity off);
+# it fails closed -- a missing sintykey, an unreachable TPM, or either fact reading
+# locked/on leaves UNLOCKED empty and the verified path below runs unchanged.
+UNLOCKED=
+if command -v sintykey >/dev/null 2>&1; then
+	if sintykey lock-state 2>/dev/null | busybox grep -q '^locked=false' \
+	   && sintykey verity-state 2>/dev/null | busybox grep -q '^verity=off'; then
+		UNLOCKED=1
+	fi
+fi
+
+ROOTSRC=/dev/mapper/vroot
+if [ -n "$UNLOCKED" ]; then
+	# Unlocked: mount the erofs root directly, no dm-verity. Find the data partition
+	# by its erofs magic (the same probe as the verified path, without hash pairing).
+	while [ $i -lt 75 ]; do
+		for d in /dev/vd*[0-9] /dev/sd*[0-9] /dev/nvme*p[0-9]* /dev/mmcblk*p[0-9]*; do
+			[ -b "$d" ] || continue
+			m=$(busybox dd if="$d" bs=1 skip=1024 count=4 2>/dev/null | busybox od -An -tx1 | busybox tr -d ' \n')
+			[ "$m" = "e2e1f5e0" ] && { DATA="$d"; DATAS="$DATAS $d"; break; }
 		done
 		[ -n "$DATA" ] && break
+		busybox sleep 0.2; i=$((i + 1))
 	done
-	[ -n "$DATA" ] && break
-	busybox sleep 0.2; i=$((i + 1))
-done
-[ -n "$DATA" ] || rescue "no verified data/hash pair for sing.roothash (data:$DATAS hash:$HASHES)"
+	[ -n "$DATA" ] || rescue "unlocked: no erofs root partition found"
+	ROOTSRC="$DATA"
+	busybox echo "[init] device is UNLOCKED (verity off in TPM); mounting rootfs without dm-verity"
+else
+	while [ $i -lt 75 ]; do
+		DATAS= ; HASHES=
+		for d in /dev/vd*[0-9] /dev/sd*[0-9] /dev/nvme*p[0-9]* /dev/mmcblk*p[0-9]*; do
+			[ -b "$d" ] || continue
+			if [ "$(busybox dd if="$d" bs=6 count=1 2>/dev/null)" = "verity" ]; then
+				HASHES="$HASHES $d"; continue
+			fi
+			m=$(busybox dd if="$d" bs=1 skip=1024 count=4 2>/dev/null | busybox od -An -tx1 | busybox tr -d ' \n')
+			[ "$m" = "e2e1f5e0" ] && DATAS="$DATAS $d"
+		done
+		for _dt in $DATAS; do
+			for _hs in $HASHES; do
+				veritysetup close vroot 2>/dev/null
+				veritysetup open "$_dt" vroot "$_hs" "$ROOTHASH" 2>/dev/null || continue
+				vm=$(busybox dd if=/dev/mapper/vroot bs=1 skip=1024 count=4 2>/dev/null | busybox od -An -tx1 | busybox tr -d ' \n')
+				if [ "$vm" = "e2e1f5e0" ]; then
+					DATA="$_dt"; HASH="$_hs"; break
+				fi
+				veritysetup close vroot 2>/dev/null
+			done
+			[ -n "$DATA" ] && break
+		done
+		[ -n "$DATA" ] && break
+		busybox sleep 0.2; i=$((i + 1))
+	done
+	[ -n "$DATA" ] || rescue "no verified data/hash pair for sing.roothash (data:$DATAS hash:$HASHES)"
+fi
 
 busybox mkdir -p /varprobe
 # /var must live on the SAME physical disk as the verified root erofs. Otherwise a live/
@@ -292,7 +334,7 @@ for d in /dev/vd*[0-9] /dev/sd*[0-9] /dev/nvme*p[0-9]* /dev/mmcblk*p[0-9]*; do
 done
 
 if [ -n "$VAR" ]; then
-	busybox mount -t erofs -o ro /dev/mapper/vroot /sysroot || rescue "cannot mount erofs root"
+	busybox mount -t erofs -o ro "$ROOTSRC" /sysroot || rescue "cannot mount erofs root"
 	{ busybox mount -t f2fs "$VAR" /sysroot/var || busybox mount -t ext4 "$VAR" /sysroot/var; } || rescue "cannot mount /var"
 	busybox echo "[init] persistent /var: $VAR ($(busybox awk '$2=="/sysroot/var"{print $3}' /proc/mounts)) same disk as root"
 	busybox mkdir -p /sysroot/var/etc-upper /sysroot/var/etc-work /sysroot/var/home
@@ -301,7 +343,7 @@ if [ -n "$VAR" ]; then
 	busybox mount -t tmpfs -o mode=1777 tmpfs /sysroot/tmp || true
 	busybox mount -o bind /sysroot/var/home /sysroot/home || true
 else
-	busybox mount -t erofs -o ro /dev/mapper/vroot /lower || rescue "cannot mount erofs root"
+	busybox mount -t erofs -o ro "$ROOTSRC" /lower || rescue "cannot mount erofs root"
 	busybox mount -t tmpfs -o mode=0755 tmpfs /over || rescue "cannot mount tmpfs"
 	busybox mkdir -p /over/upper /over/work
 	busybox mount -t overlay overlay \
