@@ -79,6 +79,13 @@ if [ -e "$TARGET_DIR/usr/libexec/sintykey-tpm" ]; then
 	mkdir -p "$WORK/usr/libexec"
 	cp -aL "$TARGET_DIR/usr/libexec/sintykey-tpm" "$WORK/usr/libexec/sintykey-tpm"
 fi
+# tss2-tctildr dlopens the TCTI backend by SONAME at runtime (it is not a DT_NEEDED,
+# so resolve_libs below cannot discover it). Stage the device TCTI into /lib (mirrored
+# to the other loader dirs) so sintykey-tpm can reach /dev/tpmrm0; without it the TPM
+# read fails and the unlock check fails closed to full dm-verity.
+if [ -e "$TARGET_DIR/usr/lib/libtss2-tcti-device.so.0" ]; then
+	cp -aL "$TARGET_DIR/usr/lib/libtss2-tcti-device.so.0" "$WORK/lib/libtss2-tcti-device.so.0"
+fi
 
 # Firmware add-on trust anchor verifier + baked release root public key. fw-verify is
 # a statically linked (CGO_ENABLED=0) binary that re-verifies the on-disk firmware
@@ -129,6 +136,9 @@ export DM_DISABLE_UDEV=1
 busybox mount -t proc     proc /proc
 busybox mount -t sysfs    sys  /sys
 busybox mount -t devtmpfs dev  /dev
+# Reconnect stdio to the real console: the kernel exec'd this init with no
+# /dev/console node in the cpio, so every [init] diagnostic was silently discarded.
+[ -c /dev/console ] && exec >/dev/console 2>/dev/console </dev/console
 busybox mkdir -p /dev/mapper /run/cryptsetup
 
 rescue() {
@@ -265,10 +275,11 @@ DATA= ; HASH= ; DATAS= ; HASHES= ; i=0
 # locked/on leaves UNLOCKED empty and the verified path below runs unchanged.
 UNLOCKED=
 if command -v sintykey >/dev/null 2>&1; then
-	if sintykey lock-state 2>/dev/null | busybox grep -q '^locked=false' \
-	   && sintykey verity-state 2>/dev/null | busybox grep -q '^verity=off'; then
-		UNLOCKED=1
-	fi
+	# Read both TPM facts once. Skip dm-verity ONLY when the device is both unlocked
+	# and its verity toggle is off; any TPM read failure fails closed (verity kept).
+	_ls="$(sintykey lock-state 2>/dev/null)"
+	_vs="$(sintykey verity-state 2>/dev/null)"
+	case "$_ls" in *locked=false*) case "$_vs" in *verity=off*) UNLOCKED=1 ;; esac ;; esac
 fi
 
 ROOTSRC=/dev/mapper/vroot
