@@ -1,0 +1,13 @@
+diff --git a/package/libgtk4/libgtk4.mk b/package/libgtk4/libgtk4.mk
+--- a/package/libgtk4/libgtk4.mk
++++ b/package/libgtk4/libgtk4.mk
+@@ -37 +36,0 @@ LIBGTK4_CONF_OPTS = \
+-	-Dintrospection=disabled \
+@@ -122,0 +122,7 @@ LIBGTK4_TARGET_FINALIZE_HOOKS += LIBGTK4_UPDATE_ICON_CACHE
++ifeq ($(BR2_PACKAGE_GOBJECT_INTROSPECTION),y)
++LIBGTK4_CONF_OPTS += -Dintrospection=enabled
++LIBGTK4_DEPENDENCIES += gobject-introspection
++else
++LIBGTK4_CONF_OPTS += -Dintrospection=disabled
++endif
++

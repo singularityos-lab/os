@@ -1,0 +1,6 @@
+diff --git a/package/lz4/lz4.mk b/package/lz4/lz4.mk
+--- a/package/lz4/lz4.mk
++++ b/package/lz4/lz4.mk
+@@ -12,0 +13,2 @@
++LZ4_MAKE_OPTS += PREFIX=/usr
++

@@ -1,0 +1,11 @@
+diff --git a/package/gtksourceview/gtksourceview.mk b/package/gtksourceview/gtksourceview.mk
+--- a/package/gtksourceview/gtksourceview.mk
++++ b/package/gtksourceview/gtksourceview.mk
+@@ -17,0 +18,7 @@ GTKSOURCEVIEW_CONF_OPTS = -Dbuild-testsuite=false
++ifeq ($(BR2_PACKAGE_GOBJECT_INTROSPECTION),y)
++GTKSOURCEVIEW_CONF_OPTS += -Dintrospection=enabled -Dvapi=true
++GTKSOURCEVIEW_DEPENDENCIES += gobject-introspection host-vala
++else
++GTKSOURCEVIEW_CONF_OPTS += -Dintrospection=disabled -Dvapi=false
++endif
++

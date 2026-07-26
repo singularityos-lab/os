@@ -1,0 +1,5 @@
+diff --git a/package/sqlite/sqlite.mk b/package/sqlite/sqlite.mk
+--- a/package/sqlite/sqlite.mk
++++ b/package/sqlite/sqlite.mk
+@@ -125,0 +126 @@
++SQLITE_CFLAGS += -DSQLITE_ENABLE_FTS5

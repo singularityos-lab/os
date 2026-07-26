@@ -19,9 +19,8 @@ TRACKER_MINERS_DEPENDENCIES = \
 	util-linux \
 	icu
 
-# systemd_user_services defaults to true and then resolves the unit directory through
-# dependency('systemd'), which this config (BR2_INIT_NONE, sinit as PID 1) does not
-# provide. Name the directory the target already uses instead.
+# User services are not consumed by sinit. Disable them instead of installing
+# dead units or resolving dependency('systemd') on a system without systemd.
 TRACKER_MINERS_CONF_OPTS = \
 	-Dextract=true \
 	-Dminer_fs=true \
@@ -33,7 +32,7 @@ TRACKER_MINERS_CONF_OPTS = \
 	-Dbattery_detection=none \
 	-Dfunctional_tests=false \
 	-Dman=false \
-	-Dsystemd_user_services_dir=/usr/lib/systemd/user
+	-Dsystemd_user_services=false
 
 TRACKER_MINERS_INSTALL_STAGING = YES
 

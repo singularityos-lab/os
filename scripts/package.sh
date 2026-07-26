@@ -3,7 +3,49 @@
 set -e
 
 REPO_DIR="$(pwd)"
+ATOMLOOPS="${ATOMLOOPS:-${REPO_DIR}/../AtomLoops}"
+if [ ! -f "${ATOMLOOPS}/go.mod" ] || [ ! -f "${ATOMLOOPS}/loader/build.sh" ]; then
+    echo "package: AtomLoops checkout not found at ${ATOMLOOPS}" >&2
+    exit 1
+fi
 mkdir -p artifacts
+
+SIGNING_WORK=""
+cleanup() {
+    [ -z "${SIGNING_WORK}" ] || rm -rf "${SIGNING_WORK}"
+}
+trap cleanup EXIT
+
+ATOM_ROOT_PUB="${ATOM_ROOT_PUB:-${ATOMLOOPS}/loader/src/root.pub}"
+ATOM_SIGNING_KEY="${ATOM_SIGNING_KEY:-${ATOMLOOPS}/signing-v1.key}"
+ATOM_SIGNING_CERT="${ATOM_SIGNING_CERT:-${ATOMLOOPS}/signing-cert-v1.json}"
+ATOM_SIGNING_CERT_SIG="${ATOM_SIGNING_CERT_SIG:-${ATOM_SIGNING_CERT}.sig}"
+ATOM_LOADER_EFI="${ATOM_LOADER_EFI:-${ATOMLOOPS}/loader/bootx64.efi}"
+
+if [ ! -f "${ATOM_ROOT_PUB}" ] || [ ! -f "${ATOM_SIGNING_KEY}" ] \
+    || [ ! -f "${ATOM_SIGNING_CERT}" ] || [ ! -f "${ATOM_SIGNING_CERT_SIG}" ] \
+    || [ ! -f "${ATOM_LOADER_EFI}" ]; then
+    echo "[package] release signing assets incomplete; generating an ephemeral development chain"
+    SIGNING_WORK="$(mktemp -d)"
+    ROOT_KEY="${SIGNING_WORK}/root.key"
+    ATOM_ROOT_PUB="${SIGNING_WORK}/root.pub"
+    ATOM_SIGNING_KEY="${SIGNING_WORK}/signing-v1.key"
+    ATOM_SIGNING_CERT="${SIGNING_WORK}/signing-cert-v1.json"
+    ATOM_SIGNING_CERT_SIG="${ATOM_SIGNING_CERT}.sig"
+    (
+        cd "${ATOMLOOPS}"
+        "${ATOMLOOPS_GO:-go}" run ./cmd/atom-sign keygen \
+            --priv "${ROOT_KEY}" --pub "${ATOM_ROOT_PUB}"
+        "${ATOMLOOPS_GO:-go}" run ./cmd/atom-sign issue-cert \
+            --root "${ROOT_KEY}" --version 1 \
+            --cert "${ATOM_SIGNING_CERT}" --signing-key "${ATOM_SIGNING_KEY}"
+    )
+    cp -a "${ATOMLOOPS}/loader" "${SIGNING_WORK}/loader"
+    cp "${ATOM_ROOT_PUB}" "${SIGNING_WORK}/loader/src/root.pub"
+    ( cd "${SIGNING_WORK}/loader" && ZIG="${ZIG:-zig}" ./build.sh )
+    ATOM_LOADER_EFI="${SIGNING_WORK}/loader/bootx64.efi"
+fi
+export ATOM_ROOT_PUB ATOM_SIGNING_KEY ATOM_SIGNING_CERT ATOM_SIGNING_CERT_SIG
 
 # RootFS
 ROOTFS_TAR=artifacts/rootfs.tar
@@ -35,19 +77,21 @@ fi
 # time, so an OTA could never update it. Instead the initramfs re-verifies the release-
 # signed anchor beside the image (root pubkey -> signing cert -> manifest) and opens
 # dm-verity with the hash it extracts. Absent verifier/anchor -> base survival firmware.
-ATOMLOOPS="${ATOMLOOPS:-/home/mirko/Projects/personal/AtomLoops}"
 # FW_ROOT_PUB may be pre-set (e.g. a test trust root for a VM trial); default to the
 # release root the loader verifies the UKI with.
-: "${FW_ROOT_PUB:=${ATOMLOOPS}/loader/src/root.pub}"
+: "${FW_ROOT_PUB:=${ATOM_ROOT_PUB}}"
 if [ -f "${FW_ROOT_PUB}" ]; then
     # FW_VERIFY_BIN may be pre-set to a known-good build (e.g. when AtomLoops HEAD is
     # mid-refactor); otherwise build it from source.
-    if [ -z "${FW_VERIFY_BIN}" ] || [ ! -x "${FW_VERIFY_BIN}" ]; then
+    if { [ -z "${FW_VERIFY_BIN}" ] || [ ! -x "${FW_VERIFY_BIN}" ]; } \
+        && [ -d "${ATOMLOOPS}/cmd/fw-verify" ]; then
         ( cd "${ATOMLOOPS}" && CGO_ENABLED=0 "${ATOMLOOPS_GO:-go}" build -ldflags '-s -w' \
             -o "${REPO_DIR}/artifacts/fw-verify" ./cmd/fw-verify )
         FW_VERIFY_BIN="${REPO_DIR}/artifacts/fw-verify"
     fi
-    export FW_VERIFY_BIN FW_ROOT_PUB
+    if [ -n "${FW_VERIFY_BIN}" ] && [ -x "${FW_VERIFY_BIN}" ]; then
+        export FW_VERIFY_BIN FW_ROOT_PUB
+    fi
 fi
 
 # Initramfs: the dm-verity aware init that waits for the kernel-created
@@ -103,15 +147,14 @@ mkfs.fat -F 32 -n SINGEFI artifacts/esp.vfat >/dev/null
 # Atom Loops loader is BOOTX64.EFI; it verifies + chainloads the signed UKI slot.
 # (Test root key is a throwaway generated into loader/src/root.pub; the RC root key
 # is Mirko's cold offline key.)
-ATOMLOOPS="${ATOMLOOPS:-/home/mirko/Projects/personal/AtomLoops}"
 ( cd "${ATOMLOOPS}" && "${ATOMLOOPS_GO:-go}" run ./cmd/atom-sign sign \
-    --manifest "${REPO_DIR}/artifacts/kernelcache.efi" --priv signing-v1.key )
+    --manifest "${REPO_DIR}/artifacts/kernelcache.efi" --priv "${ATOM_SIGNING_KEY}" )
 mmd -i artifacts/esp.vfat ::EFI ::EFI/BOOT ::EFI/atom
-mcopy -i artifacts/esp.vfat "${ATOMLOOPS}/loader/bootx64.efi" ::EFI/BOOT/BOOTX64.EFI
+mcopy -i artifacts/esp.vfat "${ATOM_LOADER_EFI}" ::EFI/BOOT/BOOTX64.EFI
 mcopy -i artifacts/esp.vfat artifacts/kernelcache.efi          ::EFI/atom/kernelcache-active.efi
 mcopy -i artifacts/esp.vfat artifacts/kernelcache.efi.sig      ::EFI/atom/kernelcache-active.efi.sig
-mcopy -i artifacts/esp.vfat "${ATOMLOOPS}/signing-cert-v1.json"     ::EFI/atom/signing-cert.json
-mcopy -i artifacts/esp.vfat "${ATOMLOOPS}/signing-cert-v1.json.sig" ::EFI/atom/signing-cert.json.sig
+mcopy -i artifacts/esp.vfat "${ATOM_SIGNING_CERT}"     ::EFI/atom/signing-cert.json
+mcopy -i artifacts/esp.vfat "${ATOM_SIGNING_CERT_SIG}" ::EFI/atom/signing-cert.json.sig
 # recovery slot (Tier-2): a REAL standalone recovery image -- busybox + wpa_supplicant +
 # udhcpc + the atom-recovery menu (wifi, verified reinstall, repair), NOT a copy of active.
 # build-recovery.sh builds + signs artifacts/kernelcache-recovery.efi (self-contained UKI,

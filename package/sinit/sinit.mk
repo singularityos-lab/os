@@ -1,8 +1,8 @@
 ################################################################################
 # sinit
 ################################################################################
-# Pin to a released tag of the sinit repo (atom).
-SINIT_VERSION = v0.1.0
+# Pin the exact Atom revision used to validate this image.
+SINIT_VERSION = e1f15c08920cbf0bbb43e01a38bc2b86242daee1
 SINIT_SITE = $(call github,singularityos-lab,atom,$(SINIT_VERSION))
 SINIT_LICENSE = GPL-3.0-or-later
 

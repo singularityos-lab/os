@@ -4,12 +4,12 @@
 # NOT a systemd-user unit (Sinty has no systemd --user); this package installs
 # only the binaries.
 ################################################################################
-USH_VERSION = v0.1.0
+USH_VERSION = 2997cf69ca43964d45c46e322138ff547c5f1389
 USH_SITE = $(call github,singularityos-lab,ush,$(USH_VERSION))
 USH_LICENSE = GPL-3.0-or-later
 USH_LICENSE_FILES = LICENSE
 
-USH_LDFLAGS = -s -w -X github.com/singularityos-lab/ush/internal/config.AppVersion=0.1.0
+USH_LDFLAGS = -s -w -X github.com/singularityos-lab/ush/internal/config.AppVersion=nightly
 
 define USH_BUILD_CMDS
 	cd $(@D) && CGO_ENABLED=0 $(HOST_DIR)/bin/go build -buildvcs=false -ldflags '$(USH_LDFLAGS)' -o ush ./cmd/ush

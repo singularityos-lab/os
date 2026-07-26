@@ -11,7 +11,18 @@ command -v singularity-render-setup >/dev/null 2>&1 && singularity-render-setup 
 if [ -r /etc/environment ]; then set -a; . /etc/environment; set +a; fi
 sscommon_softrender_backstop
 
+sscommon_wait_splash 50
 sscommon_mark_greeter_ready chmod
+: > /run/singularity/compositor-taking-over 2>/dev/null || true
+_i=0
+while [ ! -e /run/singularity/boot-splash-master-released ] \
+      && pidof singularity-boot-splash >/dev/null 2>&1 \
+      && [ "$_i" -lt 100 ]; do
+    sleep 0.1
+    _i=$((_i + 1))
+done
+sscommon_log "installer: DRM master free after ${_i} ticks (marker=$([ -e /run/singularity/boot-splash-master-released ] && echo yes || echo no))"
+
 export LIBSEAT_BACKEND=builtin
 sscommon_log "LIBSEAT_BACKEND=builtin (installer only: seatd may be absent at install time)"
 

@@ -13,8 +13,14 @@ set -eu
 REPO_DIR="$(pwd)"
 TARGET_DIR="${TARGET_DIR:-buildroot-build/target}"
 KERNEL="${KERNEL:-buildroot-build/images/bzImage}"
-ATOMLOOPS="${ATOMLOOPS:-/home/mirko/Projects/personal/AtomLoops}"
-SINTY_RECOVERY="${SINTY_RECOVERY:-/home/mirko/Projects/personal/sinty-recovery}"
+ATOMLOOPS="${ATOMLOOPS:-${REPO_DIR}/../AtomLoops}"
+SINTY_RECOVERY="${SINTY_RECOVERY:-${REPO_DIR}/../sinty-recovery}"
+ATOM_ROOT_PUB="${ATOM_ROOT_PUB:-${ATOMLOOPS}/loader/src/root.pub}"
+ATOM_SIGNING_KEY="${ATOM_SIGNING_KEY:-${ATOMLOOPS}/signing-v1.key}"
+if [ ! -f "$SINTY_RECOVERY/go.mod" ]; then
+	echo "build-recovery: sinty-recovery checkout not found at $SINTY_RECOVERY" >&2
+	exit 1
+fi
 STUB="${STUB:-$(ls /usr/lib/systemd/boot/efi/linuxx64.efi.stub 2>/dev/null || echo "$TARGET_DIR/usr/lib/systemd/boot/efi/linuxx64.efi.stub")}"
 OUT="artifacts/kernelcache-recovery.efi"
 WORK="$(mktemp -d)"
@@ -62,7 +68,7 @@ echo "[recovery] building the static atom-recovery binary"
 # the embedded ROOT trust anchor: atom-recovery verifies every re-downloaded image against it
 # (independent of the possibly-dead main system). Same ROOT key the loader is built with.
 mkdir -p "$WORK/etc/atom"
-cp "$ATOMLOOPS/loader/src/root.pub" "$WORK/etc/atom/root.pub"
+cp "$ATOM_ROOT_PUB" "$WORK/etc/atom/root.pub"
 
 echo "[recovery] wifi firmware ONLY (no audio/gpu -- recovery just needs to get online)"
 mkdir -p "$WORK/lib/firmware/mediatek"
@@ -101,5 +107,5 @@ objcopy \
 	--add-section .initrd=artifacts/recovery-initrd.cpio.xz --change-section-vma .initrd=$(vma 0x2000000) \
 	"$STUB" "$OUT"
 echo "[recovery] signing"
-( cd "$ATOMLOOPS" && "${ATOMLOOPS_GO:-go}" run ./cmd/atom-sign sign --manifest "$REPO_DIR/$OUT" --priv signing-v1.key )
+( cd "$ATOMLOOPS" && "${ATOMLOOPS_GO:-go}" run ./cmd/atom-sign sign --manifest "$REPO_DIR/$OUT" --priv "$ATOM_SIGNING_KEY" )
 echo "[recovery] DONE: $OUT ($(du -h "$OUT" | cut -f1)) + $OUT.sig -- wire into package.sh (replace the cp)"

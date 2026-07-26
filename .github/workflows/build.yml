@@ -20,6 +20,26 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Checkout Atom Loops
+        uses: actions/checkout@v4
+        with:
+          repository: mirkobrombin/AtomLoops
+          ref: 51968a96b62e5509175feaedc0424abeefcf61b7
+          path: _deps/AtomLoops
+
+      - name: Checkout recovery
+        uses: actions/checkout@v4
+        with:
+          repository: singularityos-lab/sinty-recovery
+          ref: a044f8eceb67119c21b26e0b7c59239dc3fa8b35
+          path: _deps/sinty-recovery
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: '1.26.x'
+          cache: false
+
       - name: Free disk space and host the build on /mnt
         run: |
           df -h /
@@ -42,19 +62,20 @@ jobs:
             libssl-dev libelf-dev \
             libncurses-dev \
             wget rsync cpio \
-            xz-utils gzip bzip2 \
+            xz-utils gzip bzip2 zstd \
             patch perl python3 \
-            git unzip \
+            git unzip curl \
             erofs-utils \
             cryptsetup-bin \
             systemd-boot \
-            binutils
+            binutils sassc mtools dosfstools \
+            bubblewrap xdg-dbus-proxy
 
       - name: Restore Buildroot source tree
         uses: actions/cache/restore@v4
         with:
           path: buildroot-src
-          key: buildroot-src-2026.02.2
+          key: buildroot-src-2026.02.2-${{ hashFiles('buildroot-source-patches/**', 'scripts/prepare.sh') }}
 
       - name: Restore Buildroot downloads
         uses: actions/cache/restore@v4
@@ -78,10 +99,9 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: buildroot-build/build
-          key: buildroot-build-v8-${{ hashFiles('buildroot-config/singularity_defconfig', 'buildroot-config/kernel.config') }}-${{ github.run_id }}
+          key: buildroot-build-v9-${{ hashFiles('buildroot-config/singularity_defconfig', 'buildroot-config/kernel.config', 'buildroot-source-patches/**') }}-${{ github.run_id }}
           restore-keys: |
-            buildroot-build-v8-${{ hashFiles('buildroot-config/singularity_defconfig', 'buildroot-config/kernel.config') }}-
-            buildroot-build-v8-
+            buildroot-build-v9-${{ hashFiles('buildroot-config/singularity_defconfig', 'buildroot-config/kernel.config', 'buildroot-source-patches/**') }}-
 
       - name: Prepare Buildroot
         run: ./scripts/prepare.sh
@@ -106,12 +126,6 @@ jobs:
           else
             echo "host-llvm RTTI state OK (RTTI=ON or not yet built)."
           fi
-
-      - name: Force reconfigure of gir-disabled packages
-        run: |
-          make -C buildroot-src O="${PWD}/buildroot-build" BR2_EXTERNAL="${PWD}" \
-            BR2_DL_DIR="${PWD}/buildroot-dl" \
-            gtk4-layer-shell-dirclean vte-gtk4-dirclean || true
 
       - name: Install Zig 0.16.0
         run: |
@@ -139,7 +153,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: buildroot-src
-          key: buildroot-src-2026.02.2
+          key: buildroot-src-2026.02.2-${{ hashFiles('buildroot-source-patches/**', 'scripts/prepare.sh') }}
 
       - name: Save Buildroot downloads
         if: always()
@@ -160,10 +174,13 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: buildroot-build/build
-          key: buildroot-build-v8-${{ hashFiles('buildroot-config/singularity_defconfig', 'buildroot-config/kernel.config') }}-${{ github.run_id }}
+          key: buildroot-build-v9-${{ hashFiles('buildroot-config/singularity_defconfig', 'buildroot-config/kernel.config', 'buildroot-source-patches/**') }}-${{ github.run_id }}
 
       - name: Package
         if: env.BUILD_INCOMPLETE != '1'
+        env:
+          ATOMLOOPS: ${{ github.workspace }}/_deps/AtomLoops
+          SINTY_RECOVERY: ${{ github.workspace }}/_deps/sinty-recovery
         run: ./scripts/package.sh
 
       - name: Show final artifacts
