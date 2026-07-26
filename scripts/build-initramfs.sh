@@ -68,14 +68,17 @@ resolve_libs() {
 copy_bin busybox bin
 copy_bin veritysetup sbin
 
-# sintykey + its TPM helper let the init honor a bootloader unlock (mount the root
-# without dm-verity when the TPM reports the device unlocked and verity off).
-# Optional: if absent, the unlock escape hatch never triggers and the init stays on
-# full dm-verity (fail closed). Their shared-library closure (tpm2-tss) is pulled in
-# by resolve_libs below, so they must be staged before it runs.
-for _b in sintykey sintykey-tpm; do
-	copy_bin "$_b" sbin 2>/dev/null || true
-done
+# sintykey (in /usr/bin) reads the TPM lock bit and verity toggle to honor a
+# bootloader unlock; it execs its helper from /usr/libexec/sintykey-tpm, so stage
+# that at the SAME path. Both optional: if absent, the unlock escape hatch never
+# triggers and the init stays on full dm-verity (fail closed). Their shared-library
+# closure (tpm2-tss, libsintykey) is pulled in by resolve_libs below, so they must
+# be staged before it runs.
+copy_bin sintykey usr/bin 2>/dev/null || true
+if [ -e "$TARGET_DIR/usr/libexec/sintykey-tpm" ]; then
+	mkdir -p "$WORK/usr/libexec"
+	cp -aL "$TARGET_DIR/usr/libexec/sintykey-tpm" "$WORK/usr/libexec/sintykey-tpm"
+fi
 
 # Firmware add-on trust anchor verifier + baked release root public key. fw-verify is
 # a statically linked (CGO_ENABLED=0) binary that re-verifies the on-disk firmware
