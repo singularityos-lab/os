@@ -283,7 +283,11 @@ if [ -n "$UNLOCKED" ]; then
 	done
 	[ -n "$DATA" ] || rescue "unlocked: no erofs root partition found"
 	ROOTSRC="$DATA"
-	busybox echo "[init] device is UNLOCKED (verity off in TPM); mounting rootfs without dm-verity"
+	# Persistent per-boot notice: an unlocked device warns every time it boots.
+	busybox echo "[init] =================================================================="
+	busybox echo "[init]  DEVICE UNLOCKED - verified boot is OFF, this system is not sealed"
+	busybox echo "[init]  mounting the root image without dm-verity"
+	busybox echo "[init] =================================================================="
 else
 	while [ $i -lt 75 ]; do
 		DATAS= ; HASHES=
