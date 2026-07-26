@@ -1,0 +1,14 @@
+diff --git a/package/gsettings-desktop-schemas/gsettings-desktop-schemas.mk b/package/gsettings-desktop-schemas/gsettings-desktop-schemas.mk
+--- a/package/gsettings-desktop-schemas/gsettings-desktop-schemas.mk
++++ b/package/gsettings-desktop-schemas/gsettings-desktop-schemas.mk
+@@ -7 +7 @@
+-GSETTINGS_DESKTOP_SCHEMAS_VERSION_MAJOR = 45
++GSETTINGS_DESKTOP_SCHEMAS_VERSION_MAJOR = 48
+diff --git a/package/gsettings-desktop-schemas/gsettings-desktop-schemas.hash b/package/gsettings-desktop-schemas/gsettings-desktop-schemas.hash
+--- a/package/gsettings-desktop-schemas/gsettings-desktop-schemas.hash
++++ b/package/gsettings-desktop-schemas/gsettings-desktop-schemas.hash
+@@ -1,2 +1,2 @@
+-# From https://download.gnome.org/sources/gsettings-desktop-schemas/45/gsettings-desktop-schemas-45.0.sha256sum
+-sha256  365c8d04daf79b38c8b3dc9626349a024f9e4befdd31fede74b42f7a9fbe0ae2  gsettings-desktop-schemas-45.0.tar.xz
++# From https://download.gnome.org/sources/gsettings-desktop-schemas/48/gsettings-desktop-schemas-48.0.sha256sum
++sha256  e68f155813bf18f865a8b2c8e9d473588b6ccadcafbb666ab788857c6c2d1bd3  gsettings-desktop-schemas-48.0.tar.xz
