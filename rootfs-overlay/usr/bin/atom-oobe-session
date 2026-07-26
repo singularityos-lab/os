@@ -94,4 +94,6 @@ sscommon_xdg_dirs
 sscommon_wait_splash 50
 sscommon_mark_greeter_ready chmod
 sleep 0.3
-sscommon_exec_labwc -s "atom-installer-launch --oobe"
+# -S: labwc terminates when the wizard exits, so greetd gets its session end and starts
+# the greeter instead of leaving a clientless compositor on screen.
+sscommon_exec_labwc -S "atom-installer-launch --oobe"

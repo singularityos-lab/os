@@ -26,4 +26,8 @@ sscommon_log "installer: DRM master free after ${_i} ticks (marker=$([ -e /run/s
 export LIBSEAT_BACKEND=builtin
 sscommon_log "LIBSEAT_BACKEND=builtin (installer only: seatd may be absent at install time)"
 
-sscommon_exec_labwc -s "atom-installer-launch"
+# -S, not -s: terminate the compositor when the startup command exits. With -s labwc
+# outlives the installer and the user is left staring at a bare compositor after the
+# final "Restart now" button (which only closes the window). atom-installer-launch
+# reboots on a finished install, so -S only matters for the give-up path.
+sscommon_exec_labwc -S "atom-installer-launch"
