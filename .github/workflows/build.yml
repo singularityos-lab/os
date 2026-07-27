@@ -137,6 +137,13 @@ jobs:
           for p in libsystemd-shim atom-install linux-pam; do
             rm -rf buildroot-build/build/${p}-* 2>/dev/null || true
           done
+          # The staging sysroot is cached separately and a dropped build dir does not
+          # touch it, so the link line kept resolving against the previously installed
+          # shim: the build failed on a symbol that the current source does export.
+          # Remove what the shim installs there too, so it is reinstalled from this build.
+          rm -f buildroot-build/host/*/sysroot/usr/lib/libsystemd.so* \
+                buildroot-build/host/*/sysroot/usr/lib/pkgconfig/libsystemd.pc 2>/dev/null || true
+          rm -rf buildroot-build/host/*/sysroot/usr/include/systemd 2>/dev/null || true
 
       - name: Install Zig 0.16.0
         run: |
