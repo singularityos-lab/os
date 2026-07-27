@@ -22,9 +22,18 @@ ATOM_SIGNING_CERT="${ATOM_SIGNING_CERT:-${ATOMLOOPS}/signing-cert-v1.json}"
 ATOM_SIGNING_CERT_SIG="${ATOM_SIGNING_CERT_SIG:-${ATOM_SIGNING_CERT}.sig}"
 ATOM_LOADER_EFI="${ATOM_LOADER_EFI:-${ATOMLOOPS}/loader/bootx64.efi}"
 
-if [ ! -f "${ATOM_ROOT_PUB}" ] || [ ! -f "${ATOM_SIGNING_KEY}" ] \
-    || [ ! -f "${ATOM_SIGNING_CERT}" ] || [ ! -f "${ATOM_SIGNING_CERT_SIG}" ] \
-    || [ ! -f "${ATOM_LOADER_EFI}" ]; then
+if [ -f "${ATOM_ROOT_PUB}" ] && [ -f "${ATOM_SIGNING_KEY}" ] \
+    && [ -f "${ATOM_SIGNING_CERT}" ] && [ -f "${ATOM_SIGNING_CERT_SIG}" ]; then
+    # A signing chain was provided (release/production). Build a loader that trusts
+    # this root.pub unless a matching loader EFI was also provided.
+    if [ ! -f "${ATOM_LOADER_EFI}" ]; then
+        SIGNING_WORK="$(mktemp -d)"
+        cp -a "${ATOMLOOPS}/loader" "${SIGNING_WORK}/loader"
+        cp "${ATOM_ROOT_PUB}" "${SIGNING_WORK}/loader/src/root.pub"
+        ( cd "${SIGNING_WORK}/loader" && ZIG="${ZIG:-zig}" ./build.sh )
+        ATOM_LOADER_EFI="${SIGNING_WORK}/loader/bootx64.efi"
+    fi
+else
     echo "[package] release signing assets incomplete; generating an ephemeral development chain"
     SIGNING_WORK="$(mktemp -d)"
     ROOT_KEY="${SIGNING_WORK}/root.key"

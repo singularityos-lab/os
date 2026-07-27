@@ -106,10 +106,11 @@ jobs:
           # than shipping a test-signed bundle. The private feed will reject test keys.
           test -n "$ATOM_SIGNING_KEY" || { echo "ATOM_SIGNING_KEY secret is not set"; exit 1; }
           d="$GITHUB_WORKSPACE/_deps/AtomLoops"
-          printf '%s' "$ATOM_SIGNING_KEY"      > "$d/signing-v1.key"
-          printf '%s' "$ATOM_SIGNING_CERT"     > "$d/signing-cert-v1.json"
-          printf '%s' "$ATOM_SIGNING_CERT_SIG" > "$d/signing-cert-v1.json.sig"
-          printf '%s' "$ATOM_ROOT_PUB"         > "$d/root-prod.pub"
+          # Secrets are base64-encoded (the keys and signatures are raw binary).
+          printf '%s' "$ATOM_SIGNING_KEY"      | base64 -d > "$d/signing-v1.key"
+          printf '%s' "$ATOM_SIGNING_CERT"     | base64 -d > "$d/signing-cert-v1.json"
+          printf '%s' "$ATOM_SIGNING_CERT_SIG" | base64 -d > "$d/signing-cert-v1.json.sig"
+          printf '%s' "$ATOM_ROOT_PUB"         | base64 -d > "$d/root-prod.pub"
 
       - name: Build, package, sign and verify the bundle
         env:

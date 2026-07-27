@@ -181,7 +181,24 @@ jobs:
         env:
           ATOMLOOPS: ${{ github.workspace }}/_deps/AtomLoops
           SINTY_RECOVERY: ${{ github.workspace }}/_deps/sinty-recovery
-        run: ./scripts/package.sh
+          ATOM_ROOT_PUB_B64: ${{ secrets.ATOM_ROOT_PUB }}
+          ATOM_SIGNING_KEY_B64: ${{ secrets.ATOM_SIGNING_KEY }}
+          ATOM_SIGNING_CERT_B64: ${{ secrets.ATOM_SIGNING_CERT }}
+          ATOM_SIGNING_CERT_SIG_B64: ${{ secrets.ATOM_SIGNING_CERT_SIG }}
+        run: |
+          # When the base64-encoded signing secrets are present, decode them and hand
+          # package.sh the production chain; otherwise it generates a dev chain.
+          if [ -n "$ATOM_SIGNING_KEY_B64" ]; then
+            d="$RUNNER_TEMP/atom-signing"; mkdir -p "$d"
+            printf '%s' "$ATOM_ROOT_PUB_B64"         | base64 -d > "$d/root.pub"
+            printf '%s' "$ATOM_SIGNING_KEY_B64"      | base64 -d > "$d/signing-v1.key"
+            printf '%s' "$ATOM_SIGNING_CERT_B64"     | base64 -d > "$d/signing-cert-v1.json"
+            printf '%s' "$ATOM_SIGNING_CERT_SIG_B64" | base64 -d > "$d/signing-cert-v1.json.sig"
+            export ATOM_ROOT_PUB="$d/root.pub" ATOM_SIGNING_KEY="$d/signing-v1.key"
+            export ATOM_SIGNING_CERT="$d/signing-cert-v1.json" ATOM_SIGNING_CERT_SIG="$d/signing-cert-v1.json.sig"
+            echo "[package] using the production signing chain from secrets"
+          fi
+          ./scripts/package.sh
 
       - name: Show final artifacts
         if: env.BUILD_INCOMPLETE != '1'
