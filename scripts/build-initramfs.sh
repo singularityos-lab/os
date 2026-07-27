@@ -477,7 +477,18 @@ fi
 # never blocks the boot, only enriches /usr/lib/firmware when a valid image exists.
 mount_firmware
 
-exec busybox switch_root /sysroot "$INIT"
+# sinit.debug on the kernel command line makes PID 1 log per-unit start progress.
+# Passed as an argument because the init takes it as a flag, not from the cmdline.
+# The init is reached as /usr/lib/sinit/sinit (the /sbin/init symlink is absolute, so
+# it does not resolve from here), and under that name the flag has to follow the
+# `init` subcommand.
+INITARGS=
+case " $(busybox cat /proc/cmdline) " in
+	*" sinit.debug "*)
+		case "$INIT" in */init) INITARGS=--debug ;; *) INITARGS="init --debug" ;; esac
+		;;
+esac
+exec busybox switch_root /sysroot "$INIT" $INITARGS
 INIT
 chmod +x "$WORK/init"
 
