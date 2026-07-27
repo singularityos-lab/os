@@ -1,0 +1,36 @@
+#!/bin/sh
+# Activate a kernel-matched proprietary NVIDIA driver add-on bundle, if one is present.
+# mount_firmware (initramfs) already verified the bundle and gated it on the running
+# kernel, mounting it at /var/.fw-nvidia. This runs in the booted system and wires it up:
+# userspace libs, the GSP firmware search path, then the kernel modules.
+#
+# FAIL-SAFE by construction: with no bundle it exits immediately, and any single step
+# that fails is logged and skipped. It can never keep the base system from booting; the
+# worst case is "no NVIDIA", exactly the state without the add-on.
+set -u
+B=/var/.fw-nvidia
+KVER="$(uname -r)"
+MODDIR="$B/usr/lib/modules/$KVER/extra/nvidia"
+log() { echo "nvidia-activate: $*"; }
+
+[ -d "$MODDIR" ] || exit 0   # no kernel-matched nvidia bundle active
+
+# Userspace driver libraries (libGLX_nvidia, libEGL_nvidia, libnvidia-*) on the loader path.
+if [ -d "$B/usr/lib" ]; then
+	printf '%s\n' "$B/usr/lib" > /etc/ld.so.conf.d/nvidia-addon.conf 2>/dev/null || true
+	ldconfig 2>/dev/null || true
+fi
+
+# GSP firmware the driver loads: extend the kernel firmware search path to the bundle.
+if [ -d "$B/usr/lib/firmware" ] && [ -e /sys/module/firmware_class/parameters/path ]; then
+	printf '%s\n' "$B/usr/lib/firmware" > /sys/module/firmware_class/parameters/path 2>/dev/null || true
+fi
+
+# Load the modules by path, in dependency order. Each is independent: a failure is
+# logged and does not abort the rest.
+for m in nvidia nvidia-modeset nvidia-uvm nvidia-drm; do
+	ko="$MODDIR/$m.ko"
+	[ -f "$ko" ] || continue
+	if insmod "$ko" 2>/dev/null; then log "loaded $m"; else log "insmod $m failed (skipped)"; fi
+done
+exit 0

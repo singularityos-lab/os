@@ -256,8 +256,16 @@ mount_firmware() {
 		_fw_loops="$_dev $_hdev $_fw_loops"
 		_fw_maps="${_b}-fwverity $_fw_maps"
 		_fw_mnts="$_mnt $_fw_mnts"
-		_lowers="${_mnt}:${_lowers}"
-		busybox echo "[init] firmware bundle $_b verified + mounted (anchor-verified)"
+		# Firmware bundles union over /usr/lib/firmware. A DRIVER bundle (.kernel-abi)
+		# carries /usr/lib/modules + libs, not just firmware, so it does NOT join that
+		# union: it stays mounted at /var/.fw-<b> and the post-boot nvidia-driver-activate
+		# service insmods its modules and wires its userspace libs.
+		if [ -f "${_mnt}/.kernel-abi" ]; then
+			busybox echo "[init] driver bundle $_b verified + mounted (kernel $_abi, activated post-boot)"
+		else
+			_lowers="${_mnt}:${_lowers}"
+			busybox echo "[init] firmware bundle $_b verified + mounted (anchor-verified)"
+		fi
 	done
 
 	[ -n "$_lowers" ] || { busybox echo "[init] no firmware bundle mounted, base firmware only"; return 0; }

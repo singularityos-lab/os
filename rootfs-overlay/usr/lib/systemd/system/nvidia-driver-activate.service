@@ -1,0 +1,14 @@
+[Unit]
+Description=Activate the NVIDIA driver add-on (kernel-matched proprietary bundle)
+DefaultDependencies=no
+After=systemd-udevd.service
+Before=basic.target
+ConditionPathExists=/var/.fw-nvidia
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/nvidia-driver-activate
+RemainAfterExit=yes
+
+[Install]
+WantedBy=sysinit.target
