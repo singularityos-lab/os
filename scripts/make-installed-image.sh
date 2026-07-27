@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 #
-# Build a disk image that looks like an INSTALLED system, not the live medium:
-# ESP + atom-system (the rootfs slot files) + a persistent atom-var carrying the
-# .atom-var marker. That marker is what makes the init write /run/atom/installed,
-# and without it the OTA daemon stays inert -- so the update path can only be
-# exercised on an image built this way. Mirrors the layout usr/bin/atom-install
-# writes, without needing a real install run.
+# Build a disk image that looks like an INSTALLED system rather than the live medium.
+# Same shape usr/bin/atom-install writes: an ESP and ONE data partition holding the
+# root image as a file under boot/rootfs together with the user data that becomes
+# /var, plus the .atom-var marker. That marker is what makes the init treat the system
+# as installed, which is what arms the update daemon -- so the OTA path can only be
+# exercised on an image built this way.
 #
-# /var is ext4 here rather than f2fs (the initramfs accepts either) so the image
-# can be produced without root or f2fs tooling.
+# ext4 here rather than f2fs (the initramfs accepts either) so the image can be
+# produced without root or f2fs tooling.
 #
 # OTA_TEST_FEED points the update agent at a throwaway feed and shortens the check
 # timer, so an update cycle can be driven end to end against a local server.
@@ -22,22 +22,25 @@ cd "$REPO_DIR"
 OUT="${1:-artifacts/sinty-installed.img}"
 HOSTBIN="${REPO_DIR}/buildroot-build/host/bin"
 
-for f in artifacts/esp.vfat artifacts/atom-system.ext4; do
+for f in artifacts/esp.vfat artifacts/rootfs.erofs artifacts/rootfs.hash artifacts/deployment.json; do
 	[ -f "$f" ] || { echo "make-installed-image: missing $f (run scripts/package.sh)" >&2; exit 1; }
 done
 
-# The persistent /var an installed system boots with. The directory set matches
-# what the installer creates; .atom-var is the installed-vs-live signal.
-rm -rf artifacts/var-staging artifacts/atom-var.ext4
-mkdir -p artifacts/var-staging/{home,etc-upper,etc-work,lib,log,cache,spool,tmp,run}
-: > artifacts/var-staging/.atom-var
-chmod 1777 artifacts/var-staging/tmp
+rm -rf artifacts/installed-staging artifacts/atom-data-installed.ext4
+mkdir -p artifacts/installed-staging/boot/{rootfs,efi,firmware} \
+    artifacts/installed-staging/{home,etc-upper,etc-work,lib,log,cache,spool,tmp,run}
+chmod 1777 artifacts/installed-staging/tmp
+cp artifacts/rootfs.erofs artifacts/installed-staging/boot/rootfs/rootfs-active.erofs
+cp artifacts/rootfs.hash  artifacts/installed-staging/boot/rootfs/rootfs-active.hash
+cp artifacts/deployment.json artifacts/installed-staging/boot/rootfs/deployment.json
+cp artifacts/deployment.json artifacts/installed-staging/boot/rootfs/deployment.json.bak
+: > artifacts/installed-staging/.atom-var
 
 # Unit overrides go in the /etc overlay upper, the same place a local admin change
 # would land, so the image itself stays untouched.
 if [ -n "${OTA_TEST_FEED:-}" ]; then
-	mkdir -p artifacts/var-staging/etc-upper/systemd/system
-	cat > artifacts/var-staging/etc-upper/systemd/system/updated-check.service <<EOF
+	mkdir -p artifacts/installed-staging/etc-upper/systemd/system
+	cat > artifacts/installed-staging/etc-upper/systemd/system/updated-check.service <<EOF
 [Unit]
 Description=Sinty OS update check and fetch (test feed)
 After=network-online.target
@@ -45,12 +48,12 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
-# Staging an update downloads the whole root image, which outlasts a default
-# start timeout on a slow link.
+# Staging an update downloads the whole root image, which outlasts a default start
+# timeout on a slow link.
 TimeoutStartSec=3600
 ExecStart=/usr/libexec/updated poll --feed ${OTA_TEST_FEED}
 EOF
-	cat > artifacts/var-staging/etc-upper/systemd/system/updated-check.timer <<'EOF'
+	cat > artifacts/installed-staging/etc-upper/systemd/system/updated-check.timer <<'EOF'
 [Unit]
 Description=Periodically check and fetch Sinty OS updates (test cadence)
 
@@ -64,10 +67,14 @@ EOF
 	echo "[make-installed-image] update feed: ${OTA_TEST_FEED}"
 fi
 
+# Room for a staged update beside the running image: on a real install the partition
+# takes the rest of the disk, here it is sized explicitly.
+DATA_MB=$(( $(du -sm artifacts/installed-staging | cut -f1) * 2 + 512 ))
 # fakeroot so the tree lands owned by root: mke2fs -d copies the staging ownership.
-"${HOSTBIN}/fakeroot" -- sh -c "chown -R 0:0 artifacts/var-staging && \
-    /usr/sbin/mke2fs -q -t ext4 -L atom-var -d artifacts/var-staging artifacts/atom-var.ext4 512M"
-rm -rf artifacts/var-staging
+"${HOSTBIN}/fakeroot" -- sh -c "chown -R 0:0 artifacts/installed-staging && \
+    /usr/sbin/mke2fs -q -t ext4 -L atom-data -d artifacts/installed-staging \
+    artifacts/atom-data-installed.ext4 ${DATA_MB}M"
+rm -rf artifacts/installed-staging
 
 cat > artifacts/genimage-installed.cfg <<'CFG'
 image sinty-installed.img {
@@ -81,14 +88,9 @@ image sinty-installed.img {
 		bootable = "true"
 	}
 
-	partition atom-system {
+	partition atom-data {
 		partition-type-uuid = "0fc63daf-8483-4772-8e79-3d69d8477de4"
-		image = "atom-system.ext4"
-	}
-
-	partition atom-var {
-		partition-type-uuid = "0fc63daf-8483-4772-8e79-3d69d8477de4"
-		image = "atom-var.ext4"
+		image = "atom-data-installed.ext4"
 	}
 }
 CFG
