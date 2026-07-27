@@ -36,6 +36,8 @@ define ATOMLOOPS_INSTALL_TARGET_CMDS
 	$(INSTALL) -D -m 0755 $(@D)/bin/updated   $(TARGET_DIR)/usr/libexec/updated
 	$(INSTALL) -D -m 0644 $(ATOMLOOPS_PKGDIR)/root.pub $(TARGET_DIR)/etc/atom-fw-root.pub
 	$(INSTALL) -D -m 0644 $(@D)/packaging/updated.service $(TARGET_DIR)/usr/lib/systemd/system/updated.service
+	$(INSTALL) -D -m 0644 $(@D)/packaging/updated-check.service $(TARGET_DIR)/usr/lib/systemd/system/updated-check.service
+	$(INSTALL) -D -m 0644 $(@D)/packaging/updated-check.timer $(TARGET_DIR)/usr/lib/systemd/system/updated-check.timer
 endef
 
 $(eval $(golang-package))
