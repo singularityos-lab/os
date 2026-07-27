@@ -237,6 +237,22 @@ mount_firmware() {
 			veritysetup close "${_b}-fwverity" 2>/dev/null
 			busybox losetup -d "$_dev" 2>/dev/null; busybox losetup -d "$_hdev" 2>/dev/null; continue
 		fi
+		# Kernel-bound driver bundle: refuse it unless its stamped kernel-ABI matches the
+		# running kernel. A kernel update invalidates an old driver bundle (ABI mismatch
+		# would fail the module load), so it stays on base until the matching one arrives.
+		# Firmware-only bundles carry no .kernel-abi and are never gated.
+		if [ -f "${_mnt}/.kernel-abi" ]; then
+			_abi=$(busybox cat "${_mnt}/.kernel-abi" 2>/dev/null | busybox tr -d '\r\n ')
+			_run=$(busybox uname -r)
+			if [ "$_abi" != "$_run" ]; then
+				busybox echo "[init] driver bundle $_b built for kernel $_abi != running $_run, skipped"
+				busybox umount "$_mnt" 2>/dev/null
+				veritysetup close "${_b}-fwverity" 2>/dev/null
+				busybox losetup -d "$_dev" 2>/dev/null; busybox losetup -d "$_hdev" 2>/dev/null
+				continue
+			fi
+		fi
+
 		_fw_loops="$_dev $_hdev $_fw_loops"
 		_fw_maps="${_b}-fwverity $_fw_maps"
 		_fw_mnts="$_mnt $_fw_mnts"
