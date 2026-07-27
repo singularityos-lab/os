@@ -560,6 +560,11 @@ int sd_uid_get_display(uid_t uid, char **session) {
 	if (session) *session = m.found_id; else free(m.found_id);
 	return 0;
 }
+int sd_uid_get_login_time(uid_t uid, uint64_t *ret_usec) {
+	(void)uid;
+	if (ret_usec) *ret_usec = 0;
+	return -ENODATA; /* no login-time tracking in the shim */
+}
 
 /* pid -> uid (via /proc ownership) -> that uid's session, preferring the active
  * one. Good enough for polkit, which asks for the requesting process's session. */

@@ -11,7 +11,7 @@ global:
   sd_uid_get_seats; sd_uid_get_sessions; sd_uid_is_on_seat;
 local: *;
 };
-LIBSYSTEMD_213 { global: sd_uid_get_display; } LIBSYSTEMD_209;
+LIBSYSTEMD_213 { global: sd_uid_get_display; sd_uid_get_login_time; } LIBSYSTEMD_209;
 LIBSYSTEMD_220 { global: sd_pid_get_user_slice; } LIBSYSTEMD_213;
 LIBSYSTEMD_221 {
 global:
