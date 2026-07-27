@@ -53,15 +53,23 @@ func mibOf(sizeBytes int64) int64 {
 	return (sizeBytes + (1 << 20) - 1) / (1 << 20)
 }
 
-// partitionTable is the sfdisk GPT script: ESP, root, hash (all fixed-size) and a
-// var partition that takes the rest of the disk.
-func partitionTable(espMB, erofsMB, hashMB int64) string {
+// partitionTable is the sfdisk GPT script: ESP, the system partition holding the
+// rootfs slot files, and a var partition that takes the rest of the disk. The root
+// image is a FILE on the system partition, not a partition of its own, so an update
+// can be staged beside the running one and promoted by rename.
+func partitionTable(espMB, sysMB int64) string {
 	return fmt.Sprintf(`label: gpt
 size=%dMiB, type=C12A7328-F81F-11D2-BA4B-00A0C93EC93B, name=ESP, bootable
-size=%dMiB, type=0FC63DAF-8483-4772-8E79-3D69D8477DE4, name=sing-root
-size=%dMiB, type=0FC63DAF-8483-4772-8E79-3D69D8477DE4, name=sing-hash
+size=%dMiB, type=0FC63DAF-8483-4772-8E79-3D69D8477DE4, name=atom-system
 type=0FC63DAF-8483-4772-8E79-3D69D8477DE4, name=atom-var
-`, espMB, erofsMB, hashMB)
+`, espMB, sysMB)
+}
+
+// systemMB sizes the system partition to hold two full slots plus slack: the active
+// image and the -next an update stages beside it. Undersized, every update fails at
+// staging with no way for the user to tell why.
+func systemMB(erofsMB, hashMB int64) int64 {
+	return (erofsMB+hashMB)*2 + 512
 }
 
 // greetdConfig is the first-boot greetd config: OOBE as root on the very first boot,

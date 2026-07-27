@@ -79,6 +79,19 @@ func candidatePartitions(target string) []string {
 
 // detectSources finds the live ESP, erofs root and verity hash partitions.
 func detectSources(target string) (esp, erofs, hash string, err error) {
+	// Two shapes of live medium install: the .img, whose root already IS a slot file on
+	// the mounted system partition, and the .iso, which still appends the root image and
+	// its hash tree as raw partitions. Prefer the mounted files -- booted from a .img
+	// there is no raw erofs partition to find, so probing alone would fail the install.
+	const activeErofs = "/boot/rootfs/rootfs-active.erofs"
+	const activeHash = "/boot/rootfs/rootfs-active.hash"
+	if fileExists(activeErofs) && fileExists(activeHash) {
+		erofs, hash = activeErofs, activeHash
+		// The initramfs already mounted the ESP, so probing it by mounting it again
+		// read-only fails ("would change RO state"). Take the device from the mount
+		// table instead, or the install aborts having found everything but the ESP.
+		esp = mountedDevice("/boot/efi")
+	}
 	for _, d := range candidatePartitions(target) {
 		h := readHeader(d, 1028)
 		switch classify(h, false) {
@@ -139,27 +152,98 @@ func main() {
 	die(err)
 	espMB, err := mibOfDev(esp)
 	die(err)
-	erofsMB, err := mibOfDev(erofs)
+	erofsMB, err := sourceMB(erofs)
 	die(err)
-	hashMB, err := mibOfDev(hash)
+	hashMB, err := sourceMB(hash)
 	die(err)
 
 	// partition
 	sf := exec.Command("sfdisk", dev)
-	sf.Stdin = strings.NewReader(partitionTable(espMB, erofsMB, hashMB))
+	sf.Stdin = strings.NewReader(partitionTable(espMB, systemMB(erofsMB, hashMB)))
 	if out, e := sf.CombinedOutput(); e != nil {
 		die(fmt.Errorf("sfdisk: %w: %s", e, out))
 	}
 	_ = run("partprobe", dev)
 
-	// write ESP, verified root and hash tree, then a fresh /var
 	die(run("dd", "if="+esp, "of="+partName(dev, 1), "bs=4M", "conv=fsync"))
-	die(run("dd", "if="+erofs, "of="+partName(dev, 2), "bs=4M", "conv=fsync"))
-	die(run("dd", "if="+hash, "of="+partName(dev, 3), "bs=4M", "conv=fsync"))
-	die(setupVar(partName(dev, 4)))
+	die(setupSystem(partName(dev, 2), erofs, hash, esp))
+	die(setupVar(partName(dev, 3)))
 	setUEFIEntry(dev) // best-effort
 
 	fmt.Printf("atom-install: %s provisioned\n", dev)
+}
+
+// setupSystem builds the partition that becomes /boot on the installed system: its top
+// level is rootfs/ (the slot files plus the deployment WAL that describes them), efi/
+// and firmware/ (mountpoints the initramfs needs, which the read-only erofs root cannot
+// host). The WAL is taken from the live ESP so the recorded version matches the image
+// actually written.
+func setupSystem(part, erofs, hash, esp string) error {
+	if err := run("mkfs.ext4", "-q", "-L", "atom-system", "-F", part); err != nil {
+		return err
+	}
+	mnt, err := os.MkdirTemp("", "atom-system")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(mnt)
+	if err := run("mount", "-t", "ext4", part, mnt); err != nil {
+		return err
+	}
+	defer run("umount", mnt)
+
+	for _, d := range []string{"rootfs", "efi", "firmware"} {
+		if err := os.MkdirAll(filepath.Join(mnt, d), 0o755); err != nil {
+			return err
+		}
+	}
+	slots := filepath.Join(mnt, "rootfs")
+	if err := run("dd", "if="+erofs, "of="+filepath.Join(slots, "rootfs-active.erofs"), "bs=4M", "conv=fsync"); err != nil {
+		return err
+	}
+	if err := run("dd", "if="+hash, "of="+filepath.Join(slots, "rootfs-active.hash"), "bs=4M", "conv=fsync"); err != nil {
+		return err
+	}
+	return copyDeployment(esp, slots)
+}
+
+// copyDeployment lands the deployment WAL (and its backup copy) beside the slot files.
+// The live ESP is mounted read-only when it is not already reachable at /boot/efi.
+func copyDeployment(esp, slots string) error {
+	src := "/boot/efi/EFI/atom/deployment.json"
+	if _, err := os.Stat(src); err != nil {
+		mnt, err := os.MkdirTemp("", "atom-esp")
+		if err != nil {
+			return err
+		}
+		defer os.RemoveAll(mnt)
+		if err := run("mount", "-t", "vfat", "-o", "ro", esp, mnt); err != nil {
+			return err
+		}
+		defer run("umount", mnt)
+		src = filepath.Join(mnt, "EFI/atom/deployment.json")
+	}
+	b, err := os.ReadFile(src)
+	if err != nil {
+		return fmt.Errorf("deployment.json: %w", err)
+	}
+	if err := os.WriteFile(filepath.Join(slots, "deployment.json"), b, 0o644); err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(slots, "deployment.json.bak"), b, 0o644)
+}
+
+// sourceMB sizes a source that may be either a whole partition (the .iso still carries
+// the root image raw) or a plain file (the .img carries it as a slot file).
+func sourceMB(src string) (int64, error) {
+	fi, err := os.Stat(src)
+	if err != nil {
+		return 0, err
+	}
+	if fi.Mode()&os.ModeDevice != 0 {
+		return mibOfDev(src)
+	}
+	return mibOf(fi.Size()), nil
 }
 
 // setupVar makes the encrypted f2fs /var and seeds the first-boot greetd config.
@@ -200,4 +284,25 @@ func die(err error) {
 		fmt.Fprintln(os.Stderr, "atom-install:", err)
 		os.Exit(1)
 	}
+}
+
+// fileExists reports whether path is a regular file.
+func fileExists(path string) bool {
+	fi, err := os.Stat(path)
+	return err == nil && fi.Mode().IsRegular()
+}
+
+// mountedDevice returns the device backing a mountpoint, empty when not mounted.
+func mountedDevice(mnt string) string {
+	b, err := os.ReadFile("/proc/mounts")
+	if err != nil {
+		return ""
+	}
+	for _, ln := range strings.Split(string(b), "\n") {
+		f := strings.Fields(ln)
+		if len(f) >= 2 && f[1] == mnt {
+			return f[0]
+		}
+	}
+	return ""
 }

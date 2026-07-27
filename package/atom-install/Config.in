@@ -1,0 +1,9 @@
+config BR2_PACKAGE_ATOM_INSTALL
+	bool "atom-install"
+	depends on BR2_PACKAGE_HOST_GO_TARGET_ARCH_SUPPORTS
+	depends on BR2_PACKAGE_HOST_GO_TARGET_CGO_LINKING_SUPPORTS
+	help
+	  atom-install: the disk installer the graphical installer spawns.
+	  Partitions the target disk (ESP + atom-system + atom-var), writes
+	  the root image and its verity hash tree as the active slot files,
+	  and seeds the first-boot /var. Installs /usr/bin/atom-install.
