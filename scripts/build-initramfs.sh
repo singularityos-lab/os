@@ -2,10 +2,14 @@
 #
 # Build the initramfs for the immutable verity boot.
 #
-# The initramfs discovers the data and hash partitions by GPT PARTLABEL
-# (sing-root and sing-hash), opens the dm-verity device with veritysetup using
-# the root hash passed on the kernel command line (sing.roothash=), mounts the
-# verified erofs read-only and overlays a tmpfs for the writable layer.
+# The OS root ships as rootfs-<slot>.erofs FILES (active/next/prev) on a writable
+# ext4 partition (label atom-system) that becomes /boot, not as a raw partition: the
+# Atom Loops slot model, where an update is staged as -next and promoted by rename,
+# so the slot files are reachable as /boot/rootfs/... at runtime. The init mounts
+# that partition, loop-attaches each slot file and its verity hash, then opens the
+# dm-verity device with veritysetup for the slot whose hash matches sing.roothash
+# (baked in the UKI), mounts the verified erofs read-only and overlays a tmpfs.
+# Kept in lockstep with the reference AtomLoops init (scripts/boot/initramfs-main.go).
 #
 # Usage: scripts/build-initramfs.sh <target_dir> <output_cpio_xz>
 
@@ -125,7 +129,7 @@ cp -a "$WORK/lib/." "$WORK/lib64/"
 cp -a "$WORK/lib/." "$WORK/usr/lib/"
 cp -a "$WORK/lib/." "$WORK/usr/lib64/"
 
-for applet in sh mount switch_root sleep mkdir mknod cat blkid dd; do
+for applet in sh mount umount switch_root sleep mkdir mknod cat blkid dd losetup basename readlink; do
 	ln -sf busybox "$WORK/bin/$applet"
 done
 
@@ -187,6 +191,39 @@ for tok in $(busybox cat /proc/cmdline); do
 	esac
 done
 [ -n "$ROOTHASH" ] || rescue "no sing.roothash= on the kernel command line"
+
+# Atom Loops system partition: the root image ships as rootfs-<slot>.erofs FILES
+# (active/next/prev) plus their verity hash under rootfs/ on an ext4 partition that
+# becomes /boot (so they are reachable as /boot/rootfs/... on the running system),
+# not as a raw partition, so an update is staged as a file and promoted by rename.
+# Probe every partition for rootfs/rootfs-active.erofs, then loop-attach each
+# slot file read-only: the pairing below picks the pair whose hash matches the
+# sing.roothash baked in this UKI, which is what makes a promoted slot boot.
+# Mounted read-only here; remounted rw once moved to /sysroot/boot/rootfs, where the
+# update daemon stages the next slot. Absent partition = raw-partition layout, which
+# the globs below still handle.
+SYSDEV= ; SYSMNT=/sysdata
+mount_system() {
+	busybox mkdir -p "$SYSMNT"
+	for d in /dev/vd*[0-9] /dev/sd*[0-9] /dev/nvme*p[0-9]* /dev/mmcblk*p[0-9]*; do
+		[ -b "$d" ] || continue
+		busybox mount -t ext4 -o ro "$d" "$SYSMNT" 2>/dev/null || continue
+		if [ -f "$SYSMNT/rootfs/rootfs-active.erofs" ]; then
+			SYSDEV="$d"
+			busybox echo "[init] system partition: $d"
+			for f in "$SYSMNT"/rootfs/rootfs-*.erofs "$SYSMNT"/rootfs/rootfs-*.hash; do
+				[ -f "$f" ] || continue
+				_lp=$(busybox losetup -f) && busybox losetup -r "$_lp" "$f" 2>/dev/null \
+					&& busybox echo "[init]   $f -> $_lp"
+			done
+			return 0
+		fi
+		busybox umount "$SYSMNT" 2>/dev/null
+	done
+	busybox echo "[init] no Atom Loops system partition (raw-partition layout)"
+	return 0
+}
+mount_system
 
 # Firmware add-on bundles: union each verified /boot/firmware/<bundle>/ over the base
 # survival firmware baked in the rootfs. UNLIKE the rootfs this is FAIL-OPEN and per-bundle:
@@ -311,7 +348,7 @@ if [ -n "$UNLOCKED" ]; then
 	# Unlocked: mount the erofs root directly, no dm-verity. Find the data partition
 	# by its erofs magic (the same probe as the verified path, without hash pairing).
 	while [ $i -lt 75 ]; do
-		for d in /dev/vd*[0-9] /dev/sd*[0-9] /dev/nvme*p[0-9]* /dev/mmcblk*p[0-9]*; do
+		for d in /dev/loop[0-9]* /dev/vd*[0-9] /dev/sd*[0-9] /dev/nvme*p[0-9]* /dev/mmcblk*p[0-9]*; do
 			[ -b "$d" ] || continue
 			m=$(busybox dd if="$d" bs=1 skip=1024 count=4 2>/dev/null | busybox od -An -tx1 | busybox tr -d ' \n')
 			[ "$m" = "e2e1f5e0" ] && { DATA="$d"; DATAS="$DATAS $d"; break; }
@@ -329,7 +366,7 @@ if [ -n "$UNLOCKED" ]; then
 else
 	while [ $i -lt 75 ]; do
 		DATAS= ; HASHES=
-		for d in /dev/vd*[0-9] /dev/sd*[0-9] /dev/nvme*p[0-9]* /dev/mmcblk*p[0-9]*; do
+		for d in /dev/loop[0-9]* /dev/vd*[0-9] /dev/sd*[0-9] /dev/nvme*p[0-9]* /dev/mmcblk*p[0-9]*; do
 			[ -b "$d" ] || continue
 			if [ "$(busybox dd if="$d" bs=6 count=1 2>/dev/null)" = "verity" ]; then
 				HASHES="$HASHES $d"; continue
@@ -363,12 +400,17 @@ _parentdisk() {
 	_pp=$(busybox basename "$1")
 	busybox basename "$(busybox readlink -f "/sys/class/block/$_pp/.." 2>/dev/null)"
 }
-ROOTDISK=$(_parentdisk "$DATA")
+# With the file-based slots the root device is a loop, whose sysfs parent is not a disk
+# at all, so the reference for "same disk" is the partition the slot files live on. Using
+# the loop here matches nothing: /var is never found, the system silently falls back to
+# tmpfs /var and OTA stays inert forever.
+ROOTDISK=$(_parentdisk "${SYSDEV:-$DATA}")
 VAR=
 for d in /dev/vd*[0-9] /dev/sd*[0-9] /dev/nvme*p[0-9]* /dev/mmcblk*p[0-9]*; do
 	[ -b "$d" ] || continue
 	[ "$d" = "$DATA" ] && continue
 	[ "$d" = "$HASH" ] && continue
+	[ -n "$SYSDEV" ] && [ "$d" = "$SYSDEV" ] && continue
 	[ "$(_parentdisk "$d")" = "$ROOTDISK" ] || continue
 	{ busybox mount -t f2fs "$d" /varprobe 2>/dev/null || busybox mount -t ext4 "$d" /varprobe 2>/dev/null; } || continue
 	if [ -e /varprobe/.atom-var ]; then VAR="$d"; busybox umount /varprobe; break; fi
@@ -391,6 +433,35 @@ else
 	busybox mount -t overlay overlay \
 	    -o lowerdir=/lower,upperdir=/over/upper,workdir=/over/work /sysroot \
 	    || rescue "cannot mount overlay root"
+fi
+
+# Carry the system partition into the new root. Its own /boot/rootfs is where otad
+# stages the next slot and boot-success promotes by rename, so it is mounted at
+# /boot and remounted rw. It also has to survive switch_root anyway: the loop
+# devices backing the verified root keep its files open.
+if [ -n "$SYSDEV" ]; then
+	busybox mkdir -p /sysroot/boot 2>/dev/null || true
+	if busybox mount --move "$SYSMNT" /sysroot/boot 2>/dev/null; then
+		busybox mount -o remount,rw /sysroot/boot 2>/dev/null \
+			|| busybox echo "[init] warning: /boot stays read-only, updates cannot stage"
+	else
+		busybox echo "[init] warning: system partition not carried to /boot"
+	fi
+
+	# The ESP has to be mounted for an update to land: otad stages kernelcache-next
+	# and rewrites boot-state under /boot/efi/EFI/atom, and the loader reads them on
+	# the next boot. Nothing else mounts it (fstab carries only /), so do it here,
+	# where the disk is already known. Identified by content, not by device name.
+	for e in /dev/vd*[0-9] /dev/sd*[0-9] /dev/nvme*p[0-9]* /dev/mmcblk*p[0-9]*; do
+		[ -b "$e" ] || continue
+		busybox mkdir -p /sysroot/boot/efi 2>/dev/null || true
+		busybox mount -t vfat "$e" /sysroot/boot/efi 2>/dev/null || continue
+		if [ -d /sysroot/boot/efi/EFI/atom ]; then
+			busybox echo "[init] ESP: $e"
+			break
+		fi
+		busybox umount /sysroot/boot/efi 2>/dev/null
+	done
 fi
 INIT=
 if [ -n "$CMDINIT" ] && [ -x "/sysroot$CMDINIT" ]; then

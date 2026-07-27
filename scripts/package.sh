@@ -20,13 +20,20 @@ ATOM_ROOT_PUB="${ATOM_ROOT_PUB:-${ATOMLOOPS}/loader/src/root.pub}"
 ATOM_SIGNING_KEY="${ATOM_SIGNING_KEY:-${ATOMLOOPS}/signing-v1.key}"
 ATOM_SIGNING_CERT="${ATOM_SIGNING_CERT:-${ATOMLOOPS}/signing-cert-v1.json}"
 ATOM_SIGNING_CERT_SIG="${ATOM_SIGNING_CERT_SIG:-${ATOM_SIGNING_CERT}.sig}"
+# Whether the caller pinned a loader binary. Only an explicit ATOM_LOADER_EFI is
+# trusted to match the signing chain: defaulting to the AtomLoops checkout would let
+# a leftover dev-root bootx64.efi sitting there silently replace the release loader,
+# and the image then halts at "signature INVALID" because that loader cannot verify
+# a production-signed UKI. Unset means always rebuild against ATOM_ROOT_PUB.
+LOADER_PINNED=1
+[ -n "${ATOM_LOADER_EFI:-}" ] || LOADER_PINNED=0
 ATOM_LOADER_EFI="${ATOM_LOADER_EFI:-${ATOMLOOPS}/loader/bootx64.efi}"
 
 if [ -f "${ATOM_ROOT_PUB}" ] && [ -f "${ATOM_SIGNING_KEY}" ] \
     && [ -f "${ATOM_SIGNING_CERT}" ] && [ -f "${ATOM_SIGNING_CERT_SIG}" ]; then
     # A signing chain was provided (release/production). Build a loader that trusts
-    # this root.pub unless a matching loader EFI was also provided.
-    if [ ! -f "${ATOM_LOADER_EFI}" ]; then
+    # this root.pub unless the caller pinned a matching loader EFI.
+    if [ "${LOADER_PINNED}" = 0 ] || [ ! -f "${ATOM_LOADER_EFI}" ]; then
         SIGNING_WORK="$(mktemp -d)"
         cp -a "${ATOMLOOPS}/loader" "${SIGNING_WORK}/loader"
         cp "${ATOM_ROOT_PUB}" "${SIGNING_WORK}/loader/src/root.pub"
@@ -55,6 +62,19 @@ else
     ATOM_LOADER_EFI="${SIGNING_WORK}/loader/bootx64.efi"
 fi
 export ATOM_ROOT_PUB ATOM_SIGNING_KEY ATOM_SIGNING_CERT ATOM_SIGNING_CERT_SIG
+
+# The loader is the root of the whole verified chain, and shipping one built against
+# the wrong root.pub produces an image that halts at "signature INVALID" only once it
+# is booted on real hardware. Assert the trust root is actually inside the binary.
+# The key is 32 raw bytes with embedded NULs, so this is a byte search, not a grep.
+python3 - "${ATOM_ROOT_PUB}" "${ATOM_LOADER_EFI}" <<'PY' || exit 1
+import sys
+key = open(sys.argv[1], 'rb').read()
+if key not in open(sys.argv[2], 'rb').read():
+    print(f"package: {sys.argv[2]} does not embed {sys.argv[1]} -- refusing to ship", file=sys.stderr)
+    sys.exit(1)
+PY
+echo "[package] loader trust root verified: $(sha256sum "${ATOM_ROOT_PUB}" | cut -c1-16)"
 
 # RootFS
 ROOTFS_TAR=artifacts/rootfs.tar
@@ -188,6 +208,26 @@ mcopy -i artifacts/esp.vfat artifacts/deployment.json ::EFI/atom/deployment.json
 rm -f artifacts/sintylogs.ext4
 dd if=/dev/zero of=artifacts/sintylogs.ext4 bs=1M count=256 status=none
 /usr/sbin/mkfs.ext4 -q -L SINTYLOGS -F artifacts/sintylogs.ext4
+
+# Atom Loops system partition: the root image is a FILE on a writable ext4, not a raw
+# partition, so an update lands as rootfs-next.erofs beside the active one and is
+# promoted by rename. Sized for two full slots plus slack, otherwise an update has
+# nowhere to stage. /boot/firmware is the mountpoint the initramfs unions add-on
+# firmware bundles from; it ships empty and is filled by the firmware track.
+rm -rf artifacts/system-staging artifacts/atom-system.ext4
+mkdir -p artifacts/system-staging/rootfs artifacts/system-staging/firmware \
+    artifacts/system-staging/efi
+cp artifacts/rootfs.erofs artifacts/system-staging/rootfs/rootfs-active.erofs
+cp artifacts/rootfs.hash  artifacts/system-staging/rootfs/rootfs-active.hash
+cp artifacts/deployment.json artifacts/system-staging/rootfs/deployment.json
+cp artifacts/deployment.json artifacts/system-staging/rootfs/deployment.json.bak
+SYS_MB=$(( $(du -sm artifacts/system-staging | cut -f1) * 2 + 512 ))
+# fakeroot so the tree lands owned by root: mke2fs -d copies the staging ownership,
+# and a /boot owned by the build user is wrong on the shipped image.
+"${HOSTBIN}/fakeroot" -- sh -c "chown -R 0:0 artifacts/system-staging && \
+    /usr/sbin/mke2fs -q -t ext4 -L atom-system -d artifacts/system-staging \
+    artifacts/atom-system.ext4 ${SYS_MB}M"
+rm -rf artifacts/system-staging
 
 rm -rf genimage-tmp
 "${HOSTBIN}/genimage" \
