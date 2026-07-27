@@ -1,0 +1,138 @@
+name: NVIDIA driver bundle
+
+# Builds, signs and verifies the PROPRIETARY, kernel-bound NVIDIA GPU add-on bundle.
+# The .run driver is NVIDIA-licensed: it is downloaded at build and never committed or
+# published; only the built modules/userspace go into the bundle. The signed bundle
+# ships from the PRIVATE feed, never a public release -- this workflow produces it and
+# leaves it as a private build artifact. A run needs the signing secrets (below); the
+# publish-to-private-feed step is the maintainer's.
+
+on:
+  workflow_dispatch:
+    inputs:
+      nvidia_version:
+        description: 'Driver version (e.g. 595.84) or "latest"'
+        required: false
+        default: 'latest'
+
+permissions:
+  contents: read
+
+jobs:
+  bundle:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 350
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Checkout Atom Loops
+        uses: actions/checkout@v4
+        with:
+          repository: mirkobrombin/AtomLoops
+          path: _deps/AtomLoops
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: '1.26.x'
+          cache: false
+
+      - name: Free disk space and host the build on /mnt
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc \
+            /usr/local/.ghcup /opt/hostedtoolcache/CodeQL || true
+          sudo docker image prune -af || true
+          sudo mkdir -p /mnt/br/build /mnt/br/dl
+          mkdir -p buildroot-build buildroot-dl
+          sudo mount --bind /mnt/br/build buildroot-build
+          sudo mount --bind /mnt/br/dl buildroot-dl
+          sudo chown -R "$(id -u):$(id -g)" /mnt/br buildroot-build buildroot-dl
+
+      - name: Install host dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y \
+            build-essential bc bison flex libssl-dev libelf-dev libncurses-dev \
+            wget rsync cpio xz-utils gzip bzip2 zstd patch perl python3 \
+            git unzip curl erofs-utils cryptsetup-bin
+
+      - name: Restore Buildroot source tree
+        uses: actions/cache/restore@v4
+        with:
+          path: buildroot-src
+          key: buildroot-src-2026.02.2-${{ hashFiles('buildroot-source-patches/**', 'scripts/prepare.sh') }}
+
+      - name: Restore Buildroot downloads
+        uses: actions/cache/restore@v4
+        with:
+          path: buildroot-dl
+          key: buildroot-dl-${{ hashFiles('buildroot-config/singularity_defconfig') }}-
+          restore-keys: buildroot-dl-${{ hashFiles('buildroot-config/singularity_defconfig') }}-
+
+      - name: Restore Buildroot host toolchain
+        uses: actions/cache/restore@v4
+        with:
+          path: buildroot-build/host
+          key: buildroot-host-v2-${{ hashFiles('buildroot-config/singularity_defconfig', 'buildroot-config/kernel.config') }}-
+          restore-keys: buildroot-host-v2-${{ hashFiles('buildroot-config/singularity_defconfig', 'buildroot-config/kernel.config') }}-
+
+      - name: Restore Buildroot package build tree
+        uses: actions/cache/restore@v4
+        with:
+          path: buildroot-build/build
+          key: buildroot-build-v9-${{ hashFiles('buildroot-config/singularity_defconfig', 'buildroot-config/kernel.config', 'buildroot-source-patches/**') }}-
+          restore-keys: buildroot-build-v9-${{ hashFiles('buildroot-config/singularity_defconfig', 'buildroot-config/kernel.config', 'buildroot-source-patches/**') }}-
+
+      - name: Prepare Buildroot
+        run: ./scripts/prepare.sh
+
+      - name: Build the kernel tree and cross toolchain
+        run: |
+          # build-nvidia-driver.sh needs the exact shipped kernel's build tree
+          # (Module.symvers) and the buildroot host toolchain. `linux` is a no-op when
+          # the restored cache already has them.
+          make -C buildroot-src O="$PWD/buildroot-build" BR2_EXTERNAL="$PWD" \
+            BR2_DL_DIR="$PWD/buildroot-dl" linux
+
+      - name: Install the production signing material
+        env:
+          ATOM_SIGNING_KEY: ${{ secrets.ATOM_SIGNING_KEY }}
+          ATOM_SIGNING_CERT: ${{ secrets.ATOM_SIGNING_CERT }}
+          ATOM_SIGNING_CERT_SIG: ${{ secrets.ATOM_SIGNING_CERT_SIG }}
+          ATOM_ROOT_PUB: ${{ secrets.ATOM_ROOT_PUB }}
+        run: |
+          # Production keys are the maintainer's; without them the run stops here rather
+          # than shipping a test-signed bundle. The private feed will reject test keys.
+          test -n "$ATOM_SIGNING_KEY" || { echo "ATOM_SIGNING_KEY secret is not set"; exit 1; }
+          d="$GITHUB_WORKSPACE/_deps/AtomLoops"
+          printf '%s' "$ATOM_SIGNING_KEY"      > "$d/signing-v1.key"
+          printf '%s' "$ATOM_SIGNING_CERT"     > "$d/signing-cert-v1.json"
+          printf '%s' "$ATOM_SIGNING_CERT_SIG" > "$d/signing-cert-v1.json.sig"
+          printf '%s' "$ATOM_ROOT_PUB"         > "$d/root-prod.pub"
+
+      - name: Build, package, sign and verify the bundle
+        env:
+          NVIDIA_VERSION: ${{ github.event.inputs.nvidia_version }}
+          ATOMLOOPS: ${{ github.workspace }}/_deps/AtomLoops
+          SIGNING_KEY: ${{ github.workspace }}/_deps/AtomLoops/signing-v1.key
+          SIGNING_CERT: ${{ github.workspace }}/_deps/AtomLoops/signing-cert-v1.json
+          ROOT_PUB: ${{ github.workspace }}/_deps/AtomLoops/root-prod.pub
+        run: firmware/build-nvidia-driver.sh
+
+      - name: Upload the signed bundle (private artifact; never the .run)
+        uses: actions/upload-artifact@v4
+        with:
+          name: nvidia-driver-bundle
+          path: |
+            firmware/out/nvidia/firmware-active.img
+            firmware/out/nvidia/firmware-active.hash
+            firmware/out/nvidia/fw-manifest-active.json
+            firmware/out/nvidia/fw-manifest-active.json.sig
+            firmware/out/nvidia/fw-signing-cert-active.json
+            firmware/out/nvidia/fw-signing-cert-active.json.sig
+          if-no-files-found: error
+
+      # Publish to the private licensed feed (updates.sinty.dev firmware bucket) is a
+      # maintainer step: it needs the feed credentials and must never place the bundle
+      # on a public release. Intentionally not automated here.
