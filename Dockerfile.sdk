@@ -8,30 +8,32 @@
 # needs the buildroot tree or a host Go; they get /opt/sdk.
 #
 # Heavy on first build (make sdk pulls in `world`, the full OS build) but the
-# result is a single cacheable image. Pin BUILDROOT_VERSION to the tree the OS
-# targets.
-
-ARG BUILDROOT_VERSION=2026.02.2
+# result is a single cacheable image. The buildroot version is the one
+# scripts/prepare.sh pins, so the SDK and the OS never drift apart.
 
 # ---- stage 1: build the SDK tarball ------------------------------------------
 FROM debian:trixie-slim AS builder
-ARG BUILDROOT_VERSION
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
 	bash bc build-essential ca-certificates cpio file git gawk \
-	libssl-dev python3 rsync sed unzip wget which bzip2 xz-utils \
+	libssl-dev patch python3 rsync sed unzip wget which bzip2 xz-utils \
 	&& rm -rf /var/lib/apt/lists/*
 
-WORKDIR /build
+WORKDIR /build/singularity-os
 # The build context is the singularity-os repo: it is the br2-external tree.
 COPY . /build/singularity-os
-RUN wget -q "https://buildroot.org/downloads/buildroot-${BUILDROOT_VERSION}.tar.xz" -O br.tar.xz \
-	&& tar xf br.tar.xz && mv "buildroot-${BUILDROOT_VERSION}" buildroot-src && rm br.tar.xz
 
-# Configure for this OS and produce the relocatable SDK tarball under out/images.
-RUN cd buildroot-src \
-	&& make O=/build/out BR2_EXTERNAL=/build/singularity-os singularity_defconfig \
-	&& make O=/build/out BR2_EXTERNAL=/build/singularity-os -j"$(nproc)" sdk
+# scripts/prepare.sh fetches buildroot, applies this tree's source patches and installs
+# the defconfig where buildroot looks for it (its own configs/). Configuring by hand here
+# skipped all three, so the SDK either failed to find the defconfig or would have been
+# built from an unpatched buildroot -- a different toolchain from the one the OS uses,
+# which is the one thing this image exists to guarantee.
+RUN ./scripts/prepare.sh \
+	&& make -C buildroot-src \
+		O=/build/singularity-os/buildroot-build \
+		BR2_EXTERNAL=/build/singularity-os \
+		BR2_DL_DIR=/build/singularity-os/buildroot-dl \
+		-j"$(nproc)" sdk
 
 # ---- stage 2: the slim SDK image ---------------------------------------------
 FROM debian:trixie-slim
@@ -41,7 +43,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 	&& rm -rf /var/lib/apt/lists/*
 
 # Unpack the SDK to /opt/sdk and relocate it to that prefix.
-COPY --from=builder /build/out/images/*_sdk-buildroot.tar.gz /tmp/sdk.tar.gz
+COPY --from=builder /build/singularity-os/buildroot-build/images/*_sdk-buildroot.tar.gz /tmp/sdk.tar.gz
 RUN mkdir -p /opt/sdk \
 	&& tar xf /tmp/sdk.tar.gz -C /opt/sdk --strip-components=1 \
 	&& rm /tmp/sdk.tar.gz \
