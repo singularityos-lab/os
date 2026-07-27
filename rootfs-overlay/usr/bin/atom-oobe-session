@@ -18,8 +18,17 @@ export ATOM_OOBE_APPLY=1
 # fine to /run/singularity (0770 greeter:singularity-session) since root bypasses the
 # mode. exec singularity-installer DIRECT (not atom-installer-launch): the persistent
 # compositor + boot-splash already paint the logo, so a second splash client just competes.
-export XDG_RUNTIME_DIR=/run/singularity
-export WAYLAND_DISPLAY=wayland-0
+#
+# XDG_RUNTIME_DIR stays root's own (/run/user/0) and the compositor socket is reached
+# through an absolute WAYLAND_DISPLAY, which libwayland uses verbatim. Pointing
+# XDG_RUNTIME_DIR at /run/singularity instead makes every client library root writes
+# its runtime state there (at-spi, dconf, gvfs, ...) as root-owned 0700 dirs, in a
+# directory the greeter (uid greeter) owns and has to write after we exit: the greeter
+# then dies on "can't create /run/singularity/greeter-ready: Permission denied" and
+# greetd loops on "greeter exited without creating a session".
+WAYLAND_SOCKET=/run/singularity/wayland-0
+export XDG_RUNTIME_DIR=/run/user/0
+export WAYLAND_DISPLAY="$WAYLAND_SOCKET"
 export HOME=/run/user/0
 export XDG_CACHE_HOME=/run/user/0/.cache XDG_CONFIG_HOME=/run/user/0/.config
 mkdir -p "$XDG_CACHE_HOME" "$XDG_CONFIG_HOME" 2>/dev/null || true
@@ -50,14 +59,15 @@ _try=0
 _i=0
 while [ -f /run/atom/installed ] && [ "$_try" -lt 5 ]; do
     _i=0
-    while [ ! -S "$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY" ] && [ "$_i" -lt 300 ]; do
+    while [ ! -S "$WAYLAND_SOCKET" ] && [ "$_i" -lt 300 ]; do
         sleep 0.1
         _i=$((_i + 1))
     done
-    [ -S "$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY" ] || break
+    [ -S "$WAYLAND_SOCKET" ] || break
     _try=$((_try + 1))
     sscommon_log "oobe: compositor socket up (${_i} ticks), running OOBE as client (attempt ${_try})"
-    sscommon_mark_greeter_ready
+    # chmod: the greeter rewrites this file after we hand over, and root created it.
+    sscommon_mark_greeter_ready chmod
     _rc=0
     dbus-run-session -- singularity-installer --oobe || _rc=$?
     if [ -f "${MARKER}" ]; then
@@ -75,10 +85,15 @@ fi
 # Fallback: no persistent compositor (e.g. a live/uninstalled boot where it is gated
 # off by ConditionPathExists) -> start our own labwc, as before. Never worse than today.
 sscommon_log "oobe: compositor socket absent (${_i} ticks), fallback own-labwc"
+# Our own labwc binds its socket itself; an inherited absolute WAYLAND_DISPLAY would
+# only mislead the clients it starts.
+unset WAYLAND_DISPLAY
 export XDG_RUNTIME_DIR=/run/user/0
 export HOME="$XDG_RUNTIME_DIR"
 sscommon_xdg_dirs
 sscommon_wait_splash 50
 sscommon_mark_greeter_ready chmod
 sleep 0.3
-sscommon_exec_labwc -s "atom-installer-launch --oobe"
+# -S: labwc terminates when the wizard exits, so greetd gets its session end and starts
+# the greeter instead of leaving a clientless compositor on screen.
+sscommon_exec_labwc -S "atom-installer-launch --oobe"

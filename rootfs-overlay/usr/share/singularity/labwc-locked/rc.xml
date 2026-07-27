@@ -18,7 +18,7 @@
         cannot call the shell's dev.sinty.desktop directly: this compositor runs as
         the greeter user and the shell owns that name on the logged-in user's own
         session bus, which D-Bus refuses to a cross-uid peer. So they go through
-        /usr/bin/singularity-shortcut, whose per-session --serve half (started by
+        /usr/bin/singularity-shortcut, whose per-session serve half (started by
         singularity-desktop-session as the user) forwards over a group-owned socket.
         Pre-login no session is serving, so those Execute calls no-op and only the
         lock is in force. (Live per-user rebinds and xkb/theme still need the shell's

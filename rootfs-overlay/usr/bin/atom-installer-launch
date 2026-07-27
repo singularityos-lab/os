@@ -1,9 +1,56 @@
 #!/bin/sh
 set -eu
 
-if [ -x /usr/bin/singularity-splash ]; then
-    rm -f "${XDG_RUNTIME_DIR:-/run/user/0}/singularity-shell-ready"
-    singularity-splash >/dev/null 2>&1 &
-fi
+# Wrapper around singularity-installer for both the live disk installer
+# (atom-install-session) and the OOBE own-labwc fallback (atom-oobe-session).
+#
+# It does NOT exec the installer: the installer's own last page ends with a button
+# labelled "Restart now" / "Start using ..." that only closes the window, so whatever
+# has to happen after it exits has to happen here. Without that, labwc stays up with
+# no client left and the user is looking at a bare compositor: a black screen with a
+# cursor. Both session scripts run labwc with -S (terminate on exit), so returning
+# from here tears the session down.
+#
+#   install mode, install finished -> reboot, which is what the button promises
+#   oobe mode, account provisioned -> return, greetd moves on to the greeter
+#   neither                        -> the user closed the wizard early or it crashed;
+#                                     relaunch it, bounded, then give up
+MARKER_INSTALL=/run/atom/install-complete
+MARKER_OOBE=/var/lib/sinty/.oobe-done
 
-exec singularity-installer "$@"
+MODE=install
+for a in "$@"; do
+    [ "$a" = "--oobe" ] && MODE=oobe
+done
+
+_try=0
+while [ "$_try" -lt 3 ]; do
+    _try=$((_try + 1))
+
+    if [ -x /usr/bin/singularity-splash ]; then
+        rm -f "${XDG_RUNTIME_DIR:-/run/user/0}/singularity-shell-ready"
+        singularity-splash >/dev/null 2>&1 &
+    fi
+
+    _rc=0
+    singularity-installer "$@" || _rc=$?
+
+    if [ "$MODE" = oobe ]; then
+        if [ -f "$MARKER_OOBE" ]; then
+            echo "[installer-launch] oobe complete (rc=${_rc}), handing over" >&2
+            exit 0
+        fi
+    elif [ -f "$MARKER_INSTALL" ]; then
+        echo "[installer-launch] install complete (rc=${_rc}), rebooting" >&2
+        # Give the compositor a moment to finish painting the last frame, else the
+        # reboot races the window close and the screen flickers to black first.
+        sleep 1
+        exec reboot
+    fi
+
+    echo "[installer-launch] installer exited rc=${_rc} without completing (attempt ${_try})" >&2
+    sleep 1
+done
+
+echo "[installer-launch] giving up after ${_try} attempts" >&2
+exit 1

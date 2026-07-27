@@ -79,4 +79,10 @@ if [ -d /sys/firmware/efi ] && command -v efibootmgr >/dev/null 2>&1; then
     [ -n "$NUM" ] && efibootmgr -n "$NUM" >/dev/null 2>&1 || true
 fi
 
+# Completion marker for atom-installer-launch: singularity-installer exits 0 both when
+# the install finished and when the user just closed the window, so the launcher cannot
+# tell "reboot into the new system" from "user bailed out" by exit status alone.
+mkdir -p /run/atom 2>/dev/null || true
+: > /run/atom/install-complete 2>/dev/null || true
+
 log "done: $DEV provisioned"
