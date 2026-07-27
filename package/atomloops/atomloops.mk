@@ -6,7 +6,7 @@
 
 # SITE=local: build the Atom Loops OTA daemons from the local AtomLoops repo.
 # buildroot-build/local.mk _OVERRIDE_SRCDIR supersedes this for dev builds.
-ATOMLOOPS_VERSION = v0.2.1
+ATOMLOOPS_VERSION = v0.2.2
 ATOMLOOPS_SITE = $(call github,mirkobrombin,AtomLoops,$(ATOMLOOPS_VERSION))
 ATOMLOOPS_LICENSE = GPL-3.0-only
 ATOMLOOPS_LICENSE_FILES = LICENSE
@@ -26,11 +26,16 @@ define ATOMLOOPS_GO_VENDOR
 endef
 ATOMLOOPS_PRE_BUILD_HOOKS += ATOMLOOPS_GO_VENDOR
 
+# Engine ships a placeholder root.pub; inject this image's trust root into the updated
+# embed before the go build (same key as /etc/atom-fw-root.pub).
+define ATOMLOOPS_INJECT_ROOT
+	cp $(ATOMLOOPS_PKGDIR)/root.pub $(@D)/cmd/updated/root.pub
+endef
+ATOMLOOPS_PRE_BUILD_HOOKS += ATOMLOOPS_INJECT_ROOT
+
 # atomd + updated -> /usr/libexec (the units call them there); fw-verify -> /usr/bin
-# (used by the firmware-probe device-aware check and available for diagnostics). The
-# release root public key -> /etc/atom-fw-root.pub (the firmware anchor trust root; a
-# TEST key for now, swapped for the real cold root in a production build). The initramfs
-# mount also bakes this same root.pub via package.sh FW_ROOT_PUB.
+# (firmware-probe device-aware check + diagnostics). root.pub -> /etc/atom-fw-root.pub
+# is this image's trust root; package.sh bakes the same key into the initramfs.
 define ATOMLOOPS_INSTALL_TARGET_CMDS
 	$(INSTALL) -D -m 0755 $(@D)/bin/atomd     $(TARGET_DIR)/usr/libexec/atomd
 	$(INSTALL) -D -m 0755 $(@D)/bin/updated   $(TARGET_DIR)/usr/libexec/updated

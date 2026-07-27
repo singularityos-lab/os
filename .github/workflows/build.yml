@@ -24,7 +24,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: mirkobrombin/AtomLoops
-          ref: f5385e3b9cbc2dc8a741443de6455300a6fe08ce
+          ref: f92a6ea403de7f6e7810125db9aa7f6f8b039939
           path: _deps/AtomLoops
 
       - name: Checkout recovery
