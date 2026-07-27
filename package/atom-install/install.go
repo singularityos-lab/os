@@ -152,122 +152,72 @@ func main() {
 	die(err)
 	espMB, err := mibOfDev(esp)
 	die(err)
-	erofsMB, err := sourceMB(erofs)
-	die(err)
-	hashMB, err := sourceMB(hash)
-	die(err)
 
 	// partition
 	sf := exec.Command("sfdisk", dev)
-	sf.Stdin = strings.NewReader(partitionTable(espMB, systemMB(erofsMB, hashMB)))
+	sf.Stdin = strings.NewReader(partitionTable(espMB))
 	if out, e := sf.CombinedOutput(); e != nil {
 		die(fmt.Errorf("sfdisk: %w: %s", e, out))
 	}
 	_ = run("partprobe", dev)
 
 	die(run("dd", "if="+esp, "of="+partName(dev, 1), "bs=4M", "conv=fsync"))
-	die(setupSystem(partName(dev, 2), erofs, hash, esp))
-	die(setupVar(partName(dev, 3)))
+	die(setupData(partName(dev, 2), erofs, hash, esp))
 	setUEFIEntry(dev) // best-effort
 
 	fmt.Printf("atom-install: %s provisioned\n", dev)
 }
 
-// setupSystem builds the partition that becomes /boot on the installed system: its top
-// level is rootfs/ (the slot files plus the deployment WAL that describes them), efi/
-// and firmware/ (mountpoints the initramfs needs, which the read-only erofs root cannot
-// host). The WAL is taken from the live ESP so the recorded version matches the image
-// actually written.
-func setupSystem(part, erofs, hash, esp string) error {
-	if err := run("mkfs.ext4", "-q", "-L", "atom-system", "-F", part); err != nil {
+// setupData builds the one partition the installed system boots from: the root image
+// and its verity hash as the active slot under boot/rootfs, the mountpoints the
+// read-only erofs root cannot host, and the user directories that become /var. f2fs
+// with encrypt so fscrypt can protect the user data -- the data, not the whole disk.
+// .atom-var is what tells the init this is an installed system rather than a live
+// medium, which is what arms the update daemon.
+func setupData(part, erofs, hash, esp string) error {
+	if err := run("mkfs.f2fs", "-f", "-l", "atom-data", "-O", "encrypt,extra_attr", part); err != nil {
 		return err
 	}
-	mnt, err := os.MkdirTemp("", "atom-system")
+	mnt, err := os.MkdirTemp("", "atom-data")
 	if err != nil {
 		return err
 	}
 	defer os.RemoveAll(mnt)
-	if err := run("mount", "-t", "ext4", part, mnt); err != nil {
+	if err := run("mount", "-t", "f2fs", part, mnt); err != nil {
 		return err
 	}
 	defer run("umount", mnt)
 
-	for _, d := range []string{"rootfs", "efi", "firmware"} {
+	for _, d := range []string{
+		"boot/rootfs", "boot/efi", "boot/firmware",
+		"home", "etc-upper", "etc-work", "lib", "log", "cache", "spool", "tmp", "run",
+	} {
 		if err := os.MkdirAll(filepath.Join(mnt, d), 0o755); err != nil {
 			return err
 		}
 	}
-	slots := filepath.Join(mnt, "rootfs")
+	if err := os.Chmod(filepath.Join(mnt, "tmp"), 0o1777); err != nil {
+		return err
+	}
+	slots := filepath.Join(mnt, "boot/rootfs")
 	if err := run("dd", "if="+erofs, "of="+filepath.Join(slots, "rootfs-active.erofs"), "bs=4M", "conv=fsync"); err != nil {
 		return err
 	}
 	if err := run("dd", "if="+hash, "of="+filepath.Join(slots, "rootfs-active.hash"), "bs=4M", "conv=fsync"); err != nil {
 		return err
 	}
-	return copyDeployment(esp, slots)
-}
-
-// copyDeployment lands the deployment WAL (and its backup copy) beside the slot files.
-// The live ESP is mounted read-only when it is not already reachable at /boot/efi.
-func copyDeployment(esp, slots string) error {
-	src := "/boot/efi/EFI/atom/deployment.json"
-	if _, err := os.Stat(src); err != nil {
-		mnt, err := os.MkdirTemp("", "atom-esp")
-		if err != nil {
-			return err
-		}
-		defer os.RemoveAll(mnt)
-		if err := run("mount", "-t", "vfat", "-o", "ro", esp, mnt); err != nil {
-			return err
-		}
-		defer run("umount", mnt)
-		src = filepath.Join(mnt, "EFI/atom/deployment.json")
-	}
-	b, err := os.ReadFile(src)
-	if err != nil {
-		return fmt.Errorf("deployment.json: %w", err)
-	}
-	if err := os.WriteFile(filepath.Join(slots, "deployment.json"), b, 0o644); err != nil {
+	if err := copyDeployment(esp, slots); err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(slots, "deployment.json.bak"), b, 0o644)
-}
-
-// sourceMB sizes a source that may be either a whole partition (the .iso still carries
-// the root image raw) or a plain file (the .img carries it as a slot file).
-func sourceMB(src string) (int64, error) {
-	fi, err := os.Stat(src)
-	if err != nil {
-		return 0, err
-	}
-	if fi.Mode()&os.ModeDevice != 0 {
-		return mibOfDev(src)
-	}
-	return mibOf(fi.Size()), nil
-}
-
-// setupVar makes the encrypted f2fs /var and seeds the first-boot greetd config.
-func setupVar(part string) error {
-	if err := run("mkfs.f2fs", "-f", "-l", "atom-var", "-O", "encrypt,extra_attr", part); err != nil {
+	if err := os.WriteFile(filepath.Join(mnt, ".atom-var"), nil, 0o644); err != nil {
 		return err
 	}
-	mnt, err := os.MkdirTemp("", "atomvar")
-	if err != nil {
+	// First boot runs the OOBE; the greeter session takes over afterwards.
+	gd := filepath.Join(mnt, "etc-upper/greetd")
+	if err := os.MkdirAll(gd, 0o755); err != nil {
 		return err
 	}
-	defer os.Remove(mnt)
-	if err := run("mount", "-t", "f2fs", part, mnt); err != nil {
-		return err
-	}
-	defer run("umount", mnt)
-	for _, d := range []string{"home", "etc-upper", "etc-work", "lib", "log", "cache", "spool", "tmp", "run", "etc-upper/greetd"} {
-		if err := os.MkdirAll(filepath.Join(mnt, d), 0o755); err != nil {
-			return err
-		}
-	}
-	os.Chmod(filepath.Join(mnt, "tmp"), 0o1777)
-	os.WriteFile(filepath.Join(mnt, ".atom-var"), nil, 0o644)
-	return os.WriteFile(filepath.Join(mnt, "etc-upper", "greetd", "config.toml"), []byte(greetdConfig()), 0o644)
+	return os.WriteFile(filepath.Join(gd, "config.toml"), []byte(greetdConfig()), 0o644)
 }
 
 // setUEFIEntry points the firmware at the internal disk so a leftover install USB does
@@ -305,4 +255,30 @@ func mountedDevice(mnt string) string {
 		}
 	}
 	return ""
+}
+
+// copyDeployment lands the deployment WAL (and its backup copy) beside the slot files.
+// The live ESP is mounted read-only when it is not already reachable at /boot/efi.
+func copyDeployment(esp, slots string) error {
+	src := "/boot/efi/EFI/atom/deployment.json"
+	if _, err := os.Stat(src); err != nil {
+		mnt, err := os.MkdirTemp("", "atom-esp")
+		if err != nil {
+			return err
+		}
+		defer os.RemoveAll(mnt)
+		if err := run("mount", "-t", "vfat", "-o", "ro", esp, mnt); err != nil {
+			return err
+		}
+		defer run("umount", mnt)
+		src = filepath.Join(mnt, "EFI/atom/deployment.json")
+	}
+	b, err := os.ReadFile(src)
+	if err != nil {
+		return fmt.Errorf("deployment.json: %w", err)
+	}
+	if err := os.WriteFile(filepath.Join(slots, "deployment.json"), b, 0o644); err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(slots, "deployment.json.bak"), b, 0o644)
 }

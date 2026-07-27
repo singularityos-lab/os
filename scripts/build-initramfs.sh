@@ -192,38 +192,37 @@ for tok in $(busybox cat /proc/cmdline); do
 done
 [ -n "$ROOTHASH" ] || rescue "no sing.roothash= on the kernel command line"
 
-# Atom Loops system partition: the root image ships as rootfs-<slot>.erofs FILES
-# (active/next/prev) plus their verity hash under rootfs/ on an ext4 partition that
-# becomes /boot (so they are reachable as /boot/rootfs/... on the running system),
-# not as a raw partition, so an update is staged as a file and promoted by rename.
-# Probe every partition for rootfs/rootfs-active.erofs, then loop-attach each
-# slot file read-only: the pairing below picks the pair whose hash matches the
-# sing.roothash baked in this UKI, which is what makes a promoted slot boot.
-# Mounted read-only here; remounted rw once moved to /sysroot/boot/rootfs, where the
-# update daemon stages the next slot. Absent partition = raw-partition layout, which
-# the globs below still handle.
-SYSDEV= ; SYSMNT=/sysdata
-mount_system() {
-	busybox mkdir -p "$SYSMNT"
+# The single data partition. Atom Loops needs no A/B layout: beyond the ESP there is
+# ONE partition, holding the root image as a file under boot/rootfs together with the
+# user data that becomes /var. Probe every partition for boot/rootfs/rootfs-active.erofs,
+# then loop-attach each slot file read-only: the pairing below picks the pair whose hash
+# matches the sing.roothash baked in this UKI, which is what makes a promoted slot boot.
+# Mounted read-only here; the running system gets it back as /var (installed) or keeps it
+# read-only under a tmpfs /var (live). Absent partition = raw-partition layout, which the
+# globs below still handle.
+DATADEV= ; DATAMNT=/sysdata
+mount_data() {
+	busybox mkdir -p "$DATAMNT"
 	for d in /dev/vd*[0-9] /dev/sd*[0-9] /dev/nvme*p[0-9]* /dev/mmcblk*p[0-9]*; do
 		[ -b "$d" ] || continue
-		busybox mount -t ext4 -o ro "$d" "$SYSMNT" 2>/dev/null || continue
-		if [ -f "$SYSMNT/rootfs/rootfs-active.erofs" ]; then
-			SYSDEV="$d"
-			busybox echo "[init] system partition: $d"
-			for f in "$SYSMNT"/rootfs/rootfs-*.erofs "$SYSMNT"/rootfs/rootfs-*.hash; do
+		{ busybox mount -t ext4 -o ro "$d" "$DATAMNT" 2>/dev/null \
+			|| busybox mount -t f2fs -o ro "$d" "$DATAMNT" 2>/dev/null; } || continue
+		if [ -f "$DATAMNT/boot/rootfs/rootfs-active.erofs" ]; then
+			DATADEV="$d"
+			busybox echo "[init] data partition: $d"
+			for f in "$DATAMNT"/boot/rootfs/rootfs-*.erofs "$DATAMNT"/boot/rootfs/rootfs-*.hash; do
 				[ -f "$f" ] || continue
 				_lp=$(busybox losetup -f) && busybox losetup -r "$_lp" "$f" 2>/dev/null \
 					&& busybox echo "[init]   $f -> $_lp"
 			done
 			return 0
 		fi
-		busybox umount "$SYSMNT" 2>/dev/null
+		busybox umount "$DATAMNT" 2>/dev/null
 	done
-	busybox echo "[init] no Atom Loops system partition (raw-partition layout)"
+	busybox echo "[init] no Atom Loops data partition (raw-partition layout)"
 	return 0
 }
-mount_system
+mount_data
 
 # Firmware add-on bundles: union each verified /boot/firmware/<bundle>/ over the base
 # survival firmware baked in the rootfs. UNLIKE the rootfs this is FAIL-OPEN and per-bundle:
@@ -392,36 +391,21 @@ else
 	[ -n "$DATA" ] || rescue "no verified data/hash pair for sing.roothash (data:$DATAS hash:$HASHES)"
 fi
 
-busybox mkdir -p /varprobe
-# /var must live on the SAME physical disk as the verified root erofs. Otherwise a live/
-# installer boot scans every disk and mounts an internal disk's /var (another install's
-# user data) into the live session -- a data-exposure bypass.
-_parentdisk() {
-	_pp=$(busybox basename "$1")
-	busybox basename "$(busybox readlink -f "/sys/class/block/$_pp/.." 2>/dev/null)"
-}
-# With the file-based slots the root device is a loop, whose sysfs parent is not a disk
-# at all, so the reference for "same disk" is the partition the slot files live on. Using
-# the loop here matches nothing: /var is never found, the system silently falls back to
-# tmpfs /var and OTA stays inert forever.
-ROOTDISK=$(_parentdisk "${SYSDEV:-$DATA}")
-VAR=
-for d in /dev/vd*[0-9] /dev/sd*[0-9] /dev/nvme*p[0-9]* /dev/mmcblk*p[0-9]*; do
-	[ -b "$d" ] || continue
-	[ "$d" = "$DATA" ] && continue
-	[ "$d" = "$HASH" ] && continue
-	[ -n "$SYSDEV" ] && [ "$d" = "$SYSDEV" ] && continue
-	[ "$(_parentdisk "$d")" = "$ROOTDISK" ] || continue
-	{ busybox mount -t f2fs "$d" /varprobe 2>/dev/null || busybox mount -t ext4 "$d" /varprobe 2>/dev/null; } || continue
-	if [ -e /varprobe/.atom-var ]; then VAR="$d"; busybox umount /varprobe; break; fi
-	busybox umount /varprobe 2>/dev/null
-done
-
-if [ -n "$VAR" ]; then
+# One partition holds everything, so there is nothing to search for: /var IS the data
+# partition already mounted, and the root image came out of a file on it. The
+# same-disk question that a separate /var raised cannot arise.
+#
+# Installed vs live is decided by .atom-var on that partition: an installed system gets
+# it back read-write as /var, a live medium keeps it read-only under a tmpfs /var so the
+# USB is never written to. Either way boot/ is bind-mounted onto /boot, which is where
+# the update daemon stages the next slot and the loader's ESP is mounted.
+if [ -n "$DATADEV" ] && [ -e "$DATAMNT/.atom-var" ]; then
 	busybox mount -t erofs -o ro "$ROOTSRC" /sysroot || rescue "cannot mount erofs root"
-	{ busybox mount -t f2fs "$VAR" /sysroot/var || busybox mount -t ext4 "$VAR" /sysroot/var; } || rescue "cannot mount /var"
-	busybox echo "[init] persistent /var: $VAR ($(busybox awk '$2=="/sysroot/var"{print $3}' /proc/mounts)) same disk as root"
-	busybox mkdir -p /sysroot/var/etc-upper /sysroot/var/etc-work /sysroot/var/home
+	busybox mount --move "$DATAMNT" /sysroot/var || rescue "cannot carry the data partition to /var"
+	busybox mount -o remount,rw /sysroot/var || rescue "cannot make /var writable"
+	busybox echo "[init] installed: /var on $DATADEV ($(busybox awk '$2=="/sysroot/var"{print $3}' /proc/mounts))"
+	busybox mkdir -p /sysroot/var/etc-upper /sysroot/var/etc-work /sysroot/var/home /sysroot/var/boot
+	busybox mount -o bind /sysroot/var/boot /sysroot/boot || busybox echo "[init] warning: /boot not bound"
 	busybox mount -t overlay overlay \
 	    -o lowerdir=/sysroot/etc,upperdir=/sysroot/var/etc-upper,workdir=/sysroot/var/etc-work /sysroot/etc || true
 	busybox mount -t tmpfs -o mode=1777 tmpfs /sysroot/tmp || true
@@ -433,25 +417,21 @@ else
 	busybox mount -t overlay overlay \
 	    -o lowerdir=/lower,upperdir=/over/upper,workdir=/over/work /sysroot \
 	    || rescue "cannot mount overlay root"
+	if [ -n "$DATADEV" ]; then
+		# Live: keep the medium read-only, but park it somewhere that survives
+		# switch_root so the loop devices keep their backing files and the installer
+		# can still read the slot files through /boot.
+		busybox mkdir -p /sysroot/var/.data 2>/dev/null || true
+		busybox mount --move "$DATAMNT" /sysroot/var/.data 2>/dev/null \
+			&& busybox mount -o bind /sysroot/var/.data/boot /sysroot/boot 2>/dev/null \
+			&& busybox echo "[init] live: data partition $DATADEV kept read-only"
+	fi
 fi
 
-# Carry the system partition into the new root. Its own /boot/rootfs is where otad
-# stages the next slot and boot-success promotes by rename, so it is mounted at
-# /boot and remounted rw. It also has to survive switch_root anyway: the loop
-# devices backing the verified root keep its files open.
-if [ -n "$SYSDEV" ]; then
-	busybox mkdir -p /sysroot/boot 2>/dev/null || true
-	if busybox mount --move "$SYSMNT" /sysroot/boot 2>/dev/null; then
-		busybox mount -o remount,rw /sysroot/boot 2>/dev/null \
-			|| busybox echo "[init] warning: /boot stays read-only, updates cannot stage"
-	else
-		busybox echo "[init] warning: system partition not carried to /boot"
-	fi
-
-	# The ESP has to be mounted for an update to land: otad stages kernelcache-next
-	# and rewrites boot-state under /boot/efi/EFI/atom, and the loader reads them on
-	# the next boot. Nothing else mounts it (fstab carries only /), so do it here,
-	# where the disk is already known. Identified by content, not by device name.
+# The ESP has to be mounted for an update to land: otad stages kernelcache-next and
+# rewrites boot-state under /boot/efi/EFI/atom, and the loader reads them on the next
+# boot. Nothing else mounts it, so do it here. Identified by content, not by name.
+if [ -n "$DATADEV" ]; then
 	for e in /dev/vd*[0-9] /dev/sd*[0-9] /dev/nvme*p[0-9]* /dev/mmcblk*p[0-9]*; do
 		[ -b "$e" ] || continue
 		busybox mkdir -p /sysroot/boot/efi 2>/dev/null || true

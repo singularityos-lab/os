@@ -34,16 +34,16 @@ func TestMibOf(t *testing.T) {
 }
 
 func TestTemplates(t *testing.T) {
-	pt := partitionTable(256, systemMB(900, 16))
-	for _, want := range []string{"label: gpt", "256MiB", "name=ESP, bootable", "name=atom-system", "name=atom-var"} {
+	pt := partitionTable(256)
+	for _, want := range []string{"label: gpt", "256MiB", "name=ESP, bootable", "name=atom-data"} {
 		if !contains(pt, want) {
 			t.Errorf("partition table missing %q", want)
 		}
 	}
-	// Two full slots plus slack: an update stages -next beside the running image, and a
-	// partition sized for one slot fails every update.
-	if got := systemMB(900, 16); got != 2344 {
-		t.Errorf("systemMB(900,16) = %d, want 2344", got)
+	// One data partition taking the rest of the disk: no reserved second slot, and no
+	// separate system partition to size.
+	if contains(pt, "atom-system") || contains(pt, "atom-var") {
+		t.Error("partition table still carries the old split layout")
 	}
 	g := greetdConfig()
 	if !contains(g, "atom-oobe-session") || !contains(g, `user = "greeter"`) {

@@ -209,25 +209,25 @@ rm -f artifacts/sintylogs.ext4
 dd if=/dev/zero of=artifacts/sintylogs.ext4 bs=1M count=256 status=none
 /usr/sbin/mkfs.ext4 -q -L SINTYLOGS -F artifacts/sintylogs.ext4
 
-# Atom Loops system partition: the root image is a FILE on a writable ext4, not a raw
-# partition, so an update lands as rootfs-next.erofs beside the active one and is
-# promoted by rename. Sized for two full slots plus slack, otherwise an update has
-# nowhere to stage. /boot/firmware is the mountpoint the initramfs unions add-on
-# firmware bundles from; it ships empty and is filled by the firmware track.
-rm -rf artifacts/system-staging artifacts/atom-system.ext4
-mkdir -p artifacts/system-staging/rootfs artifacts/system-staging/firmware \
-    artifacts/system-staging/efi
-cp artifacts/rootfs.erofs artifacts/system-staging/rootfs/rootfs-active.erofs
-cp artifacts/rootfs.hash  artifacts/system-staging/rootfs/rootfs-active.hash
-cp artifacts/deployment.json artifacts/system-staging/rootfs/deployment.json
-cp artifacts/deployment.json artifacts/system-staging/rootfs/deployment.json.bak
-SYS_MB=$(( $(du -sm artifacts/system-staging | cut -f1) * 2 + 512 ))
-# fakeroot so the tree lands owned by root: mke2fs -d copies the staging ownership,
-# and a /boot owned by the build user is wrong on the shipped image.
-"${HOSTBIN}/fakeroot" -- sh -c "chown -R 0:0 artifacts/system-staging && \
-    /usr/sbin/mke2fs -q -t ext4 -L atom-system -d artifacts/system-staging \
-    artifacts/atom-system.ext4 ${SYS_MB}M"
-rm -rf artifacts/system-staging
+# The single data partition. Atom Loops needs no A/B layout: beyond the ESP there is
+# ONE partition, holding the root image as a file under boot/rootfs alongside the user
+# data. boot/efi and boot/firmware are mountpoints the read-only erofs root cannot host.
+# No .atom-var here: the shipped medium boots live (tmpfs /var, OTA inert); the
+# installer writes that marker on the target disk.
+rm -rf artifacts/data-staging artifacts/atom-data.ext4
+mkdir -p artifacts/data-staging/boot/{rootfs,efi,firmware} \
+    artifacts/data-staging/{home,etc-upper,etc-work,lib,log,cache,spool,tmp,run}
+chmod 1777 artifacts/data-staging/tmp
+cp artifacts/rootfs.erofs artifacts/data-staging/boot/rootfs/rootfs-active.erofs
+cp artifacts/rootfs.hash  artifacts/data-staging/boot/rootfs/rootfs-active.hash
+cp artifacts/deployment.json artifacts/data-staging/boot/rootfs/deployment.json
+cp artifacts/deployment.json artifacts/data-staging/boot/rootfs/deployment.json.bak
+DATA_MB=$(( $(du -sm artifacts/data-staging | cut -f1) + 256 ))
+# fakeroot so the tree lands owned by root: mke2fs -d copies the staging ownership.
+"${HOSTBIN}/fakeroot" -- sh -c "chown -R 0:0 artifacts/data-staging && \
+    /usr/sbin/mke2fs -q -t ext4 -L atom-data -d artifacts/data-staging \
+    artifacts/atom-data.ext4 ${DATA_MB}M"
+rm -rf artifacts/data-staging
 
 rm -rf genimage-tmp
 "${HOSTBIN}/genimage" \
