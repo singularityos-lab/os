@@ -127,6 +127,17 @@ jobs:
             echo "host-llvm RTTI state OK (RTTI=ON or not yet built)."
           fi
 
+      - name: Rebuild the packages built from this repo's own sources
+        run: |
+          # Buildroot stamps record that a package was built, not what it was built
+          # from, so a restored cache keeps shipping the previous build of anything
+          # whose source lives in this tree -- a fix committed here never reaches the
+          # image. Drop those build dirs so they rebuild against the current source.
+          # linux-pam is included because it links the shim and has to relink.
+          for p in libsystemd-shim atom-install linux-pam; do
+            rm -rf buildroot-build/build/${p}-* 2>/dev/null || true
+          done
+
       - name: Install Zig 0.16.0
         run: |
           curl --fail --location --silent --show-error https://ziglang.org/download/0.16.0/zig-x86_64-linux-0.16.0.tar.xz --output /tmp/zig.tar.xz
