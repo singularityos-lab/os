@@ -98,12 +98,14 @@ done
 
 mkdir -p "$TARGET_DIR/var/cache/fontconfig"
 
-# De-systemd: install the libsystemd shim as /usr/lib/libsystemd.so.0 (the 66 sd_* consumers
-# link it by SONAME; with systemd removed nothing else provides it). + systemctl->sinit alias.
-_SHIM="$(ls "$HOME"/Documents/atom-loops-gold/libsystemd-shim/libsystemd.so.0* 2>/dev/null | head -1)"
-if [ -n "$_SHIM" ]; then
-    cp "$_SHIM" "$TARGET_DIR/usr/lib/libsystemd.so.0"
-    ln -sf libsystemd.so.0 "$TARGET_DIR/usr/lib/libsystemd.so"
+# De-systemd: /usr/lib/libsystemd.so.0 is the shim (the 66 sd_* consumers link it by SONAME;
+# with systemd removed nothing else provides it). The libsystemd-shim package installs it, so
+# nothing is copied in here -- a copy from outside the tree would silently ship a binary that
+# does not match these sources, and a missing sd_* symbol only surfaces as a dlopen failure at
+# runtime (an unloadable PAM module costs the whole session).
+if [ ! -f "$TARGET_DIR/usr/lib/libsystemd.so.0" ]; then
+    echo "post-build: /usr/lib/libsystemd.so.0 missing -- is libsystemd-shim enabled?" >&2
+    exit 1
 fi
 
 # De-systemd: purge stale systemd files the incremental build leaves behind (buildroot does

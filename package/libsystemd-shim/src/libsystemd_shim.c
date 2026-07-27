@@ -415,6 +415,7 @@ SESSION_STR_GETTER(sd_session_get_seat, "seat")
 SESSION_STR_GETTER(sd_session_get_type, "type")
 SESSION_STR_GETTER(sd_session_get_class, "class")
 SESSION_STR_GETTER(sd_session_get_display, "display")
+SESSION_STR_GETTER(sd_session_get_username, "name")
 
 int sd_session_get_remote_host(const char *session, char **remote_host) {
 	(void)session;

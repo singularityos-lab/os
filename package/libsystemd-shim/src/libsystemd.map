@@ -7,7 +7,8 @@ global:
   sd_login_monitor_unref; sd_notify; sd_pid_get_session; sd_pid_get_user_unit;
   sd_seat_can_multi_session; sd_session_get_class; sd_session_get_display;
   sd_session_get_remote_host; sd_session_get_seat; sd_session_get_state;
-  sd_session_get_type; sd_session_get_uid; sd_session_is_active;
+  sd_session_get_type; sd_session_get_uid; sd_session_get_username;
+  sd_session_is_active;
   sd_uid_get_seats; sd_uid_get_sessions; sd_uid_is_on_seat;
 local: *;
 };
