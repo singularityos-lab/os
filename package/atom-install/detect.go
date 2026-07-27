@@ -1,11 +1,15 @@
 // Command atom-install provisions a target disk from the live source (ESP + verified
 // erofs root + hash tree + a fresh f2fs /var). This file holds the pure, testable core:
 // classifying the live source partitions by on-disk magic, computing partition sizes,
-// and generating the GPT layout and greetd config. The disk-mutating steps (sfdisk, dd,
+// generating the GPT layout and deriving the installed greetd config from the live one.
+// The disk-mutating steps (sfdisk, dd,
 // mkfs, efibootmgr) are thin argv exec wrappers in install.go -- no /bin/sh anywhere.
 package main
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 // PartKind is what a candidate source partition turned out to be.
 type PartKind int
@@ -64,18 +68,30 @@ type=0FC63DAF-8483-4772-8E79-3D69D8477DE4, name=atom-data
 `, espMB)
 }
 
-// greetdConfig is the first-boot greetd config: OOBE as root on the very first boot,
-// the greeter session afterwards.
-func greetdConfig() string {
-	return `[terminal]
-vt = 1
+// liveGreetdConfig is the running image's greetd config, which the installed copy is
+// derived from.
+const liveGreetdConfig = "/etc/greetd/config.toml"
 
-[default_session]
-command = "/usr/bin/labwc -s /usr/bin/singularity-greeter"
-user = "greeter"
-
-[initial_session]
-command = "/usr/bin/atom-oobe-session"
-user = "root"
-`
+// installedGreetdConfig turns the live config into the installed one. Only the
+// initial_session command changes: on the live medium it starts the installer, on a
+// fresh disk the very first boot must run the OOBE instead. Everything else is carried
+// over verbatim -- above all the default_session command, which is how the greeter is
+// actually started and which has changed before (nested labwc -> client of the
+// persistent compositor); a config written from scratch here would silently pin the old
+// way and leave the installed system with a black screen at login.
+func installedGreetdConfig(live string) string {
+	var out []string
+	inInitial := false
+	for _, line := range strings.Split(live, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "[") {
+			inInitial = trimmed == "[initial_session]"
+		}
+		if inInitial && strings.HasPrefix(trimmed, "command") {
+			out = append(out, `command = "/usr/bin/atom-oobe-session"`)
+			continue
+		}
+		out = append(out, line)
+	}
+	return strings.Join(out, "\n")
 }

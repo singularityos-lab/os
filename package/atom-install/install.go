@@ -212,12 +212,19 @@ func setupData(part, erofs, hash, esp string) error {
 	if err := os.WriteFile(filepath.Join(mnt, ".atom-var"), nil, 0o644); err != nil {
 		return err
 	}
-	// First boot runs the OOBE; the greeter session takes over afterwards.
+	// First boot runs the OOBE; the greeter session takes over afterwards. The running
+	// image's own config is the source: it tracks how the session is actually started
+	// (today the greeter is a client of the persistent compositor, not a nested labwc),
+	// and a copy generated here would freeze whatever that was when this was written.
 	gd := filepath.Join(mnt, "etc-upper/greetd")
 	if err := os.MkdirAll(gd, 0o755); err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(gd, "config.toml"), []byte(greetdConfig()), 0o644)
+	live, err := os.ReadFile(liveGreetdConfig)
+	if err != nil {
+		return fmt.Errorf("read the live greetd config: %w", err)
+	}
+	return os.WriteFile(filepath.Join(gd, "config.toml"), []byte(installedGreetdConfig(string(live))), 0o644)
 }
 
 // setUEFIEntry points the firmware at the internal disk so a leftover install USB does

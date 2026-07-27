@@ -45,9 +45,28 @@ func TestTemplates(t *testing.T) {
 	if contains(pt, "atom-system") || contains(pt, "atom-var") {
 		t.Error("partition table still carries the old split layout")
 	}
-	g := greetdConfig()
-	if !contains(g, "atom-oobe-session") || !contains(g, `user = "greeter"`) {
-		t.Error("greetd config missing OOBE/greeter")
+	// The installed config must keep the image's own default_session (how the greeter is
+	// really started) and only swap the initial_session over to the OOBE.
+	live := `[terminal]
+vt = 1
+
+[default_session]
+command = "/usr/bin/singularity-greeter-client"
+user = "greeter"
+
+[initial_session]
+command = "/usr/bin/atom-install-session"
+user = "root"
+`
+	g := installedGreetdConfig(live)
+	if !contains(g, "atom-oobe-session") {
+		t.Error("installed greetd config does not run the OOBE on the first boot")
+	}
+	if contains(g, "atom-install-session") {
+		t.Error("installed greetd config still starts the live installer")
+	}
+	if !contains(g, "singularity-greeter-client") {
+		t.Error("installed greetd config dropped the image's own greeter session")
 	}
 }
 
