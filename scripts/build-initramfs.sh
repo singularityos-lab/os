@@ -2,13 +2,13 @@
 #
 # Build the initramfs for the immutable verity boot.
 #
-# The OS root ships as rootfs-<slot>.erofs FILES (active/next/prev) on a writable
-# ext4 partition (label atom-system) that becomes /boot, not as a raw partition: the
-# Atom Loops slot model, where an update is staged as -next and promoted by rename,
-# so the slot files are reachable as /boot/rootfs/... at runtime. The init mounts
-# that partition, loop-attaches each slot file and its verity hash, then opens the
-# dm-verity device with veritysetup for the slot whose hash matches sing.roothash
-# (baked in the UKI), mounts the verified erofs read-only and overlays a tmpfs.
+# Beyond the ESP there is ONE partition: the OS root lives on it as
+# rootfs-<slot>.erofs FILES (active/next/prev) alongside the user data, so an update
+# is staged as -next in free space and promoted by rename -- no A/B layout, no second
+# copy of the OS reserved up front. The init mounts that partition, loop-attaches each
+# slot file and its verity hash, then opens the dm-verity device with veritysetup for
+# the slot whose hash matches sing.roothash (baked in the UKI), mounts the verified
+# erofs read-only, and hands the same partition back as /var with boot/ on /boot.
 # Kept in lockstep with the reference AtomLoops init (scripts/boot/initramfs-main.go).
 #
 # Usage: scripts/build-initramfs.sh <target_dir> <output_cpio_xz>
