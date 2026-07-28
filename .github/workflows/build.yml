@@ -86,22 +86,28 @@ jobs:
             buildroot-dl-${{ hashFiles('buildroot-config/singularity_defconfig') }}-
             buildroot-dl-
 
+      # Both caches below are keyed on the runner image as well as on the config: the trees
+      # they hold were configured against that image's own headers and tools, so restoring
+      # one onto a different image leaves a build dir that can no longer reconfigure
+      # (gobject-introspection re-ran meson and looked for a host glib header the new image
+      # does not ship). Keying on ImageVersion turns an image bump into a cache miss, which
+      # costs a rebuild instead of a failure four hours in.
       - name: Restore Buildroot host toolchain
         uses: actions/cache/restore@v4
         with:
           path: buildroot-build/host
-          key: buildroot-host-v2-${{ hashFiles('buildroot-config/singularity_defconfig', 'buildroot-config/kernel.config') }}-${{ github.run_id }}
+          key: buildroot-host-v3-${{ env.ImageVersion }}-${{ hashFiles('buildroot-config/singularity_defconfig', 'buildroot-config/kernel.config') }}-${{ github.run_id }}
           restore-keys: |
-            buildroot-host-v2-${{ hashFiles('buildroot-config/singularity_defconfig', 'buildroot-config/kernel.config') }}-
-            buildroot-host-v2-
+            buildroot-host-v3-${{ env.ImageVersion }}-${{ hashFiles('buildroot-config/singularity_defconfig', 'buildroot-config/kernel.config') }}-
+            buildroot-host-v3-${{ env.ImageVersion }}-
 
       - name: Restore Buildroot package build tree
         uses: actions/cache/restore@v4
         with:
           path: buildroot-build/build
-          key: buildroot-build-v9-${{ hashFiles('buildroot-config/singularity_defconfig', 'buildroot-config/kernel.config', 'buildroot-source-patches/**') }}-${{ github.run_id }}
+          key: buildroot-build-v10-${{ env.ImageVersion }}-${{ hashFiles('buildroot-config/singularity_defconfig', 'buildroot-config/kernel.config', 'buildroot-source-patches/**') }}-${{ github.run_id }}
           restore-keys: |
-            buildroot-build-v9-${{ hashFiles('buildroot-config/singularity_defconfig', 'buildroot-config/kernel.config', 'buildroot-source-patches/**') }}-
+            buildroot-build-v10-${{ env.ImageVersion }}-${{ hashFiles('buildroot-config/singularity_defconfig', 'buildroot-config/kernel.config', 'buildroot-source-patches/**') }}-
 
       - name: Prepare Buildroot
         run: ./scripts/prepare.sh
@@ -185,14 +191,14 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: buildroot-build/host
-          key: buildroot-host-v2-${{ hashFiles('buildroot-config/singularity_defconfig', 'buildroot-config/kernel.config') }}-${{ github.run_id }}
+          key: buildroot-host-v3-${{ env.ImageVersion }}-${{ hashFiles('buildroot-config/singularity_defconfig', 'buildroot-config/kernel.config') }}-${{ github.run_id }}
 
       - name: Save Buildroot package build tree
         if: always()
         uses: actions/cache/save@v4
         with:
           path: buildroot-build/build
-          key: buildroot-build-v9-${{ hashFiles('buildroot-config/singularity_defconfig', 'buildroot-config/kernel.config', 'buildroot-source-patches/**') }}-${{ github.run_id }}
+          key: buildroot-build-v10-${{ env.ImageVersion }}-${{ hashFiles('buildroot-config/singularity_defconfig', 'buildroot-config/kernel.config', 'buildroot-source-patches/**') }}-${{ github.run_id }}
 
       - name: Package
         if: env.BUILD_INCOMPLETE != '1'
