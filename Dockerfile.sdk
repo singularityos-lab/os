@@ -1,45 +1,17 @@
 # Singularity OS SDK image.
 #
-# Builds the buildroot SDK (the cross toolchain plus the target staging sysroot)
-# for this exact OS config and ships it as a reusable build environment. Every
-# component CI (sinit, sinty-nm, sinty-sdb, ...) runs inside this image and
-# cross-builds against the SAME toolchain and libraries the OS itself uses, so a
-# release binary is bit-for-bit what the image would build. No component ever
-# needs the buildroot tree or a host Go; they get /opt/sdk.
+# Wraps the buildroot SDK (the cross toolchain plus the target staging sysroot)
+# as a reusable build environment. Every component CI (sinit, sinty-nm,
+# sinty-sdb, ...) runs inside this image and cross-builds against the SAME
+# toolchain and libraries the OS itself uses, so a release binary is bit-for-bit
+# what the image would build. No component ever needs the buildroot tree or a
+# host Go; they get /opt/sdk.
 #
-# Heavy on first build (make sdk pulls in `world`, the full OS build) but the
-# result is a single cacheable image. The buildroot version is the one
-# scripts/prepare.sh pins, so the SDK and the OS never drift apart.
+# The tarball is produced by .github/workflows/sdk.yml on the runner, reusing the
+# buildroot caches the main build fills, and handed here as the whole build
+# context. Compiling it in this Dockerfile instead meant building `world` from a
+# cold tree inside the image, which does not fit a runner's 6h job limit.
 
-# ---- stage 1: build the SDK tarball ------------------------------------------
-FROM debian:trixie-slim AS builder
-ENV DEBIAN_FRONTEND=noninteractive
-# The list tracks the host tools the OS build expects. A GitHub runner ships many of
-# them already, a slim Debian does not, and buildroot only reports a missing one when
-# the package that needs it is configured -- hours in (gcr wants ssh-add).
-RUN apt-get update && apt-get install -y --no-install-recommends \
-	bash bc bison build-essential ca-certificates cpio curl dosfstools file flex \
-	gawk git gzip libelf-dev libncurses-dev libssl-dev mtools openssh-client patch \
-	perl python3 rsync sed unzip wget which bzip2 xz-utils zstd \
-	&& rm -rf /var/lib/apt/lists/*
-
-WORKDIR /build/singularity-os
-# The build context is the singularity-os repo: it is the br2-external tree.
-COPY . /build/singularity-os
-
-# scripts/prepare.sh fetches buildroot, applies this tree's source patches and installs
-# the defconfig where buildroot looks for it (its own configs/). Configuring by hand here
-# skipped all three, so the SDK either failed to find the defconfig or would have been
-# built from an unpatched buildroot -- a different toolchain from the one the OS uses,
-# which is the one thing this image exists to guarantee.
-RUN ./scripts/prepare.sh \
-	&& make -C buildroot-src \
-		O=/build/singularity-os/buildroot-build \
-		BR2_EXTERNAL=/build/singularity-os \
-		BR2_DL_DIR=/build/singularity-os/buildroot-dl \
-		-j"$(nproc)" sdk
-
-# ---- stage 2: the slim SDK image ---------------------------------------------
 FROM debian:trixie-slim
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -47,7 +19,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 	&& rm -rf /var/lib/apt/lists/*
 
 # Unpack the SDK to /opt/sdk and relocate it to that prefix.
-COPY --from=builder /build/singularity-os/buildroot-build/images/*_sdk-buildroot.tar.gz /tmp/sdk.tar.gz
+COPY sdk.tar.gz /tmp/sdk.tar.gz
 RUN mkdir -p /opt/sdk \
 	&& tar xf /tmp/sdk.tar.gz -C /opt/sdk --strip-components=1 \
 	&& rm /tmp/sdk.tar.gz \
