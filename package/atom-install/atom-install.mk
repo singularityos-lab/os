@@ -14,9 +14,11 @@ ATOM_INSTALL_GO_ENV = CGO_ENABLED=0
 
 # buildroot's golang-package builds offline with -mod=vendor, which needs a vendor
 # dir even for a module with no dependencies. Create it in the rsync'd build tree
-# (never the source) so the offline cross-build has one.
+# (never the source) so the offline cross-build has one. Use buildroot's own host go,
+# already installed by the time this hook runs, instead of one from the build machine:
+# a builder without /usr/bin/go stopped here with exit 127.
 define ATOM_INSTALL_GO_VENDOR
-	cd $(@D) && env -u GOFLAGS -u GOPROXY GOTOOLCHAIN=local /usr/bin/go mod vendor
+	cd $(@D) && env -u GOFLAGS -u GOPROXY GOTOOLCHAIN=local $(HOST_DIR)/bin/go mod vendor
 	mkdir -p $(@D)/vendor && touch $(@D)/vendor/modules.txt
 endef
 ATOM_INSTALL_PRE_BUILD_HOOKS += ATOM_INSTALL_GO_VENDOR
