@@ -14,9 +14,13 @@
 # ---- stage 1: build the SDK tarball ------------------------------------------
 FROM debian:trixie-slim AS builder
 ENV DEBIAN_FRONTEND=noninteractive
+# The list tracks the host tools the OS build expects. A GitHub runner ships many of
+# them already, a slim Debian does not, and buildroot only reports a missing one when
+# the package that needs it is configured -- hours in (gcr wants ssh-add).
 RUN apt-get update && apt-get install -y --no-install-recommends \
-	bash bc build-essential ca-certificates cpio file git gawk \
-	libssl-dev patch python3 rsync sed unzip wget which bzip2 xz-utils \
+	bash bc bison build-essential ca-certificates cpio curl dosfstools file flex \
+	gawk git gzip libelf-dev libncurses-dev libssl-dev mtools openssh-client patch \
+	perl python3 rsync sed unzip wget which bzip2 xz-utils zstd \
 	&& rm -rf /var/lib/apt/lists/*
 
 WORKDIR /build/singularity-os
