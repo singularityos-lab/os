@@ -47,6 +47,9 @@ jobs:
 
       - uses: actions/checkout@v4
 
+      # Identical to the main build's list: this job builds the same tree, so it needs
+      # the same host tools. Trimming it only moves the failure to whichever package
+      # configures against a missing one (flatpak wants bwrap).
       - name: Install host build dependencies
         run: |
           sudo apt-get update
@@ -59,7 +62,11 @@ jobs:
             xz-utils gzip bzip2 zstd \
             patch perl python3 \
             git unzip curl \
-            binutils mtools dosfstools
+            erofs-utils \
+            cryptsetup-bin \
+            systemd-boot \
+            binutils sassc mtools dosfstools \
+            bubblewrap xdg-dbus-proxy
 
       - name: Restore Buildroot source tree
         uses: actions/cache/restore@v4
