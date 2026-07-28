@@ -6,7 +6,12 @@
 
 LIBDBUSMENU_VERSION = 16.04.0
 LIBDBUSMENU_SOURCE = libdbusmenu-$(LIBDBUSMENU_VERSION).tar.gz
-LIBDBUSMENU_SITE = https://launchpad.net/libdbusmenu/16.04/$(LIBDBUSMENU_VERSION)/+download
+# Upstream is https://launchpad.net/libdbusmenu/16.04/$(LIBDBUSMENU_VERSION)/+download,
+# which times out from a CI runner, and buildroot's own mirror answers 404 for this
+# tarball -- so a build with a cold download cache could not fetch it at all. Serve the
+# byte-identical tarball from this project's own release and check it against the hash
+# in libdbusmenu.hash, so the substitution cannot go unnoticed.
+LIBDBUSMENU_SITE = https://github.com/singularityos-lab/os/releases/download/third-party-sources
 LIBDBUSMENU_LICENSE = LGPL-2.1, LGPL-3.0, GPL-3.0
 LIBDBUSMENU_LICENSE_FILES = COPYING COPYING.LGPL.2.1 COPYING.LGPL.3 COPYING.GPL.3
 LIBDBUSMENU_INSTALL_STAGING = YES
