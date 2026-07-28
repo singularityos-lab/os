@@ -63,7 +63,14 @@ cp -aL "$TARGET_DIR/lib/ld-linux-x86-64.so.2" "$WORK/lib/" 2>/dev/null || true
 rm -rf "$WORK/lib64"; ln -sf lib "$WORK/lib64"
 
 echo "[recovery] building the static atom-recovery binary"
-( cd "$SINTY_RECOVERY" && CGO_ENABLED=0 "${RECOVERY_GO:-go}" build -ldflags='-s -w' \
+# GOPROXY is set explicitly rather than inherited: this build runs after buildroot, whose
+# own Go packages leave a module environment behind, and a GOPROXY that survives from there
+# resolves to an empty proxy list here ("GOPROXY list is not the empty string, but contains
+# no entries"). The dependencies are public modules, so the default proxy fetches them; an
+# already-populated module cache still short-circuits the download.
+( cd "$SINTY_RECOVERY" && CGO_ENABLED=0 GOFLAGS= \
+	GOPROXY="${RECOVERY_GOPROXY:-https://proxy.golang.org,direct}" \
+	"${RECOVERY_GO:-go}" build -ldflags='-s -w' \
 	-o "$WORK/sbin/atom-recovery" ./cmd/atom-recovery )
 # the embedded ROOT trust anchor: atom-recovery verifies every re-downloaded image against it
 # (independent of the possibly-dead main system). Same ROOT key the loader is built with.
