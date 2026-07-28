@@ -68,6 +68,13 @@ jobs:
             binutils sassc mtools dosfstools \
             bubblewrap xdg-dbus-proxy
 
+      # $ImageVersion is a runner environment variable, not a workflow one, so
+      # ${{ env.ImageVersion }} expands to nothing in a cache key -- the keys read
+      # "-v10--<hash>" until this was noticed. Copy it into the workflow env so the
+      # keys really do change when GitHub bumps the image.
+      - name: Record the runner image
+        run: echo "IMAGE_VERSION=$ImageVersion" >> "$GITHUB_ENV"
+
       - name: Restore Buildroot source tree
         uses: actions/cache/restore@v4
         with:
@@ -87,18 +94,18 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: buildroot-build/host
-          key: buildroot-host-v3-${{ env.ImageVersion }}-${{ hashFiles('buildroot-config/singularity_defconfig', 'buildroot-config/kernel.config') }}-${{ github.run_id }}
+          key: buildroot-host-v3-${{ env.IMAGE_VERSION }}-${{ hashFiles('buildroot-config/singularity_defconfig', 'buildroot-config/kernel.config') }}-${{ github.run_id }}
           restore-keys: |
-            buildroot-host-v3-${{ env.ImageVersion }}-${{ hashFiles('buildroot-config/singularity_defconfig', 'buildroot-config/kernel.config') }}-
-            buildroot-host-v3-${{ env.ImageVersion }}-
+            buildroot-host-v3-${{ env.IMAGE_VERSION }}-${{ hashFiles('buildroot-config/singularity_defconfig', 'buildroot-config/kernel.config') }}-
+            buildroot-host-v3-${{ env.IMAGE_VERSION }}-
 
       - name: Restore Buildroot package build tree
         uses: actions/cache/restore@v4
         with:
           path: buildroot-build/build
-          key: buildroot-build-v10-${{ env.ImageVersion }}-${{ hashFiles('buildroot-config/singularity_defconfig', 'buildroot-config/kernel.config', 'buildroot-source-patches/**') }}-${{ github.run_id }}
+          key: buildroot-build-v10-${{ env.IMAGE_VERSION }}-${{ hashFiles('buildroot-config/singularity_defconfig', 'buildroot-config/kernel.config', 'buildroot-source-patches/**') }}-${{ github.run_id }}
           restore-keys: |
-            buildroot-build-v10-${{ env.ImageVersion }}-${{ hashFiles('buildroot-config/singularity_defconfig', 'buildroot-config/kernel.config', 'buildroot-source-patches/**') }}-
+            buildroot-build-v10-${{ env.IMAGE_VERSION }}-${{ hashFiles('buildroot-config/singularity_defconfig', 'buildroot-config/kernel.config', 'buildroot-source-patches/**') }}-
 
       - name: Prepare Buildroot
         run: ./scripts/prepare.sh
@@ -122,19 +129,11 @@ jobs:
           fi
           exit "$ec"
 
-      - name: Save Buildroot host toolchain
-        if: always()
-        uses: actions/cache/save@v4
-        with:
-          path: buildroot-build/host
-          key: buildroot-host-v3-${{ env.ImageVersion }}-${{ hashFiles('buildroot-config/singularity_defconfig', 'buildroot-config/kernel.config') }}-${{ github.run_id }}
-
-      - name: Save Buildroot package build tree
-        if: always()
-        uses: actions/cache/save@v4
-        with:
-          path: buildroot-build/build
-          key: buildroot-build-v10-${{ env.ImageVersion }}-${{ hashFiles('buildroot-config/singularity_defconfig', 'buildroot-config/kernel.config', 'buildroot-source-patches/**') }}-${{ github.run_id }}
+      # Deliberately no cache save here. The two buildroot caches are ~9.4 GB together,
+      # against a 10 GB per-repo limit, so a second writer evicts the download cache --
+      # and some upstreams are unreachable from a runner, so a lost download cannot be
+      # re-fetched (libdbusmenu timed out on launchpad). The main build owns these
+      # caches; this job only reads them.
 
       - name: Stage the tarball as the image build context
         if: env.SDK_INCOMPLETE != '1'

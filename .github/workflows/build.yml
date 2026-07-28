@@ -71,6 +71,13 @@ jobs:
             binutils sassc mtools dosfstools \
             bubblewrap xdg-dbus-proxy
 
+      # $ImageVersion is a runner environment variable, not a workflow one, so
+      # ${{ env.ImageVersion }} expands to nothing in a cache key -- the keys read
+      # "-v10--<hash>" until this was noticed. Copy it into the workflow env so the
+      # keys really do change when GitHub bumps the image.
+      - name: Record the runner image
+        run: echo "IMAGE_VERSION=$ImageVersion" >> "$GITHUB_ENV"
+
       - name: Restore Buildroot source tree
         uses: actions/cache/restore@v4
         with:
@@ -96,18 +103,18 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: buildroot-build/host
-          key: buildroot-host-v3-${{ env.ImageVersion }}-${{ hashFiles('buildroot-config/singularity_defconfig', 'buildroot-config/kernel.config') }}-${{ github.run_id }}
+          key: buildroot-host-v3-${{ env.IMAGE_VERSION }}-${{ hashFiles('buildroot-config/singularity_defconfig', 'buildroot-config/kernel.config') }}-${{ github.run_id }}
           restore-keys: |
-            buildroot-host-v3-${{ env.ImageVersion }}-${{ hashFiles('buildroot-config/singularity_defconfig', 'buildroot-config/kernel.config') }}-
-            buildroot-host-v3-${{ env.ImageVersion }}-
+            buildroot-host-v3-${{ env.IMAGE_VERSION }}-${{ hashFiles('buildroot-config/singularity_defconfig', 'buildroot-config/kernel.config') }}-
+            buildroot-host-v3-${{ env.IMAGE_VERSION }}-
 
       - name: Restore Buildroot package build tree
         uses: actions/cache/restore@v4
         with:
           path: buildroot-build/build
-          key: buildroot-build-v10-${{ env.ImageVersion }}-${{ hashFiles('buildroot-config/singularity_defconfig', 'buildroot-config/kernel.config', 'buildroot-source-patches/**') }}-${{ github.run_id }}
+          key: buildroot-build-v10-${{ env.IMAGE_VERSION }}-${{ hashFiles('buildroot-config/singularity_defconfig', 'buildroot-config/kernel.config', 'buildroot-source-patches/**') }}-${{ github.run_id }}
           restore-keys: |
-            buildroot-build-v10-${{ env.ImageVersion }}-${{ hashFiles('buildroot-config/singularity_defconfig', 'buildroot-config/kernel.config', 'buildroot-source-patches/**') }}-
+            buildroot-build-v10-${{ env.IMAGE_VERSION }}-${{ hashFiles('buildroot-config/singularity_defconfig', 'buildroot-config/kernel.config', 'buildroot-source-patches/**') }}-
 
       - name: Prepare Buildroot
         run: ./scripts/prepare.sh
@@ -191,14 +198,14 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: buildroot-build/host
-          key: buildroot-host-v3-${{ env.ImageVersion }}-${{ hashFiles('buildroot-config/singularity_defconfig', 'buildroot-config/kernel.config') }}-${{ github.run_id }}
+          key: buildroot-host-v3-${{ env.IMAGE_VERSION }}-${{ hashFiles('buildroot-config/singularity_defconfig', 'buildroot-config/kernel.config') }}-${{ github.run_id }}
 
       - name: Save Buildroot package build tree
         if: always()
         uses: actions/cache/save@v4
         with:
           path: buildroot-build/build
-          key: buildroot-build-v10-${{ env.ImageVersion }}-${{ hashFiles('buildroot-config/singularity_defconfig', 'buildroot-config/kernel.config', 'buildroot-source-patches/**') }}-${{ github.run_id }}
+          key: buildroot-build-v10-${{ env.IMAGE_VERSION }}-${{ hashFiles('buildroot-config/singularity_defconfig', 'buildroot-config/kernel.config', 'buildroot-source-patches/**') }}-${{ github.run_id }}
 
       - name: Package
         if: env.BUILD_INCOMPLETE != '1'
