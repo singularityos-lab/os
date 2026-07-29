@@ -23,10 +23,10 @@ if [ -n "$shipped" ] && [ -d "$TARGET/usr/lib/modules/$shipped" ]; then
     done
 fi
 
-# Hardware that predates the TPM 2.0 and Secure Boot requirements cannot run this
-# system, so its firmware is dead weight.
+# Firmware families confined to systems that predate the TPM 2.0 and Secure Boot
+# requirements are dead weight.
 rm -rf "$FW/mrvl" "$FW/ath10k" "$FW/radeon" "$FW/rtlwifi"
-for gen in 3945 4965 1000 5000 5150 6050 6000g2a 6000g2b 100 105 135 2000 2030 3160 3168 7260 7265 7265D 6000; do
+for gen in 3945 4965 1000 5000 5150 6050 6000g2a 6000g2b 100 105 135 2000 2030 3160 3168 7265 7265D 6000; do
     rm -f "$FW/iwlwifi-$gen"-*.ucode "$FW/intel/iwlwifi/iwlwifi-$gen"-*.ucode
 done
 
