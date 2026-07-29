@@ -1,6 +1,6 @@
 #!/bin/bash
 
-set -e
+set -eo pipefail
 
 REPO_DIR="$(pwd)"
 ATOMLOOPS="${ATOMLOOPS:-${REPO_DIR}/../AtomLoops}"
