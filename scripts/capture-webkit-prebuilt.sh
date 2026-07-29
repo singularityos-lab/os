@@ -9,6 +9,8 @@
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+SINTY_WORK_ROOT="${SINTY_WORK_ROOT:-${HOME}/sinty-work}"
+mkdir -p "$SINTY_WORK_ROOT"
 BUILD_DIR="${BUILD_DIR:-$REPO_DIR/buildroot-build}"
 STAGING_DIR="${STAGING_DIR:-$(ls -d "$BUILD_DIR"/host/*/sysroot 2>/dev/null | head -1)}"
 TARGET_DIR="${TARGET_DIR:-$BUILD_DIR/target}"
@@ -27,7 +29,7 @@ for f in "$STAGING_LIST" "$TARGET_LIST"; do
 	[ -s "$f" ] || { echo "ERROR: missing/empty $f (build webkitgtk first)"; exit 1; }
 done
 
-WORK="$(mktemp -d)"
+WORK="$(mktemp -d "${SINTY_WORK_ROOT}/webkit-prebuilt.XXXXXX")"
 trap 'rm -rf "$WORK"' EXIT
 # Single top-level dir so Buildroot's extract (--strip-components=1) leaves
 # staging/ and target/ at the package build root.

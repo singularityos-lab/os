@@ -6,7 +6,7 @@
 
 # SITE=local: build the Atom Loops OTA daemons from the local AtomLoops repo.
 # buildroot-build/local.mk _OVERRIDE_SRCDIR supersedes this for dev builds.
-ATOMLOOPS_VERSION = v0.2.3
+ATOMLOOPS_VERSION = v0.2.4
 ATOMLOOPS_SITE = $(call github,mirkobrombin,AtomLoops,$(ATOMLOOPS_VERSION))
 ATOMLOOPS_LICENSE = GPL-3.0-only
 ATOMLOOPS_LICENSE_FILES = LICENSE
@@ -15,7 +15,7 @@ ATOMLOOPS_GOMOD = github.com/mirkobrombin/atomloops
 # All AtomLoops binaries are pure-Go (no cgo): build them static, like fw-verify
 # already is for the initramfs.
 ATOMLOOPS_GO_ENV = CGO_ENABLED=0
-ATOMLOOPS_BUILD_TARGETS = cmd/atomd cmd/updated
+ATOMLOOPS_BUILD_TARGETS = cmd/atomd cmd/updated cmd/fw-verify
 
 # buildroot's golang-package builds offline with -mod=vendor + GOPROXY=off, but the
 # AtomLoops source ships no vendor/ dir. Populate one in the rsync'd build tree (NOT the
@@ -39,6 +39,7 @@ ATOMLOOPS_PRE_BUILD_HOOKS += ATOMLOOPS_INJECT_ROOT
 define ATOMLOOPS_INSTALL_TARGET_CMDS
 	$(INSTALL) -D -m 0755 $(@D)/bin/atomd     $(TARGET_DIR)/usr/libexec/atomd
 	$(INSTALL) -D -m 0755 $(@D)/bin/updated   $(TARGET_DIR)/usr/libexec/updated
+	$(INSTALL) -D -m 0755 $(@D)/bin/fw-verify $(TARGET_DIR)/usr/bin/fw-verify
 	$(INSTALL) -D -m 0644 $(ATOMLOOPS_PKGDIR)/root.pub $(TARGET_DIR)/etc/atom-fw-root.pub
 	$(INSTALL) -D -m 0644 $(@D)/packaging/updated.service $(TARGET_DIR)/usr/lib/systemd/system/updated.service
 	$(INSTALL) -D -m 0644 $(@D)/packaging/updated-check.service $(TARGET_DIR)/usr/lib/systemd/system/updated-check.service

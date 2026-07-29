@@ -4,6 +4,24 @@ set -e
 
 REPO_DIR="$(pwd)"
 ATOMLOOPS="${ATOMLOOPS:-${REPO_DIR}/../AtomLoops}"
+SINTY_WORK_ROOT="${SINTY_WORK_ROOT:-${HOME}/sinty-work}"
+mkdir -p "${SINTY_WORK_ROOT}"
+if [ -z "${ATOM_VERSION:-}" ]; then
+    ATOM_VERSION="$(git rev-list --count HEAD)"
+fi
+case "${ATOM_VERSION}" in
+    *[!0-9]*|"")
+        echo "package: ATOM_VERSION must be a positive integer" >&2
+        exit 1
+        ;;
+esac
+if [ "${ATOM_VERSION}" -le 0 ]; then
+    echo "package: ATOM_VERSION must be a positive integer" >&2
+    exit 1
+fi
+RELEASE_VERSION="v${ATOM_VERSION}"
+export ATOM_VERSION
+echo "[package] release version: ${RELEASE_VERSION}"
 if [ ! -f "${ATOMLOOPS}/go.mod" ] || [ ! -f "${ATOMLOOPS}/loader/build.sh" ]; then
     echo "package: AtomLoops checkout not found at ${ATOMLOOPS}" >&2
     exit 1
@@ -34,7 +52,7 @@ if [ -f "${ATOM_ROOT_PUB}" ] && [ -f "${ATOM_SIGNING_KEY}" ] \
     # A signing chain was provided (release/production). Build a loader that trusts
     # this root.pub unless the caller pinned a matching loader EFI.
     if [ "${LOADER_PINNED}" = 0 ] || [ ! -f "${ATOM_LOADER_EFI}" ]; then
-        SIGNING_WORK="$(mktemp -d)"
+        SIGNING_WORK="$(mktemp -d "${SINTY_WORK_ROOT}/package-signing.XXXXXX")"
         cp -a "${ATOMLOOPS}/loader" "${SIGNING_WORK}/loader"
         cp "${ATOM_ROOT_PUB}" "${SIGNING_WORK}/loader/src/root.pub"
         ( cd "${SIGNING_WORK}/loader" && ZIG="${ZIG:-zig}" ./build.sh )
@@ -42,7 +60,7 @@ if [ -f "${ATOM_ROOT_PUB}" ] && [ -f "${ATOM_SIGNING_KEY}" ] \
     fi
 else
     echo "[package] release signing assets incomplete; generating an ephemeral development chain"
-    SIGNING_WORK="$(mktemp -d)"
+    SIGNING_WORK="$(mktemp -d "${SINTY_WORK_ROOT}/package-signing.XXXXXX")"
     ROOT_KEY="${SIGNING_WORK}/root.key"
     ATOM_ROOT_PUB="${SIGNING_WORK}/root.pub"
     ATOM_SIGNING_KEY="${SIGNING_WORK}/signing-v1.key"
@@ -130,7 +148,7 @@ bash scripts/build-initramfs.sh buildroot-build/target artifacts/initrd.cpio.xz
 # The initramfs finds the data/hash partitions by GPT PARTLABEL and opens the
 # verity device with this root hash, so no device names are baked in. The firmware
 # add-on's dm-verity hash is intentionally NOT here (see the anchor note above).
-CMDLINE="console=ttyS0,115200 ro quiet loglevel=3 vt.global_cursor_default=0 udev.log_level=0 rd.systemd.show_status=0 systemd.show_status=0 rootwait sing.roothash=${ROOT_HASH} lsm=landlock,lockdown,yama,bpf lockdown=integrity module.sig_enforce=1 init_on_alloc=1 slab_nomerge page_alloc.shuffle=1 randomize_kstack_offset=1 vsyscall=none cfg80211.ieee80211_regdom=IT${EXTRA_CMDLINE:+ ${EXTRA_CMDLINE}}"
+CMDLINE="console=ttyS0,115200 ro quiet loglevel=3 vt.global_cursor_default=0 udev.log_level=0 rd.systemd.show_status=0 systemd.show_status=0 rootwait sing.roothash=${ROOT_HASH} atom.version=${RELEASE_VERSION} lsm=landlock,lockdown,yama,bpf lockdown=integrity module.sig_enforce=1 init_on_alloc=1 slab_nomerge page_alloc.shuffle=1 randomize_kstack_offset=1 vsyscall=none cfg80211.ieee80211_regdom=IT${EXTRA_CMDLINE:+ ${EXTRA_CMDLINE}}"
 
 # UKI: place the added sections above the stub's image so they do not fall
 # below the PE image base.
@@ -145,7 +163,7 @@ OSREL=""
 printf '%s' "$CMDLINE" > artifacts/cmdline.txt
 # .atomver: the kernelcache version baked into the SIGNED UKI, read by the loader to
 # enforce anti-rollback. The daemon's NV counter (index 0x0150A701) is the floor.
-printf '%s' "${ATOM_VERSION:-1}" > artifacts/atomver.txt
+printf '%s' "${ATOM_VERSION}" > artifacts/atomver.txt
 
 objcopy \
     $OSREL \
@@ -174,8 +192,7 @@ rm -f artifacts/esp.vfat
 dd if=/dev/zero of=artifacts/esp.vfat bs=1M count=256 status=none
 mkfs.fat -F 32 -n SINGEFI artifacts/esp.vfat >/dev/null
 # Atom Loops loader is BOOTX64.EFI; it verifies + chainloads the signed UKI slot.
-# (Test root key is a throwaway generated into loader/src/root.pub; the RC root key
-# is Mirko's cold offline key.)
+# Development builds use a throwaway root key; release builds use the offline root.
 ( cd "${ATOMLOOPS}" && "${ATOMLOOPS_GO:-go}" run ./cmd/atom-sign sign \
     --manifest "${REPO_DIR}/artifacts/kernelcache.efi" --priv "${ATOM_SIGNING_KEY}" )
 mmd -i artifacts/esp.vfat ::EFI ::EFI/BOOT ::EFI/atom
@@ -194,9 +211,9 @@ mcopy -i artifacts/esp.vfat artifacts/kernelcache-recovery.efi     ::EFI/atom/ke
 mcopy -i artifacts/esp.vfat artifacts/kernelcache-recovery.efi.sig ::EFI/atom/kernelcache-recovery.efi.sig
 printf 'target=active\ntrial=0\nattempts=0\n' > artifacts/boot-state
 mcopy -i artifacts/esp.vfat artifacts/boot-state ::EFI/atom/boot-state
-cat > artifacts/deployment.json <<'DJ'
+cat > artifacts/deployment.json <<DJ
 {
-  "rootfs": { "current": "v1", "pending": "", "rollback": "", "boot_attempts": 0, "max_attempts": 3, "last_known_good": "v1" },
+  "rootfs": { "current": "${RELEASE_VERSION}", "pending": "", "rollback": "", "boot_attempts": 0, "max_attempts": 3, "last_known_good": "${RELEASE_VERSION}" },
   "kernelcache": { "state": "stable", "stable_boots": 0, "stable_threshold": 3, "format": "uki" },
   "security": { "level": 2, "dm_verity": true, "secure_boot": false }
 }
@@ -239,7 +256,7 @@ rm -rf genimage-tmp
 # Bootable hybrid ISO: efiboot.img holds the UKI for El Torito EFI boot, the ESP
 # plus data and hash are appended as GPT partitions for USB boot; the initramfs
 # finds data and hash by content.
-ISO_ROOT="$(mktemp -d)"
+ISO_ROOT="$(mktemp -d "${SINTY_WORK_ROOT}/package-iso.XXXXXX")"
 mkdir -p "${ISO_ROOT}/EFI"
 rm -f artifacts/efiboot.img
 dd if=/dev/zero of=artifacts/efiboot.img bs=1M count=32 status=none

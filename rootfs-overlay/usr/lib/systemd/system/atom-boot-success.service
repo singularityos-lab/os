@@ -1,0 +1,12 @@
+[Unit]
+Description=Atom Loops rootfs boot-success
+After=greetd.service
+DefaultDependencies=no
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/atomd boot-success
+RemainAfterExit=yes
+
+[Install]
+WantedBy=graphical.target

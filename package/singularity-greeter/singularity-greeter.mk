@@ -5,8 +5,7 @@
 ################################################################################
 
 # SITE=local: build from the local desktop subproject so local UI changes (PIN label,
-# recovery flow) reach the image. RC: bump _VERSION to the committed commit + restore
-# the github SITE after Mirko commits.
+# recovery flow) reach the image. Release builds use the pinned repository version.
 SINGULARITY_GREETER_VERSION = v0.1.0
 SINGULARITY_GREETER_SITE = $(call github,singularityos-lab,singularity-greeter,$(SINGULARITY_GREETER_VERSION))
 SINGULARITY_GREETER_LICENSE = GPL-3.0+

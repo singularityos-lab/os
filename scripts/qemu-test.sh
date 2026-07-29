@@ -7,6 +7,8 @@
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+SINTY_WORK_ROOT="${SINTY_WORK_ROOT:-${HOME}/sinty-work}"
+mkdir -p "$SINTY_WORK_ROOT"
 IMG="$REPO_DIR/buildroot-build/images"
 S="$IMG/singularity"
 MODE="${1:-direct}"
@@ -38,7 +40,7 @@ case "$MODE" in
     # scripts/make-installed-image.sh, which is the only one that exercises OTA.
     SRC="${QEMU_IMG:-$REPO_DIR/artifacts/sinty-os.img}"
     [ -f "$SRC" ] || { echo "no $SRC (run scripts/package.sh)"; exit 1; }
-    WORK="${QEMU_WORK:-$(mktemp -d)}"
+    WORK="${QEMU_WORK:-$(mktemp -d "${SINTY_WORK_ROOT}/qemu-uki.XXXXXX")}"
     mkdir -p "$WORK"
     cp "$SRC" "$WORK/disk.img"
     cp "$OVMF_VARS" "$WORK/vars.fd"
@@ -63,7 +65,7 @@ case "$MODE" in
     [ -n "$OVMF" ] && [ -n "$OVMF_VARS" ] || { echo "OVMF firmware not found"; exit 1; }
     SRC="${QEMU_IMG:-$REPO_DIR/artifacts/sinty-os.img}"
     [ -f "$SRC" ] || { echo "no $SRC (run scripts/package.sh)"; exit 1; }
-    WORK="${QEMU_WORK:-$(mktemp -d)}"
+    WORK="${QEMU_WORK:-$(mktemp -d "${SINTY_WORK_ROOT}/qemu-install.XXXXXX")}"
     mkdir -p "$WORK"
     cp "$OVMF_VARS" "$WORK/vars.fd"
     # TARGET_GB sizes the blank disk the installer provisions; it must fit two slots.

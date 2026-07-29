@@ -25,30 +25,30 @@ mkdir -p /mnt/t/home/"$U"; chown "$TUID:$TUID" /mnt/t/home/"$U"
 
 PIN=123456
 REC=$(printf '%s' "$PIN" | sintykey provision --user "$U" --uid "$TUID" --home /mnt/t/home/"$U")
-P "OBS provision-exit: $? ; recovery-code: [$REC]"
+P "OBS provision-exit: $? ; recovery code captured"
 
 echo TOPSECRET > /mnt/t/home/"$U"/secret
 P "ASSERT with-key-readable: [$(cat /mnt/t/home/"$U"/secret 2>&1)] (exp TOPSECRET)"
 printf '%s' "$PIN" | sintykey verify-pin --uid "$TUID"; P "ASSERT verify-RIGHT-exit: $? (exp 0)"
 
-# ---- FB-13: lockscreen unlock path (daemon verify from the SESSION USER context) ----
+# Lockscreen unlock path (daemon verification from the session user context).
 # The lockscreen runs as the user and CANNOT read the root-only key blobs; it must
 # verify the PIN via the root sinty-recoverd daemon (SO_PEERCRED-gated to its own uid).
 # root cause: as the user, sintykey verify-pin DIRECTLY fails (EACCES on root blobs).
 # (BusyBox setpriv lacks --reuid; use su, which BusyBox supports, to drop to the user.)
 su -s /bin/sh "$U" -c "printf '%s' '$PIN' | sintykey verify-pin --uid $TUID" >/dev/null 2>&1
-P "ASSERT FB13-user-direct-verify-exit: $? (exp non-zero: user cannot read root-only blobs)"
+P "ASSERT lockscreen-user-direct-verify-exit: $? (exp non-zero: user cannot read root-only blobs)"
 [ -S /run/sinty-recoverd.sock ] || { sinty-recoverd & sleep 1; }
-cat > /tmp/dv.py <<'PYEOF'
+cat > /run/atom-e2e-verify.py <<'PYEOF'
 import socket,sys
 s=socket.socket(socket.AF_UNIX); s.connect("/run/sinty-recoverd.sock")
 s.sendall(("verify\n%s\n%s\n"%(sys.argv[1],sys.argv[2])).encode())
 sys.stdout.write(s.recv(16).decode().strip())
 PYEOF
-chmod 644 /tmp/dv.py
-DV () { su -s /bin/sh "$U" -c "python3 /tmp/dv.py $1 $2"; }
-P "ASSERT FB13-daemon-verify-RIGHT: [$(DV "$TUID" "$PIN")] (exp OK: user unlocks via daemon)"
-P "ASSERT FB13-daemon-peercred-otheruid: [$(DV 0 "$PIN")] (exp FAIL: user cannot verify uid 0)"
+chmod 644 /run/atom-e2e-verify.py
+DV () { su -s /bin/sh "$U" -c "python3 /run/atom-e2e-verify.py $1 $2"; }
+P "ASSERT lockscreen-daemon-verify-RIGHT: [$(DV "$TUID" "$PIN")] (exp OK: user unlocks via daemon)"
+P "ASSERT lockscreen-daemon-peercred-otheruid: [$(DV 0 "$PIN")] (exp FAIL: user cannot verify uid 0)"
 
 # drop the CE key: umount destroys the super_block key (fscrypt v2)
 umount /mnt/t && P "OBS umount: ok" || P "OBS umount: FAIL (without-key block invalid)"
@@ -74,14 +74,14 @@ P "ASSERT recover-after-cat: [$(cat /mnt/t/home/"$U"/secret 2>&1)] (exp TOPSECRE
 printf 'wrong0' | sintykey verify-pin --uid "$TUID"; P "ASSERT verify-WRONG-exit: $? (exp non-zero)"
 printf 'wrong0' | pamtester greetd "$U" authenticate; P "ASSERT pamtester-WRONG-exit: $? (exp non-zero)"
 # wrong PIN via the daemon (kept last: hits the TPM -> DA counter, like the others)
-cat > /tmp/dvw.py <<'PYEOF'
+cat > /run/atom-e2e-verify-wrong.py <<'PYEOF'
 import socket,sys
 s=socket.socket(socket.AF_UNIX); s.connect("/run/sinty-recoverd.sock")
 s.sendall(b"verify\n%d\nwrong0\n"%int(sys.argv[1]))
 sys.stdout.write(s.recv(16).decode().strip())
 PYEOF
-chmod 644 /tmp/dvw.py
-P "ASSERT FB13-daemon-verify-WRONG: [$(su -s /bin/sh "$U" -c "python3 /tmp/dvw.py $TUID")] (exp FAIL)"
+chmod 644 /run/atom-e2e-verify-wrong.py
+P "ASSERT lockscreen-daemon-verify-WRONG: [$(su -s /bin/sh "$U" -c "python3 /run/atom-e2e-verify-wrong.py $TUID")] (exp FAIL)"
 
 P "===== ATOM E2E HARNESS END ====="
 sync

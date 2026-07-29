@@ -1,6 +1,8 @@
 #!/bin/sh
 set -eu
 
+export PATH=/usr/bin:/usr/sbin
+
 if [ -x /usr/bin/singularity-splash ]; then
     rm -f "${XDG_RUNTIME_DIR:-/run/user/0}/singularity-shell-ready"
     singularity-splash >/dev/null 2>&1 &

@@ -17,7 +17,9 @@ set -euo pipefail
 
 TARGET_DIR="$1"
 OUT="$2"
-WORK="$(mktemp -d)"
+SINTY_WORK_ROOT="${SINTY_WORK_ROOT:-${HOME}/sinty-work}"
+mkdir -p "$SINTY_WORK_ROOT"
+WORK="$(mktemp -d "${SINTY_WORK_ROOT}/initramfs.XXXXXX")"
 trap 'rm -rf "$WORK"' EXIT
 
 mkdir -p "$WORK"/{bin,sbin,proc,sys,dev,sysroot,lower,over,lib,lib64,run,etc} \
@@ -194,9 +196,9 @@ done
 
 # The single data partition. Atom Loops needs no A/B layout: beyond the ESP there is
 # ONE partition, holding the root image as a file under boot/rootfs together with the
-# user data that becomes /var. Probe every partition for boot/rootfs/rootfs-active.erofs,
-# then loop-attach each slot file read-only: the pairing below picks the pair whose hash
-# matches the sing.roothash baked in this UKI, which is what makes a promoted slot boot.
+# user data that becomes /var. Probe every partition for any rootfs slot, then loop-attach
+# each slot file read-only: the pairing below picks the pair whose hash matches the
+# sing.roothash baked in this UKI, which is what makes a promoted slot boot.
 # Mounted read-only here; the running system gets it back as /var (installed) or keeps it
 # read-only under a tmpfs /var (live). Absent partition = raw-partition layout, which the
 # globs below still handle.
@@ -207,7 +209,11 @@ mount_data() {
 		[ -b "$d" ] || continue
 		{ busybox mount -t ext4 -o ro "$d" "$DATAMNT" 2>/dev/null \
 			|| busybox mount -t f2fs -o ro "$d" "$DATAMNT" 2>/dev/null; } || continue
-		if [ -f "$DATAMNT/boot/rootfs/rootfs-active.erofs" ]; then
+		_found=
+		for f in "$DATAMNT"/boot/rootfs/rootfs-*.erofs; do
+			[ -f "$f" ] && { _found=1; break; }
+		done
+		if [ -n "$_found" ]; then
 			DATADEV="$d"
 			busybox echo "[init] data partition: $d"
 			for f in "$DATAMNT"/boot/rootfs/rootfs-*.erofs "$DATAMNT"/boot/rootfs/rootfs-*.hash; do

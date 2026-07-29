@@ -255,3 +255,9 @@ if [ -x "$TARGET_DIR/usr/bin/sinty-timedate" ]; then
     ln -sf sinty-timedate "$TARGET_DIR/usr/bin/timedatectl"
     echo "[singularity] post-build: timedatectl -> sinty-timedate (de-systemd)"
 fi
+
+# Build diagnostics may retain host source paths even after stripping. Replace
+# them with equal-length canonical prefixes so ELF offsets and bytecode layouts
+# remain unchanged, then fail if any original prefix survived.
+python3 "$(dirname "$0")/scrub-build-paths.py" \
+    "$TARGET_DIR" "$(dirname "$TARGET_DIR")" "$(cd "$(dirname "$0")/.." && pwd)" "$HOME"

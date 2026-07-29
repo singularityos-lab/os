@@ -47,7 +47,7 @@ case "$PHASE" in
     # RECOVERY E2E (escape hatch for a forgotten PIN): the code is staged in /run now.
     # recover unwraps the CE key from the .recovery blob and re-seals under a new PIN.
     RECCODE="$(cat /run/sinty-recovery-code 2>/dev/null)"; RECPIN=55555
-    P "OBS E2E-RECCODE: $RECCODE"  # TEST-ONLY: full code on serial so the UI capture can type it
+    P "OBS recovery code captured for the recovery test"
     printf '%s\n%s\n' "wrong-code-000000" "$RECPIN" | sintykey recover --uid "$UIDN" >/dev/null 2>&1; P "ASSERT recover-WRONG-code-rejected: $? (exp non-zero -- a bad recovery code cannot unwrap the CE key)"
     printf '%s\n%s\n' "$RECCODE" "$RECPIN" | sintykey recover --uid "$UIDN"; P "ASSERT recover-exit: $? (exp 0 -- CE unwrapped from the recovery blob, re-sealed under a new PIN)"
     printf '%s' "$RECPIN" | sintykey verify-pin --uid "$UIDN"; P "ASSERT recover-NEW-accepted: $? (exp 0 -- the recovered PIN unseals the CE key)"

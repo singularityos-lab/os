@@ -11,6 +11,8 @@
 # usage: build-recovery.sh   (run from the singularity-os repo root, after a normal build)
 set -eu
 REPO_DIR="$(pwd)"
+SINTY_WORK_ROOT="${SINTY_WORK_ROOT:-${HOME}/sinty-work}"
+mkdir -p "$SINTY_WORK_ROOT"
 TARGET_DIR="${TARGET_DIR:-buildroot-build/target}"
 KERNEL="${KERNEL:-buildroot-build/images/bzImage}"
 ATOMLOOPS="${ATOMLOOPS:-${REPO_DIR}/../AtomLoops}"
@@ -23,7 +25,7 @@ if [ ! -f "$SINTY_RECOVERY/go.mod" ]; then
 fi
 STUB="${STUB:-$(ls /usr/lib/systemd/boot/efi/linuxx64.efi.stub 2>/dev/null || echo "$TARGET_DIR/usr/lib/systemd/boot/efi/linuxx64.efi.stub")}"
 OUT="artifacts/kernelcache-recovery.efi"
-WORK="$(mktemp -d)"
+WORK="$(mktemp -d "${SINTY_WORK_ROOT}/recovery.XXXXXX")"
 trap 'rm -rf "$WORK"' EXIT
 
 mkdir -p "$WORK"/{bin,sbin,lib,lib64,usr/bin,usr/sbin,proc,sys,dev,tmp,newroot,run,lib/firmware}
