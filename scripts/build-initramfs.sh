@@ -149,9 +149,6 @@ busybox mkdir -p /dev/mapper /run/cryptsetup
 
 rescue() {
 	echo "initramfs: $1" >&2
-	# Module-independent capture: raw-write the diagnostic to the 4th partition of the
-	# removable disk (the USB SINTYLOGS), at a fixed offset, so it can be read back even
-	# if ext4 won't mount. Marker SINTYRESCUE makes it greppable in the raw device.
 	_diag="SINTYRESCUE_BEGIN
 reason: $1
 cmdline: $(busybox cat /proc/cmdline)
@@ -162,12 +159,35 @@ dmesg_tail:
 $(busybox dmesg | busybox tail -30)
 SINTYRESCUE_END
 "
-	for _p in /dev/sda4 /dev/sdb4 /dev/sdc4 /dev/mmcblk0p4; do
+	busybox mkdir -p /run/sintylogs
+	_saved=
+	for _p in /dev/vd*[0-9] /dev/sd*[0-9] /dev/nvme*p[0-9]* /dev/mmcblk*p[0-9]*; do
 		[ -b "$_p" ] || continue
-		printf '%s' "$_diag" | busybox dd of="$_p" bs=512 seek=200 conv=notrunc 2>/dev/null
-		busybox sync
-		break
+		case "$(busybox blkid "$_p" 2>/dev/null)" in
+			*'LABEL="SINTYLOGS"'*) ;;
+			*) continue ;;
+		esac
+		busybox mount -t ext4 -o rw,nosuid,nodev,noexec "$_p" /run/sintylogs 2>/dev/null || continue
+		_tmp="/run/sintylogs/.SINTYRESCUE.$$"
+		if busybox rm -f "$_tmp" 2>/dev/null \
+			&& printf '%s' "$_diag" > "$_tmp" \
+			&& busybox chmod 600 "$_tmp" \
+			&& busybox rm -f /run/sintylogs/SINTYRESCUE.txt 2>/dev/null \
+			&& busybox mv -f "$_tmp" /run/sintylogs/SINTYRESCUE.txt \
+			&& busybox sync; then
+			_saved=1
+		fi
+		busybox rm -f "$_tmp" 2>/dev/null
+		busybox umount /run/sintylogs 2>/dev/null
+		[ -n "$_saved" ] && break
 	done
+	if [ -c /dev/tty0 ]; then
+		if [ -n "$_saved" ]; then
+			printf '\nSinty OS could not boot: %s\nDiagnostics saved to SINTYLOGS.\n' "$1" > /dev/tty0
+		else
+			printf '\nSinty OS could not boot: %s\nDiagnostics could not be saved.\n' "$1" > /dev/tty0
+		fi
+	fi
 	echo "dropping to a rescue shell" >&2
 	exec busybox sh
 }
@@ -202,8 +222,9 @@ done
 # Mounted read-only here; the running system gets it back as /var (installed) or keeps it
 # read-only under a tmpfs /var (live). Absent partition = raw-partition layout, which the
 # globs below still handle.
-DATADEV= ; DATAMNT=/sysdata
+DATADEV= ; DATAMNT=/sysdata ; SLOT_DATAS= ; SLOT_HASHES=
 mount_data() {
+	[ -n "$DATADEV" ] && return 0
 	busybox mkdir -p "$DATAMNT"
 	for d in /dev/vd*[0-9] /dev/sd*[0-9] /dev/nvme*p[0-9]* /dev/mmcblk*p[0-9]*; do
 		[ -b "$d" ] || continue
@@ -219,16 +240,22 @@ mount_data() {
 			for f in "$DATAMNT"/boot/rootfs/rootfs-*.erofs "$DATAMNT"/boot/rootfs/rootfs-*.hash; do
 				[ -f "$f" ] || continue
 				_lp=$(busybox losetup -f) && busybox losetup -r "$_lp" "$f" 2>/dev/null \
-					&& busybox echo "[init]   $f -> $_lp"
+					&& {
+						busybox echo "[init]   $f -> $_lp"
+						case "$f" in
+							*.erofs) SLOT_DATAS="$SLOT_DATAS $_lp" ;;
+							*.hash) SLOT_HASHES="$SLOT_HASHES $_lp" ;;
+						esac
+					}
 			done
 			return 0
 		fi
 		busybox umount "$DATAMNT" 2>/dev/null
 	done
-	busybox echo "[init] no Atom Loops data partition (raw-partition layout)"
 	return 0
 }
 mount_data
+[ -n "$DATADEV" ] || busybox echo "[init] waiting for Atom Loops data partition"
 
 # Firmware add-on bundles: union each verified /boot/firmware/<bundle>/ over the base
 # survival firmware baked in the rootfs. UNLIKE the rootfs this is FAIL-OPEN and per-bundle:
@@ -353,7 +380,9 @@ if [ -n "$UNLOCKED" ]; then
 	# Unlocked: mount the erofs root directly, no dm-verity. Find the data partition
 	# by its erofs magic (the same probe as the verified path, without hash pairing).
 	while [ $i -lt 75 ]; do
-		for d in /dev/loop[0-9]* /dev/vd*[0-9] /dev/sd*[0-9] /dev/nvme*p[0-9]* /dev/mmcblk*p[0-9]*; do
+		mount_data
+		_candidates="$SLOT_DATAS /dev/loop[0-9]* /dev/vd*[0-9] /dev/sd*[0-9] /dev/nvme*p[0-9]* /dev/mmcblk*p[0-9]*"
+		for d in $_candidates; do
 			[ -b "$d" ] || continue
 			m=$(busybox dd if="$d" bs=1 skip=1024 count=4 2>/dev/null | busybox od -An -tx1 | busybox tr -d ' \n')
 			[ "$m" = "e2e1f5e0" ] && { DATA="$d"; DATAS="$DATAS $d"; break; }
@@ -370,7 +399,8 @@ if [ -n "$UNLOCKED" ]; then
 	busybox echo "[init] =================================================================="
 else
 	while [ $i -lt 75 ]; do
-		DATAS= ; HASHES=
+		mount_data
+		DATAS="$SLOT_DATAS"; HASHES="$SLOT_HASHES"
 		for d in /dev/loop[0-9]* /dev/vd*[0-9] /dev/sd*[0-9] /dev/nvme*p[0-9]* /dev/mmcblk*p[0-9]*; do
 			[ -b "$d" ] || continue
 			if [ "$(busybox dd if="$d" bs=6 count=1 2>/dev/null)" = "verity" ]; then
