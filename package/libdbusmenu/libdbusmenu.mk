@@ -4,16 +4,10 @@
 #
 ################################################################################
 
-LIBDBUSMENU_VERSION = 16.04.0
-LIBDBUSMENU_SOURCE = libdbusmenu-$(LIBDBUSMENU_VERSION).tar.gz
-# Upstream is https://launchpad.net/libdbusmenu/16.04/$(LIBDBUSMENU_VERSION)/+download,
-# which times out from a CI runner, and buildroot's own mirror answers 404 for this
-# tarball -- so a build with a cold download cache could not fetch it at all. Serve the
-# byte-identical tarball from this project's own release and check it against the hash
-# in libdbusmenu.hash, so the substitution cannot go unnoticed.
-LIBDBUSMENU_SITE = https://github.com/singularityos-lab/os/releases/download/third-party-sources
+LIBDBUSMENU_VERSION = 7546d37abb436a6025af3217865841717fb199ff
+LIBDBUSMENU_SITE = $(call github,singularityos-lab,libdbusmenu,$(LIBDBUSMENU_VERSION))
 LIBDBUSMENU_LICENSE = LGPL-2.1, LGPL-3.0, GPL-3.0
-LIBDBUSMENU_LICENSE_FILES = COPYING COPYING.LGPL.2.1 COPYING.LGPL.3 COPYING.GPL.3
+LIBDBUSMENU_LICENSE_FILES = COPYING COPYING.2.1 COPYING-GPL3
 LIBDBUSMENU_INSTALL_STAGING = YES
 LIBDBUSMENU_AUTORECONF = YES
 LIBDBUSMENU_DEPENDENCIES = \
@@ -34,6 +28,12 @@ LIBDBUSMENU_CONF_OPTS = \
 	--disable-werror \
 	--enable-compile-warnings=no \
 	--with-gtk=none
+
+define LIBDBUSMENU_GTK_DOC_HOOK
+	echo "EXTRA_DIST =" > $(@D)/gtk-doc.make
+	echo "CLEANFILES =" >> $(@D)/gtk-doc.make
+endef
+LIBDBUSMENU_PRE_CONFIGURE_HOOKS += LIBDBUSMENU_GTK_DOC_HOOK
 
 define LIBDBUSMENU_FIX_VALGRIND_CONDITIONAL
 	$(SED) '/AM_CONDITIONAL(\[HAVE_VALGRIND\]/d' $(@D)/configure.ac
