@@ -154,7 +154,7 @@ reason: $1
 cmdline: $(busybox cat /proc/cmdline)
 roothash=$ROOTHASH
 DATAS=$DATAS HASHES=$HASHES DATA=$DATA HASH=$HASH VAR=$VAR
-block: $(busybox ls /dev/vd* /dev/sd* /dev/nvme* /dev/mmcblk* 2>/dev/null | busybox tr '\n' ' ')
+block: $(busybox ls /dev/vd* /dev/sd* /dev/sr* /dev/nvme* /dev/mmcblk* 2>/dev/null | busybox tr '\n' ' ')
 dmesg_tail:
 $(busybox dmesg | busybox tail -30)
 SINTYRESCUE_END
@@ -206,12 +206,17 @@ done
 
 ROOTHASH=
 CMDINIT=
+LIVE=
+PORTABLE=
 for tok in $(busybox cat /proc/cmdline); do
 	case "$tok" in
 		sing.roothash=*) ROOTHASH=${tok#sing.roothash=} ;;
+		sing.live=1) LIVE=1 ;;
+		sing.portable=1) PORTABLE=1 ;;
 		init=*) CMDINIT=${tok#init=} ;;
 	esac
 done
+[ -n "$PORTABLE" ] && LIVE=1
 [ -n "$ROOTHASH" ] || rescue "no sing.roothash= on the kernel command line"
 
 # The single data partition. Atom Loops needs no A/B layout: beyond the ESP there is
@@ -255,7 +260,37 @@ mount_data() {
 	return 0
 }
 mount_data
-[ -n "$DATADEV" ] || busybox echo "[init] waiting for Atom Loops data partition"
+
+# Optical media do not expose the appended GPT entries as sr0pN block devices.
+# Mount ISO9660 and attach the immutable root/hash files as read-only loops instead.
+ISODEV= ; ISOMNT=/isomedia ; ISO_DATAS= ; ISO_HASHES=
+mount_iso() {
+	[ -n "$PORTABLE" ] && return 0
+	[ -n "$ISODEV" ] && return 0
+	busybox mkdir -p "$ISOMNT"
+	for d in /dev/sr[0-9]*; do
+		[ -b "$d" ] || continue
+		busybox mount -t iso9660 -o ro "$d" "$ISOMNT" 2>/dev/null || continue
+		if [ -f "$ISOMNT/live/rootfs.erofs" ] && [ -f "$ISOMNT/live/rootfs.hash" ]; then
+			_dl=$(busybox losetup -f)
+			_hl=
+			if busybox losetup -r "$_dl" "$ISOMNT/live/rootfs.erofs" 2>/dev/null; then
+				_hl=$(busybox losetup -f)
+				if busybox losetup -r "$_hl" "$ISOMNT/live/rootfs.hash" 2>/dev/null; then
+					ISODEV="$d"; ISO_DATAS="$_dl"; ISO_HASHES="$_hl"
+					busybox echo "[init] optical root: $d ($ISO_DATAS $ISO_HASHES)"
+					return 0
+				fi
+			fi
+			[ -n "$_hl" ] && busybox losetup -d "$_hl" 2>/dev/null
+			busybox losetup -d "$_dl" 2>/dev/null
+		fi
+		busybox umount "$ISOMNT" 2>/dev/null
+	done
+	return 0
+}
+mount_iso
+[ -n "$DATADEV" ] || [ -n "$ISODEV" ] || busybox echo "[init] waiting for boot media"
 
 # Firmware add-on bundles: union each verified /boot/firmware/<bundle>/ over the base
 # survival firmware baked in the rootfs. UNLIKE the rootfs this is FAIL-OPEN and per-bundle:
@@ -355,10 +390,24 @@ mount_firmware() {
 	return 0
 }
 
-# Collect ALL erofs data + dm-verity hash partitions -- there can be several (a USB
-# stick AND an already-installed disk) -- then verity-open the pair whose hash matches
-# the baked sing.roothash. This picks the correct rootfs regardless of extra installs.
+# A signed live or portable kernelcache only accepts raw root/hash partitions. An
+# installed kernelcache only accepts slots from its data partition. This keeps a slow
+# removable device from falling through to an installed slot with the same roothash.
 DATA= ; HASH= ; DATAS= ; HASHES= ; i=0
+
+block_disk() {
+	_b=$(busybox basename "$1")
+	if [ -e "/sys/class/block/$_b/partition" ]; then
+		busybox basename "$(busybox readlink -f "/sys/class/block/$_b/..")"
+	else
+		busybox echo "$_b"
+	fi
+}
+
+part_name() {
+	_p=$(busybox basename "$1")
+	busybox sed -n 's/^PARTNAME=//p' "/sys/class/block/$_p/uevent" 2>/dev/null
+}
 
 # Bootloader-unlock escape hatch. KEEP IN LOCKSTEP with the AtomLoops standalone
 # init (scripts/boot/initramfs-main.go unlockGrantsNoVerity): a device the owner
@@ -381,9 +430,17 @@ if [ -n "$UNLOCKED" ]; then
 	# by its erofs magic (the same probe as the verified path, without hash pairing).
 	while [ $i -lt 75 ]; do
 		mount_data
-		_candidates="$SLOT_DATAS /dev/loop[0-9]* /dev/vd*[0-9] /dev/sd*[0-9] /dev/nvme*p[0-9]* /dev/mmcblk*p[0-9]*"
+		mount_iso
+		if [ -n "$LIVE" ]; then
+			_candidates="$ISO_DATAS /dev/vd*[0-9] /dev/sd*[0-9] /dev/sr[0-9]p[0-9]* /dev/nvme*p[0-9]* /dev/mmcblk*p[0-9]*"
+		else
+			_candidates="$SLOT_DATAS"
+		fi
 		for d in $_candidates; do
 			[ -b "$d" ] || continue
+			if [ -n "$PORTABLE" ]; then
+				[ "$(part_name "$d")" = "sing-portable-root" ] || continue
+			fi
 			m=$(busybox dd if="$d" bs=1 skip=1024 count=4 2>/dev/null | busybox od -An -tx1 | busybox tr -d ' \n')
 			[ "$m" = "e2e1f5e0" ] && { DATA="$d"; DATAS="$DATAS $d"; break; }
 		done
@@ -400,17 +457,45 @@ if [ -n "$UNLOCKED" ]; then
 else
 	while [ $i -lt 75 ]; do
 		mount_data
-		DATAS="$SLOT_DATAS"; HASHES="$SLOT_HASHES"
-		for d in /dev/loop[0-9]* /dev/vd*[0-9] /dev/sd*[0-9] /dev/nvme*p[0-9]* /dev/mmcblk*p[0-9]*; do
-			[ -b "$d" ] || continue
-			if [ "$(busybox dd if="$d" bs=6 count=1 2>/dev/null)" = "verity" ]; then
-				HASHES="$HASHES $d"; continue
+		mount_iso
+		DATAS= ; HASHES=
+		if [ -n "$LIVE" ]; then
+			for d in /dev/vd*[0-9] /dev/sd*[0-9] /dev/sr[0-9]p[0-9]* /dev/nvme*p[0-9]* /dev/mmcblk*p[0-9]*; do
+				[ -b "$d" ] || continue
+				if [ -n "$PORTABLE" ]; then
+					case "$(part_name "$d")" in
+						sing-portable-root|sing-portable-hash) ;;
+						*) continue ;;
+					esac
+				fi
+				if [ "$(busybox dd if="$d" bs=6 count=1 2>/dev/null)" = "verity" ]; then
+					HASHES="$HASHES $d"; continue
+				fi
+				m=$(busybox dd if="$d" bs=1 skip=1024 count=4 2>/dev/null | busybox od -An -tx1 | busybox tr -d ' \n')
+				[ "$m" = "e2e1f5e0" ] && DATAS="$DATAS $d"
+			done
+			if [ -z "$PORTABLE" ]; then
+				DATAS="$DATAS $ISO_DATAS"; HASHES="$HASHES $ISO_HASHES"
 			fi
-			m=$(busybox dd if="$d" bs=1 skip=1024 count=4 2>/dev/null | busybox od -An -tx1 | busybox tr -d ' \n')
-			[ "$m" = "e2e1f5e0" ] && DATAS="$DATAS $d"
-		done
+		else
+			DATAS="$SLOT_DATAS"; HASHES="$SLOT_HASHES"
+		fi
 		for _dt in $DATAS; do
 			for _hs in $HASHES; do
+				# A verified pair must use one source layout: both slot loops or both raw
+				# partitions. The root hash authenticates bytes, but mixing origins
+				# makes later data/ESP ownership ambiguous.
+				_dt_slot= ; _hs_slot=
+				for _s in $SLOT_DATAS; do [ "$_dt" = "$_s" ] && _dt_slot=1; done
+				for _s in $SLOT_HASHES; do [ "$_hs" = "$_s" ] && _hs_slot=1; done
+				[ "$_dt_slot" = "$_hs_slot" ] || continue
+				_dt_iso= ; _hs_iso=
+				for _s in $ISO_DATAS; do [ "$_dt" = "$_s" ] && _dt_iso=1; done
+				for _s in $ISO_HASHES; do [ "$_hs" = "$_s" ] && _hs_iso=1; done
+				[ "$_dt_iso" = "$_hs_iso" ] || continue
+				if [ -z "$_dt_slot" ] && [ -z "$_dt_iso" ]; then
+					[ "$(block_disk "$_dt")" = "$(block_disk "$_hs")" ] || continue
+				fi
 				veritysetup close vroot 2>/dev/null
 				veritysetup open "$_dt" vroot "$_hs" "$ROOTHASH" 2>/dev/null || continue
 				vm=$(busybox dd if=/dev/mapper/vroot bs=1 skip=1024 count=4 2>/dev/null | busybox od -An -tx1 | busybox tr -d ' \n')
@@ -427,14 +512,34 @@ else
 	[ -n "$DATA" ] || rescue "no verified data/hash pair for sing.roothash (data:$DATAS hash:$HASHES)"
 fi
 
-# One partition holds everything, so there is nothing to search for: /var IS the data
-# partition already mounted, and the root image came out of a file on it. The
-# same-disk question that a separate /var raised cannot arise.
-#
-# Installed vs live is decided by .atom-var on that partition: an installed system gets
-# it back read-write as /var, a live medium keeps it read-only under a tmpfs /var so the
-# USB is never written to. Either way boot/ is bind-mounted onto /boot, which is where
-# the update daemon stages the next slot and the loader's ESP is mounted.
+ROOT_IS_OPTICAL=
+for _s in $ISO_DATAS; do [ "$DATA" = "$_s" ] && ROOT_IS_OPTICAL=1; done
+
+# A raw root can coexist with an Atom Loops installation on another disk. Never
+# adopt that installation's writable data by accident. The separately signed
+# portable image opts into this pairing with sing.portable=1; this is useful for
+# recovery and testing a new root without installing it first.
+ROOT_USES_DATADEV=
+for _s in $SLOT_DATAS; do [ "$DATA" = "$_s" ] && ROOT_USES_DATADEV=1; done
+if [ -n "$DATADEV" ] && [ -z "$ROOT_USES_DATADEV" ]; then
+	if [ -n "$PORTABLE" ] && [ -e "$DATAMNT/.atom-var" ]; then
+		busybox echo "[init] portable: raw root $DATA using installed data $DATADEV"
+	else
+		_ignored_data="$DATADEV"
+		for _l in $SLOT_DATAS $SLOT_HASHES; do
+			busybox losetup -d "$_l" 2>/dev/null || true
+		done
+		busybox umount "$DATAMNT" 2>/dev/null \
+			|| rescue "cannot detach unrelated data partition $_ignored_data"
+		DATADEV= ; SLOT_DATAS= ; SLOT_HASHES=
+		busybox echo "[init] live: ignored unrelated data partition $_ignored_data"
+	fi
+fi
+
+# An Atom Loops root normally gets its own data partition back as /var. Portable mode
+# deliberately gives a raw removable root the installed data partition instead.
+# Installed vs live is decided by .atom-var: installed and portable boots get writable
+# data, while a live medium keeps any matching data read-only under a tmpfs /var.
 if [ -n "$DATADEV" ] && [ -e "$DATAMNT/.atom-var" ]; then
 	busybox mount -t erofs -o ro "$ROOTSRC" /sysroot || rescue "cannot mount erofs root"
 	busybox mount --move "$DATAMNT" /sysroot/var || rescue "cannot carry the data partition to /var"
@@ -462,14 +567,29 @@ else
 			&& busybox mount -o bind /sysroot/var/.data/boot /sysroot/boot 2>/dev/null \
 			&& busybox echo "[init] live: data partition $DATADEV kept read-only"
 	fi
+	if [ -n "$ROOT_IS_OPTICAL" ]; then
+		# Keep the ISO mount alive because the verified loop devices are backed by
+		# files on it, and expose its full ESP image to the installer.
+		busybox mkdir -p /sysroot/var/.iso 2>/dev/null || true
+		busybox mount --move "$ISOMNT" /sysroot/var/.iso 2>/dev/null \
+			|| rescue "cannot carry optical boot media"
+	fi
 fi
 
-# The ESP has to be mounted for an update to land: otad stages kernelcache-next and
-# rewrites boot-state under /boot/efi/EFI/atom, and the loader reads them on the next
-# boot. Nothing else mounts it, so do it here. Identified by content, not by name.
-if [ -n "$DATADEV" ]; then
-	for e in /dev/vd*[0-9] /dev/sd*[0-9] /dev/nvme*p[0-9]* /dev/mmcblk*p[0-9]*; do
+# Mount only the ESP on the disk that supplied the verified root. In portable mode
+# /var deliberately comes from the installed disk while the kernelcache and root stay
+# on the removable disk, so scanning for the first ESP would cross the two devices.
+ROOTDISK=
+if [ -z "$ROOT_IS_OPTICAL" ]; then
+	case "$DATA" in
+		/dev/loop*) ROOTDISK=$(block_disk "$DATADEV") ;;
+		*) ROOTDISK=$(block_disk "$DATA") ;;
+	esac
+fi
+if [ -n "$ROOTDISK" ]; then
+	for e in /dev/vd*[0-9] /dev/sd*[0-9] /dev/sr[0-9]p[0-9]* /dev/nvme*p[0-9]* /dev/mmcblk*p[0-9]*; do
 		[ -b "$e" ] || continue
+		[ "$(block_disk "$e")" = "$ROOTDISK" ] || continue
 		busybox mkdir -p /sysroot/boot/efi 2>/dev/null || true
 		busybox mount -t vfat "$e" /sysroot/boot/efi 2>/dev/null || continue
 		if [ -d /sysroot/boot/efi/EFI/atom ]; then
@@ -478,6 +598,15 @@ if [ -n "$DATADEV" ]; then
 		fi
 		busybox umount /sysroot/boot/efi 2>/dev/null
 	done
+fi
+if [ -n "$ROOT_IS_OPTICAL" ] && [ ! -d /sysroot/boot/efi/EFI/atom ] \
+	&& [ -f /sysroot/var/.iso/EFI/efiboot.img ]; then
+	_iso_esp=$(busybox losetup -f)
+	if busybox losetup -r "$_iso_esp" /sysroot/var/.iso/EFI/efiboot.img 2>/dev/null; then
+		busybox mkdir -p /sysroot/boot/efi 2>/dev/null || true
+		busybox mount -t vfat -o ro "$_iso_esp" /sysroot/boot/efi 2>/dev/null \
+			&& busybox echo "[init] ESP: optical image $_iso_esp"
+	fi
 fi
 INIT=
 if [ -n "$CMDINIT" ] && [ -x "/sysroot$CMDINIT" ]; then

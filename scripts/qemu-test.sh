@@ -30,9 +30,9 @@ case "$MODE" in
   uki)
     # Boot artifacts/sinty-os.img the way real hardware does: OVMF -> the signed
     # loader on the ESP -> UKI -> initramfs. This is the only mode that exercises the
-    # slot layout (system partition, loop-attached rootfs file, dm-verity, ESP mount);
-    # `direct` bypasses all of it. The image is copied first because the firmware and
-    # the system partition are written to, and a boot must not mutate the artifact.
+    # removable layout (raw root/hash partitions, dm-verity, ESP mount);
+    # `direct` bypasses all of it. The image is copied first because log collection
+    # writes SINTYLOGS, and a boot must not mutate the artifact.
     OVMF="$(ls /usr/share/OVMF/OVMF_CODE_4M.fd 2>/dev/null | head -1)"
     OVMF_VARS="$(ls /usr/share/OVMF/OVMF_VARS_4M.fd 2>/dev/null | head -1)"
     [ -n "$OVMF" ] && [ -n "$OVMF_VARS" ] || { echo "OVMF firmware not found"; exit 1; }

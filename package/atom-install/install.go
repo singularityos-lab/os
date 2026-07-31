@@ -64,7 +64,7 @@ func espHasLoader(dev string) bool {
 // candidatePartitions lists block partitions, excluding the target disk.
 func candidatePartitions(target string) []string {
 	var out []string
-	globs := []string{"/dev/vd*[0-9]", "/dev/sd*[0-9]", "/dev/nvme*p[0-9]*", "/dev/mmcblk*p[0-9]*"}
+	globs := []string{"/dev/vd*[0-9]", "/dev/sd*[0-9]", "/dev/sr[0-9]p[0-9]*", "/dev/nvme*p[0-9]*", "/dev/mmcblk*p[0-9]*"}
 	for _, g := range globs {
 		m, _ := filepath.Glob(g)
 		for _, d := range m {
@@ -77,22 +77,42 @@ func candidatePartitions(target string) []string {
 	return out
 }
 
+// parentDisk returns the whole-disk device that owns dev, using sysfs so SATA,
+// NVMe and MMC partition naming are handled by the kernel rather than by string rules.
+func parentDisk(dev string) string {
+	path, err := filepath.EvalSymlinks(filepath.Join("/sys/class/block", filepath.Base(dev)))
+	if err != nil {
+		return ""
+	}
+	if _, err := os.Stat(filepath.Join(path, "partition")); err == nil {
+		path = filepath.Dir(path)
+	}
+	return filepath.Join("/dev", filepath.Base(path))
+}
+
 // detectSources finds the live ESP, erofs root and verity hash partitions.
 func detectSources(target string) (esp, erofs, hash string, err error) {
-	// Two shapes of live medium install: the .img, whose root already IS a slot file on
-	// the mounted system partition, and the .iso, which still appends the root image and
-	// its hash tree as raw partitions. Prefer the mounted files -- booted from a .img
-	// there is no raw erofs partition to find, so probing alone would fail the install.
+	// Three source layouts are supported: an installed/test image can expose the root
+	// as a slot file on its mounted data partition, optical media expose files through
+	// ISO9660, and disk images expose raw root and hash partitions. Prefer mounted
+	// files when present, then probe raw partitions.
 	const activeErofs = "/boot/rootfs/rootfs-active.erofs"
 	const activeHash = "/boot/rootfs/rootfs-active.hash"
+	const opticalErofs = "/var/.iso/live/rootfs.erofs"
+	const opticalHash = "/var/.iso/live/rootfs.hash"
+	// The initramfs mounts the source ESP before starting userspace. Reuse that device:
+	// probing it by mounting it again read-only can fail because it is already mounted.
+	esp = mountedDevice("/boot/efi")
+	sourceDisk := parentDisk(esp)
 	if fileExists(activeErofs) && fileExists(activeHash) {
 		erofs, hash = activeErofs, activeHash
-		// The initramfs already mounted the ESP, so probing it by mounting it again
-		// read-only fails ("would change RO state"). Take the device from the mount
-		// table instead, or the install aborts having found everything but the ESP.
-		esp = mountedDevice("/boot/efi")
+	} else if fileExists(opticalErofs) && fileExists(opticalHash) {
+		erofs, hash = opticalErofs, opticalHash
 	}
 	for _, d := range candidatePartitions(target) {
+		if sourceDisk != "" && parentDisk(d) != sourceDisk {
+			continue
+		}
 		h := readHeader(d, 1028)
 		switch classify(h, false) {
 		case KindHash:
@@ -163,9 +183,41 @@ func main() {
 
 	die(run("dd", "if="+esp, "of="+partName(dev, 1), "bs=4M", "conv=fsync"))
 	die(setupData(partName(dev, 2), erofs, hash, esp))
+	die(activateInstalledKernelcache(partName(dev, 1)))
 	setUEFIEntry(dev) // best-effort
 
 	fmt.Printf("atom-install: %s provisioned\n", dev)
+}
+
+// activateInstalledKernelcache replaces the live-only UKI copied with the source ESP.
+// The installed UKI accepts slot files instead of waiting for raw removable partitions.
+func activateInstalledKernelcache(esp string) error {
+	mnt, err := os.MkdirTemp("", "atom-esp-target")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(mnt)
+	if err := run("mount", "-t", "vfat", esp, mnt); err != nil {
+		return err
+	}
+	defer run("umount", mnt)
+
+	dir := filepath.Join(mnt, "EFI", "atom")
+	pairs := [][2]string{
+		{filepath.Join(dir, "kernelcache-install.efi"), filepath.Join(dir, "kernelcache-active.efi")},
+		{filepath.Join(dir, "kernelcache-install.efi.sig"), filepath.Join(dir, "kernelcache-active.efi.sig")},
+	}
+	for _, pair := range pairs {
+		if !fileExists(pair[0]) {
+			return fmt.Errorf("installed kernelcache missing: %s", pair[0])
+		}
+	}
+	for _, pair := range pairs {
+		if err := os.Rename(pair[0], pair[1]); err != nil {
+			return err
+		}
+	}
+	return run("sync")
 }
 
 // setupData builds the one partition the installed system boots from: the root image

@@ -145,7 +145,7 @@ fi
 # verity device, mounts the verified erofs read-only and overlays a tmpfs.
 bash scripts/build-initramfs.sh buildroot-build/target artifacts/initrd.cpio.xz
 
-# The initramfs finds the data/hash partitions by GPT PARTLABEL and opens the
+# The initramfs finds the root/hash partitions by content and opens the
 # verity device with this root hash, so no device names are baked in. The firmware
 # add-on's dm-verity hash is intentionally NOT here (see the anchor note above).
 CMDLINE="console=tty0 console=ttyS0,115200 ro quiet loglevel=0 vt.global_cursor_default=0 udev.log_level=0 rd.systemd.show_status=0 systemd.show_status=0 rootwait sing.roothash=${ROOT_HASH} atom.version=${RELEASE_VERSION} lsm=landlock,lockdown,yama,bpf lockdown=integrity module.sig_enforce=1 init_on_alloc=1 slab_nomerge page_alloc.shuffle=1 randomize_kstack_offset=1 vsyscall=none cfg80211.ieee80211_regdom=IT${EXTRA_CMDLINE:+ ${EXTRA_CMDLINE}}"
@@ -180,7 +180,38 @@ objcopy \
 echo "[package] UKI: artifacts/kernelcache.efi"
 echo "[package] root hash: ${ROOT_HASH}"
 
-# Installable GPT disk image: ESP (UKI as default boot) + labelled data/hash.
+# Live and installed kernelcaches select different root layouts. The signed flag keeps
+# a slow removable root from falling through to an installed slot with the same hash.
+LIVE_CMDLINE="${CMDLINE} sing.live=1"
+printf '%s' "$LIVE_CMDLINE" > artifacts/cmdline-live.txt
+objcopy \
+    $OSREL \
+    --add-section .cmdline=artifacts/cmdline-live.txt \
+    --change-section-vma .cmdline=$(vma 0x110000) \
+    --add-section .atomver=artifacts/atomver.txt \
+    --change-section-vma .atomver=$(vma 0x108000) \
+    --add-section .linux="$KERNEL" \
+    --change-section-vma .linux=$(vma 0x200000) \
+    --add-section .initrd=artifacts/initrd.cpio.xz \
+    --change-section-vma .initrd=$(vma 0x2000000) \
+    "$STUB" artifacts/kernelcache-live.efi
+
+# Portable mode uses the live raw root and may attach installed writable data.
+PORTABLE_CMDLINE="${LIVE_CMDLINE} sing.portable=1"
+printf '%s' "$PORTABLE_CMDLINE" > artifacts/cmdline-portable.txt
+objcopy \
+    $OSREL \
+    --add-section .cmdline=artifacts/cmdline-portable.txt \
+    --change-section-vma .cmdline=$(vma 0x110000) \
+    --add-section .atomver=artifacts/atomver.txt \
+    --change-section-vma .atomver=$(vma 0x108000) \
+    --add-section .linux="$KERNEL" \
+    --change-section-vma .linux=$(vma 0x200000) \
+    --add-section .initrd=artifacts/initrd.cpio.xz \
+    --change-section-vma .initrd=$(vma 0x2000000) \
+    "$STUB" artifacts/kernelcache-portable.efi
+
+# Installable GPT disk image: ESP (UKI as default boot) + raw root/hash.
 HOSTBIN="${REPO_DIR}/buildroot-build/host/bin"
 HOSTSBIN="${REPO_DIR}/buildroot-build/host/sbin"
 export PATH="${HOSTBIN}:${HOSTSBIN}:${PATH}"
@@ -195,10 +226,16 @@ mkfs.fat -F 32 -n SINGEFI artifacts/esp.vfat >/dev/null
 # Development builds use a throwaway root key; release builds use the offline root.
 ( cd "${ATOMLOOPS}" && "${ATOMLOOPS_GO:-go}" run ./cmd/atom-sign sign \
     --manifest "${REPO_DIR}/artifacts/kernelcache.efi" --priv "${ATOM_SIGNING_KEY}" )
+( cd "${ATOMLOOPS}" && "${ATOMLOOPS_GO:-go}" run ./cmd/atom-sign sign \
+    --manifest "${REPO_DIR}/artifacts/kernelcache-live.efi" --priv "${ATOM_SIGNING_KEY}" )
+( cd "${ATOMLOOPS}" && "${ATOMLOOPS_GO:-go}" run ./cmd/atom-sign sign \
+    --manifest "${REPO_DIR}/artifacts/kernelcache-portable.efi" --priv "${ATOM_SIGNING_KEY}" )
 mmd -i artifacts/esp.vfat ::EFI ::EFI/BOOT ::EFI/atom
 mcopy -i artifacts/esp.vfat "${ATOM_LOADER_EFI}" ::EFI/BOOT/BOOTX64.EFI
 mcopy -i artifacts/esp.vfat artifacts/kernelcache.efi          ::EFI/atom/kernelcache-active.efi
 mcopy -i artifacts/esp.vfat artifacts/kernelcache.efi.sig      ::EFI/atom/kernelcache-active.efi.sig
+mcopy -i artifacts/esp.vfat artifacts/kernelcache.efi          ::EFI/atom/kernelcache-install.efi
+mcopy -i artifacts/esp.vfat artifacts/kernelcache.efi.sig      ::EFI/atom/kernelcache-install.efi.sig
 mcopy -i artifacts/esp.vfat "${ATOM_SIGNING_CERT}"     ::EFI/atom/signing-cert.json
 mcopy -i artifacts/esp.vfat "${ATOM_SIGNING_CERT_SIG}" ::EFI/atom/signing-cert.json.sig
 # recovery slot (Tier-2): a REAL standalone recovery image -- busybox + wpa_supplicant +
@@ -220,31 +257,25 @@ cat > artifacts/deployment.json <<DJ
 DJ
 mcopy -i artifacts/esp.vfat artifacts/deployment.json ::EFI/atom/deployment.json
 
+# The live and portable ESPs differ only in their signed active UKI. The installer
+# promotes kernelcache-install.efi after copying the source ESP to the target disk.
+cp artifacts/esp.vfat artifacts/esp-live.vfat
+mcopy -o -i artifacts/esp-live.vfat artifacts/kernelcache-live.efi \
+    ::EFI/atom/kernelcache-active.efi
+mcopy -o -i artifacts/esp-live.vfat artifacts/kernelcache-live.efi.sig \
+    ::EFI/atom/kernelcache-active.efi.sig
+
+cp artifacts/esp.vfat artifacts/esp-portable.vfat
+mcopy -o -i artifacts/esp-portable.vfat artifacts/kernelcache-portable.efi \
+    ::EFI/atom/kernelcache-active.efi
+mcopy -o -i artifacts/esp-portable.vfat artifacts/kernelcache-portable.efi.sig \
+    ::EFI/atom/kernelcache-active.efi.sig
+
 # Removable log-collection partition (SINTYLOGS): singularity-logcollect mirrors the
 # boot journal/dmesg/session logs here so they can be read back off-device.
 rm -f artifacts/sintylogs.ext4
 dd if=/dev/zero of=artifacts/sintylogs.ext4 bs=1M count=256 status=none
 /usr/sbin/mkfs.ext4 -q -L SINTYLOGS -F artifacts/sintylogs.ext4
-
-# The single data partition. Atom Loops needs no A/B layout: beyond the ESP there is
-# ONE partition, holding the root image as a file under boot/rootfs alongside the user
-# data. boot/efi and boot/firmware are mountpoints the read-only erofs root cannot host.
-# No .atom-var here: the shipped medium boots live (tmpfs /var, OTA inert); the
-# installer writes that marker on the target disk.
-rm -rf artifacts/data-staging artifacts/atom-data.ext4
-mkdir -p artifacts/data-staging/boot/{rootfs,efi,firmware} \
-    artifacts/data-staging/{home,etc-upper,etc-work,lib,log,cache,spool,tmp,run}
-chmod 1777 artifacts/data-staging/tmp
-cp artifacts/rootfs.erofs artifacts/data-staging/boot/rootfs/rootfs-active.erofs
-cp artifacts/rootfs.hash  artifacts/data-staging/boot/rootfs/rootfs-active.hash
-cp artifacts/deployment.json artifacts/data-staging/boot/rootfs/deployment.json
-cp artifacts/deployment.json artifacts/data-staging/boot/rootfs/deployment.json.bak
-DATA_MB=$(( $(du -sm artifacts/data-staging | cut -f1) + 256 ))
-# fakeroot so the tree lands owned by root: mke2fs -d copies the staging ownership.
-"${HOSTBIN}/fakeroot" -- sh -c "chown -R 0:0 artifacts/data-staging && \
-    /usr/sbin/mke2fs -q -t ext4 -L atom-data -d artifacts/data-staging \
-    artifacts/atom-data.ext4 ${DATA_MB}M"
-rm -rf artifacts/data-staging
 
 rm -rf genimage-tmp
 "${HOSTBIN}/genimage" \
@@ -253,26 +284,26 @@ rm -rf genimage-tmp
     --outputpath artifacts \
     --tmppath genimage-tmp
 
-# Bootable hybrid ISO: efiboot.img holds the UKI for El Torito EFI boot, the ESP
-# plus data and hash are appended as GPT partitions for USB boot; the initramfs
-# finds data and hash by content.
+rm -rf genimage-portable-tmp
+"${HOSTBIN}/genimage" \
+    --config scripts/genimage-portable.cfg \
+    --inputpath artifacts \
+    --outputpath artifacts \
+    --tmppath genimage-portable-tmp
+
+# Bootable optical ISO: El Torito boots the full live ESP, while ISO9660 carries the
+# root and hash as files for the initramfs to attach and verify through loop devices.
 ISO_ROOT="$(mktemp -d "${SINTY_WORK_ROOT}/package-iso.XXXXXX")"
-mkdir -p "${ISO_ROOT}/EFI"
-rm -f artifacts/efiboot.img
-dd if=/dev/zero of=artifacts/efiboot.img bs=1M count=32 status=none
-mkfs.fat -F 16 artifacts/efiboot.img >/dev/null
-mmd -i artifacts/efiboot.img ::EFI ::EFI/BOOT
-mcopy -i artifacts/efiboot.img artifacts/kernelcache.efi ::EFI/BOOT/BOOTX64.EFI
-cp artifacts/efiboot.img "${ISO_ROOT}/EFI/efiboot.img"
+mkdir -p "${ISO_ROOT}/EFI" "${ISO_ROOT}/live"
+cp artifacts/esp-live.vfat "${ISO_ROOT}/EFI/efiboot.img"
+cp artifacts/rootfs.erofs "${ISO_ROOT}/live/rootfs.erofs"
+cp artifacts/rootfs.hash "${ISO_ROOT}/live/rootfs.hash"
 "${HOSTBIN}/xorriso" -as mkisofs \
     -iso-level 3 -volid SINTY_OS \
     -e EFI/efiboot.img -no-emul-boot \
-    -append_partition 2 0xef artifacts/esp.vfat \
-    -append_partition 3 0x83 artifacts/rootfs.erofs \
-    -append_partition 4 0x83 artifacts/rootfs.hash \
-    -appended_part_as_gpt -isohybrid-gpt-basdat \
     -o artifacts/sinty-os.iso "${ISO_ROOT}"
-rm -rf "${ISO_ROOT}" artifacts/efiboot.img
+rm -rf "${ISO_ROOT}"
 
 echo "[package] disk image: artifacts/sinty-os.img"
+echo "[package] portable image: artifacts/sinty-os-portable.img"
 echo "[package] iso: artifacts/sinty-os.iso"

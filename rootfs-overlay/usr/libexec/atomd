@@ -1,0 +1,12 @@
+#!/bin/sh
+
+case " $(cat /proc/cmdline 2>/dev/null) " in
+	*" sing.portable=1 "*)
+		case "${1:-}" in
+			status|version|--version|-v) ;;
+			*) exit 0 ;;
+		esac
+		;;
+esac
+
+exec /usr/libexec/atomd.real "$@"

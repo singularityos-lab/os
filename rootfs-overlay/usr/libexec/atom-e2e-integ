@@ -8,7 +8,7 @@
 # a phase failure prints "E2E PHASE <x> FAILED" and stops without advancing the marker.
 exec 2>&1
 P () { printf '%s\n' "$*"; }
-STOP () { sync; echo 1 > /proc/sys/kernel/sysrq 2>/dev/null || true; echo o > /proc/sysrq-trigger 2>/dev/null || true; sleep 5; }
+STOP () { sync; busybox poweroff -f 2>/dev/null || true; sleep 5; }
 FAIL () { P "E2E PHASE ${PHASE:-?} FAILED: $*"; P "===== ATOM E2E INTEG END (FAILED) ====="; STOP; exit 1; }
 MARKF=/var/lib/sinty/.e2e-phase
 PIN=246810
@@ -27,17 +27,17 @@ case "$PHASE" in
     [ -b /dev/vdb ] || FAIL "no /dev/vdb target"
     P "OBS running real atom-install /dev/vdb ..."
     atom-install /dev/vdb || FAIL "atom-install rc=$?"
-    P "ASSERT B2 installer-made-/var-f2fs: $(blkid -o value -s TYPE /dev/vdb4 2>/dev/null) (exp f2fs)"
+    P "ASSERT installer-data-fs: $(blkid -o value -s TYPE /dev/vdb2 2>/dev/null) (exp f2fs)"
     MNT="$(mktemp -d)"
-    mount -t f2fs /dev/vdb4 "$MNT" || FAIL "cannot mount vdb4 to stage marker"
+    mount -t f2fs /dev/vdb2 "$MNT" || FAIL "cannot mount vdb2 to stage marker"
     mkdir -p "$MNT/lib/sinty"; printf 'firstboot' > "$MNT/lib/sinty/.e2e-phase"; sync; umount "$MNT"
     P "OBS install ok -> marker(on installed /var)=firstboot; rebooting to installed system (image disk removed)"
     ;;
   firstboot)
     VARFS="$(mount | grep ' /var ' | awk '{print $5}' | head -1)"
-    P "ASSERT B3 initramfs-var-f2fs: [$VARFS] (exp f2fs, NOT tmpfs -- real-path mount fix on the REAL installed disk)"
+    P "ASSERT installed-var-fs: [$VARFS] (exp f2fs, NOT tmpfs -- real-path mount fix on the REAL installed disk)"
     [ "$VARFS" = f2fs ] || FAIL "/var is '$VARFS' not f2fs"
-    P "ASSERT B4 atom-var-marker-present: [$([ -e /var/.atom-var ] && echo yes)] (exp yes -> installed /var, not live tmpfs)"
+    P "ASSERT installed-var-marker: [$([ -e /var/.atom-var ] && echo yes)] (exp yes -> installed /var, not live tmpfs)"
     P "OBS running real atom-firstboot (PIN via stdin, provision on REAL /var/home) ..."
     OOBE_USERNAME="$USER" OOBE_HOSTNAME=sinty OOBE_FULLNAME="E2E Owner" OOBE_THEME=dual \
       sh -c 'printf "%s" "$0" | atom-firstboot' "$PIN" || FAIL "atom-firstboot rc=$?"
@@ -62,12 +62,11 @@ case "$PHASE" in
     printf '%s' "$PIN" | pamtester -v greetd "$USER" authenticate acct_mgmt open_session; RC=$?
     P "ASSERT login-real-PIN-exit: $RC (exp 0 -- real greetd stack on the installed system)"
     [ "$RC" = 0 ] || FAIL "pamtester login rc=$RC on real installed system"
-    P "DBG-KEYSTATUS-after-pamtester: [$(f2fscrypt key_status "$HOME_DIR" 2>&1 | tr '\n' '|' | head -c 200)] [$(f2fscrypt status /var 2>&1 | tr '\n' '|' | head -c 200)]"
-    P "ASSERT after-login-real-home-readable: [$(cat "$HOME_DIR"/.bashrc 2>&1 | head -c 40)] (exp readable skel -- crown on the REAL installed /home)"
-    P "DBG-CROWN: [$(cat /var/lib/sinty/.dbg-crown 2>/dev/null | tr '\n' '|')]"
-    P "DBG-POLICY-ON-DISK: [$(f2fscrypt get_policy "$HOME_DIR" 2>&1 | tr '\n' '|' | head -c 200)]"
+    P "OBS fscrypt-key-status: [$(f2fscrypt key_status "$HOME_DIR" 2>&1 | tr '\n' '|' | head -c 200)] [$(f2fscrypt status /var 2>&1 | tr '\n' '|' | head -c 200)]"
+    P "ASSERT after-login-real-home-readable: [$(cat "$HOME_DIR"/.bashrc 2>&1 | head -c 40)] (exp readable skel on the REAL installed /home)"
+    P "OBS fscrypt-policy: [$(f2fscrypt get_policy "$HOME_DIR" 2>&1 | tr '\n' '|' | head -c 200)]"
     printf 'wrong9' | pamtester greetd "$USER" authenticate; P "ASSERT login-WRONG-PIN-exit: $? (exp non-zero)"
-    # PAM-AUDIT: verify the pam_unix backdoor is CLOSED everywhere (FATTO #2)
+    # PAM audit: verify the pam_unix backdoor is closed everywhere.
     printf '' | pamtester login "$USER" authenticate; P "ASSERT PAM-login-EMPTY-pw-exit: $? (exp non-zero -- console empty-password backdoor CLOSED)"
     printf 'x' | pamtester su "$USER" authenticate;   P "ASSERT PAM-su-deny-exit: $? (exp non-zero -- pam_deny, no escalation)"
     printf 'x' | pamtester sudo "$USER" authenticate; P "ASSERT PAM-sudo-deny-exit: $? (exp non-zero -- pam_deny, no escalation)"
@@ -80,7 +79,7 @@ case "$PHASE" in
     printf '%s' "$PIN"  | pamtester login "$USER" authenticate acct_mgmt; P "ASSERT LOCK-refuses-right-PIN-exit: $? (exp non-zero -- locked account cannot log in even with the right PIN)"
     usermod -U "$USER" 2>/dev/null || passwd -u "$USER" 2>/dev/null  # restore
     printf '%s' "$PIN"  | pamtester login "$USER" authenticate acct_mgmt; P "ASSERT UNLOCK-allows-right-PIN-exit: $? (exp 0 -- unlocked account logs in again)"
-    # DE-AUDIT: device-key (no-PIN) fscrypt on system /var (FATTO #4)
+    # Device-encryption audit: verify no-PIN fscrypt on system /var.
     P "ASSERT DE-device-pub: [$(ls /var/lib/sinty/device.pub >/dev/null 2>&1 && echo present || echo MISSING)] (exp present -- provision-device ran at first boot)"
     P "ASSERT DE-var-log-policy: [$(f2fscrypt get_policy /var/log 2>&1 | tr '\n' ' ' | head -c 80)] (exp a policy -- /var/log DE-encrypted)"
     echo "DK-DEVICE-KEY-WORKS" > /var/log/de-test 2>/dev/null

@@ -30,6 +30,15 @@ them come from Buildroot, so the host has to provide them.
 ./scripts/package.sh
 ```
 
+The build produces an install image with raw verified root/hash partitions and a
+portable image. The portable image boots its signed root from removable media
+and can attach an existing Sinty OS data partition for recovery or release
+testing without installing that root.
+Cross-disk writable data is enabled only by the portable image's signed kernel
+command line; the normal image never opts into it. Boot confirmation and update
+staging stay disabled in portable sessions so the installed deployment state is
+not changed by a removable root.
+
 ## License
 
 The build system and the original Sinty OS components in this repository are

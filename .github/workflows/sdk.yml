@@ -94,10 +94,9 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: buildroot-build/host
-          key: buildroot-host-v3-${{ env.IMAGE_VERSION }}-${{ hashFiles('buildroot-config/singularity_defconfig', 'buildroot-config/kernel.config') }}-${{ github.run_id }}
+          key: buildroot-host-v4-${{ env.IMAGE_VERSION }}-${{ hashFiles('buildroot-config/singularity_defconfig', 'buildroot-config/kernel.config', 'buildroot-source-patches/**') }}-${{ github.run_id }}
           restore-keys: |
-            buildroot-host-v3-${{ env.IMAGE_VERSION }}-${{ hashFiles('buildroot-config/singularity_defconfig', 'buildroot-config/kernel.config') }}-
-            buildroot-host-v3-${{ env.IMAGE_VERSION }}-
+            buildroot-host-v4-${{ env.IMAGE_VERSION }}-${{ hashFiles('buildroot-config/singularity_defconfig', 'buildroot-config/kernel.config', 'buildroot-source-patches/**') }}-
 
       - name: Restore Buildroot package build tree
         uses: actions/cache/restore@v4
