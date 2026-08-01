@@ -6,7 +6,7 @@
 # self-contained in the UKI's embedded initramfs (so the loader's Ed25519 over the whole
 # UKI already verifies it -- no separate dm-verity needed): busybox + wpa_supplicant +
 # udhcpc + veritysetup + the wifi firmware + the static atom-recovery binary, which brings
-# up wifi directly and re-downloads/verifies/reinstalls a signed image (macOS-Recovery style).
+# up Wi-Fi directly and re-downloads, verifies, and reinstalls a signed image.
 #
 # usage: build-recovery.sh   (run from the singularity-os repo root, after a normal build)
 set -eu
