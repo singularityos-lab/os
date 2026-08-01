@@ -1,6 +1,15 @@
 #!/bin/sh
 
 TARGET_DIR="$1"
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname "$0")" && pwd)"
+
+if ! SINTY_PRODUCT_VERSION="${SINTY_PRODUCT_VERSION:-$(cat "$SCRIPT_DIR/../release/product-version")}" \
+    SINTY_PRODUCT_BUILD="${SINTY_PRODUCT_BUILD:-$(cat "$SCRIPT_DIR/../release/product-build")}" \
+    ATOM_BUILD="${ATOM_BUILD:-}" \
+        "$SCRIPT_DIR/write-os-release.sh" "$TARGET_DIR/usr/lib/os-release"; then
+    echo "post-build: failed to write release identity" >&2
+    exit 1
+fi
 
 # Restore merged-usr: stray real-file installs (e.g. keyutils' /bin/keyctl) can turn the
 # /bin and /sbin merge symlinks into real directories, which breaks the rootfs devices

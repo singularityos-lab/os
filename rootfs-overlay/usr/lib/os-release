@@ -1,9 +1,10 @@
 NAME="Sinty OS"
-PRETTY_NAME="Sinty OS 1.0 (Event Horizon)"
+PRETTY_NAME="Sinty OS Event Horizon 26"
 ID=sinty
-VERSION="1.0 (Event Horizon)"
-VERSION_ID=1.0
+VERSION="26 (Event Horizon)"
+VERSION_ID=26
 VERSION_CODENAME=event-horizon
+BUILD_ID=26A000
 ANSI_COLOR="1;36"
 HOME_URL="https://sinty.dev/"
 DOCUMENTATION_URL="https://sinty.dev/docs/"

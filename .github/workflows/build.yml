@@ -166,6 +166,8 @@ jobs:
 
       - name: Compile
         id: compile
+        env:
+          ATOM_BUILD: rc
         run: |
           set +e
           timeout 320m ./scripts/compile.sh 2>&1 | tee build.log

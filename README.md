@@ -1,6 +1,6 @@
 # Sinty OS
 
-Build system for the Sinty OS root and kernelcache images.
+Build system for the Sinty OS Event Horizon 26 root and kernelcache images.
 
 ## Prerequisites
 
