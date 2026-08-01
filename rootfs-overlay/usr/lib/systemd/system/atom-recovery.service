@@ -2,6 +2,7 @@
 Description=Sinty recovery agent (local API on /run/atom-recovery.sock)
 After=atom-fscrypt-de.service
 ConditionPathExists=/usr/bin/atom-recovery
+ConditionPathExists=/var/.atom-var
 
 [Service]
 Type=simple

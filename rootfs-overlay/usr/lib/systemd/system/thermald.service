@@ -4,7 +4,7 @@ After=dbus.service
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/thermald --no-daemon --adaptive
+ExecStart=/usr/sbin/thermald --no-daemon --adaptive
 Restart=on-failure
 RestartSec=2
 
