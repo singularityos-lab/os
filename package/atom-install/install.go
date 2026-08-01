@@ -1,6 +1,8 @@
 package main
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"os/exec"
@@ -8,6 +10,14 @@ import (
 	"strconv"
 	"strings"
 )
+
+func newInstallID() (string, error) {
+	var id [16]byte
+	if _, err := rand.Read(id[:]); err != nil {
+		return "", fmt.Errorf("generate install ID: %w", err)
+	}
+	return hex.EncodeToString(id[:]), nil
+}
 
 // run executes a command with an explicit argv (never a shell) and returns a wrapped
 // error including stderr. This is the whole point of porting off /bin/sh: no word
@@ -170,6 +180,8 @@ func main() {
 
 	esp, erofs, hash, err := detectSources(dev)
 	die(err)
+	installID, err := newInstallID()
+	die(err)
 	espMB, err := mibOfDev(esp)
 	die(err)
 
@@ -182,8 +194,8 @@ func main() {
 	_ = run("partprobe", dev)
 
 	die(run("dd", "if="+esp, "of="+partName(dev, 1), "bs=4M", "conv=fsync"))
-	die(setupData(partName(dev, 2), erofs, hash, esp))
-	die(activateInstalledKernelcache(partName(dev, 1)))
+	die(setupData(partName(dev, 2), erofs, hash, esp, installID))
+	die(activateInstalledKernelcache(partName(dev, 1), installID))
 	setUEFIEntry(dev) // best-effort
 
 	fmt.Printf("atom-install: %s provisioned\n", dev)
@@ -191,7 +203,7 @@ func main() {
 
 // activateInstalledKernelcache replaces the live-only UKI copied with the source ESP.
 // The installed UKI accepts slot files instead of waiting for raw removable partitions.
-func activateInstalledKernelcache(esp string) error {
+func activateInstalledKernelcache(esp, installID string) error {
 	mnt, err := os.MkdirTemp("", "atom-esp-target")
 	if err != nil {
 		return err
@@ -203,6 +215,13 @@ func activateInstalledKernelcache(esp string) error {
 	defer run("umount", mnt)
 
 	dir := filepath.Join(mnt, "EFI", "atom")
+	stateDir := filepath.Join(dir, "state")
+	if err := os.MkdirAll(stateDir, 0o755); err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "install-id"), []byte(installID+"\n"), 0o644); err != nil {
+		return err
+	}
 	pairs := [][2]string{
 		{filepath.Join(dir, "kernelcache-install.efi"), filepath.Join(dir, "kernelcache-active.efi")},
 		{filepath.Join(dir, "kernelcache-install.efi.sig"), filepath.Join(dir, "kernelcache-active.efi.sig")},
@@ -226,7 +245,7 @@ func activateInstalledKernelcache(esp string) error {
 // with encrypt so fscrypt can protect the user data -- the data, not the whole disk.
 // .atom-var is what tells the init this is an installed system rather than a live
 // medium, which is what arms the update daemon.
-func setupData(part, erofs, hash, esp string) error {
+func setupData(part, erofs, hash, esp, installID string) error {
 	if err := run("mkfs.f2fs", "-f", "-l", "atom-data", "-O", "encrypt,extra_attr", part); err != nil {
 		return err
 	}
@@ -262,6 +281,9 @@ func setupData(part, erofs, hash, esp string) error {
 		return err
 	}
 	if err := os.WriteFile(filepath.Join(mnt, ".atom-var"), nil, 0o644); err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(mnt, ".atom-install-id"), []byte(installID+"\n"), 0o644); err != nil {
 		return err
 	}
 	// First boot runs the OOBE; the greeter session takes over afterwards. The running

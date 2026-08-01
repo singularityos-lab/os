@@ -7,11 +7,9 @@ config BR2_PACKAGE_SINTY_SDB
 	  TLS 1.3 ed25519 bridge with reciprocal pinning that replaces
 	  the USB cable for development devices.
 
-	  The daemon is gated twice: it needs both a development image
-	  (/etc/atom/dev.enabled) and an explicit opt-in for the bridge
-	  itself (/var/lib/sinty-sdb/enabled). The two markers are kept
-	  separate on purpose, so turning the bridge off cannot also
-	  turn off development mode and disable its own switch. Absent
-	  markers mean the bridge is off.
+	  The daemon is off by default. It starts only after the owner
+	  enables the bridge in Settings, which creates the persistent
+	  device-policy marker /var/lib/sinty-sdb/enabled. Release images
+	  expose the control but carry no network listener until opt-in.
 
 	  https://github.com/singularityos-lab/sinty-sdb

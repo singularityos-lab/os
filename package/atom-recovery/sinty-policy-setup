@@ -1,0 +1,101 @@
+#!/bin/sh
+set -eu
+
+policy_data_id=/var/.atom-install-id
+policy_esp_root=/boot/efi/EFI/atom
+policy_esp_state=$policy_esp_root/state
+policy_esp_id=$policy_esp_state/install-id
+policy_changed=0
+
+[ -f /var/.atom-var ] || {
+    echo "sinty-policy-setup: atom-data is not mounted" >&2
+    exit 1
+}
+[ -d "$policy_esp_root" ] || {
+    echo "sinty-policy-setup: system partition is not mounted" >&2
+    exit 1
+}
+
+valid_install_id() {
+    [ "${#1}" -eq 32 ] || return 1
+    case "$1" in
+        *[!0-9a-f]*) return 1 ;;
+    esac
+}
+
+read_install_id() {
+    [ -f "$1" ] || return 1
+    policy_value=$(tr -d '\r\n' < "$1")
+    valid_install_id "$policy_value" || return 2
+    printf '%s\n' "$policy_value"
+}
+
+write_install_id() {
+    policy_path=$1
+    policy_value=$2
+    policy_dir=${policy_path%/*}
+    policy_tmp=$policy_dir/.install-id.$$
+    mkdir -p "$policy_dir"
+    umask 077
+    printf '%s\n' "$policy_value" > "$policy_tmp"
+    chmod 0644 "$policy_tmp"
+    mv "$policy_tmp" "$policy_path"
+    policy_changed=1
+}
+
+policy_data_value=
+policy_esp_value=
+if [ -e "$policy_data_id" ]; then
+    policy_data_value=$(read_install_id "$policy_data_id") || {
+        echo "sinty-policy-setup: invalid atom-data install ID" >&2
+        exit 1
+    }
+fi
+if [ -e "$policy_esp_id" ]; then
+    policy_esp_value=$(read_install_id "$policy_esp_id") || {
+        echo "sinty-policy-setup: invalid system partition install ID" >&2
+        exit 1
+    }
+fi
+
+if [ -n "$policy_data_value" ] && [ -n "$policy_esp_value" ] && [ "$policy_data_value" != "$policy_esp_value" ]; then
+    echo "sinty-policy-setup: installed volume IDs do not match" >&2
+    exit 1
+fi
+policy_install_id=${policy_data_value:-$policy_esp_value}
+if [ -z "$policy_install_id" ]; then
+    policy_install_id=$(tr -d '-' < /proc/sys/kernel/random/uuid)
+    valid_install_id "$policy_install_id" || {
+        echo "sinty-policy-setup: could not generate install ID" >&2
+        exit 1
+    }
+fi
+[ -n "$policy_data_value" ] || write_install_id "$policy_data_id" "$policy_install_id"
+[ -n "$policy_esp_value" ] || write_install_id "$policy_esp_id" "$policy_install_id"
+[ "$policy_changed" -eq 0 ] || sync
+
+if ! grep -q '^sinty-policy:' /etc/group; then
+    groupadd --system sinty-policy
+fi
+
+while IFS=: read -r name _ uid _ _ home shell; do
+    case "$uid" in
+        ''|*[!0-9]*) continue ;;
+    esac
+    [ "$uid" -ge 1000 ] || continue
+    [ "$uid" -lt 65534 ] || continue
+    case "$home" in
+        /home/*) ;;
+        *) continue ;;
+    esac
+    case "$shell" in
+        */false|*/nologin) continue ;;
+    esac
+    if [ "$name" != "sinty" ]; then
+        case " $(id -Gn "$name") " in
+            *' wheel '*|*' sudo '*) ;;
+            *) continue ;;
+        esac
+    fi
+    usermod -aG sinty-policy "$name"
+done < /etc/passwd

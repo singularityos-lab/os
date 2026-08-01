@@ -6,7 +6,7 @@
 
 # SITE=local: build the Cairo recovery UI from the local sinty-recovery repo.
 # buildroot-build/local.mk _OVERRIDE_SRCDIR supersedes this for dev builds.
-SINTY_RECOVERY_UI_VERSION = v0.1.0
+SINTY_RECOVERY_UI_VERSION = v0.2.0
 SINTY_RECOVERY_UI_SITE = $(call github,singularityos-lab,sinty-recovery,$(SINTY_RECOVERY_UI_VERSION))
 SINTY_RECOVERY_UI_LICENSE = GPL-3.0-only
 SINTY_RECOVERY_UI_DEPENDENCIES = \

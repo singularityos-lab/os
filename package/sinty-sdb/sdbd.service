@@ -1,6 +1,5 @@
 [Unit]
 Description=Sinty Debug Bridge daemon
-ConditionPathExists=/etc/atom/dev.enabled
 ConditionPathExists=/var/lib/sinty-sdb/enabled
 After=network.target
 Wants=network.target

@@ -10,8 +10,8 @@ package main
 
 import (
 	"bufio"
-	"fmt"
 	"context"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -172,7 +172,7 @@ func main() {
 	// session dies to a black screen back to the greeter on every login. Only the baked
 	// template account (sinty) was pre-added in /etc/group, so demos with it worked while
 	// any OOBE-created account was locked out.
-	for _, g := range []string{"singularity-session", "wheel", "sudo", "audio", "video", "input", "render", "seat", "netdev", "plugdev", "bluetooth"} {
+	for _, g := range []string{"singularity-session", "sinty-policy", "wheel", "sudo", "audio", "video", "input", "render", "seat", "netdev", "plugdev", "bluetooth"} {
 		run("usermod", "-aG", g, user)
 	}
 

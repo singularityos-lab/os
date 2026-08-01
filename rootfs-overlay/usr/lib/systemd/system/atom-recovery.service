@@ -1,13 +1,12 @@
 [Unit]
 Description=Sinty recovery agent (local API on /run/atom-recovery.sock)
-DefaultDependencies=no
-After=systemd-udevd.service
-Before=basic.target
+After=atom-fscrypt-de.service
 ConditionPathExists=/usr/bin/atom-recovery
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/atom-recovery --mode serve
+ExecStartPre=/usr/libexec/sinty-policy-setup
+ExecStart=/usr/bin/atom-recovery --mode serve --runtime --socket-group sinty-policy --root-pub /etc/atom-fw-root.pub
 Restart=always
 RestartSec=1
 

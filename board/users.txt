@@ -1,5 +1,6 @@
 - -1 singularity-session 500 * - - - Singularity compositor session group (wayland socket group-shared greeter+sinty)
+- -1 sinty-policy -1 * - - - Sinty owner policy control group
 greeter 102 greeter 102 * /var/lib/greetd /bin/false video,input,singularity-session greetd greeter user
 sdb 990 sdb 990 * /var/empty /bin/sh - unprivileged debug-bridge shell user
 polkitd -1 polkitd -1 * - /bin/false - polkit polkit user
-sinty 1000 sinty 1000 * /home/sinty /bin/sh video,input,audio,render,dialout,singularity-session sinty user
+sinty 1000 sinty 1000 * /home/sinty /bin/sh video,input,audio,render,dialout,singularity-session,sinty-policy sinty user

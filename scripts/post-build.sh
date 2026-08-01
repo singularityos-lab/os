@@ -65,6 +65,22 @@ rm -f "$TARGET_DIR/usr/lib/systemd/system/multi-user.target.wants/NetworkManager
 
 # Boot path is dbus -> iwd -> sinty-nm only.
 
+# The runtime recovery agent owns the narrow bootloader policy socket used by
+# Settings. Enable it only when the package installed the agent binary.
+mkdir -p "$TARGET_DIR/etc/systemd/system/multi-user.target.wants"
+if [ -x "$TARGET_DIR/usr/bin/atom-recovery" ]; then
+    ln -sf /usr/lib/systemd/system/atom-recovery.service \
+        "$TARGET_DIR/etc/systemd/system/multi-user.target.wants/atom-recovery.service"
+else
+    rm -f "$TARGET_DIR/etc/systemd/system/multi-user.target.wants/atom-recovery.service"
+fi
+if [ -x "$TARGET_DIR/usr/bin/sdbd" ]; then
+    ln -sf /usr/lib/systemd/system/sdbd.service \
+        "$TARGET_DIR/etc/systemd/system/multi-user.target.wants/sdbd.service"
+else
+    rm -f "$TARGET_DIR/etc/systemd/system/multi-user.target.wants/sdbd.service"
+fi
+
 # Remove static libs
 find "$TARGET_DIR" -name "*.a" -delete
 find "$TARGET_DIR" -name "*.la" -delete
