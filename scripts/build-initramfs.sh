@@ -549,6 +549,16 @@ if [ -n "$DATADEV" ] && [ -e "$DATAMNT/.atom-var" ]; then
 	busybox mount -o bind /sysroot/var/boot /sysroot/boot || busybox echo "[init] warning: /boot not bound"
 	busybox mount -t overlay overlay \
 	    -o lowerdir=/sysroot/etc,upperdir=/sysroot/var/etc-upper,workdir=/sysroot/var/etc-work /sysroot/etc || true
+	# A destructive bootloader unlock removes every account and the mutable /etc
+	# overlay. Recreate the OOBE dispatch whenever its completion marker is absent;
+	# otherwise the immutable live-media greetd config would start the installer,
+	# fall through to the greeter and leave the wiped device without an account.
+	if [ ! -f /sysroot/var/lib/sinty/.oobe-done ]; then
+		busybox mkdir -p /sysroot/etc/greetd
+		busybox cat /sysroot/usr/share/sinty/greetd-oobe.toml > /sysroot/etc/greetd/config.toml \
+			|| rescue "cannot restore first-boot login setup"
+		busybox echo "[init] first boot: OOBE login setup restored"
+	fi
 	busybox mount -t tmpfs -o mode=1777 tmpfs /sysroot/tmp || true
 	busybox mount -o bind /sysroot/var/home /sysroot/home || true
 else
