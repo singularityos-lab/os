@@ -2,7 +2,7 @@
 # sinit
 ################################################################################
 # Pin the exact Atom revision used to validate this image.
-SINIT_VERSION = 8f8137558df2f25e668154717c50f422dfdad737
+SINIT_VERSION = 6e7bcc67d141803c8bb79c7ff2b79baaab781e6c
 SINIT_SITE = $(call github,singularityos-lab,atom,$(SINIT_VERSION))
 SINIT_LICENSE = GPL-3.0-or-later
 
