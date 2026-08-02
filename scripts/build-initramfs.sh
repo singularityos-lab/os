@@ -446,11 +446,30 @@ device_unlocked && UNLOCKED=1
 
 ROOTSRC=/dev/mapper/vroot
 if [ -n "$UNLOCKED" ]; then
-	# Unlocked: mount the erofs root directly, no dm-verity. Find the data partition
-	# by its erofs magic (the same probe as the verified path, without hash pairing).
+	# Unlocked: mount the erofs root directly, no dm-verity. On an installed system,
+	# still use the signed UKI root hash to identify the intended active/next slot.
+	# The mapper is opened only for slot selection and closed before the raw image is
+	# mounted, so an unlocked owner can still modify the selected root afterwards.
 	while [ $i -lt 75 ]; do
 		mount_data
 		mount_iso
+		if [ -z "$LIVE" ] && [ -n "$SLOT_HASHES" ]; then
+			for _dt in $SLOT_DATAS; do
+				for _hs in $SLOT_HASHES; do
+					veritysetup close vroot-select 2>/dev/null
+					veritysetup open "$_dt" vroot-select "$_hs" "$ROOTHASH" 2>/dev/null || continue
+					vm=$(busybox dd if=/dev/mapper/vroot-select bs=1 skip=1024 count=4 2>/dev/null | busybox od -An -tx1 | busybox tr -d ' \n')
+					veritysetup close vroot-select 2>/dev/null
+					if [ "$vm" = "e2e1f5e0" ]; then
+						DATA="$_dt"
+						busybox echo "[init] unlocked: selected UKI-matching root slot $_dt"
+						break
+					fi
+				done
+				[ -n "$DATA" ] && break
+			done
+		fi
+		[ -n "$DATA" ] && break
 		if [ -n "$LIVE" ]; then
 			_candidates="$ISO_DATAS /dev/vd*[0-9] /dev/sd*[0-9] /dev/sr[0-9]p[0-9]* /dev/nvme*p[0-9]* /dev/mmcblk*p[0-9]*"
 		else
