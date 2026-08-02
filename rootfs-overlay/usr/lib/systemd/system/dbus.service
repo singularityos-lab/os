@@ -7,7 +7,7 @@ After=sinty-rundir.service
 Type=simple
 ExecStartPre=/bin/sh -c 'mkdir -p /run/dbus'
 RuntimeDirectory=dbus
-ExecStart=/usr/bin/dbus-daemon --system --nofork --nopidfile --syslog-only
+ExecStart=/usr/bin/dbus-daemon --config-file=/usr/share/dbus-1/system.conf --nofork --nopidfile --syslog-only
 Restart=on-failure
 
 [Install]
