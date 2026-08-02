@@ -21,6 +21,7 @@ export GDK_BACKEND=wayland
 if [ -z "$GSK_RENDERER" ]; then
     export GSK_RENDERER=cairo LIBGL_ALWAYS_SOFTWARE=1 GALLIUM_DRIVER=llvmpipe
 fi
+export GTK_USE_PORTAL=1
 export QT_QPA_PLATFORMTHEME=xdgdesktopportal
 export XDG_CURRENT_DESKTOP=Singularity
 export XDG_DATA_DIRS="$HOME/.local/share/flatpak/exports/share:/var/lib/flatpak/exports/share:$SHARE:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
@@ -47,12 +48,13 @@ fi
 timeout 3 dbus-update-activation-environment --systemd \
     DISPLAY WAYLAND_DISPLAY XDG_SESSION_TYPE XDG_CURRENT_DESKTOP \
     XDG_RUNTIME_DIR DBUS_SESSION_BUS_ADDRESS GDK_BACKEND GSK_RENDERER \
-    QT_QPA_PLATFORMTHEME \
+    GTK_USE_PORTAL QT_QPA_PLATFORMTHEME \
     GSETTINGS_SCHEMA_DIR XDG_DATA_DIRS GI_TYPELIB_PATH PATH LD_LIBRARY_PATH \
     2>/dev/null || true
 
 timeout 3 systemctl --user set-environment \
     XDG_CURRENT_DESKTOP="$XDG_CURRENT_DESKTOP" \
+    GTK_USE_PORTAL="$GTK_USE_PORTAL" \
     QT_QPA_PLATFORMTHEME="$QT_QPA_PLATFORMTHEME" \
     XDG_DATA_DIRS="$XDG_DATA_DIRS" \
     GSETTINGS_SCHEMA_DIR="$GSETTINGS_SCHEMA_DIR" 2>/dev/null || true
@@ -95,8 +97,12 @@ trap "rm -f $_SPID" EXIT
 
 pkill -TERM -x singularity-desktop 2>/dev/null || true
 pkill -x singularity-polkit-agent 2>/dev/null || true
+pkill -TERM -x ush-broker 2>/dev/null || true
 sleep 0.3
 nohup "$BIN/singularity-polkit-agent" >> "$_STATE/polkit.log" 2>&1 &
+if [ -x "$BIN/ush-broker" ]; then
+    nohup "$BIN/ush-broker" >> "$_STATE/ush-broker.log" 2>&1 &
+fi
 # Bridge compositor keybinds (Alt-Tab, launcher, media keys) from the persistent
 # labwc (which runs as greeter) to this session's shell. See singularity-shortcut.
 if [ -x "$BIN/singularity-shortcut" ]; then

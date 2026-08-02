@@ -53,13 +53,15 @@ copy_libs() {
 
 echo "[recovery] staging busybox + wifi + verity tools"
 copy_bin busybox bin
-for t in sh mount umount ip ifconfig switch_root modprobe mkdir cat grep sed tr readlink basename dirname sleep blkid sync kill reboot stty; do
+for t in sh mount umount ip ifconfig switch_root modprobe mkdir cat grep sed tr readlink basename dirname sleep sync kill reboot stty; do
 	ln -sf busybox "$WORK/bin/$t"
 done
+copy_bin blkid usr/bin
 copy_bin wpa_supplicant sbin || echo "  (wpa_supplicant missing -- add BR2_PACKAGE_WPA_SUPPLICANT)"
 copy_bin udhcpc sbin || ln -sf ../bin/busybox "$WORK/sbin/udhcpc"
 copy_bin veritysetup sbin || true
 for b in "$WORK"/bin/busybox "$WORK"/sbin/*; do [ -f "$b" ] && copy_libs "$b"; done
+copy_libs "$WORK/usr/bin/blkid"
 # the dynamic loader + /lib64 -> /lib (busybox's ELF interpreter is /lib64/ld-linux-x86-64.so.2)
 cp -aL "$TARGET_DIR/lib/ld-linux-x86-64.so.2" "$WORK/lib/" 2>/dev/null || true
 rm -rf "$WORK/lib64"; ln -sf lib "$WORK/lib64"
