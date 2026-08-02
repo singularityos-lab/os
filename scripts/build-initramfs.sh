@@ -147,6 +147,20 @@ busybox mount -t devtmpfs dev  /dev
 [ -c /dev/console ] && exec >/dev/console 2>/dev/console </dev/console
 busybox mkdir -p /dev/mapper /run/cryptsetup
 
+device_unlocked() {
+	command -v sintykey >/dev/null 2>&1 || return 1
+	_lock_state="$(sintykey lock-state 2>/dev/null)" || return 1
+	_verity_state="$(sintykey verity-state 2>/dev/null)" || return 1
+	case "$_lock_state" in *locked=false*) ;; *) return 1 ;; esac
+	case "$_verity_state" in *verity=off*) return 0 ;; *) return 1 ;; esac
+}
+
+halt_boot() {
+	busybox sync
+	busybox poweroff -f 2>/dev/null || true
+	while :; do busybox sleep 60; done
+}
+
 rescue() {
 	echo "initramfs: $1" >&2
 	_diag="SINTYRESCUE_BEGIN
@@ -188,8 +202,20 @@ SINTYRESCUE_END
 			printf '\nSinty OS could not boot: %s\nDiagnostics could not be saved.\n' "$1" > /dev/tty0
 		fi
 	fi
-	echo "dropping to a rescue shell" >&2
-	exec busybox sh
+	if ! device_unlocked; then
+		echo "device locked: refusing a rescue shell" >&2
+		halt_boot
+	fi
+	echo "DEVICE UNLOCKED. Type OPEN DEBUG SHELL to start a root shell:" >&2
+	_rescue_confirmation=
+	IFS= read -r _rescue_confirmation || true
+	if [ "$_rescue_confirmation" != "OPEN DEBUG SHELL" ]; then
+		echo "rescue shell confirmation denied" >&2
+		halt_boot
+	fi
+	echo "starting confirmed rescue shell" >&2
+	busybox sh
+	halt_boot
 }
 
 # device-mapper control node (no udev in the initramfs to create it).
@@ -416,13 +442,7 @@ part_name() {
 # it fails closed -- a missing sintykey, an unreachable TPM, or either fact reading
 # locked/on leaves UNLOCKED empty and the verified path below runs unchanged.
 UNLOCKED=
-if command -v sintykey >/dev/null 2>&1; then
-	# Read both TPM facts once. Skip dm-verity ONLY when the device is both unlocked
-	# and its verity toggle is off; any TPM read failure fails closed (verity kept).
-	_ls="$(sintykey lock-state 2>/dev/null)"
-	_vs="$(sintykey verity-state 2>/dev/null)"
-	case "$_ls" in *locked=false*) case "$_vs" in *verity=off*) UNLOCKED=1 ;; esac ;; esac
-fi
+device_unlocked && UNLOCKED=1
 
 ROOTSRC=/dev/mapper/vroot
 if [ -n "$UNLOCKED" ]; then

@@ -200,14 +200,20 @@ rm -f "$TARGET_DIR/usr/bin/pulseaudio" \
 # copied, so it removes what the overlay placed.
 if [ "${ATOM_BUILD:-}" = "rc" ]; then
     rm -f "$TARGET_DIR/etc/atom/dev.enabled" "$TARGET_DIR/etc/atom/probe.enabled"
+    if [ -f "$TARGET_DIR/etc/shadow" ]; then
+        sed -i 's/^root:[^:]*:/root:!:/' "$TARGET_DIR/etc/shadow"
+    fi
     rm -f "$TARGET_DIR/usr/bin/sinty-devlink" "$TARGET_DIR/usr/bin/sinty-online" "$TARGET_DIR/usr/bin/wifi" "$TARGET_DIR/usr/bin/wifi-verify" "$TARGET_DIR/usr/sbin/dropbear" "$TARGET_DIR/usr/sbin/dropbearkey"
     rm -rf "$TARGET_DIR/usr/share/atom/devlink"
     # Defense in depth: also remove the root-shell unit files AND their target.wants
     # symlinks. The dev-marker strip above already fences them via ConditionPathExists,
     # but sinit does not evaluate unit Conditions, so a lingering .wants symlink would
-    # still land a root shell on a VT in the RC. Delete both so the backdoor cannot boot.
+    # still land a root shell on a VT or serial console in the RC. Delete both so
+    # the backdoor cannot boot.
     rm -f "$TARGET_DIR"/etc/systemd/system/*.target.wants/root-vt.service \
           "$TARGET_DIR"/etc/systemd/system/*.target.wants/diag-console.service \
+          "$TARGET_DIR"/etc/systemd/system/*.target.wants/debug-serial.service \
+          "$TARGET_DIR/etc/systemd/system/debug-serial.service" \
           "$TARGET_DIR/usr/lib/systemd/system/root-vt.service" \
           "$TARGET_DIR/usr/lib/systemd/system/diag-console.service"
     echo "[singularity] post-build: RC build -- stripped dev markers + root-shell units"
