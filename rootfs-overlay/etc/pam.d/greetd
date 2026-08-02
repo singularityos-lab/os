@@ -1,5 +1,6 @@
 #%PAM-1.0
 auth       required   pam_sinty.so
+account    sufficient pam_succeed_if.so user = root
 account    required   pam_sinty.so
 account    required   pam_unix.so
 session    required   pam_limits.so
