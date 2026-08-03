@@ -4,10 +4,12 @@ Before=basic.target
 After=sinty-rundir.service
 
 [Service]
-Type=simple
+Type=dbus
+BusName=org.freedesktop.DBus
 ExecStartPre=/bin/sh -c 'mkdir -p /run/dbus'
 RuntimeDirectory=dbus
-ExecStart=/usr/bin/dbus-daemon --config-file=/usr/share/dbus-1/system.conf --nofork --nopidfile --syslog-only
+WorkingDirectory=/usr/share/dbus-1
+ExecStart=/usr/bin/dbus-daemon --config-file=system.conf --nofork --nopidfile --syslog-only
 Restart=on-failure
 
 [Install]
