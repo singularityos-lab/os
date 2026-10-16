@@ -3,14 +3,55 @@ name: Singularity Build
 on:
   push:
     branches: [main]
-    tags: ['v*']
     paths-ignore:
       - '**.md'
   pull_request:
   workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release to publish into (nightly, beta, ...); empty builds only'
+        required: false
+        default: ''
+      review:
+        description: 'Review id for the table row, e.g. r17'
+        required: false
+        default: ''
+
+concurrency:
+  group: build-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  meta:
+    runs-on: ubuntu-24.04
+    outputs:
+      tag: ${{ steps.parse.outputs.tag }}
+      review: ${{ steps.parse.outputs.review }}
+    steps:
+      - name: Read the release request
+        id: parse
+        env:
+          MESSAGE: ${{ github.event.head_commit.message }}
+          INPUT_TAG: ${{ inputs.tag }}
+          INPUT_REVIEW: ${{ inputs.review }}
+        run: |
+          tag="$INPUT_TAG"
+          review="$INPUT_REVIEW"
+          first=$(printf '%s\n' "$MESSAGE" | head -n 1)
+          if [[ "$first" =~ ^build\(tag:([A-Za-z0-9._-]+)\):\ (r[0-9]+)$ ]]; then
+            tag=${BASH_REMATCH[1]}
+            review=${BASH_REMATCH[2]}
+          fi
+          if [ -n "$tag" ] && ! [[ "$review" =~ ^r[0-9]+$ ]]; then
+            echo "::error::a release needs a review id like r17, got '$review'"
+            exit 1
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "review=$review" >> "$GITHUB_OUTPUT"
+          [ -n "$tag" ] && echo "Publishing $review into the $tag release" || echo "Build only"
+
   stage1:
+    needs: meta
     uses: ./.github/workflows/build-stage.yml
     with:
       stage: 1
@@ -49,7 +90,7 @@ jobs:
       (needs.stage2.result == 'success' && needs.stage2.outputs.incomplete != '1') ||
       (needs.stage3.result == 'success' && needs.stage3.outputs.incomplete != '1') ||
       (needs.stage4.result == 'success' && needs.stage4.outputs.incomplete != '1'))
-    timeout-minutes: 10
+    timeout-minutes: 30
 
     steps:
       - name: Download artifacts
@@ -58,45 +99,61 @@ jobs:
           name: singularity-${{ github.sha }}
           path: images/
 
-      - name: Install QEMU
+      - name: Install QEMU and OVMF
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y qemu-system-x86
+          sudo apt-get install -y qemu-system-x86 ovmf
+          sudo chmod 666 /dev/kvm 2>/dev/null || true
 
-      - name: Test boot with QEMU
+      - name: Boot the image to the default target
         run: |
-          KERNEL="images/bzImage"
+          accel=tcg
+          [ -w /dev/kvm ] && accel=kvm
+          cp /usr/share/OVMF/OVMF_VARS_4M.fd vars.fd
+          qemu-img create -q -f qcow2 -F raw -b "$PWD/images/artifacts/sinty-os.img" disk.qcow2
+          timeout 600 qemu-system-x86_64 -machine q35,accel=$accel -m 4096 -smp 2 \
+            -drive if=pflash,format=raw,readonly=on,file=/usr/share/OVMF/OVMF_CODE_4M.fd \
+            -drive if=pflash,format=raw,file=vars.fd \
+            -drive file=disk.qcow2,if=none,id=usb0,format=qcow2 \
+            -device qemu-xhci -device usb-storage,drive=usb0,bootindex=0 \
+            -display none -serial file:serial.log -no-reboot &
+          qemu=$!
+          for _ in $(seq 120); do
+            grep -q "reached default.target" serial.log 2>/dev/null && break
+            grep -qE "signature INVALID|Kernel panic" serial.log 2>/dev/null && break
+            kill -0 $qemu 2>/dev/null || break
+            sleep 5
+          done
+          kill $qemu 2>/dev/null || true
+          tr -d '\r' < serial.log | tail -n 40
+          grep -q "reached default.target" serial.log
 
-          if [ ! -f "$KERNEL" ]; then
-            echo "Kernel not found, skipping"
-            exit 0
-          fi
-
-          timeout 30 qemu-system-x86_64 \
-            -kernel "$KERNEL" \
-            -append "console=ttyS0 quiet" \
-            -nographic \
-            -m 256M \
-            -no-reboot 2>&1 | head -80 || true
-
-          echo "QEMU boot test done"
-
-  release:
+  publish:
     runs-on: ubuntu-24.04
-    needs: test
-    if: always() && needs.test.result == 'success' && startsWith(github.ref, 'refs/tags/v')
+    needs: [meta, test]
+    if: >-
+      always() && needs.test.result == 'success' &&
+      needs.meta.outputs.tag != '' && github.event_name != 'pull_request'
+    permissions:
+      contents: write
+    concurrency:
+      group: publish-${{ needs.meta.outputs.tag }}
+      cancel-in-progress: false
+    timeout-minutes: 60
 
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
       - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
           name: singularity-${{ github.sha }}
+          path: images/
 
-      - name: Upload to GitHub Release
-        uses: softprops/action-gh-release@v3
-        with:
-          name: Sinty OS ${{ github.ref_name }}
-          prerelease: true
-          fail_on_unmatched_files: true
-          files: |
-            artifacts/*
+      - name: Publish into the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.meta.outputs.tag }}
+          REVIEW: ${{ needs.meta.outputs.review }}
+        run: ./scripts/publish-release.sh "$TAG" "$REVIEW" "$GITHUB_SHA" images/artifacts
