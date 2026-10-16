@@ -12,4 +12,13 @@ SINGULARITY_READER_DEPENDENCIES = host-pkgconf host-vala host-vetro host-gettext
 
 SINGULARITY_READER_NINJA_ENV = XDG_DATA_HOME=$(STAGING_DIR)/usr/share
 
+define SINGULARITY_READER_PDF_ENGINE
+	mkdir -p $(@D)/subprojects/libsingularity
+	$(if $(LIBSINGULARITY_OVERRIDE_SRCDIR),\
+		rsync -a --exclude=/build --exclude=/build-* --exclude=/_build --exclude=/.git $(LIBSINGULARITY_OVERRIDE_SRCDIR)/ $(@D)/subprojects/libsingularity/,\
+		$(call suitable-extractor,$(LIBSINGULARITY_SOURCE)) $(LIBSINGULARITY_DL_DIR)/$(LIBSINGULARITY_SOURCE) | \
+		$(TAR) --strip-components=1 -C $(@D)/subprojects/libsingularity $(TAR_OPTIONS) -)
+endef
+SINGULARITY_READER_POST_EXTRACT_HOOKS += SINGULARITY_READER_PDF_ENGINE
+
 $(eval $(meson-package))
