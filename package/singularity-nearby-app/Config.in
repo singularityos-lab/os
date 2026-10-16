@@ -1,0 +1,10 @@
+config BR2_PACKAGE_SINGULARITY_NEARBY_APP
+	bool "singularity-nearby-app"
+	depends on BR2_PACKAGE_LIBGTK4
+	select BR2_PACKAGE_LIBSINGULARITY
+	select BR2_PACKAGE_LIBGEE
+	select BR2_PACKAGE_SINGULARITY_NEARBY
+	help
+	  Singularity Nearby: the app to send files to nearby devices.
+
+	  https://github.com/singularityos-lab/singularity-nearby-app

@@ -1,13 +1,22 @@
-SINTY_TIMEDATE_VERSION = v0.1.0
-SINTY_TIMEDATE_SITE = https://github.com/singularityos-lab/sinty-timedate/releases/download/$(SINTY_TIMEDATE_VERSION)
-SINTY_TIMEDATE_SOURCE = sinty-timedate-$(SINTY_TIMEDATE_VERSION)-x86_64.tar.gz
-SINTY_TIMEDATE_LICENSE = NOT-SPECIFIED
-# Flat release tarball (payload at the top level, no wrapping directory): the default
-# --strip-components=1 would strip the payload itself and leave the build dir empty.
-SINTY_TIMEDATE_STRIP_COMPONENTS = 0
+################################################################################
+#
+# sinty-timedate
+#
+################################################################################
+
+SINTY_TIMEDATE_VERSION = c1cff0f9c6a2778487085bb916691c69e8632068
+SINTY_TIMEDATE_SITE = $(call github,singularityos-lab,sinty-timedate,$(SINTY_TIMEDATE_VERSION))
+SINTY_TIMEDATE_LICENSE = MIT
+SINTY_TIMEDATE_LICENSE_FILES = LICENSE
+SINTY_TIMEDATE_GOMOD = github.com/singularityos-lab/sinty-timedate
+SINTY_TIMEDATE_BUILD_TARGETS = cmd/sinty-timedate cmd/sinty-timedated
 
 define SINTY_TIMEDATE_INSTALL_TARGET_CMDS
-	$(INSTALL) -D -m 0755 $(@D)/sinty-timedate $(TARGET_DIR)/usr/bin/sinty-timedate
+	$(INSTALL) -D -m 0755 $(@D)/bin/sinty-timedate $(TARGET_DIR)/usr/bin/sinty-timedate
+	$(INSTALL) -D -m 0755 $(@D)/bin/sinty-timedated $(TARGET_DIR)/usr/libexec/sinty-timedated
+	$(INSTALL) -D -m 0644 $(@D)/packaging/sinty-timedated.service $(TARGET_DIR)/usr/lib/systemd/system/sinty-timedated.service
+	$(INSTALL) -D -m 0644 $(@D)/packaging/org.freedesktop.timedate1.service $(TARGET_DIR)/usr/share/dbus-1/system-services/org.freedesktop.timedate1.service
+	$(INSTALL) -D -m 0644 $(@D)/packaging/org.freedesktop.timedate1.conf $(TARGET_DIR)/usr/share/dbus-1/system.d/org.freedesktop.timedate1.conf
 endef
 
-$(eval $(generic-package))
+$(eval $(golang-package))

@@ -1,0 +1,7 @@
+config BR2_PACKAGE_MYTHES_DATA
+	bool "mythes-data"
+	help
+	  MyThes thesaurus data (English and Italian) from the
+	  LibreOffice dictionaries, used by Singularity Write.
+
+	  https://github.com/LibreOffice/dictionaries

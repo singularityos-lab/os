@@ -1,0 +1,12 @@
+config BR2_PACKAGE_SINGULARITY_SHARING
+	bool "singularity-sharing"
+	depends on BR2_PACKAGE_LIBGTK4
+	select BR2_PACKAGE_LIBSINGULARITY
+	select BR2_PACKAGE_LIBGEE
+	select BR2_PACKAGE_JSON_GLIB
+	select BR2_PACKAGE_LIBSOUP3
+	select BR2_PACKAGE_LIBSECRET
+	help
+	  Singularity Sharing: file, screen and remote sharing services.
+
+	  https://github.com/singularityos-lab/singularity-sharing

@@ -7,6 +7,9 @@ config BR2_PACKAGE_LIBSINGULARITY
 	select BR2_PACKAGE_LIBGEE
 	select BR2_PACKAGE_JSON_GLIB
 	select BR2_PACKAGE_GTKSOURCEVIEW
+	select BR2_PACKAGE_CUPS
+	select BR2_PACKAGE_LCMS2
+	select BR2_PACKAGE_ENCHANT
 	help
 	  The Singularity application framework: GTK4 UI primitives, the
 	  accent-aware style system, and the public contracts that the

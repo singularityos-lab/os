@@ -1,0 +1,12 @@
+config BR2_PACKAGE_SINGULARITY_MESSAGES
+	bool "singularity-messages"
+	depends on BR2_PACKAGE_LIBGTK4
+	select BR2_PACKAGE_LIBSINGULARITY
+	select BR2_PACKAGE_LIBGEE
+	select BR2_PACKAGE_JSON_GLIB
+	select BR2_PACKAGE_LIBSOUP3
+	select BR2_PACKAGE_LIBPEAS2
+	help
+	  Singularity Messages: chats and collaboration history.
+
+	  https://github.com/singularityos-lab/singularity-messages

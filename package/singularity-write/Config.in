@@ -6,6 +6,7 @@ config BR2_PACKAGE_SINGULARITY_WRITE
 	select BR2_PACKAGE_LIBGEE
 	select BR2_PACKAGE_GTKSOURCEVIEW
 	select BR2_PACKAGE_POPPLER
+	select BR2_PACKAGE_MYTHES_DATA
 	help
 	  Singularity Write: the document writer.
 
