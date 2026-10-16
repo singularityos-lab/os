@@ -1,0 +1,68 @@
+Skip generators that run target binaries when cross compiling
+
+--- a/libfprint/meson.build
++++ b/libfprint/meson.build
+@@ -328,6 +328,9 @@
+     link_with: libfprint_drivers,
+     install: false)
+ 
++run_generators = meson.can_run_host_binaries()
++
++if run_generators
+ udev_hwdb_generator = custom_target('udev-hwdb',
+     output: 'autosuspend.hwdb',
+     depend_files: drivers_sources,
+@@ -335,6 +338,7 @@
+     command: [ udev_hwdb ],
+     install: false,
+ )
++endif
+ 
+ metainfo = executable('fprint-list-metainfo',
+     'fprint-list-metainfo.c',
+@@ -342,6 +346,7 @@
+     link_with: libfprint_drivers,
+     install: false)
+ 
++if run_generators
+ metainfo_generator = custom_target('metainfo',
+     output: 'org.freedesktop.libfprint.metainfo.xml',
+     depend_files: drivers_sources,
+@@ -350,8 +355,9 @@
+     install: true,
+     install_dir: datadir / 'metainfo'
+ )
++endif
+ 
+-if install_udev_rules
++if install_udev_rules and run_generators
+     udev_rules = executable('fprint-list-udev-rules',
+         'fprint-list-udev-rules.c',
+         dependencies: libfprint_private_dep,
+@@ -368,6 +374,7 @@
+     )
+ endif
+ 
++if run_generators
+ sync_udev_udb = custom_target('sync-udev-hwdb',
+     depends: udev_hwdb_generator,
+     output: 'sync-udev-hwdb',
+@@ -380,6 +387,7 @@
+ )
+ 
+ alias_target('sync-udev-hwdb', sync_udev_udb)
++endif
+ 
+ supported_devices = executable('fprint-list-supported-devices',
+     'fprint-list-supported-devices.c',
+--- a/tests/meson.build
++++ b/tests/meson.build
+@@ -332,7 +332,7 @@
+      env: envs)
+ 
+ appstreamcli = find_program('appstreamcli', required: false)
+-if appstreamcli.found()
++if appstreamcli.found() and run_generators
+     test('metainfo-validate',
+         appstreamcli,
+         args: ['validate', metainfo_generator],
