@@ -6,7 +6,7 @@
 
 # Local dev builds from buildroot-build/local.mk _OVERRIDE_SRCDIR (build dir -custom),
 # which supersedes this github SITE. Keep the pin for RC/CI (no override present).
-LIBSINGULARITY_VERSION = 0d41c9554e7fc07e8b9ebc20604bc54b5f798cea
+LIBSINGULARITY_VERSION = 5b12cd24df4d9abcb092b35e8e3f0efb5fa2fa59
 LIBSINGULARITY_SITE = $(call github,singularityos-lab,libsingularity,$(LIBSINGULARITY_VERSION))
 LIBSINGULARITY_LICENSE = GPL-3.0+
 LIBSINGULARITY_LICENSE_FILES = LICENSE
@@ -25,8 +25,18 @@ LIBSINGULARITY_DEPENDENCIES = \
 	libgudev \
 	upower \
 	network-manager \
-	libsoup3
+	libsoup3 \
+	cups \
+	lcms2 \
+	enchant \
+	gstreamer1 \
+	gst1-plugins-base
 
 LIBSINGULARITY_CONF_OPTS = -Dsystem=true
+
+define LIBSINGULARITY_INSTALL_CUPS_VAPI
+	$(INSTALL) -D -m 0644 $(LIBSINGULARITY_PKGDIR)/cups.vapi $(STAGING_DIR)/usr/share/vala/vapi/cups.vapi
+endef
+LIBSINGULARITY_PRE_CONFIGURE_HOOKS += LIBSINGULARITY_INSTALL_CUPS_VAPI
 
 $(eval $(meson-package))

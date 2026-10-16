@@ -4,7 +4,7 @@
 #
 ################################################################################
 
-VETRO_VERSION = 34a277f7ed21f3b4e4ace0079293efa167744534
+VETRO_VERSION = 233510257ea581b932d49303973ec627955fde0e
 VETRO_SITE = $(call github,singularityos-lab,vetro,$(VETRO_VERSION))
 VETRO_LICENSE = MIT
 

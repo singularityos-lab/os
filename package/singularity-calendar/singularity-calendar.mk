@@ -4,7 +4,7 @@
 #
 ################################################################################
 
-SINGULARITY_CALENDAR_VERSION = fc32f7c68e5df63c1ba95fb7c1c2fe7cea253801
+SINGULARITY_CALENDAR_VERSION = 26e1f18ebc18fcf9d25f86dc04288a4a1dddb004
 SINGULARITY_CALENDAR_SITE = $(call github,singularityos-lab,singularity-calendar,$(SINGULARITY_CALENDAR_VERSION))
 SINGULARITY_CALENDAR_LICENSE = GPL-3.0+
 SINGULARITY_CALENDAR_LICENSE_FILES = LICENSE
