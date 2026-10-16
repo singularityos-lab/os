@@ -13,7 +13,13 @@
  * pre-login greeter reboots via its own `systemctl` path, not this socket.
  */
 #include <gio/gio.h>
+#include <glib-unix.h>
+#include <dirent.h>
 #include <errno.h>
+#include <fcntl.h>
+#include <linux/input.h>
+#include <sys/ioctl.h>
+#include <unistd.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -213,7 +219,48 @@ static gboolean rearm_own(gpointer u) {
   return G_SOURCE_REMOVE;
 }
 
+static gboolean power_key_event(gint fd, GIOCondition cond, gpointer u) {
+  (void)u;
+  if (cond & (G_IO_HUP | G_IO_ERR)) { close(fd); return G_SOURCE_REMOVE; }
+  struct input_event ev;
+  while (read(fd, &ev, sizeof ev) == (ssize_t)sizeof ev) {
+    if (ev.type == EV_KEY && ev.code == KEY_POWER && ev.value == 1) {
+      fprintf(stderr, "sinty-logind: power button pressed, powering off\n");
+      if (system("/bin/poweroff") != 0) (void)!system("poweroff");
+    }
+  }
+  return G_SOURCE_CONTINUE;
+}
+
+static guint power_scans = 0;
+
+static gboolean watch_power_buttons(gpointer u) {
+  (void)u;
+  DIR *d = opendir("/dev/input");
+  int found = 0;
+  if (d) {
+    struct dirent *e;
+    while ((e = readdir(d))) {
+      if (strncmp(e->d_name, "event", 5)) continue;
+      char path[300], name[256] = "";
+      snprintf(path, sizeof path, "/dev/input/%s", e->d_name);
+      int fd = open(path, O_RDONLY | O_NONBLOCK | O_CLOEXEC);
+      if (fd < 0) continue;
+      if (ioctl(fd, EVIOCGNAME(sizeof name - 1), name) < 0 || !strstr(name, "Power Button")) {
+        close(fd);
+        continue;
+      }
+      g_unix_fd_add(fd, G_IO_IN | G_IO_HUP | G_IO_ERR, power_key_event, NULL);
+      fprintf(stderr, "sinty-logind: watching %s (%s)\n", path, name);
+      found++;
+    }
+    closedir(d);
+  }
+  return !found && ++power_scans < 12 ? G_SOURCE_CONTINUE : G_SOURCE_REMOVE;
+}
+
 int main(void) {
+  if (watch_power_buttons(NULL)) g_timeout_add_seconds(5, watch_power_buttons, NULL);
   own_id = g_bus_own_name(G_BUS_TYPE_SYSTEM, "org.freedesktop.login1",
                           G_BUS_NAME_OWNER_FLAGS_REPLACE, on_bus, on_acquired, on_lost,
                           NULL, NULL);
