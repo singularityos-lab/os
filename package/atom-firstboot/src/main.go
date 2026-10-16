@@ -60,17 +60,19 @@ func run(name string, args ...string) (string, error) {
 }
 
 // runStdin is run() with data on stdin (used to hand the PIN to sintykey, never argv).
-func runStdin(stdin string, name string, args ...string) (string, error) {
+func runStdin(stdin string, name string, args ...string) (string, string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), cmdTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.WaitDelay = waitDelay
 	cmd.Stdin = strings.NewReader(stdin)
-	out, err := cmd.CombinedOutput()
+	var stderr strings.Builder
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
 	if ctx.Err() == context.DeadlineExceeded {
-		return string(out), fmt.Errorf("%s timed out after %s", name, cmdTimeout)
+		return string(out), stderr.String(), fmt.Errorf("%s timed out after %s", name, cmdTimeout)
 	}
-	return string(out), err
+	return string(out), stderr.String(), err
 }
 
 func have(tool string) bool { _, err := exec.LookPath(tool); return err == nil }
@@ -189,7 +191,12 @@ func main() {
 	if pin != "" {
 		if sinty && have("sintykey") {
 			uidNum := strings.TrimSpace(mustRun("id", "-u", user))
-			rec, err := runStdin(pin, "sintykey", "provision", "--user", user, "--uid", uidNum, "--home", homeDir)
+			rec, diag, err := runStdin(pin, "sintykey", "provision", "--user", user, "--uid", uidNum, "--home", homeDir)
+			for _, line := range strings.Split(strings.TrimSpace(diag), "\n") {
+				if line != "" {
+					logf("%s", line)
+				}
+			}
 			run("usermod", "-p", "*", user) // no Unix password; the PIN unlocks via pam_sinty
 			if err == nil && strings.TrimSpace(rec) != "" {
 				os.WriteFile("/run/sinty-recovery-code", []byte(strings.TrimSpace(rec)+"\n"), 0o600)
@@ -200,7 +207,7 @@ func main() {
 				// and reboot into a greeter no one can log into, with no retry. Die instead: the
 				// wizard shows "Setup failed", the marker is never written, and the next boot
 				// re-runs the OOBE. sintykey's own output (the die reason) is preserved for #75.
-				fail("sintykey provision failed (%v): %s", err, strings.TrimSpace(rec))
+				fail("sintykey provision failed (%v): %s", err, strings.TrimSpace(diag+rec))
 			}
 		} else {
 			hash, err := run("mkpasswd", "-m", "sha512", pin)

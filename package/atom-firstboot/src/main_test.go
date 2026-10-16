@@ -45,3 +45,16 @@ func TestRunStdinDoesNotWaitForOrphanedChildren(t *testing.T) {
 		t.Fatalf("runStdin waited %s for a child that kept the output pipe open", d)
 	}
 }
+
+func TestRunStdinKeepsDiagnosticsOutOfStdout(t *testing.T) {
+	out, diag, err := runStdin("pin", "sh", "-c", "cat >/dev/null; echo note >&2; echo CODE")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(out) != "CODE" {
+		t.Fatalf("stdout mixed with stderr: %q", out)
+	}
+	if strings.TrimSpace(diag) != "note" {
+		t.Fatalf("stderr lost: %q", diag)
+	}
+}
