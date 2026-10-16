@@ -4,7 +4,7 @@
 #
 ################################################################################
 
-SINGULARITY_SPLASH_VERSION = a70c57f6ceb7f0c304866b0d27f395745e5a05fb
+SINGULARITY_SPLASH_VERSION = ded88d777ecdc791ccc977b6c70a76a5e0e9d512
 SINGULARITY_SPLASH_SITE = $(call github,singularityos-lab,singularity-desktop,$(SINGULARITY_SPLASH_VERSION))
 SINGULARITY_SPLASH_SUBDIR = subprojects/singularity-splash
 SINGULARITY_SPLASH_LICENSE = GPL-3.0+
