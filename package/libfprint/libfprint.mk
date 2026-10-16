@@ -16,9 +16,7 @@ LIBFPRINT_CONF_OPTS = \
 	-Ddoc=false \
 	-Dgtk-examples=false \
 	-Dinstalled-tests=false \
-	-Dudev_rules=enabled \
-	-Dudev_rules_dir=/lib/udev/rules.d \
-	-Dudev_hwdb=enabled \
-	-Dudev_hwdb_dir=/lib/udev/hwdb.d
+	-Dudev_rules=disabled \
+	-Dudev_hwdb=disabled
 
 $(eval $(meson-package))
