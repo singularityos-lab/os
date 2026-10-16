@@ -12,6 +12,7 @@ config BR2_PACKAGE_SINGULARITY_DATABASE
 	select BR2_PACKAGE_NETTLE
 	select BR2_PACKAGE_PANGO
 	select BR2_PACKAGE_SQLITE
+	select BR2_PACKAGE_SQLITE_ENABLE_COLUMN_METADATA
 	select BR2_PACKAGE_ZLIB
 	help
 	  Singularity Database: build databases with tables, queries, forms and reports.
