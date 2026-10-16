@@ -25,6 +25,7 @@ import (
 // blocks (e.g. an NSS/DNS lookup with a nameserver but no route) would otherwise wedge the
 // whole OOBE. Well above any real useradd/sintykey/TPM time, so it only ever kills a hang.
 const cmdTimeout = 45 * time.Second
+const waitDelay = 5 * time.Second
 
 const (
 	markerDir  = "/var/lib/sinty"
@@ -50,6 +51,7 @@ func run(name string, args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), cmdTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, name, args...)
+	cmd.WaitDelay = waitDelay
 	out, err := cmd.CombinedOutput()
 	if ctx.Err() == context.DeadlineExceeded {
 		return string(out), fmt.Errorf("%s timed out after %s", name, cmdTimeout)
@@ -62,6 +64,7 @@ func runStdin(stdin string, name string, args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), cmdTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, name, args...)
+	cmd.WaitDelay = waitDelay
 	cmd.Stdin = strings.NewReader(stdin)
 	out, err := cmd.CombinedOutput()
 	if ctx.Err() == context.DeadlineExceeded {

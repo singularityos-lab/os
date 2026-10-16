@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestGreetdConfigText(t *testing.T) {
@@ -34,5 +35,13 @@ func TestGreetdSessionCmd(t *testing.T) {
 	// missing file -> default
 	if v := greetdSessionCmd(filepath.Join(dir, "nope")); v != "singularity-session" {
 		t.Fatalf("missing config should default, got %q", v)
+	}
+}
+
+func TestRunStdinDoesNotWaitForOrphanedChildren(t *testing.T) {
+	start := time.Now()
+	runStdin("secret", "sh", "-c", "sleep 120 & cat >/dev/null")
+	if d := time.Since(start); d > waitDelay+10*time.Second {
+		t.Fatalf("runStdin waited %s for a child that kept the output pipe open", d)
 	}
 }
