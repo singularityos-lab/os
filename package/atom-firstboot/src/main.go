@@ -240,6 +240,16 @@ func main() {
 		os.WriteFile("/var/lib/singularity/vconsole.conf", []byte("KEYMAP="+km+"\nXKBLAYOUT="+km+"\n"), 0o644)
 		logf("keymap set to %s", km)
 	}
+	if tz := os.Getenv("OOBE_TIMEZONE"); tz != "" && !strings.Contains(tz, "..") && exists(filepath.Join("/usr/share/zoneinfo", tz)) {
+		link := "/var/lib/singularity/localtime"
+		os.Remove(link)
+		if err := os.Symlink(filepath.Join("/usr/share/zoneinfo", tz), link); err != nil {
+			logf("timezone link failed: %v", err)
+		} else {
+			os.WriteFile("/var/lib/singularity/timezone", []byte(tz+"\n"), 0o644)
+			logf("timezone set to %s", tz)
+		}
+	}
 	switch os.Getenv("OOBE_THEME") {
 	case "light", "dual", "dark":
 		theme := os.Getenv("OOBE_THEME")

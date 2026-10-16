@@ -80,4 +80,19 @@ sscommon_log "persistent compositor starting (DRM backend) on $XDG_RUNTIME_DIR, 
 # No -s: the compositor outlives every client. #45's splash paints the logo on
 # the first presented frame and retires it when the first client (the greeter)
 # maps, so the boot carries the brand instead of black.
-exec labwc -C /usr/share/singularity/labwc-locked
+_cfg=/usr/share/singularity/labwc-locked
+_login=/var/lib/singularity/login-screen/labwc
+_merged=/run/singularity/labwc-login-screen
+if [ -d "$_login" ] && rm -rf "$_merged" && mkdir -p "$_merged" \
+        && cp "$_cfg"/* "$_merged"/ 2>/dev/null; then
+    if [ -f "$_login/rc.xml" ]; then
+        grep -v '</labwc_config>' "$_cfg/rc.xml" > "$_merged/rc.xml"
+        grep -v -e '<?xml' -e '<labwc_config>' -e '</labwc_config>' "$_login/rc.xml" >> "$_merged/rc.xml"
+        echo '</labwc_config>' >> "$_merged/rc.xml"
+    fi
+    [ -f "$_login/output.xml" ] && cp "$_login/output.xml" "$_merged/output.xml"
+    [ -f "$_login/environment" ] && cp "$_login/environment" "$_merged/environment"
+    _cfg="$_merged"
+    sscommon_log "compositor: using the login screen settings from $_login"
+fi
+exec labwc -C "$_cfg"

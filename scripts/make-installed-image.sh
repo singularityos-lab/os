@@ -64,15 +64,18 @@ OnUnitActiveSec=10min
 [Install]
 WantedBy=timers.target
 EOF
+	sed "s|^ExecStart=/usr/libexec/updated serve$|ExecStart=/usr/libexec/updated serve --feed ${OTA_TEST_FEED}|" \
+		buildroot-build/target/usr/lib/systemd/system/updated.service \
+		> artifacts/installed-staging/etc-upper/systemd/system/updated.service
 	echo "[make-installed-image] update feed: ${OTA_TEST_FEED}"
 fi
 
 # Room for a staged update beside the running image: on a real install the partition
 # takes the rest of the disk, here it is sized explicitly.
-DATA_MB=$(( $(du -sm artifacts/installed-staging | cut -f1) * 2 + 512 ))
+DATA_MB=${DATA_MB:-$(( $(du -sm artifacts/installed-staging | cut -f1) * 2 + 512 ))}
 # fakeroot so the tree lands owned by root: mke2fs -d copies the staging ownership.
 "${HOSTBIN}/fakeroot" -- sh -c "chown -R 0:0 artifacts/installed-staging && \
-    /usr/sbin/mke2fs -q -t ext4 -L atom-data -d artifacts/installed-staging \
+    /usr/sbin/mke2fs -q -t ext4 -O encrypt -L atom-data -d artifacts/installed-staging \
     artifacts/atom-data-installed.ext4 ${DATA_MB}M"
 rm -rf artifacts/installed-staging
 

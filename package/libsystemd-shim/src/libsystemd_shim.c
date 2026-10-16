@@ -93,6 +93,19 @@ int sd_notify(int unset_environment, const char *state) {
 	return r;
 }
 
+int sd_notifyf(int unset_environment, const char *format, ...) {
+	char *state = NULL;
+	va_list ap;
+	va_start(ap, format);
+	int l = vasprintf(&state, format, ap);
+	va_end(ap);
+	if (l < 0)
+		return -ENOMEM;
+	int r = sd_notify(unset_environment, state);
+	free(state);
+	return r;
+}
+
 int sd_booted(void) {
 	return 1; /* there IS a system manager (sinit), just not systemd */
 }
@@ -202,6 +215,18 @@ int sd_journal_printv_with_location(int priority, const char *file, const char *
 		return -EINVAL;
 	journal_emit(priority, buf, (size_t)((l < (int)sizeof buf) ? l : (int)sizeof buf - 1));
 	return 0;
+}
+
+int sd_journal_printv(int priority, const char *format, va_list ap) {
+	return sd_journal_printv_with_location(priority, NULL, NULL, NULL, format, ap);
+}
+
+int sd_journal_print(int priority, const char *format, ...) {
+	va_list ap;
+	va_start(ap, format);
+	int r = sd_journal_printv(priority, format, ap);
+	va_end(ap);
+	return r;
 }
 
 /* The MESSAGE=... field-list variadic forms are hard to parse safely without

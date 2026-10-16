@@ -69,7 +69,7 @@ sscommon_softrender_backstop() {
     done
     if [ "$_hwgpu" = 0 ]; then
         export GSK_RENDERER=cairo WLR_RENDERER=pixman WLR_RENDERER_ALLOW_SOFTWARE=1
-        export LIBGL_ALWAYS_SOFTWARE=1 GALLIUM_DRIVER=llvmpipe
+        export LIBGL_ALWAYS_SOFTWARE=1 GALLIUM_DRIVER=llvmpipe MESA_LOADER_DRIVER_OVERRIDE=kms_swrast WLR_DRM_NO_ATOMIC=1 WLR_NO_HARDWARE_CURSORS=1 WLR_SCENE_DEBUG_DAMAGE=rerender
         sscommon_log "no HW GPU driver: forcing software render (llvmpipe/pixman/cairo)"
     else
         sscommon_log "HW GPU driver present: native render"
