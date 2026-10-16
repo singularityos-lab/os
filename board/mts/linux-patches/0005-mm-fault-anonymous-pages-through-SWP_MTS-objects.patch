@@ -212,8 +212,8 @@ index 86a9731..d082f15 100644
  		/* Genuine swap entries, hence a private anon pages */
  		if (!should_zap_cows(details))
 @@ -4792,6 +4806,64 @@ static void check_swap_exclusive(struct folio *folio, swp_entry_t entry,
-  * We return with the mmap_lock locked or unlocked in the same cases
-  * as does filemap_fault().
+  * When returning, the lock may have been released in the same cases
+  * as done by filemap_fault().
   */
 +static vm_fault_t do_mts_page(struct vm_fault *vmf, softleaf_t entry)
 +{
