@@ -20,6 +20,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Checkout Atom Loops
         uses: actions/checkout@v4
@@ -85,21 +87,6 @@ jobs:
           path: buildroot-src
           key: buildroot-src-2026.02.2-${{ hashFiles('buildroot-source-patches/**', 'scripts/prepare.sh') }}
 
-      - name: Restore Buildroot downloads
-        uses: actions/cache/restore@v4
-        with:
-          path: buildroot-dl
-          key: buildroot-dl-${{ hashFiles('buildroot-config/singularity_defconfig') }}-${{ github.run_id }}-${{ inputs.stage }}
-          restore-keys: |
-            buildroot-dl-${{ hashFiles('buildroot-config/singularity_defconfig') }}-
-            buildroot-dl-
-
-      # Both caches below are keyed on the runner image as well as on the config: the trees
-      # they hold were configured against that image's own headers and tools, so restoring
-      # one onto a different image leaves a build dir that can no longer reconfigure
-      # (gobject-introspection re-ran meson and looked for a host glib header the new image
-      # does not ship). Keying on ImageVersion turns an image bump into a cache miss, which
-      # costs a rebuild instead of a failure four hours in.
       - name: Restore Buildroot host toolchain
         uses: actions/cache/restore@v4
         with:
@@ -107,6 +94,7 @@ jobs:
           key: buildroot-host-v4-${{ env.IMAGE_VERSION }}-${{ hashFiles('buildroot-config/singularity_defconfig', 'buildroot-config/kernel.config', 'buildroot-source-patches/**') }}-${{ github.run_id }}-${{ inputs.stage }}
           restore-keys: |
             buildroot-host-v4-${{ env.IMAGE_VERSION }}-${{ hashFiles('buildroot-config/singularity_defconfig', 'buildroot-config/kernel.config', 'buildroot-source-patches/**') }}-
+            buildroot-host-v4-${{ env.IMAGE_VERSION }}-
 
       - name: Restore Buildroot package build tree
         uses: actions/cache/restore@v4
@@ -115,6 +103,7 @@ jobs:
           key: buildroot-build-v10-${{ env.IMAGE_VERSION }}-${{ hashFiles('buildroot-config/singularity_defconfig', 'buildroot-config/kernel.config', 'buildroot-source-patches/**') }}-${{ github.run_id }}-${{ inputs.stage }}
           restore-keys: |
             buildroot-build-v10-${{ env.IMAGE_VERSION }}-${{ hashFiles('buildroot-config/singularity_defconfig', 'buildroot-config/kernel.config', 'buildroot-source-patches/**') }}-
+            buildroot-build-v10-${{ env.IMAGE_VERSION }}-
 
       - name: Prepare Buildroot
         run: ./scripts/prepare.sh
@@ -147,7 +136,7 @@ jobs:
           # whose source lives in this tree -- a fix committed here never reaches the
           # image. Drop those build dirs so they rebuild against the current source.
           # linux-pam is included because it links the shim and has to relink.
-          for p in libsystemd-shim atom-install linux-pam; do
+          for p in $(grep -l 'SITE_METHOD = local' package/*/*.mk | xargs -n1 dirname | xargs -n1 basename) linux-pam; do
             rm -rf buildroot-build/build/${p}-* 2>/dev/null || true
           done
           # The staging sysroot is cached separately and a dropped build dir does not
@@ -188,13 +177,6 @@ jobs:
           path: buildroot-src
           key: buildroot-src-2026.02.2-${{ hashFiles('buildroot-source-patches/**', 'scripts/prepare.sh') }}
 
-      - name: Save Buildroot downloads
-        if: always()
-        uses: actions/cache/save@v4
-        with:
-          path: buildroot-dl
-          key: buildroot-dl-${{ hashFiles('buildroot-config/singularity_defconfig') }}-${{ github.run_id }}-${{ inputs.stage }}
-
       - name: Save Buildroot host toolchain
         if: always()
         uses: actions/cache/save@v4
@@ -218,7 +200,9 @@ jobs:
           ATOM_SIGNING_KEY_B64: ${{ secrets.ATOM_SIGNING_KEY }}
           ATOM_SIGNING_CERT_B64: ${{ secrets.ATOM_SIGNING_CERT }}
           ATOM_SIGNING_CERT_SIG_B64: ${{ secrets.ATOM_SIGNING_CERT_SIG }}
+          EXPECTED_ROOT_FP: bee0f3b78c53389b
         run: |
+          set -o pipefail
           # When the base64-encoded signing secrets are present, decode them and hand
           # package.sh the production chain; otherwise it generates a dev chain.
           if [ -n "$ATOM_SIGNING_KEY_B64" ]; then
@@ -232,8 +216,16 @@ jobs:
             echo "[package] using the production signing chain from secrets"
           fi
           export ATOM_BUILD=rc
-          export ATOM_VERSION="$(git rev-list --count HEAD)"
-          ./scripts/package.sh
+          ATOM_VERSION="$(git rev-list --count HEAD)"
+          export ATOM_VERSION
+          ./scripts/package.sh 2>&1 | tee package.log
+          if [ -n "$ATOM_SIGNING_KEY_B64" ]; then
+            fp=$(sed -n 's/^\[package\] loader trust root verified: //p' package.log)
+            if [ "$fp" != "$EXPECTED_ROOT_FP" ]; then
+              echo "::error::signed with root $fp, expected $EXPECTED_ROOT_FP"
+              exit 1
+            fi
+          fi
 
       - name: Show final artifacts
         if: env.BUILD_INCOMPLETE != '1'
