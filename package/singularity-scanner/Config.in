@@ -1,0 +1,11 @@
+config BR2_PACKAGE_SINGULARITY_SCANNER
+	bool "singularity-scanner"
+	depends on BR2_PACKAGE_LIBGTK4
+	select BR2_PACKAGE_LIBSINGULARITY
+	select BR2_PACKAGE_CAIRO
+	select BR2_PACKAGE_LIBGEE
+	select BR2_PACKAGE_SANE_BACKENDS
+	help
+	  Singularity Scanner: scan documents and photos to PDF or images.
+
+	  https://github.com/singularityos-lab/singularity-scanner

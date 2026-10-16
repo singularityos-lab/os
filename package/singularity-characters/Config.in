@@ -1,0 +1,9 @@
+config BR2_PACKAGE_SINGULARITY_CHARACTERS
+	bool "singularity-characters"
+	depends on BR2_PACKAGE_LIBGTK4
+	select BR2_PACKAGE_LIBSINGULARITY
+	select BR2_PACKAGE_LIBGEE
+	help
+	  Singularity Characters: find and copy special characters and emoji.
+
+	  https://github.com/singularityos-lab/singularity-characters

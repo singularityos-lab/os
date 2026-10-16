@@ -1,0 +1,10 @@
+config BR2_PACKAGE_SINGULARITY_MACHINES
+	bool "singularity-machines"
+	depends on BR2_PACKAGE_LIBGTK4
+	select BR2_PACKAGE_LIBSINGULARITY
+	select BR2_PACKAGE_LIBGEE
+	select BR2_PACKAGE_JSON_GLIB
+	help
+	  Singularity Machines: run other operating systems in virtual machines.
+
+	  https://github.com/singularityos-lab/singularity-machines

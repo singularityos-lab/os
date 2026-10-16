@@ -1,0 +1,19 @@
+config BR2_PACKAGE_SINGULARITY_BROWSER
+	bool "singularity-browser"
+	depends on BR2_PACKAGE_LIBGTK4
+	depends on BR2_PACKAGE_WEBKITGTK || BR2_PACKAGE_WEBKITGTK_PREBUILT
+	select BR2_PACKAGE_LIBSINGULARITY
+	select BR2_PACKAGE_LIBGEE
+	select BR2_PACKAGE_GNUTLS
+	select BR2_PACKAGE_JSON_GLIB
+	select BR2_PACKAGE_LIBFIDO2
+	select BR2_PACKAGE_LIBSECRET
+	select BR2_PACKAGE_LIBSOUP3
+	select BR2_PACKAGE_LIBXML2
+	select BR2_PACKAGE_POLKIT
+	select BR2_PACKAGE_POPPLER
+	select BR2_PACKAGE_SQLITE
+	help
+	  Singularity Browser: browse the web with tiles, tabs and bubbles.
+
+	  https://github.com/singularityos-lab/singularity-browser

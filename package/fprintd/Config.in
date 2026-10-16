@@ -1,0 +1,10 @@
+config BR2_PACKAGE_FPRINTD
+	bool "fprintd"
+	select BR2_PACKAGE_LIBFPRINT
+	select BR2_PACKAGE_POLKIT
+	select BR2_PACKAGE_DBUS
+	help
+	  D-Bus daemon that exposes fingerprint readers, used by the
+	  Singularity lock screen for fingerprint unlock.
+
+	  https://gitlab.freedesktop.org/libfprint/fprintd

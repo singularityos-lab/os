@@ -1,0 +1,20 @@
+config BR2_PACKAGE_SINGULARITY_GESTURES
+	bool "singularity-gestures"
+	depends on BR2_PACKAGE_LIBGTK4
+	depends on BR2_PACKAGE_MESA3D_OPENGL_GLX
+	select BR2_PACKAGE_SDL2
+	select BR2_PACKAGE_LIBGLU
+	depends on BR2_PACKAGE_XORG7
+	select BR2_PACKAGE_XLIB_LIBX11
+	select BR2_PACKAGE_GTK4_LAYER_SHELL
+	select BR2_PACKAGE_WAYLAND
+	select BR2_PACKAGE_LIBXKBCOMMON
+	select BR2_PACKAGE_GSTREAMER1
+	select BR2_PACKAGE_GST1_PLUGINS_BASE
+	select BR2_PACKAGE_CAIRO
+	select BR2_PACKAGE_PANGO
+	help
+	  Singularity Gestures: hand and gaze tracking for the desktop.
+	  Camera frames are processed locally and kept in memory.
+
+	  https://github.com/singularityos-lab/singularity-gestures

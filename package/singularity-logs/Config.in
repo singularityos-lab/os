@@ -1,0 +1,10 @@
+config BR2_PACKAGE_SINGULARITY_LOGS
+	bool "singularity-logs"
+	depends on BR2_PACKAGE_LIBGTK4
+	select BR2_PACKAGE_LIBSINGULARITY
+	select BR2_PACKAGE_LIBGEE
+	select BR2_PACKAGE_JSON_GLIB
+	help
+	  Singularity Logs: read the messages the system and apps write.
+
+	  https://github.com/singularityos-lab/singularity-logs

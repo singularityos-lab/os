@@ -1,0 +1,12 @@
+config BR2_PACKAGE_LIBFPRINT
+	bool "libfprint"
+	depends on BR2_PACKAGE_HAS_UDEV
+	select BR2_PACKAGE_LIBGUSB
+	select BR2_PACKAGE_LIBGUDEV
+	select BR2_PACKAGE_PIXMAN
+	select BR2_PACKAGE_OPENSSL
+	help
+	  Fingerprint reader library, used by the Singularity lock
+	  screen for fingerprint unlock.
+
+	  https://gitlab.freedesktop.org/3v1n0/libfprint

@@ -1,0 +1,11 @@
+config BR2_PACKAGE_LIBGUSB
+	bool "libgusb"
+	select BR2_PACKAGE_LIBUSB
+	select BR2_PACKAGE_JSON_GLIB
+	select BR2_PACKAGE_HWDATA
+	select BR2_PACKAGE_HWDATA_USB_IDS
+	help
+	  GObject wrapper for libusb, used by libfprint to reach
+	  fingerprint readers.
+
+	  https://github.com/hughsie/libgusb

@@ -1,0 +1,13 @@
+config BR2_PACKAGE_SINGULARITY_TRANSLATE
+	bool "singularity-translate"
+	depends on BR2_PACKAGE_LIBGTK4
+	select BR2_PACKAGE_LIBSINGULARITY
+	select BR2_PACKAGE_LIBGEE
+	select BR2_PACKAGE_JSON_GLIB
+	select BR2_PACKAGE_LIBPEAS2
+	select BR2_PACKAGE_LIBSECRET
+	select BR2_PACKAGE_LIBSOUP3
+	help
+	  Singularity Translate: translate text between languages.
+
+	  https://github.com/singularityos-lab/singularity-translate

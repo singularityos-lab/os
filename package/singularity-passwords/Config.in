@@ -1,0 +1,9 @@
+config BR2_PACKAGE_SINGULARITY_PASSWORDS
+	bool "singularity-passwords"
+	depends on BR2_PACKAGE_LIBGTK4
+	select BR2_PACKAGE_LIBSINGULARITY
+	select BR2_PACKAGE_LIBGEE
+	help
+	  Singularity Passwords: keep and find your passwords.
+
+	  https://github.com/singularityos-lab/singularity-passwords

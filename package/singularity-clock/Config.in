@@ -1,0 +1,10 @@
+config BR2_PACKAGE_SINGULARITY_CLOCK
+	bool "singularity-clock"
+	depends on BR2_PACKAGE_LIBGTK4
+	select BR2_PACKAGE_LIBSINGULARITY
+	select BR2_PACKAGE_LIBGEE
+	select BR2_PACKAGE_LIBPEAS2
+	help
+	  Singularity Clock: alarms, world clocks, stopwatch and timer.
+
+	  https://github.com/singularityos-lab/singularity-clock

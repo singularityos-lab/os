@@ -1,0 +1,10 @@
+config BR2_PACKAGE_SINGULARITY_DISKS
+	bool "singularity-disks"
+	depends on BR2_PACKAGE_LIBGTK4
+	select BR2_PACKAGE_LIBSINGULARITY
+	select BR2_PACKAGE_LIBGEE
+	select BR2_PACKAGE_LIBPEAS2
+	help
+	  Singularity Disks: manage drives, partitions and disk images.
+
+	  https://github.com/singularityos-lab/singularity-disks

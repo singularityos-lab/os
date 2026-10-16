@@ -1,0 +1,9 @@
+config BR2_PACKAGE_SINGULARITY_CONTACTS
+	bool "singularity-contacts"
+	depends on BR2_PACKAGE_LIBGTK4
+	select BR2_PACKAGE_LIBSINGULARITY
+	select BR2_PACKAGE_LIBGEE
+	help
+	  Singularity Contacts: the people you know.
+
+	  https://github.com/singularityos-lab/singularity-contacts

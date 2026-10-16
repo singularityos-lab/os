@@ -1,0 +1,11 @@
+config BR2_PACKAGE_SINGULARITY_FONTS
+	bool "singularity-fonts"
+	depends on BR2_PACKAGE_LIBGTK4
+	select BR2_PACKAGE_LIBSINGULARITY
+	select BR2_PACKAGE_LIBGEE
+	select BR2_PACKAGE_LIBPEAS2
+	select BR2_PACKAGE_PANGO
+	help
+	  Singularity Fonts: browse, preview and install fonts.
+
+	  https://github.com/singularityos-lab/singularity-fonts

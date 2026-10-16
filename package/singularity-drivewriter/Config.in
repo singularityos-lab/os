@@ -1,0 +1,11 @@
+config BR2_PACKAGE_SINGULARITY_DRIVEWRITER
+	bool "singularity-drivewriter"
+	depends on BR2_PACKAGE_LIBGTK4
+	select BR2_PACKAGE_LIBSINGULARITY
+	select BR2_PACKAGE_LIBGEE
+	select BR2_PACKAGE_XZ
+	select BR2_PACKAGE_ZSTD
+	help
+	  Singularity Drive Writer: write disk images to USB drives and memory cards.
+
+	  https://github.com/singularityos-lab/singularity-drivewriter

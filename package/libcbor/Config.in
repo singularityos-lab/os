@@ -1,0 +1,7 @@
+config BR2_PACKAGE_LIBCBOR
+	bool "libcbor"
+	help
+	  CBOR (RFC 8949) parsing and encoding library, used by
+	  libfido2 for the CTAP2 protocol.
+
+	  https://github.com/PJK/libcbor

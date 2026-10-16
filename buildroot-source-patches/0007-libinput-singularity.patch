@@ -1,0 +1,26 @@
+diff --git a/package/libinput/libinput.hash b/package/libinput/libinput.hash
+--- a/package/libinput/libinput.hash
++++ b/package/libinput/libinput.hash
+@@ -1,5 +1,5 @@
+-# Locally computed
+-sha256  e0bb6537de892ce7c63fc5be9ad373eae894b7655c92220ef00316cc33097356  libinput-1.31.1.tar.bz2
++# Locally calculated
++sha256  79e75f9e00d4a3f356707d5c0e0f7fbddb050c3fcddd1df020c9222bc2339020  libinput-d20219b4a7350434fc058dcf00dec3f8cf13db47.tar.gz
+ 
+ # License files
+ sha256  80de50b2022a840db044c56db804ca3565600a692c0714babface587acc6d1b0  COPYING
+diff --git a/package/libinput/libinput.mk b/package/libinput/libinput.mk
+--- a/package/libinput/libinput.mk
++++ b/package/libinput/libinput.mk
+@@ -4,9 +4,8 @@
+ #
+ ################################################################################
+ 
+-LIBINPUT_VERSION = 1.31.1
+-LIBINPUT_SOURCE = libinput-$(LIBINPUT_VERSION).tar.bz2
+-LIBINPUT_SITE = https://gitlab.freedesktop.org/libinput/libinput/-/archive/$(LIBINPUT_VERSION)
++LIBINPUT_VERSION = d20219b4a7350434fc058dcf00dec3f8cf13db47
++LIBINPUT_SITE = $(call github,singularityos-lab,libinput,$(LIBINPUT_VERSION))
+ LIBINPUT_DEPENDENCIES = host-pkgconf libevdev udev
+ LIBINPUT_INSTALL_STAGING = YES
+ LIBINPUT_LICENSE = MIT

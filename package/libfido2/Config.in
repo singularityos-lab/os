@@ -1,0 +1,11 @@
+config BR2_PACKAGE_LIBFIDO2
+	bool "libfido2"
+	depends on BR2_PACKAGE_HAS_UDEV
+	select BR2_PACKAGE_LIBCBOR
+	select BR2_PACKAGE_OPENSSL
+	select BR2_PACKAGE_ZLIB
+	help
+	  FIDO2 / U2F security key library, used by the Singularity
+	  Browser for WebAuthn sign-in with hardware keys.
+
+	  https://developers.yubico.com/libfido2/

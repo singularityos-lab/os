@@ -1,0 +1,11 @@
+config BR2_PACKAGE_SINGULARITY_CONNECTIONS
+	bool "singularity-connections"
+	depends on BR2_PACKAGE_LIBGTK4
+	select BR2_PACKAGE_LIBSINGULARITY
+	select BR2_PACKAGE_LIBGEE
+	select BR2_PACKAGE_JSON_GLIB
+	select BR2_PACKAGE_LIBSECRET
+	help
+	  Singularity Connections: see and control other computers over VNC and RDP.
+
+	  https://github.com/singularityos-lab/singularity-connections

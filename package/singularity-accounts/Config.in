@@ -1,0 +1,14 @@
+config BR2_PACKAGE_SINGULARITY_ACCOUNTS
+	bool "singularity-accounts"
+	depends on BR2_PACKAGE_LIBGTK4
+	depends on BR2_PACKAGE_WEBKITGTK || BR2_PACKAGE_WEBKITGTK_PREBUILT
+	select BR2_PACKAGE_LIBSINGULARITY
+	select BR2_PACKAGE_LIBFUSE3
+	select BR2_PACKAGE_LIBGEE
+	select BR2_PACKAGE_JSON_GLIB
+	select BR2_PACKAGE_LIBSECRET
+	select BR2_PACKAGE_LIBSOUP3
+	help
+	  Singularity Accounts: sign in to an online account.
+
+	  https://github.com/singularityos-lab/singularity-accounts

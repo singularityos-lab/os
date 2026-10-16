@@ -1,0 +1,9 @@
+config BR2_PACKAGE_SINGULARITY_USAGE
+	bool "singularity-usage"
+	depends on BR2_PACKAGE_LIBGTK4
+	select BR2_PACKAGE_LIBSINGULARITY
+	select BR2_PACKAGE_LIBGEE
+	help
+	  Singularity Usage: see which folders and files take up space.
+
+	  https://github.com/singularityos-lab/singularity-usage

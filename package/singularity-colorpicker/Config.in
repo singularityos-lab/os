@@ -1,0 +1,11 @@
+config BR2_PACKAGE_SINGULARITY_COLORPICKER
+	bool "singularity-colorpicker"
+	depends on BR2_PACKAGE_LIBGTK4
+	select BR2_PACKAGE_LIBSINGULARITY
+	select BR2_PACKAGE_LIBGEE
+	select BR2_PACKAGE_JSON_GLIB
+	select BR2_PACKAGE_LIBPEAS2
+	help
+	  Singularity Color Picker: pick colors from the screen and convert them between formats.
+
+	  https://github.com/singularityos-lab/singularity-colorpicker
