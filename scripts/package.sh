@@ -139,28 +139,19 @@ if [ -n "$GITHUB_ENV" ]; then
     echo "ROOT_HASH=${ROOT_HASH}" >> "$GITHUB_ENV"
 fi
 
-# Firmware add-on trust anchor: build the statically linked fw-verify and bake it plus
-# the release root public key into the (signed) initramfs. The firmware dm-verity root
-# hash is NOT carried in the UKI cmdline anymore -- a signed cmdline is fixed at build
-# time, so an OTA could never update it. Instead the initramfs re-verifies the release-
-# signed anchor beside the image (root pubkey -> signing cert -> manifest) and opens
-# dm-verity with the hash it extracts. Absent verifier/anchor -> base survival firmware.
+# The initramfs init, built from sinty-initramfs. It re-verifies the release-signed
+# firmware anchors in-process, so only the release root public key is baked next to it.
 # FW_ROOT_PUB may be pre-set (e.g. a test trust root for a VM trial); default to the
 # release root the loader verifies the UKI with.
 : "${FW_ROOT_PUB:=${ATOM_ROOT_PUB}}"
-if [ -f "${FW_ROOT_PUB}" ]; then
-    # FW_VERIFY_BIN may be pre-set to a known-good build (e.g. when AtomLoops HEAD is
-    # mid-refactor); otherwise build it from source.
-    if { [ -z "${FW_VERIFY_BIN}" ] || [ ! -x "${FW_VERIFY_BIN}" ]; } \
-        && [ -d "${ATOMLOOPS}/cmd/fw-verify" ]; then
-        ( cd "${ATOMLOOPS}" && CGO_ENABLED=0 "${ATOMLOOPS_GO:-go}" build -ldflags '-s -w' \
-            -o "${REPO_DIR}/artifacts/fw-verify" ./cmd/fw-verify )
-        FW_VERIFY_BIN="${REPO_DIR}/artifacts/fw-verify"
-    fi
-    if [ -n "${FW_VERIFY_BIN}" ] && [ -x "${FW_VERIFY_BIN}" ]; then
-        export FW_VERIFY_BIN FW_ROOT_PUB
-    fi
+export FW_ROOT_PUB
+if [ -z "${SINTY_INIT_BIN:-}" ] || [ ! -x "${SINTY_INIT_BIN}" ]; then
+    ( cd "${SINTY_INITRAMFS:?set SINTY_INITRAMFS to a sinty-initramfs checkout}" \
+        && CGO_ENABLED=0 "${ATOMLOOPS_GO:-go}" build -trimpath -ldflags '-s -w' \
+            -o "${REPO_DIR}/artifacts/sinty-initramfs" ./cmd/sinty-initramfs )
+    SINTY_INIT_BIN="${REPO_DIR}/artifacts/sinty-initramfs"
 fi
+export SINTY_INIT_BIN
 
 # Initramfs: the dm-verity aware init that waits for the kernel-created
 # verity device, mounts the verified erofs read-only and overlays a tmpfs.

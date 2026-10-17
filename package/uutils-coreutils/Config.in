@@ -1,0 +1,10 @@
+config BR2_PACKAGE_UUTILS_COREUTILS
+	bool "uutils-coreutils"
+	depends on BR2_PACKAGE_HOST_RUSTC_TARGET_ARCH_SUPPORTS
+	select BR2_PACKAGE_HOST_RUSTC
+	help
+	  The GNU core utilities rewritten in Rust (uutils), built as a
+	  single multicall binary with a link for every utility. Replaces
+	  GNU coreutils and the BusyBox applets of the same names.
+
+	  https://github.com/uutils/coreutils

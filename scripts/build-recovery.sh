@@ -4,9 +4,11 @@
 # Produces a REAL signed recovery UKI (kernelcache-recovery.efi) instead of the current
 # `cp kernelcache.efi kernelcache-recovery.efi` copy (package.sh:80). The recovery env is
 # self-contained in the UKI's embedded initramfs (so the loader's Ed25519 over the whole
-# UKI already verifies it -- no separate dm-verity needed): busybox + wpa_supplicant +
-# udhcpc + veritysetup + the wifi firmware + the static atom-recovery binary, which brings
+# UKI already verifies it -- no separate dm-verity needed): wpa_supplicant + the wifi
+# firmware + the static atom-recovery binary, which takes its own DHCP lease, brings
 # up Wi-Fi directly and re-downloads, verifies, and reinstalls a signed image.
+# The shell is sinty-sh and the tools come from the image's own userland: there is no
+# BusyBox in the recovery either.
 #
 # usage: build-recovery.sh   (run from the singularity-os repo root, after a normal build)
 set -eu
@@ -51,18 +53,21 @@ copy_libs() {
 	done
 }
 
-echo "[recovery] staging busybox + wifi + verity tools"
-copy_bin busybox bin
-for t in sh mount umount ip ifconfig switch_root modprobe mkdir cat grep sed tr readlink basename dirname sleep sync kill reboot stty; do
-	ln -sf busybox "$WORK/bin/$t"
+echo "[recovery] staging the shell, core tools and wifi"
+copy_bin sinty-sh bin
+ln -sf sinty-sh "$WORK/bin/sh"
+copy_bin coreutils bin
+for t in basename cat dirname mkdir readlink sleep sync tr; do
+	ln -sf coreutils "$WORK/bin/$t"
 done
+copy_bin grep bin
+copy_bin mount bin
+copy_bin umount bin
 copy_bin blkid usr/bin
+copy_bin kmod bin
+ln -sf kmod "$WORK/bin/modprobe"
 copy_bin wpa_supplicant sbin || echo "  (wpa_supplicant missing -- add BR2_PACKAGE_WPA_SUPPLICANT)"
-copy_bin udhcpc sbin || ln -sf ../bin/busybox "$WORK/sbin/udhcpc"
-copy_bin veritysetup sbin || true
-for b in "$WORK"/bin/busybox "$WORK"/sbin/*; do [ -f "$b" ] && copy_libs "$b"; done
-copy_libs "$WORK/usr/bin/blkid"
-# the dynamic loader + /lib64 -> /lib (busybox's ELF interpreter is /lib64/ld-linux-x86-64.so.2)
+for b in "$WORK"/bin/* "$WORK"/sbin/* "$WORK"/usr/bin/*; do [ -f "$b" ] && [ ! -L "$b" ] && copy_libs "$b"; done
 cp -aL "$TARGET_DIR/lib/ld-linux-x86-64.so.2" "$WORK/lib/" 2>/dev/null || true
 rm -rf "$WORK/lib64"; ln -sf lib "$WORK/lib64"
 
@@ -140,7 +145,7 @@ done
 recovery_fail() {
 	echo "$1"
 	sleep 10
-	/bin/reboot -f
+	/sbin/atom-recovery --mode reboot
 	while :; do sleep 60; done
 }
 
@@ -238,7 +243,19 @@ mount "$ESP_DEV" /boot/efi 2>/dev/null || {
 	recovery_fail "Sinty Recovery could not mount the system partition."
 }
 
-RECOVERY_ARGS="--wal /boot/rootfs/deployment.json --data-dir /var --rootfs-dir /boot/rootfs --esp-dir /boot/efi/EFI/atom --sintykey /usr/bin/sintykey"
+WIFI=wlan0
+for _n in /sys/class/net/*; do
+	[ -d "$_n/wireless" ] || continue
+	WIFI=$(basename "$_n")
+	break
+done
+mkdir -p /run/wpa_supplicant
+if [ -x /sbin/wpa_supplicant ]; then
+	/sbin/wpa_supplicant -B -i "$WIFI" -C /run/wpa_supplicant 2>/dev/null \
+		|| echo "Sinty Recovery could not start the wireless supplicant on $WIFI."
+fi
+
+RECOVERY_ARGS="--iface $WIFI --wal /boot/rootfs/deployment.json --data-dir /var --rootfs-dir /boot/rootfs --esp-dir /boot/efi/EFI/atom --sintykey /usr/bin/sintykey"
 /sbin/atom-recovery --mode serve $RECOVERY_ARGS &
 AGENT_PID=$!
 _wait=0
@@ -251,7 +268,7 @@ if [ -x /usr/bin/sinty-recovery-ui ] && [ -S /run/atom-recovery.sock ]; then
 	/usr/bin/sinty-recovery-ui && {
 		kill "$AGENT_PID" 2>/dev/null
 		wait "$AGENT_PID" 2>/dev/null
-		exec /bin/reboot -f
+		exec /sbin/atom-recovery --mode reboot
 	}
 fi
 
@@ -261,12 +278,12 @@ echo "Graphical recovery unavailable. Starting text recovery."
 /sbin/atom-recovery --mode tty $RECOVERY_ARGS || {
 	recovery_fail "Sinty Recovery stopped."
 }
-exec /bin/reboot -f
+exec /sbin/atom-recovery --mode reboot
 INIT
 chmod 0755 "$WORK/init"
 
 echo "[recovery] cpio.xz"
-( cd "$WORK" && find . | cpio -o -H newc 2>/dev/null | xz -9 --check=crc32 ) > artifacts/recovery-initrd.cpio.xz
+( cd "$WORK" && find . | cpio -o -H newc -R 0:0 2>/dev/null | xz -9 --check=crc32 ) > artifacts/recovery-initrd.cpio.xz
 
 echo "[recovery] UKI (kernel + recovery initramfs + recovery cmdline)"
 BASE=$((16#$(objdump -p "$STUB" | awk '/ImageBase/{print $2}')))

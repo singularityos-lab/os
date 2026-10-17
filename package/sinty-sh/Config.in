@@ -1,0 +1,11 @@
+config BR2_PACKAGE_SINTY_SH
+	bool "sinty-sh"
+	depends on BR2_PACKAGE_HOST_GO_TARGET_ARCH_SUPPORTS
+	help
+	  The system /bin/sh of SintyOS: a POSIX shell for scripts on
+	  the same Go interpreter as ush, with real background jobs,
+	  signal traps and policies for scripts running as root.
+	  Installed as /usr/bin/sinty-sh and wired as /bin/sh by the
+	  post-build script.
+
+	  https://github.com/singularityos-lab/sinty-sh
