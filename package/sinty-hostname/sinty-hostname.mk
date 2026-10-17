@@ -11,6 +11,11 @@ SINTY_HOSTNAME_LICENSE_FILES = LICENSE
 SINTY_HOSTNAME_GOMOD = github.com/singularityos-lab/sinty-hostname
 SINTY_HOSTNAME_BUILD_TARGETS = cmd/sinty-hostname cmd/sinty-hostnamed
 
+define SINTY_HOSTNAME_GO_VENDOR
+	cd $(@D) && env -u GOFLAGS -u GOPROXY GOTOOLCHAIN=local $(HOST_DIR)/bin/go mod vendor
+endef
+SINTY_HOSTNAME_PRE_BUILD_HOOKS += SINTY_HOSTNAME_GO_VENDOR
+
 define SINTY_HOSTNAME_INSTALL_TARGET_CMDS
 	$(INSTALL) -D -m 0755 $(@D)/bin/sinty-hostname $(TARGET_DIR)/usr/bin/sinty-hostname
 	$(INSTALL) -D -m 0755 $(@D)/bin/sinty-hostnamed $(TARGET_DIR)/usr/libexec/sinty-hostnamed

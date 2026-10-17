@@ -11,6 +11,11 @@ SINTY_LOCALE_LICENSE_FILES = LICENSE
 SINTY_LOCALE_GOMOD = github.com/singularityos-lab/sinty-locale
 SINTY_LOCALE_BUILD_TARGETS = cmd/sinty-locale cmd/sinty-localed
 
+define SINTY_LOCALE_GO_VENDOR
+	cd $(@D) && env -u GOFLAGS -u GOPROXY GOTOOLCHAIN=local $(HOST_DIR)/bin/go mod vendor
+endef
+SINTY_LOCALE_PRE_BUILD_HOOKS += SINTY_LOCALE_GO_VENDOR
+
 define SINTY_LOCALE_INSTALL_TARGET_CMDS
 	$(INSTALL) -D -m 0755 $(@D)/bin/sinty-locale $(TARGET_DIR)/usr/bin/sinty-locale
 	$(INSTALL) -D -m 0755 $(@D)/bin/sinty-localed $(TARGET_DIR)/usr/libexec/sinty-localed
