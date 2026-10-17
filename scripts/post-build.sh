@@ -87,6 +87,18 @@ if [ -x "$TARGET_DIR/usr/bin/sinty-devadm" ]; then
 	ln -sf sinty-devadm "$TARGET_DIR/usr/bin/udevadm"
 fi
 
+rm -f "$TARGET_DIR/usr/libexec/upowerd" "$TARGET_DIR/usr/lib/systemd/system/upower.service"
+rm -f "$TARGET_DIR/usr/libexec/power-profiles-daemon" "$TARGET_DIR/usr/bin/powerprofilesctl" "$TARGET_DIR/usr/sbin/thermald"
+rm -f "$TARGET_DIR/usr/lib/systemd/system/power-profiles-daemon.service" "$TARGET_DIR/usr/lib/systemd/system/thermald.service"
+rm -f "$TARGET_DIR"/etc/systemd/system/*.wants/upower.service "$TARGET_DIR"/etc/systemd/system/*.wants/power-profiles-daemon.service "$TARGET_DIR"/etc/systemd/system/*.wants/thermald.service
+rm -f "$TARGET_DIR"/usr/lib/systemd/system/*.wants/power-profiles-daemon.service "$TARGET_DIR"/usr/lib/systemd/system/*.wants/thermald.service
+rm -f "$TARGET_DIR/usr/share/dbus-1/system.d/org.freedesktop.thermald.conf" "$TARGET_DIR/usr/share/dbus-1/system-services/org.freedesktop.thermald.service"
+if [ -x "$TARGET_DIR/usr/libexec/sinty-powerd" ]; then
+	for n in org.freedesktop.UPower org.freedesktop.UPower.PowerProfiles net.hadess.PowerProfiles; do
+		printf '[D-BUS Service]\nName=%s\nExec=/usr/libexec/sinty-powerd\nUser=root\n' "$n" > "$TARGET_DIR/usr/share/dbus-1/system-services/$n.service"
+	done
+fi
+
 # The runtime recovery agent owns the narrow bootloader policy socket used by
 # Settings. Enable it only when the package installed the agent binary.
 mkdir -p "$TARGET_DIR/etc/systemd/system/multi-user.target.wants"

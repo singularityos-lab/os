@@ -1,0 +1,11 @@
+config BR2_PACKAGE_SINTY_POWERD
+	bool "sinty-powerd"
+	depends on BR2_PACKAGE_HOST_GO_TARGET_ARCH_SUPPORTS
+	help
+	  The power daemon of SintyOS: batteries and power supplies on
+	  org.freedesktop.UPower, the power profiles of
+	  power-profiles-daemon and a thermal guard, in one process.
+	  Replaces the UPower daemon, power-profiles-daemon and
+	  thermald; libupower-glib stays for its clients.
+
+	  https://github.com/singularityos-lab/sinty-powerd
