@@ -22,12 +22,13 @@ WHISPER_CPP_CONF_OPTS = \
 	-DGGML_OPENMP=OFF \
 	-DGGML_CCACHE=OFF \
 	-DGGML_CUDA=OFF \
-	-DGGML_VULKAN=OFF
+	-DGGML_VULKAN=OFF \
+	-DCMAKE_CXX_FLAGS="$(TARGET_CXXFLAGS) -DGGML_BACKEND_DL"
 
 define WHISPER_CPP_INSTALL_CLI
 	$(INSTALL) -d -m 0755 $(TARGET_DIR)/usr/lib/whisper-cpp
 	mv $(TARGET_DIR)/usr/bin/whisper-cli $(TARGET_DIR)/usr/lib/whisper-cpp/whisper-cli
-	$(INSTALL) -m 0755 $(@D)/buildroot-build/bin/libggml-cpu-*.so $(TARGET_DIR)/usr/lib/whisper-cpp/
+	$(INSTALL) -m 0755 $(WHISPER_CPP_BUILDDIR)/bin/libggml-cpu-*.so $(TARGET_DIR)/usr/lib/whisper-cpp/
 	ln -sf ../lib/whisper-cpp/whisper-cli $(TARGET_DIR)/usr/bin/whisper-cli
 	rm -f $(addprefix $(TARGET_DIR)/usr/bin/,main bench stream command talk-llama quantize \
 		whisper-bench whisper-quantize whisper-server whisper-stream whisper-command)

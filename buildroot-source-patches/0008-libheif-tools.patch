@@ -1,0 +1,43 @@
+--- a/package/libheif/Config.in
++++ b/package/libheif/Config.in
+@@ -9,6 +9,17 @@
+ 
+ 	  https://github.com/strukturag/libheif
+ 
++if BR2_PACKAGE_LIBHEIF
++
++config BR2_PACKAGE_LIBHEIF_TOOLS
++	bool "heif tools"
++	select BR2_PACKAGE_JPEG
++	select BR2_PACKAGE_LIBPNG
++	help
++	  Install heif-dec, heif-enc and heif-info.
++
++endif
++
+ comment "libheif needs a toolchain w/ C++, threads, gcc >= 10"
+ 	depends on !BR2_TOOLCHAIN_HAS_BINUTILS_BUG_30730
+ 	depends on !BR2_INSTALL_LIBSTDCPP || !BR2_TOOLCHAIN_GCC_AT_LEAST_10 || \
+--- a/package/libheif/libheif.mk
++++ b/package/libheif/libheif.mk
+@@ -15,13 +15,19 @@
+ 	-DWITH_AOM_DECODER=OFF \
+ 	-DWITH_AOM_ENCODER=OFF \
+ 	-DWITH_DEFLATE_HEADER_COMPRESSION=OFF \
+-	-DWITH_EXAMPLES=OFF \
+ 	-DWITH_GDK_PIXBUF=OFF \
+ 	-DWITH_LIBSHARPYUV=OFF \
+ 	-DWITH_RAV1E=OFF \
+ 	-DWITH_REDUCED_VISIBILITY=ON \
+ 	-DWITH_SvtEnc=OFF
+ 
++ifeq ($(BR2_PACKAGE_LIBHEIF_TOOLS),y)
++LIBHEIF_CONF_OPTS += -DWITH_EXAMPLES=ON -DBUILD_TESTING=OFF
++LIBHEIF_DEPENDENCIES += jpeg libpng
++else
++LIBHEIF_CONF_OPTS += -DWITH_EXAMPLES=OFF
++endif
++
+ ifeq ($(BR2_PACKAGE_DAV1D),y)
+ LIBHEIF_CONF_OPTS += -DWITH_DAV1D=ON
+ LIBHEIF_DEPENDENCIES += dav1d

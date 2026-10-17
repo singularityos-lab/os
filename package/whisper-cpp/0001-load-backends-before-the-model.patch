@@ -1,0 +1,16 @@
+Load the backends before the model
+
+With GGML_BACKEND_DL the CPU backend is a module, and the model loader
+looks it up before any backend has been loaded, so it crashes.
+
+--- a/src/whisper.cpp
++++ b/src/whisper.cpp
+@@ -3716,6 +3716,8 @@
+ struct whisper_context * whisper_init_with_params_no_state(struct whisper_model_loader * loader, struct whisper_context_params params) {
+     ggml_time_init();
+ 
++    whisper_load_backends();
++
+     if (params.flash_attn && params.dtw_token_timestamps) {
+         WHISPER_LOG_WARN("%s: dtw_token_timestamps is not supported with flash_attn - disabling\n", __func__);
+         params.dtw_token_timestamps = false;
