@@ -291,6 +291,11 @@ if [ -x "$TARGET_DIR/usr/bin/sinty-hostname" ]; then
     ln -sf sinty-hostname "$TARGET_DIR/usr/bin/hostnamectl"
     echo "[singularity] post-build: hostnamectl -> sinty-hostname (de-systemd)"
 fi
+if [ -x "$TARGET_DIR/usr/bin/sinty-locale" ]; then
+    rm -f "$TARGET_DIR/usr/bin/localectl"
+    ln -sf sinty-locale "$TARGET_DIR/usr/bin/localectl"
+    echo "[singularity] post-build: localectl -> sinty-locale (de-systemd)"
+fi
 
 # Build diagnostics may retain host source paths even after stripping. Replace
 # them with equal-length canonical prefixes so ELF offsets and bytecode layouts

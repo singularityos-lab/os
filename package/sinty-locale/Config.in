@@ -1,0 +1,13 @@
+config BR2_PACKAGE_SINTY_LOCALE
+	bool "sinty-locale"
+	depends on BR2_PACKAGE_HOST_GO_TARGET_ARCH_SUPPORTS
+	depends on BR2_PACKAGE_HOST_GO_TARGET_CGO_LINKING_SUPPORTS
+	help
+	  Native localectl and locale1 replacement for SintyOS
+	  (de-systemd). Serves org.freedesktop.locale1 so Settings
+	  can show and change the system language and keyboard, and
+	  keeps them in /var/lib/singularity because /etc is
+	  read-only. Installed as /usr/bin/sinty-locale and wired as
+	  /usr/bin/localectl by the post-build script.
+
+	  https://github.com/singularityos-lab/sinty-locale
