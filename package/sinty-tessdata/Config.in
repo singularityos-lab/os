@@ -1,0 +1,7 @@
+config BR2_PACKAGE_SINTY_TESSDATA
+	bool "sinty-tessdata"
+	depends on BR2_PACKAGE_TESSERACT_OCR
+	help
+	  Fast Tesseract models for the languages Sinty OS ships
+	  (English, Italian, German, French, Spanish, Portuguese), used
+	  by Text Recognition in Photos, Camera, Videos and previews.

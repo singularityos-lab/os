@@ -1,0 +1,10 @@
+config BR2_PACKAGE_WHISPER_CPP
+	bool "whisper-cpp"
+	depends on BR2_INSTALL_LIBSTDCPP
+	depends on BR2_TOOLCHAIN_HAS_THREADS
+	help
+	  Offline speech recognition (whisper.cpp). Provides whisper-cli
+	  for Dictation in the shell and transcription in Voice; the
+	  speech models are downloaded from Settings.
+
+	  https://github.com/ggml-org/whisper.cpp
