@@ -1,0 +1,13 @@
+config BR2_PACKAGE_SINTY_HOSTNAME
+	bool "sinty-hostname"
+	depends on BR2_PACKAGE_HOST_GO_TARGET_ARCH_SUPPORTS
+	depends on BR2_PACKAGE_HOST_GO_TARGET_CGO_LINKING_SUPPORTS
+	help
+	  Native hostnamectl and hostname1 replacement for SintyOS
+	  (de-systemd). Serves org.freedesktop.hostname1 so Settings
+	  can show and change the computer name, and keeps the names
+	  in /var/lib/singularity because /etc is read-only. Installed
+	  as /usr/bin/sinty-hostname and wired as /usr/bin/hostnamectl
+	  by the post-build script.
+
+	  https://github.com/singularityos-lab/sinty-hostname

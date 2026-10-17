@@ -286,6 +286,11 @@ if [ -x "$TARGET_DIR/usr/bin/sinty-timedate" ]; then
     ln -sf sinty-timedate "$TARGET_DIR/usr/bin/timedatectl"
     echo "[singularity] post-build: timedatectl -> sinty-timedate (de-systemd)"
 fi
+if [ -x "$TARGET_DIR/usr/bin/sinty-hostname" ]; then
+    rm -f "$TARGET_DIR/usr/bin/hostnamectl"
+    ln -sf sinty-hostname "$TARGET_DIR/usr/bin/hostnamectl"
+    echo "[singularity] post-build: hostnamectl -> sinty-hostname (de-systemd)"
+fi
 
 # Build diagnostics may retain host source paths even after stripping. Replace
 # them with equal-length canonical prefixes so ELF offsets and bytecode layouts
