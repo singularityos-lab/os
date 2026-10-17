@@ -26,19 +26,12 @@ mkdir -p "$XDG_RUNTIME_DIR" 2>/dev/null || true
 
 sscommon_locale
 sscommon_softrender_backstop
-# Force software (pixman) compositing unconditionally, overriding the per-GPU
-# backstop. On real hardware the backstop leaves the native wlroots GLES renderer,
-# but Mesa 26 on this Intel GPU crashes labwc's GL render passes: the greeter (a
-# single shm surface, no effects) composites fine, but once the desktop is up and
-# requests the frosted-glass blur (singularity-blur.c does real GL downsample/
-# upsample passes on server.renderer), the GL path fails -> the scene never paints
-# (black), only the hardware cursor plane survives, and the session loops back to
-# the greeter. pixman/llvmpipe composites on the CPU on ANY GPU -- the exact path
-# the VM already runs end-to-end (compositor pixman + clients cairo). A slow but
-# solid desktop beats a login loop; native GL returns once Mesa-26-on-ADL is fixed.
-export WLR_RENDERER=pixman WLR_RENDERER_ALLOW_SOFTWARE=1
-export LIBGL_ALWAYS_SOFTWARE=1 GALLIUM_DRIVER=llvmpipe
-sscommon_log "compositor: forcing software render (WLR_RENDERER=pixman) to bypass the Intel GL crash"
+_softmark=/run/singularity/render-software
+if [ -e "$_softmark" ] || [ -e /etc/singularity/render-software ] || grep -qw sinty.render=software /proc/cmdline 2>/dev/null; then
+    export WLR_RENDERER=pixman WLR_RENDERER_ALLOW_SOFTWARE=1
+    export LIBGL_ALWAYS_SOFTWARE=1 GALLIUM_DRIVER=llvmpipe
+    sscommon_log "compositor: software render (WLR_RENDERER=pixman)"
+fi
 
 # We start Before=greetd, early in boot, and may beat udev to the DRM device.
 # labwc's DRM backend fails hard if /dev/dri/card0 is not there yet, so wait for
@@ -95,4 +88,16 @@ if [ -d "$_login" ] && rm -rf "$_merged" && mkdir -p "$_merged" \
     _cfg="$_merged"
     sscommon_log "compositor: using the login screen settings from $_login"
 fi
-exec labwc -C "$_cfg"
+labwc -C "$_cfg" &
+_pid=$!
+trap 'kill -TERM "$_pid" 2>/dev/null' TERM INT HUP
+while :; do
+    wait "$_pid"
+    _rc=$?
+    kill -0 "$_pid" 2>/dev/null || break
+done
+if [ "${WLR_RENDERER:-}" != pixman ] && { [ "$_rc" = 75 ] || [ "$_rc" -gt 128 ] && [ "$_rc" != 143 ]; }; then
+    : > "$_softmark" 2>/dev/null || true
+    sscommon_log "compositor: GPU rendering failed (exit $_rc), restarting with software render"
+fi
+exit "$_rc"

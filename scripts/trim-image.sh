@@ -30,6 +30,15 @@ for gen in 3945 4965 1000 5000 5150 6050 6000g2a 6000g2b 100 105 135 2000 2030 3
     rm -f "$FW/iwlwifi-$gen"-*.ucode "$FW/intel/iwlwifi/iwlwifi-$gen"-*.ucode
 done
 
+rm -rf "$TARGET/usr/share/clc" "$TARGET/usr/lib/clang" "$TARGET/usr/share/vulkan/registry"
+rm -f "$TARGET"/usr/lib/libclang*.so* "$TARGET"/usr/lib/libLLVMSPIRVLib.so*
+for t in amdgpu-arch diagtool llvm-spirv nvptx-arch offload-arch spirv-as spirv-cfg spirv-diff spirv-dis spirv-lesspipe.sh spirv-link spirv-lint spirv-objdump spirv-opt spirv-reduce spirv-val; do
+    rm -f "$TARGET/usr/bin/$t"
+done
+for l in diff link lint opt reduce shared; do
+    rm -f "$TARGET/usr/lib/libSPIRV-Tools-$l.so"
+done
+
 find "$TARGET/usr/bin" "$TARGET/usr/lib" -type f -name '*.so*' -exec strip --strip-unneeded {} + 2>/dev/null || true
 
 after=$(du -sm "$TARGET" | cut -f1)

@@ -1,0 +1,5 @@
+#!/bin/sh
+D=/var/lib/singularity/fprint
+export FP_TOD_DRIVERS_DIR="$D/tod-1"
+export LD_LIBRARY_PATH="$D/singularity-fprint-drivers/usr/lib/x86_64-linux-gnu"
+exec /usr/libexec/fprintd "$@"

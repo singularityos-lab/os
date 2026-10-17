@@ -1,0 +1,5 @@
+[D-BUS Service]
+Name=net.reactivated.Fprint
+Exec=/usr/libexec/singularity-fprintd
+User=root
+SystemdService=fprintd.service
