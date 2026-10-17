@@ -45,6 +45,34 @@
     <keybind key="A-S-Tab"><action name="Execute"><command>/usr/bin/singularity-shortcut switch_windows_prev</command></action></keybind>
     <keybind key="Super_L" onRelease="yes"><action name="Execute"><command>/usr/bin/singularity-shortcut toggle_launcher</command></action></keybind>
     <keybind key="Super_R" onRelease="yes"><action name="Execute"><command>/usr/bin/singularity-shortcut toggle_launcher</command></action></keybind>
+    <keybind key="W-d"><action name="Execute"><command>/usr/bin/singularity-shortcut toggle_desktop_reveal</command></action></keybind>
+    <keybind key="W-space"><action name="Execute"><command>/usr/bin/singularity-shortcut toggle_launcher</command></action></keybind>
+    <keybind key="W-w"><action name="Execute"><command>/usr/bin/singularity-shortcut toggle_workspace_overview</command></action></keybind>
+    <keybind key="W-Return"><action name="Execute"><command>/usr/bin/singularity-shortcut spawn_terminal</command></action></keybind>
+    <keybind key="W-period"><action name="Execute"><command>/usr/bin/singularity-shortcut toggle_emoji_picker</command></action></keybind>
+    <keybind key="W-v"><action name="Execute"><command>/usr/bin/singularity-shortcut toggle_clipboard_history</command></action></keybind>
+    <keybind key="W-slash"><action name="Execute"><command>/usr/bin/singularity-shortcut toggle_shortcut_cheatsheet</command></action></keybind>
+    <keybind key="W-Tab"><action name="Execute"><command>/usr/bin/singularity-shortcut run_command</command></action></keybind>
+    <keybind key="S-A-F2"><action name="Execute"><command>/usr/bin/singularity-shortcut run_command</command></action></keybind>
+    <keybind key="W-r"><action name="Execute"><command>/usr/bin/singularity-shortcut retile_windows</command></action></keybind>
+    <keybind key="W-Left"><action name="Execute"><command>/usr/bin/singularity-shortcut snap_left</command></action></keybind>
+    <keybind key="W-Right"><action name="Execute"><command>/usr/bin/singularity-shortcut snap_right</command></action></keybind>
+    <keybind key="W-Up"><action name="Execute"><command>/usr/bin/singularity-shortcut snap_up</command></action></keybind>
+    <keybind key="W-Down"><action name="Execute"><command>/usr/bin/singularity-shortcut snap_down</command></action></keybind>
+    <keybind key="W-m"><action name="Execute"><command>/usr/bin/singularity-shortcut volume_mute</command></action></keybind>
+    <keybind key="Print"><action name="Execute"><command>/usr/bin/singularity-shortcut screenshot_tool</command></action></keybind>
+    <keybind key="S-Print"><action name="Execute"><command>/usr/bin/singularity-shortcut screenshot_region</command></action></keybind>
+    <keybind key="A-Print"><action name="Execute"><command>/usr/bin/singularity-shortcut screenshot_window</command></action></keybind>
+    <keybind key="W-S-p"><action name="Execute"><command>/usr/bin/singularity-shortcut pip_region</command></action></keybind>
+    <keybind key="W-A-p"><action name="Execute"><command>/usr/bin/singularity-shortcut pip_window</command></action></keybind>
+    <keybind key="W-l"><action name="Execute"><command>/usr/bin/singularity-shortcut lock_screen</command></action></keybind>
+    <keybind key="W-A-s"><action name="Execute"><command>/usr/bin/singularity-shortcut toggle_screen_reader</command></action></keybind>
+    <keybind key="W-A-8"><action name="Execute"><command>/usr/bin/singularity-shortcut toggle_zoom</command></action></keybind>
+    <keybind key="W-A-equal"><action name="Execute"><command>/usr/bin/singularity-shortcut zoom_in</command></action></keybind>
+    <keybind key="W-A-minus"><action name="Execute"><command>/usr/bin/singularity-shortcut zoom_out</command></action></keybind>
+    <keybind key="XF86AudioMicMute"><action name="Execute"><command>/usr/bin/singularity-shortcut mic_mute</command></action></keybind>
+    <keybind key="XF86KbdBrightnessUp"><action name="Execute"><command>/usr/bin/singularity-shortcut kbd_brightness_up</command></action></keybind>
+    <keybind key="XF86KbdBrightnessDown"><action name="Execute"><command>/usr/bin/singularity-shortcut kbd_brightness_down</command></action></keybind>
     <keybind key="XF86AudioRaiseVolume"><action name="Execute"><command>/usr/bin/singularity-shortcut volume_up</command></action></keybind>
     <keybind key="XF86AudioLowerVolume"><action name="Execute"><command>/usr/bin/singularity-shortcut volume_down</command></action></keybind>
     <keybind key="XF86AudioMute"><action name="Execute"><command>/usr/bin/singularity-shortcut volume_mute</command></action></keybind>
