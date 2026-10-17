@@ -97,6 +97,27 @@ echo "[package] loader trust root verified: $(sha256sum "${ATOM_ROOT_PUB}" | cut
 # RootFS
 ROOTFS_TAR=artifacts/rootfs.tar
 bzcat buildroot-build/images/rootfs.tar.bz2 > "$ROOTFS_TAR"
+python3 - "${ATOM_ROOT_PUB}" "$ROOTFS_TAR" <<'PY' || exit 1
+import sys, tarfile
+key = open(sys.argv[1], 'rb').read()
+want = {'usr/libexec/updated.real': 'embed', 'etc/atom-fw-root.pub': 'equal'}
+seen = set()
+with tarfile.open(sys.argv[2]) as tar:
+    for m in tar:
+        name = m.name[2:] if m.name.startswith('./') else m.name
+        if name not in want or not m.isfile():
+            continue
+        data = tar.extractfile(m).read()
+        if (key not in data) if want[name] == 'embed' else (data != key):
+            print(f"package: rootfs {name} does not carry {sys.argv[1]} -- refusing to ship", file=sys.stderr)
+            sys.exit(1)
+        seen.add(name)
+missing = set(want) - seen
+if missing:
+    print(f"package: rootfs is missing {', '.join(sorted(missing))} -- refusing to ship", file=sys.stderr)
+    sys.exit(1)
+PY
+echo "[package] update agent trust root verified"
 # mkfs.erofs does not truncate an existing output file: a stale rootfs.erofs from a
 # previous build would survive and get shipped, silently embedding an old rootfs (e.g.
 # missing a package added since). Remove it first so the image always reflects the
