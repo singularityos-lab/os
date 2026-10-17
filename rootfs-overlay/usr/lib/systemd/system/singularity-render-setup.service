@@ -1,8 +1,8 @@
 [Unit]
 Description=Select software GL rendering when no GPU is present
 DefaultDependencies=no
-After=systemd-udevd.service
-Before=greetd.service
+After=sinty-devd.service
+Before=sinty-logind.service
 [Service]
 Type=oneshot
 RemainAfterExit=yes

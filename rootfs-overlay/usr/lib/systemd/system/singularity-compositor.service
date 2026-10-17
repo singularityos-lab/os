@@ -1,7 +1,6 @@
 [Unit]
 Description=Singularity persistent Wayland compositor
-After=seatd.service systemd-udevd.service udev-coldplug.service
-Before=greetd.service
+After=sinty-logind.service sinty-devd.service
 # Only on an installed system. The live installer runs its own labwc through
 # atom-install-session; a second persistent compositor there would fight it for
 # the seat. sinit honours this condition (fail-closed when absent).

@@ -74,6 +74,19 @@ rm -f "$TARGET_DIR/usr/lib/systemd/system/multi-user.target.wants/NetworkManager
 
 # Boot path is dbus -> iwd -> sinty-nm only.
 
+rm -f "$TARGET_DIR/usr/bin/udevd" "$TARGET_DIR/sbin/udevd" "$TARGET_DIR/usr/sbin/udevd"
+rm -f "$TARGET_DIR/usr/bin/seatd" "$TARGET_DIR/usr/bin/seatd-launch"
+rm -f "$TARGET_DIR/usr/bin/greetd" "$TARGET_DIR/usr/bin/agreety"
+rm -f "$TARGET_DIR/usr/lib/systemd/system/seatd.service" "$TARGET_DIR/usr/lib/systemd/system/greetd.service"
+rm -f "$TARGET_DIR/usr/lib/systemd/system/systemd-udevd.service" "$TARGET_DIR/usr/lib/systemd/system/udev-coldplug.service"
+rm -f "$TARGET_DIR"/etc/systemd/system/*.wants/seatd.service "$TARGET_DIR"/etc/systemd/system/*.wants/greetd.service
+rm -f "$TARGET_DIR"/etc/systemd/system/*.wants/systemd-udevd.service "$TARGET_DIR"/etc/systemd/system/*.wants/udev-coldplug.service
+rm -f "$TARGET_DIR/etc/systemd/system/sysinit.target.wants/sinty-logind.service"
+rm -rf "$TARGET_DIR/etc/systemd/system/seatd.service.d"
+if [ -x "$TARGET_DIR/usr/bin/sinty-devadm" ]; then
+	ln -sf sinty-devadm "$TARGET_DIR/usr/bin/udevadm"
+fi
+
 # The runtime recovery agent owns the narrow bootloader policy socket used by
 # Settings. Enable it only when the package installed the agent binary.
 mkdir -p "$TARGET_DIR/etc/systemd/system/multi-user.target.wants"

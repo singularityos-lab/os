@@ -1,7 +1,7 @@
 [Unit]
 Description=Apply hostname (sinit hostname-setup)
 DefaultDependencies=no
-Before=greetd.service
+Before=sinty-logind.service
 
 [Service]
 Type=oneshot

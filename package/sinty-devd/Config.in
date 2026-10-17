@@ -1,0 +1,13 @@
+config BR2_PACKAGE_SINTY_DEVD
+	bool "sinty-devd"
+	depends on BR2_PACKAGE_HOST_GO_TARGET_ARCH_SUPPORTS
+	depends on BR2_PACKAGE_EUDEV
+	help
+	  Native device manager for SintyOS (de-systemd). Runs the udev
+	  rules, manages device nodes and the udev database and speaks
+	  the libudev protocol in place of udevd. The libudev library,
+	  the rule helpers and the hardware database of eudev stay.
+	  Installed as /usr/libexec/sinty-devd, with sinty-devadm wired
+	  as /usr/bin/udevadm by the post-build script.
+
+	  https://github.com/singularityos-lab/sinty-devd

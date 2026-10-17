@@ -5,7 +5,7 @@ config BR2_PACKAGE_SINGULARITY_GREETER
 	select BR2_PACKAGE_GTK4_LAYER_SHELL
 	select BR2_PACKAGE_LIBGEE
 	select BR2_PACKAGE_JSON_GLIB
-	select BR2_PACKAGE_GREETD if BR2_PACKAGE_HOST_RUSTC_TARGET_ARCH_SUPPORTS
+	select BR2_PACKAGE_SINTY_LOGIND
 	help
 	  Singularity Greeter: the greetd-based login screen for the
 	  Singularity desktop.

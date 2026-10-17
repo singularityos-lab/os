@@ -1,7 +1,7 @@
 [Unit]
 Description=Activate the NVIDIA driver add-on (kernel-matched proprietary bundle)
 DefaultDependencies=no
-After=systemd-udevd.service
+After=sinty-devd.service
 Before=basic.target
 ConditionPathExists=/var/.fw-nvidia
 

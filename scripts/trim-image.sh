@@ -39,6 +39,13 @@ for l in diff link lint opt reduce shared; do
     rm -f "$TARGET/usr/lib/libSPIRV-Tools-$l.so"
 done
 
+rm -f "$TARGET/usr/sbin/NetworkManager"
+for h in nm-daemon-helper nm-dhcp-helper nm-dispatcher nm-initrd-generator nm-priv-helper; do
+    rm -f "$TARGET/usr/libexec/$h"
+done
+rm -f "$TARGET/usr/share/dbus-1/system-services/org.freedesktop.nm_dispatcher.service" "$TARGET/usr/share/dbus-1/system-services/org.freedesktop.nm_priv_helper.service"
+find "$TARGET/usr/lib/NetworkManager" -mindepth 1 -maxdepth 1 -type d -name '[0-9]*' -exec rm -rf {} + 2>/dev/null || true
+
 find "$TARGET/usr/bin" "$TARGET/usr/lib" -type f -name '*.so*' -exec strip --strip-unneeded {} + 2>/dev/null || true
 
 after=$(du -sm "$TARGET" | cut -f1)

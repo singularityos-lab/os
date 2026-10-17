@@ -1,6 +1,12 @@
 config BR2_PACKAGE_SINTY_LOGIND
 	bool "sinty-logind"
-	depends on BR2_PACKAGE_LIBGLIB2
+	depends on BR2_PACKAGE_HOST_GO_TARGET_ARCH_SUPPORTS
+	depends on BR2_PACKAGE_HOST_GO_TARGET_CGO_LINKING_SUPPORTS
+	depends on BR2_PACKAGE_LINUX_PAM
 	help
-	  Minimal org.freedesktop.login1 shim so the desktop's power
-	  actions (reboot/poweroff/suspend) work under sinit.
+	  Login, session and seat manager for SintyOS (de-systemd). Runs
+	  the login screen over the greetd protocol, serves the seatd
+	  protocol for libseat compositors and org.freedesktop.login1
+	  for power, sessions and the seat.
+
+	  https://github.com/singularityos-lab/sinty-logind

@@ -1,7 +1,7 @@
 [Unit]
 Description=Sinty log collector to a removable SINTYLOGS partition
 DefaultDependencies=no
-After=systemd-udevd.service
+After=sinty-devd.service
 
 [Service]
 ExecStart=/usr/bin/singularity-logcollect

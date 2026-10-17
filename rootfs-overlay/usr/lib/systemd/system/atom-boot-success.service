@@ -1,6 +1,6 @@
 [Unit]
 Description=Atom Loops rootfs boot-success
-After=greetd.service
+After=sinty-logind.service
 DefaultDependencies=no
 
 [Service]

@@ -1,8 +1,8 @@
 [Unit]
 Description=Singularity boot splash
 DefaultDependencies=no
-After=systemd-udevd.service seatd.service
-Wants=seatd.service
+After=sinty-devd.service sinty-logind.service
+Wants=sinty-logind.service
 
 [Service]
 Type=simple
