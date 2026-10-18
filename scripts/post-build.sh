@@ -339,6 +339,32 @@ if [ -x "$TARGET_DIR/usr/bin/sinty-locale" ]; then
     echo "[singularity] post-build: localectl -> sinty-locale (de-systemd)"
 fi
 
+FW="$TARGET_DIR/usr/lib/sinty-framework"
+mkdir -p "$FW/girepository-1.0"
+for _so in libsingularity.so.0 libsingularity-system.so.0 libgtk-4.so.1; do
+    _real="$(readlink -f "$TARGET_DIR/usr/lib/$_so")"
+    if [ ! -f "$_real" ]; then
+        echo "post-build: framework library $_so is missing" >&2
+        exit 1
+    fi
+    [ "$_real" = "$FW/$_so" ] || mv -f "$_real" "$FW/$_so"
+    rm -f "$TARGET_DIR/usr/lib/$_so"
+    ln -s "sinty-framework/$_so" "$TARGET_DIR/usr/lib/$_so"
+done
+for _t in Singularity-1.0 Gtk-4.0 Gdk-4.0 GdkWayland-4.0 Gsk-4.0; do
+    _f="$TARGET_DIR/usr/lib/girepository-1.0/$_t.typelib"
+    if [ -f "$_f" ] && [ ! -L "$_f" ]; then
+        mv -f "$_f" "$FW/girepository-1.0/$_t.typelib"
+        ln -s "../sinty-framework/girepository-1.0/$_t.typelib" "$_f"
+    fi
+done
+_build="$(cat "$SCRIPT_DIR/../release/product-build")"
+_letter="$(printf '%s' "$_build" | cut -c3)"
+_index=$(( $(printf '%d' "'$_letter") - 65 ))
+_seq="$(printf '%s' "${_build#??[A-Z]}" | sed 's/^0*//')"
+printf '%d\n' "$(( ${_build%%[A-Z]*} * 1000000 + _index * 10000 + ${_seq:-0} ))" > "$FW/.overlay-version"
+echo "[singularity] post-build: framework in /usr/lib/sinty-framework, version $(cat "$FW/.overlay-version")"
+
 # Build diagnostics may retain host source paths even after stripping. Replace
 # them with equal-length canonical prefixes so ELF offsets and bytecode layouts
 # remain unchanged, then fail if any original prefix survived.
