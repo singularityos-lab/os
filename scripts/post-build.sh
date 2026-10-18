@@ -347,6 +347,7 @@ FW="$TARGET_DIR/usr/lib/sinty-framework"
 mkdir -p "$FW/girepository-1.0"
 for _so in libsingularity.so.0 libsingularity-system.so.0 libgtk-4.so.1; do
     _real="$(readlink -f "$TARGET_DIR/usr/lib/$_so")"
+    [ -f "$_real" ] || _real="$FW/$_so"
     if [ ! -f "$_real" ]; then
         echo "post-build: framework library $_so is missing" >&2
         exit 1
