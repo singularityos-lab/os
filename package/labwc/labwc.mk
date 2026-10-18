@@ -26,6 +26,21 @@ LABWC_DEPENDENCIES = \
 	xcb-util-wm \
 	xwayland
 
+LABWC_SCENEFX_VERSION = 37ccd723bef49e6891156ffafce8f549f01446cc
+LABWC_EXTRA_DOWNLOADS = \
+	https://github.com/wlrfx/scenefx/archive/$(LABWC_SCENEFX_VERSION).tar.gz
+
+define LABWC_EXTRACT_SCENEFX
+	mkdir -p $(@D)/subprojects/scenefx
+	$(call suitable-extractor,$(LABWC_SCENEFX_VERSION).tar.gz) \
+		$(LABWC_DL_DIR)/$(LABWC_SCENEFX_VERSION).tar.gz | \
+		$(TAR) --strip-components=1 -C $(@D)/subprojects/scenefx $(TAR_OPTIONS) -
+	for p in scenefx-liquid.patch scenefx-software-sync.patch; do \
+		patch -d $(@D)/subprojects/scenefx -p1 < $(@D)/subprojects/packagefiles/$$p || exit 1; \
+	done
+endef
+LABWC_POST_EXTRACT_HOOKS += LABWC_EXTRACT_SCENEFX
+
 LABWC_CONF_OPTS = \
 	-Dxwayland=enabled \
 	-Dman-pages=disabled \

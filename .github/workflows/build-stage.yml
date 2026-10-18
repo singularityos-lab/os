@@ -27,7 +27,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: mirkobrombin/AtomLoops
-          ref: 54b6260c3e6fdef09ac051ade35c3845c19f50d2
+          ref: 15c87ab8a2598fbfff90606b1881035dce01c9e3
           path: _deps/AtomLoops
 
       - name: Checkout recovery
@@ -36,6 +36,13 @@ jobs:
           repository: singularityos-lab/sinty-recovery
           ref: 6e44fd52e47828ba19431f7e00e17fc2dade2a11
           path: _deps/sinty-recovery
+
+      - name: Checkout initramfs
+        uses: actions/checkout@v4
+        with:
+          repository: singularityos-lab/sinty-initramfs
+          ref: 0869ef28501110b82cef02774913d467397c825c
+          path: _deps/sinty-initramfs
 
       - name: Set up Go
         uses: actions/setup-go@v6
@@ -196,6 +203,7 @@ jobs:
         env:
           ATOMLOOPS: ${{ github.workspace }}/_deps/AtomLoops
           SINTY_RECOVERY: ${{ github.workspace }}/_deps/sinty-recovery
+          SINTY_INITRAMFS: ${{ github.workspace }}/_deps/sinty-initramfs
           ATOM_ROOT_PUB_B64: ${{ secrets.ATOM_ROOT_PUB }}
           ATOM_SIGNING_KEY_B64: ${{ secrets.ATOM_SIGNING_KEY }}
           ATOM_SIGNING_CERT_B64: ${{ secrets.ATOM_SIGNING_CERT }}
