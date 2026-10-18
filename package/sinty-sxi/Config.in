@@ -1,0 +1,10 @@
+config BR2_PACKAGE_SINTY_SXI
+	bool "sinty-sxi"
+	depends on BR2_PACKAGE_HOST_GO_TARGET_ARCH_SUPPORTS
+	help
+	  SXI applications on SintyOS: sxid installs signed application
+	  images from the collections the system trusts, maps them
+	  through dm-verity and adds them to the launcher. sxi is the
+	  publisher tool and the command line client.
+
+	  https://github.com/singularityos-lab/sinty-sxi
