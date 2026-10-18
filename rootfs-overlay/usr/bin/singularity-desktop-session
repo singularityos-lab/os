@@ -7,6 +7,10 @@ SHARE="$PREFIX/share"
 
 export LD_LIBRARY_PATH="$LIB${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 export PATH="$BIN:$PATH"
+for dir in "$HOME/bin" "$HOME/.local/bin"; do
+    [ -d "$dir" ] && case ":$PATH:" in *":$dir:"*) ;; *) PATH="$dir:$PATH" ;; esac
+done
+export PATH
 export GDK_BACKEND=wayland
 # Renderer: default to SOFTWARE (cairo/llvmpipe) when the parent did not already pick one.
 # sscommon_softrender_backstop leaves GSK_RENDERER unset ("native") on real hardware; this

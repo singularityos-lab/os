@@ -1,0 +1,12 @@
+[Unit]
+Description=Bring up the loopback interface
+DefaultDependencies=no
+Before=sysinit.target network-pre.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/bin/ip link set lo up
+
+[Install]
+WantedBy=sysinit.target
