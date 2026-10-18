@@ -21,6 +21,7 @@ for _d in bin sbin; do
         ln -sf "usr/$_d" "$TARGET_DIR/$_d"
     fi
 done
+[ -e "$TARGET_DIR/usr/sbin/arping" ] || ln -s ../bin/arping "$TARGET_DIR/usr/sbin/arping"
 
 
 # Ensure the GSettings schema sources are present in the target (some packages
@@ -34,6 +35,13 @@ if [ -d "$_STG" ]; then
     cp -f "$_STG"/*.enums.xml "$_TGT/" 2>/dev/null || true
 fi
 "$(dirname "$TARGET_DIR")/host/bin/glib-compile-schemas" "$_TGT" >/dev/null 2>&1 || true
+
+_APPS="$TARGET_DIR/usr/share/applications"
+awk -F= '
+	FNR == 1 { id = FILENAME; sub(".*/", "", id) }
+	/^MimeType=/ { n = split($2, m, ";"); for (i = 1; i <= n; i++) if (m[i] != "") apps[m[i]] = apps[m[i]] id ";" }
+	END { print "[MIME Cache]"; for (t in apps) print t "=" apps[t] }
+' "$_APPS"/*.desktop | { read -r h; echo "$h"; sort; } > "$_APPS/mimeinfo.cache"
 
 # GIO module cache: without it, glib-networking's TLS backend (libgio{gnutls,openssl})
 # is not registered, so libsoup (the Store's HTTP client) cannot do HTTPS. The rootfs
@@ -71,6 +79,7 @@ rm -f "$TARGET_DIR/etc/systemd/system/graphical.target.wants/NetworkManager.serv
 rm -f "$TARGET_DIR/etc/systemd/system/multi-user.target.wants/NetworkManager.service"
 rm -f "$TARGET_DIR/usr/lib/systemd/system/NetworkManager.service"
 rm -f "$TARGET_DIR/usr/lib/systemd/system/multi-user.target.wants/NetworkManager.service"
+rm -f "$TARGET_DIR/usr/share/dbus-1/system.d/nm-dispatcher.conf" "$TARGET_DIR/usr/share/dbus-1/system.d/nm-priv-helper.conf"
 
 # Boot path is dbus -> iwd -> sinty-nm only.
 
@@ -93,6 +102,13 @@ rm -f "$TARGET_DIR/usr/lib/systemd/system/power-profiles-daemon.service" "$TARGE
 rm -f "$TARGET_DIR"/etc/systemd/system/*.wants/upower.service "$TARGET_DIR"/etc/systemd/system/*.wants/power-profiles-daemon.service "$TARGET_DIR"/etc/systemd/system/*.wants/thermald.service
 rm -f "$TARGET_DIR"/usr/lib/systemd/system/*.wants/power-profiles-daemon.service "$TARGET_DIR"/usr/lib/systemd/system/*.wants/thermald.service
 rm -f "$TARGET_DIR/usr/share/dbus-1/system.d/org.freedesktop.thermald.conf" "$TARGET_DIR/usr/share/dbus-1/system-services/org.freedesktop.thermald.service"
+rm -f "$TARGET_DIR/usr/libexec/udisks2/udisksd" "$TARGET_DIR/usr/lib/systemd/system/udisks2.service"
+rm -f "$TARGET_DIR/usr/libexec/accounts-daemon" "$TARGET_DIR/usr/lib/systemd/system/accounts-daemon.service"
+rm -f "$TARGET_DIR/usr/share/dbus-1/system-services/org.freedesktop.Accounts.service"
+rm -f "$TARGET_DIR"/etc/systemd/system/*.wants/udisks2.service "$TARGET_DIR"/etc/systemd/system/*.wants/accounts-daemon.service
+if [ -x "$TARGET_DIR/usr/libexec/sinty-diskd" ]; then
+	printf '[D-BUS Service]\nName=org.freedesktop.UDisks2\nExec=/usr/libexec/sinty-diskd\nUser=root\n' > "$TARGET_DIR/usr/share/dbus-1/system-services/org.freedesktop.UDisks2.service"
+fi
 if [ -x "$TARGET_DIR/usr/libexec/sinty-powerd" ]; then
 	for n in org.freedesktop.UPower org.freedesktop.UPower.PowerProfiles net.hadess.PowerProfiles; do
 		printf '[D-BUS Service]\nName=%s\nExec=/usr/libexec/sinty-powerd\nUser=root\n' "$n" > "$TARGET_DIR/usr/share/dbus-1/system-services/$n.service"

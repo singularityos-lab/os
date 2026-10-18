@@ -1,0 +1,1 @@
+KERNEL=="loop*", ATTR{loop/backing_file}=="/var/boot/*", ENV{UDISKS_IGNORE}="1"

@@ -243,17 +243,30 @@ mount "$ESP_DEV" /boot/efi 2>/dev/null || {
 	recovery_fail "Sinty Recovery could not mount the system partition."
 }
 
-WIFI=wlan0
+WIFI=
 for _n in /sys/class/net/*; do
 	[ -d "$_n/wireless" ] || continue
 	WIFI=$(basename "$_n")
 	break
 done
 mkdir -p /run/wpa_supplicant
-if [ -x /sbin/wpa_supplicant ]; then
+if [ -n "$WIFI" ] && [ -x /sbin/wpa_supplicant ]; then
 	/sbin/wpa_supplicant -B -i "$WIFI" -C /run/wpa_supplicant 2>/dev/null \
 		|| echo "Sinty Recovery could not start the wireless supplicant on $WIFI."
 fi
+WIFI=${WIFI:-wlan0}
+export XDG_CACHE_HOME=/run/cache
+mkdir -p "$XDG_CACHE_HOME"
+
+stop_agent() {
+	kill "$AGENT_PID" 2>/dev/null
+	_i=0
+	while kill -0 "$AGENT_PID" 2>/dev/null && [ "$_i" -lt 30 ]; do
+		sleep 0.1
+		_i=$((_i + 1))
+	done
+	kill -9 "$AGENT_PID" 2>/dev/null
+}
 
 RECOVERY_ARGS="--iface $WIFI --wal /boot/rootfs/deployment.json --data-dir /var --rootfs-dir /boot/rootfs --esp-dir /boot/efi/EFI/atom --sintykey /usr/bin/sintykey"
 /sbin/atom-recovery --mode serve $RECOVERY_ARGS &
@@ -266,14 +279,12 @@ done
 
 if [ -x /usr/bin/sinty-recovery-ui ] && [ -S /run/atom-recovery.sock ]; then
 	/usr/bin/sinty-recovery-ui && {
-		kill "$AGENT_PID" 2>/dev/null
-		wait "$AGENT_PID" 2>/dev/null
+		stop_agent
 		exec /sbin/atom-recovery --mode reboot
 	}
 fi
 
-kill "$AGENT_PID" 2>/dev/null
-wait "$AGENT_PID" 2>/dev/null
+stop_agent
 echo "Graphical recovery unavailable. Starting text recovery."
 /sbin/atom-recovery --mode tty $RECOVERY_ARGS || {
 	recovery_fail "Sinty Recovery stopped."

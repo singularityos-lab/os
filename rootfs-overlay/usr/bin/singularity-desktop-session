@@ -41,6 +41,13 @@ if [ -d /run/sinty ]; then
     trap 'rm -f "$_SINTY_SESSION" 2>/dev/null' EXIT INT TERM
 fi
 
+case "${DBUS_SESSION_BUS_ADDRESS:-}" in
+unix:path=*)
+    _bus=${DBUS_SESSION_BUS_ADDRESS#unix:path=}
+    ln -sfn "${_bus%%,*}" "$XDG_RUNTIME_DIR/bus" 2>/dev/null || true
+    ;;
+esac
+
 # These talk to systemd --user over the session bus. Under a systemd userspace they
 # return instantly; with no systemd --user (e.g. sinit) the D-Bus call to systemd1
 # gets no reply and blocks for the ~25s default timeout, stalling the whole session

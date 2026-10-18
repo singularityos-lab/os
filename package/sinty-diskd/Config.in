@@ -1,0 +1,10 @@
+config BR2_PACKAGE_SINTY_DISKD
+	bool "sinty-diskd"
+	depends on BR2_PACKAGE_HOST_GO_TARGET_ARCH_SUPPORTS
+	help
+	  The disk daemon of SintyOS: drives, block devices, partitions
+	  and filesystems on org.freedesktop.UDisks2, with mounting,
+	  formatting, partitioning, encryption and SMART. Replaces the
+	  udisks daemon; libudisks2 stays for its clients.
+
+	  https://github.com/singularityos-lab/sinty-diskd

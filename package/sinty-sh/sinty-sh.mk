@@ -4,7 +4,7 @@
 #
 ################################################################################
 
-SINTY_SH_VERSION = 37b57899801a0bb952ff323574060f1197d043ee
+SINTY_SH_VERSION = 0b2833f52d52384254001c8e9fe59721b1c22ee8
 SINTY_SH_SITE = $(call github,singularityos-lab,sinty-sh,$(SINTY_SH_VERSION))
 SINTY_SH_LICENSE = GPL-3.0-only, BSD-3-Clause (interpreter)
 SINTY_SH_LICENSE_FILES = LICENSE internal/interp/LICENSE

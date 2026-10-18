@@ -210,14 +210,10 @@ func main() {
 				fail("sintykey provision failed (%v): %s", err, strings.TrimSpace(diag+rec))
 			}
 		} else {
-			hash, err := run("mkpasswd", "-m", "sha512", pin)
-			if err != nil {
-				hash, _ = run("busybox", "mkpasswd", "-m", "sha512", pin)
+			if _, stderr, err := runStdin(user+":"+pin+"\n", "chpasswd", "-c", "SHA512"); err != nil {
+				fail("chpasswd failed (%v): %s", err, strings.TrimSpace(stderr))
 			}
-			if h := strings.TrimSpace(hash); h != "" {
-				run("usermod", "-p", h, user)
-				logf("password set")
-			}
+			logf("password set")
 		}
 	} else {
 		logf("no password provided (account left without one)")

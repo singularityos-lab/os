@@ -8,7 +8,7 @@
 # a phase failure prints "E2E PHASE <x> FAILED" and stops without advancing the marker.
 exec 2>&1
 P () { printf '%s\n' "$*"; }
-STOP () { sync; busybox poweroff -f 2>/dev/null || true; sleep 5; }
+STOP () { sync; poweroff 2>/dev/null || true; sleep 5; }
 FAIL () { P "E2E PHASE ${PHASE:-?} FAILED: $*"; P "===== ATOM E2E INTEG END (FAILED) ====="; STOP; exit 1; }
 MARKF=/var/lib/sinty/.e2e-phase
 PIN=246810
