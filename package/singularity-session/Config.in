@@ -17,19 +17,15 @@ config BR2_PACKAGE_SINGULARITY_SESSION
 	select BR2_PACKAGE_SINGULARITY_KEYRING
 	select BR2_PACKAGE_SINGULARITY_FILES
 	select BR2_PACKAGE_SINGULARITY_EDIT
-	select BR2_PACKAGE_SINGULARITY_WRITE
 	select BR2_PACKAGE_SINGULARITY_STORE
 	select BR2_PACKAGE_SINGULARITY_MONITOR
-	select BR2_PACKAGE_SINGULARITY_GIT
-	select BR2_PACKAGE_SINGULARITY_MUSIC
-	select BR2_PACKAGE_SINGULARITY_PHOTOS
-	select BR2_PACKAGE_SINGULARITY_VIDEOS
 	select BR2_PACKAGE_SINGULARITY_CALENDAR
 	select BR2_PACKAGE_SINGULARITY_CALCULATOR
 	select BR2_PACKAGE_SINGULARITY_LEAFS
 	help
 	  The Singularity session: labwc session launcher and config plus
-	  the full Singularity desktop (shell, greeter, keyring and all
-	  first-party apps).
+	  the Singularity desktop (shell, greeter, keyring and the core
+	  apps). The other first-party apps install from the Singularity
+	  collection.
 
 	  https://github.com/singularityos-lab/singularity-session

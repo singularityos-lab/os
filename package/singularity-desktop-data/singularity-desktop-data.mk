@@ -12,7 +12,7 @@ SINGULARITY_DESKTOP_DATA_LICENSE_FILES = LICENSE
 SINGULARITY_DESKTOP_DATA_INSTALL_STAGING = YES
 
 define SINGULARITY_DESKTOP_DATA_FIX_DOCK_DEFAULTS
-	$(SED) "s|<default>\['firefox.desktop'.*</default>|<default>['dev.sinty.files.desktop', 'dev.sinty.photos.desktop', 'dev.sinty.music.desktop', 'dev.sinty.store.desktop', 'dev.sinty.write.desktop', 'dev.sinty.calculator.desktop']</default>|" \
+	$(SED) "s|<default>\['firefox.desktop'.*</default>|<default>['dev.sinty.files.desktop', 'dev.sinty.store.desktop', 'dev.sinty.calendar.desktop', 'dev.sinty.edit.desktop', 'dev.sinty.leafs.desktop', 'dev.sinty.calculator.desktop']</default>|" \
 		$(@D)/data/dev.sinty.desktop.gschema.xml
 endef
 SINGULARITY_DESKTOP_DATA_POST_PATCH_HOOKS += SINGULARITY_DESKTOP_DATA_FIX_DOCK_DEFAULTS
