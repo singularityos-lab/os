@@ -4,7 +4,7 @@
 #
 ################################################################################
 
-SINTY_SXI_VERSION = 35787355b185ebfd3dd5cbe24db1eb9575bade68
+SINTY_SXI_VERSION = 74d3625cede1d6f49fc9054e3106801ba5878ed0
 SINTY_SXI_SITE = https://github.com/singularityos-lab/sinty-sxi.git
 SINTY_SXI_SITE_METHOD = git
 SINTY_SXI_LICENSE = BSD-2-Clause
