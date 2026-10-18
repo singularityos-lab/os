@@ -339,6 +339,10 @@ if [ -x "$TARGET_DIR/usr/bin/sinty-locale" ]; then
     echo "[singularity] post-build: localectl -> sinty-locale (de-systemd)"
 fi
 
+if [ -x "$TARGET_DIR/usr/libexec/sxid" ]; then
+    install -m 0755 "$(dirname "$TARGET_DIR")/staging/usr/bin/glib-compile-schemas" "$TARGET_DIR/usr/bin/glib-compile-schemas"
+fi
+
 FW="$TARGET_DIR/usr/lib/sinty-framework"
 mkdir -p "$FW/girepository-1.0"
 for _so in libsingularity.so.0 libsingularity-system.so.0 libgtk-4.so.1; do
