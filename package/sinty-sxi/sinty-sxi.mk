@@ -13,7 +13,7 @@ SINTY_SXI_GOMOD = github.com/singularityos-lab/sinty-sxi
 SINTY_SXI_BUILD_TARGETS = cmd/sxi cmd/sxid
 
 define SINTY_SXI_GO_VENDOR
-	cd $(@D) && env -u GOFLAGS -u GOPROXY GOTOOLCHAIN=local $(HOST_DIR)/bin/go mod vendor
+	cd $(@D) && env -u GOFLAGS GOPROXY=https://proxy.golang.org,direct GOTOOLCHAIN=local $(HOST_DIR)/bin/go mod vendor
 endef
 SINTY_SXI_PRE_BUILD_HOOKS += SINTY_SXI_GO_VENDOR
 

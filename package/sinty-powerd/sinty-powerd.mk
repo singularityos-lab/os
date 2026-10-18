@@ -12,7 +12,7 @@ SINTY_POWERD_GOMOD = github.com/singularityos-lab/sinty-powerd
 SINTY_POWERD_BUILD_TARGETS = cmd/sinty-powerd
 
 define SINTY_POWERD_GO_VENDOR
-	cd $(@D) && env -u GOFLAGS -u GOPROXY GOTOOLCHAIN=local $(HOST_DIR)/bin/go mod vendor
+	cd $(@D) && env -u GOFLAGS GOPROXY=https://proxy.golang.org,direct GOTOOLCHAIN=local $(HOST_DIR)/bin/go mod vendor
 endef
 SINTY_POWERD_PRE_BUILD_HOOKS += SINTY_POWERD_GO_VENDOR
 

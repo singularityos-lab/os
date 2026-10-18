@@ -12,7 +12,7 @@ SINTY_DEVD_GOMOD = github.com/singularityos-lab/sinty-devd
 SINTY_DEVD_BUILD_TARGETS = cmd/sinty-devd cmd/sinty-devadm
 
 define SINTY_DEVD_GO_VENDOR
-	cd $(@D) && env -u GOFLAGS -u GOPROXY GOTOOLCHAIN=local $(HOST_DIR)/bin/go mod vendor
+	cd $(@D) && env -u GOFLAGS GOPROXY=https://proxy.golang.org,direct GOTOOLCHAIN=local $(HOST_DIR)/bin/go mod vendor
 endef
 SINTY_DEVD_PRE_BUILD_HOOKS += SINTY_DEVD_GO_VENDOR
 

@@ -18,7 +18,7 @@ ATOM_INSTALL_GO_ENV = CGO_ENABLED=0
 # already installed by the time this hook runs, instead of one from the build machine:
 # a builder without /usr/bin/go stopped here with exit 127.
 define ATOM_INSTALL_GO_VENDOR
-	cd $(@D) && env -u GOFLAGS -u GOPROXY GOTOOLCHAIN=local $(HOST_DIR)/bin/go mod vendor
+	cd $(@D) && env -u GOFLAGS GOPROXY=https://proxy.golang.org,direct GOTOOLCHAIN=local $(HOST_DIR)/bin/go mod vendor
 	mkdir -p $(@D)/vendor && touch $(@D)/vendor/modules.txt
 endef
 ATOM_INSTALL_PRE_BUILD_HOOKS += ATOM_INSTALL_GO_VENDOR

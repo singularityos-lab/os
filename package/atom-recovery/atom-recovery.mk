@@ -6,7 +6,7 @@ ATOM_RECOVERY_GOMOD = github.com/singularityos-lab/sinty-recovery
 ATOM_RECOVERY_BUILD_TARGETS = cmd/atom-recovery
 
 define ATOM_RECOVERY_GO_VENDOR
-	cd $(@D) && env -u GOFLAGS -u GOPROXY GOTOOLCHAIN=local $(HOST_DIR)/bin/go mod vendor
+	cd $(@D) && env -u GOFLAGS GOPROXY=https://proxy.golang.org,direct GOTOOLCHAIN=local $(HOST_DIR)/bin/go mod vendor
 endef
 ATOM_RECOVERY_PRE_BUILD_HOOKS += ATOM_RECOVERY_GO_VENDOR
 

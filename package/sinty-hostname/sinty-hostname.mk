@@ -12,7 +12,7 @@ SINTY_HOSTNAME_GOMOD = github.com/singularityos-lab/sinty-hostname
 SINTY_HOSTNAME_BUILD_TARGETS = cmd/sinty-hostname cmd/sinty-hostnamed
 
 define SINTY_HOSTNAME_GO_VENDOR
-	cd $(@D) && env -u GOFLAGS -u GOPROXY GOTOOLCHAIN=local $(HOST_DIR)/bin/go mod vendor
+	cd $(@D) && env -u GOFLAGS GOPROXY=https://proxy.golang.org,direct GOTOOLCHAIN=local $(HOST_DIR)/bin/go mod vendor
 endef
 SINTY_HOSTNAME_PRE_BUILD_HOOKS += SINTY_HOSTNAME_GO_VENDOR
 

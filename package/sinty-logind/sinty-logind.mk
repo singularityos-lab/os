@@ -13,7 +13,7 @@ SINTY_LOGIND_BUILD_TARGETS = cmd/sinty-logind
 SINTY_LOGIND_DEPENDENCIES = linux-pam
 
 define SINTY_LOGIND_GO_VENDOR
-	cd $(@D) && env -u GOFLAGS -u GOPROXY GOTOOLCHAIN=local $(HOST_DIR)/bin/go mod vendor
+	cd $(@D) && env -u GOFLAGS GOPROXY=https://proxy.golang.org,direct GOTOOLCHAIN=local $(HOST_DIR)/bin/go mod vendor
 endef
 SINTY_LOGIND_PRE_BUILD_HOOKS += SINTY_LOGIND_GO_VENDOR
 

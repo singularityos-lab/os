@@ -22,7 +22,7 @@ ATOMLOOPS_BUILD_TARGETS = cmd/atomd cmd/updated cmd/fw-verify
 # source) with Buildroot's host go, whose module cache already holds the single dependency,
 # so the offline cross-build finds it. Runs before the Buildroot go build.
 define ATOMLOOPS_GO_VENDOR
-	cd $(@D) && env -u GOFLAGS -u GOPROXY GOTOOLCHAIN=local $(HOST_DIR)/bin/go mod vendor
+	cd $(@D) && env -u GOFLAGS GOPROXY=https://proxy.golang.org,direct GOTOOLCHAIN=local $(HOST_DIR)/bin/go mod vendor
 endef
 ATOMLOOPS_PRE_BUILD_HOOKS += ATOMLOOPS_GO_VENDOR
 
