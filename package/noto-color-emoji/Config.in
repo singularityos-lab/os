@@ -1,0 +1,7 @@
+config BR2_PACKAGE_NOTO_COLOR_EMOJI
+	bool "noto-color-emoji"
+	help
+	  Noto Color Emoji font, so emoji in terminals, prompts and
+	  applications render instead of showing empty boxes.
+
+	  https://github.com/googlefonts/noto-emoji
