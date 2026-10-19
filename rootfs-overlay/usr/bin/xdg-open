@@ -1,0 +1,5 @@
+#!/bin/sh
+if [ -n "$USH_SESSION_ID" ] && [ -x /usr/bin/ush ]; then
+    exec /usr/bin/ush --open-uri "$@"
+fi
+exec gio open "$@"
