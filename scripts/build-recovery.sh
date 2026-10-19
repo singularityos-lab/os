@@ -118,6 +118,12 @@ echo "[recovery] building the static atom-recovery binary"
 # (independent of the possibly-dead main system). Same ROOT key the loader is built with.
 mkdir -p "$WORK/etc/atom"
 cp "$ATOM_ROOT_PUB" "$WORK/etc/atom/root.pub"
+if [ -f "$TARGET_DIR/usr/lib/atomloops/loader.efi" ] && [ -f "$TARGET_DIR/usr/lib/atomloops/loader.efi.sig" ]; then
+	mkdir -p "$WORK/usr/lib/atomloops"
+	cp -aL "$TARGET_DIR/usr/lib/atomloops/loader.efi" "$TARGET_DIR/usr/lib/atomloops/loader.efi.sig" "$WORK/usr/lib/atomloops/"
+else
+	echo "  (signed loader missing from target, loader repair unavailable)"
+fi
 
 echo "[recovery] wifi firmware ONLY (no audio/gpu -- recovery just needs to get online)"
 mkdir -p "$WORK/lib/firmware/mediatek"
