@@ -1,8 +1,8 @@
 config BR2_PACKAGE_INTEL_WIRELESS_LEGACY_FIRMWARE
 	bool "intel-wireless-legacy-firmware"
 	help
-	  Firmware for Intel Wireless 3160, 3165, 3168, 7260 and 7265
-	  Wi-Fi cards and their Bluetooth, which the linux-firmware
-	  package no longer installs since the files moved under intel/.
+	  Firmware for Intel Wireless 3160, 3165, 3168 and 7265 Wi-Fi
+	  cards, which the linux-firmware package no longer installs
+	  since the files moved under intel/iwlwifi/.
 
 	  https://gitlab.com/kernel-firmware/linux-firmware
