@@ -31,15 +31,22 @@ LABWC_EXTRA_DOWNLOADS = \
 	https://github.com/wlrfx/scenefx/archive/$(LABWC_SCENEFX_VERSION).tar.gz
 
 define LABWC_EXTRACT_SCENEFX
-	mkdir -p $(@D)/subprojects/scenefx
-	$(call suitable-extractor,$(LABWC_SCENEFX_VERSION).tar.gz) \
-		$(LABWC_DL_DIR)/$(LABWC_SCENEFX_VERSION).tar.gz | \
-		$(TAR) --strip-components=1 -C $(@D)/subprojects/scenefx $(TAR_OPTIONS) -
-	for p in scenefx-liquid.patch scenefx-software-sync.patch; do \
-		patch -d $(@D)/subprojects/scenefx -p1 < $(@D)/subprojects/packagefiles/$$p || exit 1; \
-	done
+	if [ ! -f $(@D)/subprojects/scenefx/meson.build ]; then \
+		{ [ -f $(LABWC_DL_DIR)/$(LABWC_SCENEFX_VERSION).tar.gz ] || \
+			{ mkdir -p $(LABWC_DL_DIR) && \
+			$(call qstrip,$(BR2_WGET)) -O $(LABWC_DL_DIR)/$(LABWC_SCENEFX_VERSION).tar.gz.tmp $(LABWC_EXTRA_DOWNLOADS) && \
+			mv $(LABWC_DL_DIR)/$(LABWC_SCENEFX_VERSION).tar.gz.tmp $(LABWC_DL_DIR)/$(LABWC_SCENEFX_VERSION).tar.gz; }; } && \
+		rm -rf $(@D)/subprojects/scenefx && \
+		mkdir -p $(@D)/subprojects/scenefx && \
+		$(call suitable-extractor,$(LABWC_SCENEFX_VERSION).tar.gz) \
+			$(LABWC_DL_DIR)/$(LABWC_SCENEFX_VERSION).tar.gz | \
+			$(TAR) --strip-components=1 -C $(@D)/subprojects/scenefx $(TAR_OPTIONS) - && \
+		for p in scenefx-liquid.patch scenefx-software-sync.patch; do \
+			patch -d $(@D)/subprojects/scenefx -p1 < $(@D)/subprojects/packagefiles/$$p || exit 1; \
+		done; \
+	fi
 endef
-LABWC_POST_EXTRACT_HOOKS += LABWC_EXTRACT_SCENEFX
+LABWC_PRE_CONFIGURE_HOOKS += LABWC_EXTRACT_SCENEFX
 
 LABWC_CONF_OPTS = \
 	-Dxwayland=enabled \
