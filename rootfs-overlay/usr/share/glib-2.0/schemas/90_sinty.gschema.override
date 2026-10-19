@@ -1,0 +1,4 @@
+[org.gnome.desktop.interface]
+gtk-theme='Singularity'
+icon-theme='Singularity'
+cursor-theme='Singularity'
