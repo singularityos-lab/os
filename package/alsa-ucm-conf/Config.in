@@ -1,0 +1,9 @@
+config BR2_PACKAGE_ALSA_UCM_CONF
+	bool "alsa-ucm-conf"
+	depends on BR2_PACKAGE_ALSA_LIB
+	help
+	  ALSA Use Case Manager configuration. Sound cards driven by
+	  Intel SOF and other modern DSPs only expose speakers,
+	  headphones and microphones through these profiles.
+
+	  https://github.com/alsa-project/alsa-ucm-conf
