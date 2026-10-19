@@ -1,0 +1,7 @@
+config BR2_PACKAGE_NOTO_SANS_SYMBOLS
+	bool "noto-sans-symbols"
+	help
+	  Noto Sans Symbols, Symbols 2 and Math: technical, arrow,
+	  dingbat and math symbols used by terminal interfaces.
+
+	  https://notofonts.github.io/
