@@ -1,0 +1,8 @@
+config BR2_PACKAGE_WL_CLIPBOARD
+	bool "wl-clipboard"
+	depends on BR2_PACKAGE_WAYLAND
+	help
+	  Command-line copy and paste for Wayland (wl-copy, wl-paste),
+	  used by terminal programs and by the ush and dsh sessions.
+
+	  https://github.com/bugaevc/wl-clipboard
