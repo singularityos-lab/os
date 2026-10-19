@@ -4,7 +4,7 @@
 # NOT a systemd-user unit (Sinty has no systemd --user); this package installs
 # only the binaries.
 ################################################################################
-USH_VERSION = 6ee8a3e1f4a1f8c850e36e9c2a99a40801482576
+USH_VERSION = c36f0bd7cc36ff9e06ae76339e39ffcf04bd9a1b
 USH_SITE = $(call github,singularityos-lab,ush,$(USH_VERSION))
 USH_LICENSE = GPL-3.0-or-later
 USH_LICENSE_FILES = LICENSE
