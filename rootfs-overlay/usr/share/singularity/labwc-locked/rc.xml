@@ -25,6 +25,7 @@
         dynamic rc.xml to reach this compositor, tracked separately.) -->
 <labwc_config>
   <mouse>
+    <default />
     <context name="Root">
       <mousebind button="Right" action="Press"><action name="None"/></mousebind>
       <mousebind button="Left" action="Press"><action name="None"/></mousebind>
