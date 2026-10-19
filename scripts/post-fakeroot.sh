@@ -21,7 +21,7 @@ done
 for c in poweroff reboot halt; do
 	ln -sf /usr/lib/sinit/sinit "$TARGET/usr/sbin/$c"
 done
-printf '/usr/bin/ush\n/usr/bin/dsh\n/bin/sh\n/usr/bin/sh\n/bin/bash\n/usr/bin/bash\n' > "$TARGET/etc/shells"
+printf '/usr/bin/ush\n/usr/bin/dsh\n/usr/bin/gosh\n/bin/sh\n/usr/bin/sh\n/bin/bash\n/usr/bin/bash\n' > "$TARGET/etc/shells"
 
 fail=0
 for need in sh test [ cat ls grep sed awk find xargs tar gzip ps kill mount umount; do

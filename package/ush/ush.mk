@@ -4,7 +4,7 @@
 # NOT a systemd-user unit (Sinty has no systemd --user); this package installs
 # only the binaries.
 ################################################################################
-USH_VERSION = 5a8157f7aa7c5f944d61b64d69017a71584ee88f
+USH_VERSION = 430f28541d962b3587ef4a4493080879a20af5ea
 USH_SITE = $(call github,singularityos-lab,ush,$(USH_VERSION))
 USH_LICENSE = GPL-3.0-or-later
 USH_LICENSE_FILES = LICENSE
@@ -22,6 +22,7 @@ define USH_INSTALL_TARGET_CMDS
 	$(INSTALL) -D -m 0755 $(@D)/ush-broker       $(TARGET_DIR)/usr/bin/ush-broker
 	$(INSTALL) -D -m 0644 $(@D)/ush-chown-shim.so $(TARGET_DIR)/usr/lib/ush/ush-chown-shim.so
 	ln -sf ush $(TARGET_DIR)/usr/bin/dsh
+	ln -sf ush $(TARGET_DIR)/usr/bin/gosh
 	# Pre-bake the apt/dpkg tools tree into the image so the first `pkg install`
 	# needs no download. Built with the just-compiled ush (native binary, runs on
 	# the build host) via its --bake-tools path; ToolsDir() finds it read-only at
