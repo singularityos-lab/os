@@ -98,7 +98,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: buildroot-build/host
-          key: buildroot-host-v4-${{ env.IMAGE_VERSION }}-${{ hashFiles('buildroot-config/singularity_defconfig', 'buildroot-config/kernel.config', 'buildroot-source-patches/**') }}-${{ github.run_id }}-${{ inputs.stage }}
+          key: buildroot-host-v4-${{ env.IMAGE_VERSION }}-${{ hashFiles('buildroot-config/singularity_defconfig', 'buildroot-config/kernel.config', 'buildroot-source-patches/**') }}-${{ github.run_id }}-${{ github.run_attempt }}-${{ inputs.stage }}
           restore-keys: |
             buildroot-host-v4-${{ env.IMAGE_VERSION }}-${{ hashFiles('buildroot-config/singularity_defconfig', 'buildroot-config/kernel.config', 'buildroot-source-patches/**') }}-
             buildroot-host-v4-${{ env.IMAGE_VERSION }}-
@@ -107,7 +107,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: buildroot-build/build
-          key: buildroot-build-v10-${{ env.IMAGE_VERSION }}-${{ hashFiles('buildroot-config/singularity_defconfig', 'buildroot-config/kernel.config', 'buildroot-source-patches/**') }}-${{ github.run_id }}-${{ inputs.stage }}
+          key: buildroot-build-v10-${{ env.IMAGE_VERSION }}-${{ hashFiles('buildroot-config/singularity_defconfig', 'buildroot-config/kernel.config', 'buildroot-source-patches/**') }}-${{ github.run_id }}-${{ github.run_attempt }}-${{ inputs.stage }}
           restore-keys: |
             buildroot-build-v10-${{ env.IMAGE_VERSION }}-${{ hashFiles('buildroot-config/singularity_defconfig', 'buildroot-config/kernel.config', 'buildroot-source-patches/**') }}-
             buildroot-build-v10-${{ env.IMAGE_VERSION }}-
@@ -154,6 +154,21 @@ jobs:
                 buildroot-build/host/*/sysroot/usr/lib/pkgconfig/libsystemd.pc 2>/dev/null || true
           rm -rf buildroot-build/host/*/sysroot/usr/include/systemd 2>/dev/null || true
 
+      - name: Rebuild the packages changed by the Buildroot source patches
+        run: |
+          rec=buildroot-build/build/.source-patch-hashes
+          mkdir -p buildroot-build/build
+          touch "$rec"
+          for p in $(sed -n 's|^diff --git a/package/\([^/]*\)/.*|\1|p' buildroot-source-patches/*.patch | sort -u); do
+            h=$(grep -l "^diff --git a/package/$p/" buildroot-source-patches/*.patch | xargs cat | sha256sum | cut -c1-16)
+            if ! grep -qx "$p $h" "$rec"; then
+              echo "patch for $p changed: rebuilding it"
+              rm -rf buildroot-build/build/"$p"-*
+              sed -i "/^$p /d" "$rec"
+              echo "$p $h" >> "$rec"
+            fi
+          done
+
       - name: Install Zig 0.16.0
         run: |
           curl --fail --location --silent --show-error https://ziglang.org/download/0.16.0/zig-x86_64-linux-0.16.0.tar.xz --output /tmp/zig.tar.xz
@@ -189,14 +204,14 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: buildroot-build/host
-          key: buildroot-host-v4-${{ env.IMAGE_VERSION }}-${{ hashFiles('buildroot-config/singularity_defconfig', 'buildroot-config/kernel.config', 'buildroot-source-patches/**') }}-${{ github.run_id }}-${{ inputs.stage }}
+          key: buildroot-host-v4-${{ env.IMAGE_VERSION }}-${{ hashFiles('buildroot-config/singularity_defconfig', 'buildroot-config/kernel.config', 'buildroot-source-patches/**') }}-${{ github.run_id }}-${{ github.run_attempt }}-${{ inputs.stage }}
 
       - name: Save Buildroot package build tree
         if: always()
         uses: actions/cache/save@v4
         with:
           path: buildroot-build/build
-          key: buildroot-build-v10-${{ env.IMAGE_VERSION }}-${{ hashFiles('buildroot-config/singularity_defconfig', 'buildroot-config/kernel.config', 'buildroot-source-patches/**') }}-${{ github.run_id }}-${{ inputs.stage }}
+          key: buildroot-build-v10-${{ env.IMAGE_VERSION }}-${{ hashFiles('buildroot-config/singularity_defconfig', 'buildroot-config/kernel.config', 'buildroot-source-patches/**') }}-${{ github.run_id }}-${{ github.run_attempt }}-${{ inputs.stage }}
 
       - name: Package
         if: env.BUILD_INCOMPLETE != '1'

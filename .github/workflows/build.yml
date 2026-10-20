@@ -3,9 +3,6 @@ name: Singularity Build
 on:
   push:
     branches: [main]
-    paths-ignore:
-      - '**.md'
-  pull_request:
   workflow_dispatch:
     inputs:
       tag:
@@ -18,13 +15,14 @@ on:
         default: ''
 
 concurrency:
-  group: build-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: build-${{ github.run_id }}
+  cancel-in-progress: false
 
 jobs:
   meta:
     runs-on: ubuntu-24.04
     outputs:
+      run: ${{ steps.parse.outputs.run }}
       tag: ${{ steps.parse.outputs.tag }}
       review: ${{ steps.parse.outputs.review }}
     steps:
@@ -37,21 +35,38 @@ jobs:
         run: |
           tag="$INPUT_TAG"
           review="$INPUT_REVIEW"
+          run=false
+          [ "$GITHUB_EVENT_NAME" = workflow_dispatch ] && run=true
           first=$(printf '%s\n' "$MESSAGE" | head -n 1)
           if [[ "$first" =~ ^build\(tag:([A-Za-z0-9._-]+)\):\ (r[0-9]+)$ ]]; then
             tag=${BASH_REMATCH[1]}
             review=${BASH_REMATCH[2]}
+            run=true
+          elif [[ "$first" =~ ^build:\ (r[0-9]+)$ ]]; then
+            tag=nightly
+            review=${BASH_REMATCH[1]}
+            run=true
+          elif [[ "$first" =~ ^build\(test\)(:.*)?$ ]]; then
+            run=true
           fi
+          echo "run=$run" >> "$GITHUB_OUTPUT"
           if [ -n "$tag" ] && ! [[ "$review" =~ ^r[0-9]+$ ]]; then
             echo "::error::a release needs a review id like r17, got '$review'"
             exit 1
           fi
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           echo "review=$review" >> "$GITHUB_OUTPUT"
-          [ -n "$tag" ] && echo "Publishing $review into the $tag release" || echo "Build only"
+          if [ "$run" != true ]; then
+            echo "No build requested: use 'build: r45', 'build(tag:beta): r45' or 'build(test)' as the commit subject"
+          elif [ -n "$tag" ]; then
+            echo "Publishing $review into the $tag release"
+          else
+            echo "Build only"
+          fi
 
   stage1:
     needs: meta
+    if: needs.meta.outputs.run == 'true'
     uses: ./.github/workflows/build-stage.yml
     with:
       stage: 1
@@ -133,7 +148,7 @@ jobs:
     needs: [meta, test]
     if: >-
       always() && needs.test.result == 'success' &&
-      needs.meta.outputs.tag != '' && github.event_name != 'pull_request'
+      needs.meta.outputs.tag != ''
     permissions:
       contents: write
     concurrency:

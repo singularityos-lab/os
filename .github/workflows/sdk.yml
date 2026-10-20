@@ -21,9 +21,7 @@ on:
     branches: [main]
     paths:
       - 'buildroot-config/**'
-      - 'Config.in'
-      - 'external.*'
-      - 'package/**'
+      - 'buildroot-source-patches/**'
       - 'Dockerfile.sdk'
       - '.github/workflows/sdk.yml'
 
