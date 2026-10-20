@@ -10,6 +10,7 @@ export LD_LIBRARY_PATH="$PREFIX/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 export SINGULARITY_BLUR_ENABLED=1
 export XDG_CURRENT_DESKTOP=Singularity:labwc:wlroots
 export GTK_USE_PORTAL=1
+[ -x /usr/bin/torchiod ] && export CUPS_SERVER="$XDG_RUNTIME_DIR/torchio/cups.sock"
 
 # Single-compositor: the desktop shell connects as a CLIENT to the persistent
 # compositor (singularity-compositor, one labwc for the whole session) instead of

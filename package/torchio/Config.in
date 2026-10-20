@@ -1,0 +1,10 @@
+config BR2_PACKAGE_TORCHIO
+	bool "torchio"
+	depends on BR2_PACKAGE_HOST_GO_TARGET_ARCH_SUPPORTS
+	help
+	  torchio, the per-user print system that replaces cupsd. It
+	  serves the CUPS protocol on the session's CUPS_SERVER socket,
+	  so libcups applications and the CUPS command line tools work
+	  unchanged. Removes cupsd and its filters from the image.
+
+	  https://github.com/singularityos-lab/torchio
