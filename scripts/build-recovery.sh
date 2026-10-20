@@ -97,7 +97,8 @@ if copy_bin sinty-recovery-ui usr/bin; then
 	mkdir -p "$WORK/usr/share/fonts"
 	cp -a "$TARGET_DIR/usr/share/fonts/." "$WORK/usr/share/fonts/" 2>/dev/null || true
 	cp -a "$TARGET_DIR/usr/share/fontconfig" "$WORK/usr/share/" 2>/dev/null || true
-	cp -a "$TARGET_DIR/usr/share/singularity" "$WORK/usr/share/" 2>/dev/null || true
+	mkdir -p "$WORK/usr/share/singularity"
+	cp -a "$TARGET_DIR/usr/share/singularity/splash-logo.png" "$WORK/usr/share/singularity/" 2>/dev/null || true
 	cp -a "$TARGET_DIR/usr/share/X11" "$WORK/usr/share/" 2>/dev/null || true
 	cp -a "$TARGET_DIR/usr/lib/gdk-pixbuf-2.0" "$WORK/usr/lib/" 2>/dev/null || true
 else
@@ -134,6 +135,7 @@ cp -a "$TARGET_DIR"/lib/firmware/mediatek/mt76* "$TARGET_DIR"/lib/firmware/media
 for sub in rtw88 rtw89 ath10k ath11k ath12k brcm cypress; do
 	cp -a "$TARGET_DIR"/lib/firmware/$sub "$WORK/lib/firmware/" 2>/dev/null || true
 done
+sh "$REPO_DIR/scripts/slim-recovery.sh" "$WORK" "$TARGET_DIR/lib/firmware"
 
 echo "[recovery] /init -> locate installed volumes and launch recovery"
 cat > "$WORK/init" <<'INIT'

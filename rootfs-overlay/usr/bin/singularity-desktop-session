@@ -126,7 +126,9 @@ fi
 systemctl --user restart --no-block xdg-desktop-portal 2>/dev/null || true
 
 rm -f "${XDG_RUNTIME_DIR:-/tmp}/singularity-shell-ready"
-if [ -x "$BIN/singularity-splash" ]; then
+if [ -S /run/singularity/wayland-0 ]; then
+    rm -f /run/singularity/shell-ready 2>/dev/null || true
+elif [ -x "$BIN/singularity-splash" ]; then
     "$BIN/singularity-splash" >> "$_STATE/splash.log" 2>&1 &
 fi
 
