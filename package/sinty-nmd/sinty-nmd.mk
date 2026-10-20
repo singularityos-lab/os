@@ -9,7 +9,7 @@
 #
 # DRAFT: bump SINTY_NMD_VERSION to the first tag sinty-nm publishes, then enable
 # BR2_PACKAGE_SINTY_NMD and drop the committed rootfs-overlay/usr/bin/sinty-nmd.
-SINTY_NMD_VERSION = v0.1.1
+SINTY_NMD_VERSION = v0.1.2
 SINTY_NMD_SITE = https://github.com/singularityos-lab/sinty-nm/releases/download/$(SINTY_NMD_VERSION)
 SINTY_NMD_SOURCE = sinty-nmd-$(SINTY_NMD_VERSION)-x86_64.tar.gz
 SINTY_NMD_LICENSE = GPL-3.0-or-later
