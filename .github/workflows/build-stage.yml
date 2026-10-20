@@ -123,6 +123,15 @@ jobs:
           find buildroot-build/build -name ".stamp_staging_installed" -delete 2>/dev/null || true
           find buildroot-build/build -name ".stamp_images_installed" -delete 2>/dev/null || true
 
+      - name: Download again what the cache marks downloaded but never extracted
+        run: |
+          for d in buildroot-build/build/*/; do
+            if [ -e "$d.stamp_downloaded" ] && [ ! -e "$d.stamp_extracted" ]; then
+              echo "re-downloading $(basename "$d")"
+              rm -f "$d.stamp_downloaded"
+            fi
+          done
+
       - name: Rebuild host LLVM stack if cached without RTTI
         run: |
           if find buildroot-build/build -name CMakeCache.txt -path '*host-llvm*' \
