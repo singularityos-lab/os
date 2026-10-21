@@ -112,8 +112,29 @@ jobs:
             buildroot-build-v10-${{ env.IMAGE_VERSION }}-${{ hashFiles('buildroot-config/singularity_defconfig', 'buildroot-config/kernel.config', 'buildroot-source-patches/**') }}-
             buildroot-build-v10-${{ env.IMAGE_VERSION }}-
 
+      - name: Keep the configuration the cached packages were built with
+        run: cp buildroot-build/build/buildroot-config/auto.conf "$RUNNER_TEMP/cached-auto.conf" 2>/dev/null || : > "$RUNNER_TEMP/cached-auto.conf"
+
       - name: Prepare Buildroot
         run: ./scripts/prepare.sh
+
+      - name: Rebuild the packages whose options changed
+        run: |
+          [ -s "$RUNNER_TEMP/cached-auto.conf" ] || exit 0
+          export LC_ALL=C
+          grep '^BR2_PACKAGE_' "$RUNNER_TEMP/cached-auto.conf" | sort > "$RUNNER_TEMP/old.cfg"
+          grep '^BR2_PACKAGE_' buildroot-build/.config | sort > "$RUNNER_TEMP/new.cfg"
+          for o in $(comm -3 "$RUNNER_TEMP/old.cfg" "$RUNNER_TEMP/new.cfg" | sed 's/^\t//; s/^BR2_PACKAGE_//; s/=.*//' | sort -u); do
+            n=$(printf '%s' "$o" | tr 'A-Z_' 'a-z-')
+            while [ -n "$n" ]; do
+              if ls -d buildroot-build/build/"$n"-* >/dev/null 2>&1; then
+                echo "options of $n changed ($o): rebuilding"
+                rm -rf buildroot-build/build/"$n"-*
+                break
+              fi
+              case "$n" in *-*) n=${n%-*} ;; *) n= ;; esac
+            done
+          done
 
       - name: Reset target dir and re-stage from the cached build tree
         run: |
