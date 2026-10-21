@@ -125,7 +125,8 @@ jobs:
             buildroot-build-v10-${{ env.IMAGE_VERSION }}-
 
       - name: Keep the configuration the cached packages were built with
-        run: cp buildroot-build/build/buildroot-config/auto.conf "$RUNNER_TEMP/cached-auto.conf" 2>/dev/null || : > "$RUNNER_TEMP/cached-auto.conf"
+        run: |
+          cp buildroot-build/build/buildroot-config/auto.conf "$RUNNER_TEMP/cached-auto.conf" 2>/dev/null || : > "$RUNNER_TEMP/cached-auto.conf"
 
       - name: Prepare Buildroot
         run: ./scripts/prepare.sh
