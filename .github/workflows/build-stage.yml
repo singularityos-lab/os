@@ -81,6 +81,18 @@ jobs:
             binutils sassc mtools dosfstools \
             bubblewrap xdg-dbus-proxy
 
+      - name: Install erofs-utils 1.9
+        run: |
+          sudo apt-get install -y autoconf automake libtool pkg-config liblz4-dev liblzma-dev uuid-dev zlib1g-dev
+          git clone --depth 1 --branch v1.9 https://git.kernel.org/pub/scm/linux/kernel/git/xiang/erofs-utils.git "$RUNNER_TEMP/erofs-utils"
+          cd "$RUNNER_TEMP/erofs-utils"
+          ./autogen.sh
+          ./configure --disable-fuse --enable-lz4 --enable-lzma
+          make -j"$(nproc)"
+          sudo make install
+          hash -r
+          mkfs.erofs --version | grep -q '^mkfs.erofs (erofs-utils) 1.9$'
+
       # $ImageVersion is a runner environment variable, not a workflow one, so
       # ${{ env.ImageVersion }} expands to nothing in a cache key -- the keys read
       # "-v10--<hash>" until this was noticed. Copy it into the workflow env so the
