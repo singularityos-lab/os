@@ -125,23 +125,36 @@ jobs:
           accel=tcg
           [ -w /dev/kvm ] && accel=kvm
           cp /usr/share/OVMF/OVMF_VARS_4M.fd vars.fd
-          qemu-img create -q -f qcow2 -F raw -b "$PWD/images/artifacts/sinty-os.img" disk.qcow2
+          cp images/artifacts/sinty-os.img disk.img
+          part=$(sfdisk -J disk.img | jq -r '.partitiontable as $t | .partitiontable.partitions[] | select(.name == "sintylogs") | "\(.start) \(.size) \($t.sectorsize // 512)"')
+          read -r start size sector <<< "$part"
           timeout 600 qemu-system-x86_64 -machine q35,accel=$accel -m 4096 -smp 2 \
             -drive if=pflash,format=raw,readonly=on,file=/usr/share/OVMF/OVMF_CODE_4M.fd \
             -drive if=pflash,format=raw,file=vars.fd \
-            -drive file=disk.qcow2,if=none,id=usb0,format=qcow2 \
+            -drive file=disk.img,if=none,id=usb0,format=raw \
             -device qemu-xhci -device usb-storage,drive=usb0,bootindex=0 \
             -display none -serial file:serial.log -no-reboot &
           qemu=$!
-          for _ in $(seq 120); do
-            grep -q "reached default.target" serial.log 2>/dev/null && break
+          logs() {
+            dd if=disk.img of=logs.ext4 bs=$sector skip=$start count=$size status=none
+            for f in $(debugfs -R "ls -p /" logs.ext4 2>/dev/null | awk -F/ '$6 ~ /^boot-.*\.log$/ {print $6}'); do
+              debugfs -R "cat /$f" logs.ext4 2>/dev/null
+            done > boot.log
+          }
+          for _ in $(seq 60); do
+            sleep 10
             grep -qE "signature INVALID|Kernel panic" serial.log 2>/dev/null && break
             kill -0 $qemu 2>/dev/null || break
-            sleep 5
+            logs
+            grep -q "atom\[1\]: reached " boot.log && break
           done
           kill $qemu 2>/dev/null || true
-          tr -d '\r' < serial.log | tail -n 40
-          grep -q "reached default.target" serial.log
+          wait $qemu 2>/dev/null || true
+          logs
+          tr -d '\r' < serial.log | tail -n 20
+          grep -E "atom\[1\]: " boot.log | tail -n 40
+          grep -q "atom\[1\]: reached " boot.log
+          ! grep -q "atom\[1\]: ERROR starting" boot.log
 
   publish:
     runs-on: ubuntu-24.04
