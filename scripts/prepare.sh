@@ -3,10 +3,12 @@
 set -e
 
 BUILDROOT_VERSION="2026.02.2"
+BUILDROOT_SHA256="a833429929aefd4175b0651b2b356b761960cd46d36df6a0049d1f117e3ac8a6"
 REPO_DIR="$(pwd)"
 
 if [ ! -d "buildroot-src" ]; then
     wget -q "https://buildroot.org/downloads/buildroot-${BUILDROOT_VERSION}.tar.xz"
+    echo "${BUILDROOT_SHA256}  buildroot-${BUILDROOT_VERSION}.tar.xz" | sha256sum -c --quiet -
     tar xf "buildroot-${BUILDROOT_VERSION}.tar.xz"
     mv "buildroot-${BUILDROOT_VERSION}" buildroot-src
 fi
