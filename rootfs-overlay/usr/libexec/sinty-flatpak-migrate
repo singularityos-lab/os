@@ -1,5 +1,6 @@
 #!/bin/sh
-mark="${XDG_STATE_HOME:-$HOME/.local/state}/sinty/flatpak-migrated"
+dir="${XDG_STATE_HOME:-$HOME/.local/state}/sinty"
+mark="$dir/flatpak-migrated-2"
 [ -e "$mark" ] && exit 0
 command -v flatpak >/dev/null 2>&1 && exit 0
 command -v cpak >/dev/null 2>&1 || exit 0
@@ -13,16 +14,25 @@ found=0
 for d in "$HOME/.local/share/flatpak/app" /var/lib/flatpak/app; do
 	[ -d "$d" ] && [ -n "$(ls -A "$d" 2>/dev/null)" ] && found=1
 done
-mkdir -p "$(dirname "$mark")"
+mkdir -p "$dir"
 if [ "$found" = 0 ]; then
 	: > "$mark"
 	exit 0
 fi
 
-notify "Moving your apps" "Your Flatpak apps are being reinstalled with cpak. This can take a while."
-if cpak migrate-flatpak -y >"$(dirname "$mark")/flatpak-migrate.log" 2>&1; then
+[ -e "$dir/flatpak-migrated" ] || notify "Moving your apps" "Your Flatpak apps are being reinstalled with cpak. This can take a while."
+cpak migrate-flatpak -y >"$dir/flatpak-migrate.log" 2>&1
+case $? in
+0)
 	: > "$mark"
-	notify "Apps moved" "Your Flatpak apps now run with cpak."
-else
+	[ -e "$dir/flatpak-migrated" ] || notify "Apps moved" "Your Flatpak apps now run with cpak."
+	;;
+11)
+	notify "Apps not moved yet" "The app source could not be reached. Sinty will try again at the next login."
+	;;
+*)
+	: > "$mark"
 	notify "Some apps were not moved" "Open the Store to reinstall the apps that are missing."
-fi
+	;;
+esac
+: > "$dir/flatpak-migrated"
