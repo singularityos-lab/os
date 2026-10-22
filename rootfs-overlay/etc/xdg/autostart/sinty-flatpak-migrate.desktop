@@ -1,0 +1,6 @@
+[Desktop Entry]
+Type=Application
+Name=App Migration
+Exec=/usr/libexec/sinty-flatpak-migrate
+NoDisplay=true
+X-GNOME-Autostart-enabled=true

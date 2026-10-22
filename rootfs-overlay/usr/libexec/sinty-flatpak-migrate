@@ -1,0 +1,28 @@
+#!/bin/sh
+mark="${XDG_STATE_HOME:-$HOME/.local/state}/sinty/flatpak-migrated"
+[ -e "$mark" ] && exit 0
+command -v flatpak >/dev/null 2>&1 && exit 0
+command -v cpak >/dev/null 2>&1 || exit 0
+
+notify() {
+	gdbus call --session --dest org.freedesktop.Notifications --object-path /org/freedesktop/Notifications \
+		--method org.freedesktop.Notifications.Notify "Store" 0 "dev.sinty.Store" "$1" "$2" "[]" "{}" -1 >/dev/null 2>&1 || true
+}
+
+found=0
+for d in "$HOME/.local/share/flatpak/app" /var/lib/flatpak/app; do
+	[ -d "$d" ] && [ -n "$(ls -A "$d" 2>/dev/null)" ] && found=1
+done
+mkdir -p "$(dirname "$mark")"
+if [ "$found" = 0 ]; then
+	: > "$mark"
+	exit 0
+fi
+
+notify "Moving your apps" "Your Flatpak apps are being reinstalled with cpak. This can take a while."
+if cpak migrate-flatpak -y >"$(dirname "$mark")/flatpak-migrate.log" 2>&1; then
+	: > "$mark"
+	notify "Apps moved" "Your Flatpak apps now run with cpak."
+else
+	notify "Some apps were not moved" "Open the Store to reinstall the apps that are missing."
+fi
