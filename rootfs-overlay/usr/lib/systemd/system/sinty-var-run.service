@@ -1,0 +1,14 @@
+[Unit]
+Description=Link /var/run to /run
+DefaultDependencies=no
+After=local-fs.target atom-fscrypt-de.service
+Before=sysinit.target dbus.service
+RequiresMountsFor=/var
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/libexec/sinty-var-run
+
+[Install]
+WantedBy=sysinit.target

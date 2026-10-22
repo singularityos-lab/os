@@ -1,0 +1,7 @@
+#!/bin/sh
+[ -L /var/run ] && exit 0
+if [ -d /var/run ]; then
+	cp -a /var/run/. /run/ 2>/dev/null
+	rm -rf /var/run
+fi
+ln -s ../run /var/run
