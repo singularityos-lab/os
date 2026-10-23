@@ -1,0 +1,1 @@
+SUBSYSTEM=="hidraw", ENV{ID_SECURITY_TOKEN}=="1", GROUP="plugdev", MODE="0660"
