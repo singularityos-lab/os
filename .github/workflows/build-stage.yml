@@ -6,6 +6,10 @@ on:
       stage:
         required: true
         type: number
+      build:
+        required: false
+        type: string
+        default: ''
     outputs:
       incomplete:
         value: ${{ jobs.build.outputs.incomplete }}
@@ -223,7 +227,9 @@ jobs:
         id: compile
         env:
           ATOM_BUILD: rc
+          BUILD: ${{ inputs.build }}
         run: |
+          [ -z "$BUILD" ] || echo "$BUILD" > release/product-build
           set +e
           timeout 320m ./scripts/compile.sh 2>&1 | tee build.log
           ec=${PIPESTATUS[0]}

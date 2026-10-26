@@ -25,6 +25,7 @@ jobs:
       run: ${{ steps.parse.outputs.run }}
       tag: ${{ steps.parse.outputs.tag }}
       review: ${{ steps.parse.outputs.review }}
+      build: ${{ steps.number.outputs.build }}
     steps:
       - name: Read the release request
         id: parse
@@ -64,36 +65,55 @@ jobs:
             echo "Build only"
           fi
 
+      - name: Number the build
+        id: number
+        if: steps.parse.outputs.tag != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.parse.outputs.tag }}
+        run: |
+          committed=$(gh api "repos/$GITHUB_REPOSITORY/contents/release/product-build?ref=$GITHUB_SHA" -q .content | base64 -d | tr -d '[:space:]')
+          prefix=$(printf '%s' "$committed" | sed -E 's/[0-9]+$//')
+          last=$( { echo "$committed"; gh release view "$TAG" -R "$GITHUB_REPOSITORY" --json body -q .body 2>/dev/null; } \
+            | grep -oE "${prefix}[0-9]+" | sed "s/^$prefix//" | sort -n | tail -n 1)
+          build=$(printf '%s%03d' "$prefix" $((10#$last + 1)))
+          echo "build=$build" >> "$GITHUB_OUTPUT"
+          echo "Build number $build"
+
   stage1:
     needs: meta
     if: needs.meta.outputs.run == 'true'
     uses: ./.github/workflows/build-stage.yml
     with:
       stage: 1
+      build: ${{ needs.meta.outputs.build }}
     secrets: inherit
 
   stage2:
-    needs: stage1
+    needs: [meta, stage1]
     if: needs.stage1.outputs.incomplete == '1'
     uses: ./.github/workflows/build-stage.yml
     with:
       stage: 2
+      build: ${{ needs.meta.outputs.build }}
     secrets: inherit
 
   stage3:
-    needs: stage2
+    needs: [meta, stage2]
     if: needs.stage2.outputs.incomplete == '1'
     uses: ./.github/workflows/build-stage.yml
     with:
       stage: 3
+      build: ${{ needs.meta.outputs.build }}
     secrets: inherit
 
   stage4:
-    needs: stage3
+    needs: [meta, stage3]
     if: needs.stage3.outputs.incomplete == '1'
     uses: ./.github/workflows/build-stage.yml
     with:
       stage: 4
+      build: ${{ needs.meta.outputs.build }}
     secrets: inherit
 
   test:
@@ -184,4 +204,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ needs.meta.outputs.tag }}
           REVIEW: ${{ needs.meta.outputs.review }}
-        run: ./scripts/publish-release.sh "$TAG" "$REVIEW" "$GITHUB_SHA" images/artifacts
+          BUILD: ${{ needs.meta.outputs.build }}
+        run: |
+          [ -z "$BUILD" ] || echo "$BUILD" > release/product-build
+          ./scripts/publish-release.sh "$TAG" "$REVIEW" "$GITHUB_SHA" images/artifacts
