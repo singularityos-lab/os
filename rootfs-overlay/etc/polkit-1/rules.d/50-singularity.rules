@@ -8,7 +8,8 @@ polkit.addRule(function(action, subject) {
         action.id.indexOf("org.freedesktop.login1.") === 0 ||
         action.id.indexOf("org.bluez.") === 0 ||
         action.id.indexOf("org.freedesktop.ModemManager") === 0 ||
-        action.id == "org.freedesktop.NetworkManager.settings.modify.system") {
+        action.id == "org.freedesktop.NetworkManager.settings.modify.system" ||
+        action.id == "dev.sinty.fprint-driver") {
         return polkit.Result.YES;
     }
 });
