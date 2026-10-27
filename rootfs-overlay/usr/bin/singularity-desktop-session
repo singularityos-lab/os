@@ -21,9 +21,9 @@ export GDK_BACKEND=wayland
 # the greeter (the metal login loop). Software renders on ANY GPU and a panel/dock needs no
 # GPU accel; a VM already runs exactly this (virtio_gpu is not a known HW GPU so the backstop
 # forces software) -- that path is proven. If the parent already forced software, keep it.
-# Demo-safe default; revert to gl / a per-GPU rendering-mode once the Mesa/ADL GL crash is fixed.
+# Only the renderer is pinned: EGL keeps the hardware driver for web views and other GL clients.
 if [ -z "$GSK_RENDERER" ]; then
-    export GSK_RENDERER=cairo LIBGL_ALWAYS_SOFTWARE=1 GALLIUM_DRIVER=llvmpipe
+    export GSK_RENDERER=cairo
 fi
 export GTK_USE_PORTAL=1
 export QT_QPA_PLATFORMTHEME=xdgdesktopportal
