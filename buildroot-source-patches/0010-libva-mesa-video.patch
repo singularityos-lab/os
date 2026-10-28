@@ -1,0 +1,34 @@
+diff --git a/package/libva/libva.mk b/package/libva/libva.mk
+--- a/package/libva/libva.mk
++++ b/package/libva/libva.mk
+@@ -19,11 +19,7 @@
+ 
+ ifeq ($(BR2_PACKAGE_XORG7),y)
+ LIBVA_DEPENDENCIES += xlib_libX11 xlib_libXext xlib_libXfixes
+-LIBVA_CONF_OPTS += -Dwith_x11=yes
+-ifeq ($(BR2_PACKAGE_HAS_LIBGL),y)
+-LIBVA_DEPENDENCIES += libgl
+-LIBVA_CONF_OPTS += -Dwith_glx=yes
+-endif
++LIBVA_CONF_OPTS += -Dwith_x11=yes -Dwith_glx=no
+ else
+ LIBVA_CONF_OPTS += -Dwith_glx=no -Dwith_x11=no
+ endif
+diff --git a/package/mesa3d/mesa3d.mk b/package/mesa3d/mesa3d.mk
+--- a/package/mesa3d/mesa3d.mk
++++ b/package/mesa3d/mesa3d.mk
+@@ -179,9 +179,12 @@
+ #   - Building OpenGL ES without OpenGL is not supported, so always keep opengl enabled.
+ MESA3D_CONF_OPTS += -Dopengl=true
+ 
+-# libva and mesa3d have a circular dependency
+-# we do not need libva support in mesa3d, therefore disable this option
++ifeq ($(BR2_PACKAGE_LIBVA),y)
++MESA3D_DEPENDENCIES += libva
++MESA3D_CONF_OPTS += -Dgallium-va=enabled -Dva-libs-path=/usr/lib/va -Dvideo-codecs=all
++else
+ MESA3D_CONF_OPTS += -Dgallium-va=disabled
++endif
+ 
+ # libGL is only provided for a full xorg stack, without libglvnd
+ ifeq ($(BR2_PACKAGE_MESA3D_OPENGL_GLX),y)
