@@ -31,6 +31,7 @@ concurrency:
 
 jobs:
   build-sdk:
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.event.head_commit.message, 'build')
     runs-on: ubuntu-24.04
     timeout-minutes: 350
     permissions:
