@@ -1,0 +1,86 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Mirko Brombin <9479903+mirkobrombin@users.noreply.github.com>
+Date: Thu, 29 Oct 2026 10:00:00 +0100
+Subject: [PATCH] mm: find free MTS object slots without scanning the tier
+
+Mark a slot free in the object XArray when its last reference goes away, and allocate from the lowest marked slot. Allocation used to walk every slot from zero, which made demoting n pages cost O(n^2): 256 MiB took 16 times as long as 64 MiB.
+
+---
+--- a/mm/mts_tier.c
++++ b/mm/mts_tier.c
+@@ -27,6 +27,7 @@
+ 
+ #define MTS_REFCOUNT_FREEZE	0x00fffffeU
+ #define MTS_MAX_TIER_SLOTS	254
++#define MTS_OBJECT_FREE		XA_MARK_0
+ 
+ enum mts_tier_state {
+ 	MTS_TIER_ACTIVE,
+@@ -166,11 +167,19 @@
+ 	return read == PAGE_SIZE ? 0 : -EIO;
+ }
+ 
++static void mts_object_unref_locked(struct mts_tier *tier, u32 slot,
++				    struct mts_object *object)
++{
++	if (!--object->refs)
++		xa_set_mark(&tier->objects, slot, MTS_OBJECT_FREE);
++}
++
+ static int mts_allocate_object(struct mts_tier *tier,
+ 			       struct mts_object_id *id,
+ 			       struct mts_object **result)
+ {
+ 	struct mts_object *object;
++	unsigned long index;
+ 	u32 slot;
+ 	int err;
+ 
+@@ -180,14 +189,15 @@
+ 		goto out_unlock;
+ 	}
+ 
+-	for (slot = 0; slot < tier->next_slot; slot++) {
+-		object = xa_load(&tier->objects, slot);
+-		if (!object || object->refs || object->retired)
++	xa_for_each_marked(&tier->objects, index, object, MTS_OBJECT_FREE) {
++		xa_clear_mark(&tier->objects, index, MTS_OBJECT_FREE);
++		if (object->refs || object->retired)
+ 			continue;
+ 		if (object->generation == U32_MAX) {
+ 			object->retired = true;
+ 			continue;
+ 		}
++		slot = index;
+ 		goto found;
+ 	}
+ 	if ((u64)tier->next_slot * PAGE_SIZE >= tier->desc.capacity_bytes) {
+@@ -251,6 +261,7 @@
+ 		if (err) {
+ 			mutex_lock(&tier->lock);
+ 			object->refs = 0;
++			xa_set_mark(&tier->objects, id->slot, MTS_OBJECT_FREE);
+ 			mutex_unlock(&tier->lock);
+ 		}
+ 	}
+@@ -327,7 +338,7 @@
+ 	if (IS_ERR(object))
+ 		err = PTR_ERR(object);
+ 	else
+-		object->refs--;
++		mts_object_unref_locked(tier, id->slot, object);
+ 	mutex_unlock(&tier->lock);
+ 	mts_tier_put(tier);
+ 	return err;
+@@ -465,7 +476,7 @@
+ 
+ 	if (IS_ERR(object))
+ 		return PTR_ERR(object);
+-	object->refs--;
++	mts_object_unref_locked(tier, id->slot, object);
+ 	return 0;
+ }
+ 
+-- 
+2.47.0
+

@@ -1,0 +1,89 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Mirko Brombin <9479903+mirkobrombin@users.noreply.github.com>
+Date: Thu, 29 Oct 2026 08:30:00 +0100
+Subject: [PATCH] mm: move anonymous pages to MTS tiers from any cgroup
+
+A domain admitted for a cgroup now covers every cgroup below it, and the deepest admitted domain wins. The exact match left a domain on "/" covering only the root cgroup itself.
+
+Walk the folio mappings without folio_lock_anon_vma_read(): after try_to_migrate() the folio is no longer mapped, so that lock returned no anon_vma and no PTE was ever converted. The folio is locked, which is what rmap_walk() needs.
+
+Freeze the reference held by reclaim before freeing a demoted folio, as the lazyfree path does, instead of freeing it with a live reference.
+
+---
+--- a/mm/mts_tier.c
++++ b/mm/mts_tier.c
+@@ -371,7 +371,7 @@
+ static struct mts_tier *mts_select_tier(struct mem_cgroup *memcg,
+ 					u16 reuse_q12)
+ {
+-	struct mts_domain *domain;
++	struct mts_domain *domain, *match = NULL;
+ 	struct mts_tier *tier = NULL;
+ 	u64 best_cost = U64_MAX;
+ 	u32 index;
+@@ -382,24 +382,26 @@
+ 	list_for_each_entry(domain, &mts_domains, node) {
+ 		if (domain->status != MTS_SLO_ADMITTED || !domain->tier_count)
+ 			continue;
+-		if (domain->cgroup != memcg->css.cgroup)
++		if (!cgroup_is_descendant(memcg->css.cgroup, domain->cgroup))
+ 			continue;
+-		for (index = 0; index < domain->tier_count; index++) {
+-			struct mts_tier *candidate = domain->tiers[index].tier;
+-			u64 candidate_cost;
++		if (match && match->cgroup->level >= domain->cgroup->level)
++			continue;
++		match = domain;
++	}
++	for (index = 0; match && index < match->tier_count; index++) {
++		struct mts_tier *candidate = match->tiers[index].tier;
++		u64 candidate_cost;
+ 
+-			if (candidate->state != MTS_TIER_ACTIVE)
+-				continue;
+-			candidate_cost = mts_pd1_cost(candidate, reuse_q12);
+-			if (candidate_cost >= best_cost)
+-				continue;
+-			tier = candidate;
+-			best_cost = candidate_cost;
+-		}
+-		if (tier)
+-			kref_get(&tier->kref);
+-		break;
++		if (candidate->state != MTS_TIER_ACTIVE)
++			continue;
++		candidate_cost = mts_pd1_cost(candidate, reuse_q12);
++		if (candidate_cost >= best_cost)
++			continue;
++		tier = candidate;
++		best_cost = candidate_cost;
+ 	}
++	if (tier)
++		kref_get(&tier->kref);
+ 	mutex_unlock(&mts_registry_lock);
+ 	return tier;
+ }
+--- a/mm/rmap.c
++++ b/mm/rmap.c
+@@ -2792,7 +2792,6 @@
+ 	struct rmap_walk_control rwc = {
+ 		.rmap_one = install_mts_pte,
+ 		.arg = &install,
+-		.anon_lock = folio_lock_anon_vma_read,
+ 	};
+ 
+ 	rmap_walk(folio, &rwc);
+--- a/mm/vmscan.c
++++ b/mm/vmscan.c
+@@ -1287,6 +1287,8 @@
+ 			if (folio_maybe_dma_pinned(folio))
+ 				goto keep_locked;
+ 			if (mts_try_demote_folio(folio)) {
++				if (!folio_ref_freeze(folio, 1))
++					goto keep_locked;
+ 				folio_unlock(folio);
+ 				goto free_it;
+ 			}
+-- 
+2.47.0
+
