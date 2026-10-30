@@ -4,3 +4,5 @@ CONFIG_MTS_TIER=y
 # MTS_OBSERVE's ISO16 collector still runs and feeds the predictor's calibration;
 # only the debugfs read-out (/sys/kernel/debug/mts/observe) is unavailable, which
 # is a deliberate hardening trade-off, not a lost MTS feature.
+CONFIG_BLK_WBT=y
+CONFIG_BLK_WBT_MQ=y

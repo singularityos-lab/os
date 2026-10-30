@@ -1,0 +1,12 @@
+[Unit]
+Description=Limit pending disk writes
+DefaultDependencies=no
+Before=sysinit.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/sh -c 'echo 67108864 > /proc/sys/vm/dirty_background_bytes; echo 268435456 > /proc/sys/vm/dirty_bytes'
+
+[Install]
+WantedBy=sysinit.target
