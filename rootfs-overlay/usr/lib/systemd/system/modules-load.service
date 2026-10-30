@@ -10,6 +10,8 @@ ExecStart=-/sbin/modprobe i915
 ExecStart=-/sbin/modprobe iwlwifi
 ExecStart=-/sbin/modprobe snd_hda_intel
 ExecStart=-/sbin/modprobe btusb
+ExecStart=-/sbin/modprobe kvm_intel
+ExecStart=-/sbin/modprobe kvm_amd
 
 [Install]
 WantedBy=sysinit.target
