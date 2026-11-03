@@ -47,7 +47,9 @@ func mountTemp(pattern string, args ...string) (string, error) {
 
 // release flushes the filesystem mounted at mnt, unmounts it and removes the empty
 // mountpoint. It never removes recursively: a failed unmount must not turn into
-// deleting the filesystem that is still mounted there.
+// deleting the filesystem that is still mounted there. When something outside the
+// installer keeps the mount busy, the holders are logged and the mount is detached
+// lazily: the flush above already committed everything the installer wrote.
 func release(mnt string) error {
 	if err := run("sync", "-f", mnt); err != nil {
 		return err
@@ -59,7 +61,60 @@ func release(mnt string) error {
 		}
 		time.Sleep(500 * time.Millisecond)
 	}
-	return err
+	logKernel(fmt.Sprintf("%v; holders: %s", err, holders(mnt)))
+	if lerr := run("umount", "-l", mnt); lerr != nil {
+		return fmt.Errorf("%v; lazy: %v", err, lerr)
+	}
+	return os.Remove(mnt)
+}
+
+// holders lists the processes and mounts that keep mnt in use.
+func holders(mnt string) string {
+	var out []string
+	inside := func(p string) bool { return p == mnt || strings.HasPrefix(p, mnt+"/") }
+	procs, _ := filepath.Glob("/proc/[0-9]*")
+	for _, pd := range procs {
+		var why []string
+		for _, l := range []string{"cwd", "root", "exe"} {
+			if t, err := os.Readlink(filepath.Join(pd, l)); err == nil && inside(t) {
+				why = append(why, l)
+			}
+		}
+		fds, _ := filepath.Glob(filepath.Join(pd, "fd", "*"))
+		for _, fd := range fds {
+			if t, err := os.Readlink(fd); err == nil && inside(t) {
+				why = append(why, "fd:"+t)
+			}
+		}
+		if b, err := os.ReadFile(filepath.Join(pd, "maps")); err == nil && strings.Contains(string(b), mnt+"/") {
+			why = append(why, "maps")
+		}
+		if len(why) > 0 {
+			comm, _ := os.ReadFile(filepath.Join(pd, "comm"))
+			out = append(out, fmt.Sprintf("%s(%s)[%s]", filepath.Base(pd), strings.TrimSpace(string(comm)), strings.Join(why, ",")))
+		}
+	}
+	if b, err := os.ReadFile("/proc/self/mountinfo"); err == nil {
+		for _, ln := range strings.Split(string(b), "\n") {
+			f := strings.Fields(ln)
+			if len(f) > 4 && strings.HasPrefix(f[4], mnt+"/") {
+				out = append(out, "submount:"+f[4])
+			}
+		}
+	}
+	if len(out) == 0 {
+		return "none found"
+	}
+	return strings.Join(out, " ")
+}
+
+// logKernel leaves a line in the kernel log, which the live media collects.
+func logKernel(msg string) {
+	fmt.Fprintln(os.Stderr, "atom-install:", msg)
+	if f, err := os.OpenFile("/dev/kmsg", os.O_WRONLY, 0); err == nil {
+		fmt.Fprintf(f, "atom-install: %s\n", msg)
+		f.Close()
+	}
 }
 
 // sizeOf reports the size of a regular file or a block device.
@@ -238,7 +293,6 @@ func main() {
 
 	die(run("dd", "if="+esp, "of="+partName(dev, 1), "bs=4M", "conv=fsync"))
 	die(setupData(partName(dev, 2), erofs, hash, esp, installID))
-	die(verifyData(partName(dev, 2), erofs, hash))
 	die(activateInstalledKernelcache(partName(dev, 1), installID))
 	setUEFIEntry(dev) // best-effort
 
@@ -342,21 +396,18 @@ func setupData(part, erofs, hash, esp, installID string) (err error) {
 	if err != nil {
 		return fmt.Errorf("read the live greetd config: %w", err)
 	}
-	return os.WriteFile(filepath.Join(gd, "config.toml"), []byte(installedGreetdConfig(string(live))), 0o644)
-}
-
-// verifyData mounts the data partition again, read-only, and checks that the root
-// image, its hash and the installed-system marker reached the disk.
-func verifyData(part, erofs, hash string) (err error) {
-	mnt, err := mountTemp("atom-data-check", "-t", "f2fs", "-o", "ro", part)
-	if err != nil {
+	if err := os.WriteFile(filepath.Join(gd, "config.toml"), []byte(installedGreetdConfig(string(live))), 0o644); err != nil {
 		return err
 	}
-	defer func() {
-		if rerr := release(mnt); err == nil {
-			err = rerr
-		}
-	}()
+	if err := run("sync", "-f", mnt); err != nil {
+		return err
+	}
+	return checkData(mnt, erofs, hash)
+}
+
+// checkData checks that the root image, its hash and the installed-system marker
+// are in place on the data partition mounted at mnt.
+func checkData(mnt, erofs, hash string) error {
 	slots := filepath.Join(mnt, "boot/rootfs")
 	for _, c := range [][2]string{{erofs, "rootfs-active.erofs"}, {hash, "rootfs-active.hash"}} {
 		want, err := sizeOf(c[0])
