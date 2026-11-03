@@ -15,6 +15,46 @@ mkdir -p "$M"
 mount "$DEV" "$M" 2>/dev/null || exit 0
 BOOT="$(tr -d '-' < /proc/sys/kernel/random/boot_id 2>/dev/null || echo unknown)"
 OUT="$M/boot-$BOOT.log"
+if [ -f "$M/SINTYRESCUE.txt" ]; then
+    cp "$M/SINTYRESCUE.txt" "$M/rescue-$BOOT.txt" 2>/dev/null && chmod 0644 "$M/rescue-$BOOT.txt"
+fi
+if grep -qw sing.live=1 /proc/cmdline 2>/dev/null; then
+    I=/run/sintyinst
+    {
+        echo "===== INSTALLED DISK  uptime=$(cut -d' ' -f1 /proc/uptime 2>/dev/null)s ====="
+        pdisk() { basename "$(readlink -f "/sys/class/block/${1##*/}/..")"; }
+        LOGDISK="$(pdisk "$DEV")"
+        for lab in esp atom-data; do
+            d=""
+            for c in $(blkid -t PARTLABEL="$lab" -o device 2>/dev/null); do
+                [ "$(pdisk "$c")" = "$LOGDISK" ] && continue
+                d="$c"; break
+            done
+            echo "-- $lab: ${d:-absent} --"
+            [ -b "$d" ] || continue
+            mkdir -p "$I/$lab"
+            mount -o ro "$d" "$I/$lab" 2>/dev/null || mount -o ro,norecovery "$d" "$I/$lab" 2>&1
+        done
+        if mountpoint -q "$I/esp"; then
+            ls -lR "$I/esp/EFI" 2>/dev/null | head -80
+            for f in "$I"/esp/EFI/atom/boot-state "$I"/esp/EFI/atom/deployment.json "$I"/esp/EFI/atom/state/*; do
+                [ -f "$f" ] || continue
+                echo "== ${f#"$I"/esp/} =="; cat "$f" 2>/dev/null
+            done
+        fi
+        if mountpoint -q "$I/atom-data"; then
+            ls -la "$I/atom-data" 2>/dev/null
+            find "$I/atom-data" -maxdepth 4 \( -name messages -o -name '*.log' -o -name boot-state \) -type f 2>/dev/null | head -20 |
+            while read -r f; do
+                echo "== $f =="; tail -n 300 "$f" 2>/dev/null
+            done
+        fi
+        for lab in esp atom-data; do
+            umount "$I/$lab" 2>/dev/null || true
+        done
+    } > "$M/installed-$BOOT.log" 2>&1
+    sync
+fi
 while :; do
     {
         echo "===== SINTY LOGCOLLECT  uptime=$(cut -d' ' -f1 /proc/uptime 2>/dev/null)s ====="
