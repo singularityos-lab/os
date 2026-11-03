@@ -33,19 +33,7 @@ if [ -e "$_softmark" ] || [ -e /etc/singularity/render-software ] || grep -qw si
     sscommon_log "compositor: software render (WLR_RENDERER=pixman)"
 fi
 
-# We start Before=greetd, early in boot, and may beat udev to the DRM device.
-# labwc's DRM backend fails hard if /dev/dri/card0 is not there yet, so wait for
-# it (fail-loud on timeout rather than crash-loop against a missing node).
-_i=0
-while [ ! -e /dev/dri/card0 ] && [ "$_i" -lt 150 ]; do
-    sleep 0.1
-    _i=$((_i + 1))
-done
-if [ ! -e /dev/dri/card0 ]; then
-    sscommon_log "compositor: /dev/dri/card0 never appeared after ${_i} ticks, starting anyway"
-else
-    sscommon_log "compositor: /dev/dri/card0 ready after ${_i} ticks"
-fi
+sscommon_drm_devices
 
 # Take DRM master over from the boot-splash. The splash holds the master (so the
 # boot is never black) until this sentinel appears, then it drops the master and
@@ -88,7 +76,7 @@ if [ -d "$_login" ] && rm -rf "$_merged" && mkdir -p "$_merged" \
     _cfg="$_merged"
     sscommon_log "compositor: using the login screen settings from $_login"
 fi
-labwc -C "$_cfg" &
+labwc -C "$_cfg" 2>>"$XDG_RUNTIME_DIR/labwc.log" &
 _pid=$!
 trap 'kill -TERM "$_pid" 2>/dev/null' TERM INT HUP
 while :; do

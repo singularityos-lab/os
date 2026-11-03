@@ -10,6 +10,7 @@ sscommon_xdg_dirs
 command -v singularity-render-setup >/dev/null 2>&1 && singularity-render-setup 2>/dev/null || true
 if [ -r /etc/environment ]; then set -a; . /etc/environment; set +a; fi
 sscommon_softrender_backstop
+sscommon_drm_devices
 
 sscommon_wait_splash 50
 sscommon_mark_greeter_ready chmod

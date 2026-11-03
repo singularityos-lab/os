@@ -32,6 +32,18 @@ while :; do
             [ -f "$f" ] || continue
             echo "== $f =="; tail -n 300 "$f"
         done
+        echo; echo "### runtime logs"
+        for f in /run/singularity/*.log /run/user/*/*.log /run/atom/boot.log /var/log/messages; do
+            [ -f "$f" ] || continue
+            echo "== $f =="; tail -n 300 "$f"
+        done
+        echo; echo "### drm"
+        ls -l /dev/dri 2>/dev/null
+        for c in /sys/class/drm/card*; do
+            echo "$c $(sed -n 's/^DRIVER=//p' "$c/device/uevent" 2>/dev/null) $(cat "$c/status" 2>/dev/null) boot_vga=$(cat "$c/device/boot_vga" 2>/dev/null)"
+        done
+        echo; echo "### processes"
+        ps -eo pid,ppid,user,stat,etime,pcpu,rss,args 2>/dev/null || ps 2>/dev/null
         echo; echo "### NETWORK/WIFI DIAG"
         echo "-- ip link --"; ip link 2>/dev/null
         echo "-- ip addr --"; ip addr 2>/dev/null
