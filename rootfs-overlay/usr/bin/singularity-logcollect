@@ -22,18 +22,22 @@ if grep -qw sing.live=1 /proc/cmdline 2>/dev/null; then
     I=/run/sintyinst
     {
         echo "===== INSTALLED DISK  uptime=$(cut -d' ' -f1 /proc/uptime 2>/dev/null)s ====="
+        lsblk -o NAME,SIZE,TYPE,FSTYPE,PARTLABEL,LABEL,MOUNTPOINTS 2>/dev/null
+        echo "-- mounts --"; grep -E '^/dev/' /proc/mounts 2>/dev/null
         pdisk() { basename "$(readlink -f "/sys/class/block/${1##*/}/..")"; }
         LOGDISK="$(pdisk "$DEV")"
         for lab in esp atom-data; do
             d=""
-            for c in $(blkid -t PARTLABEL="$lab" -o device 2>/dev/null); do
+            for c in $(lsblk -nrpo NAME,PARTLABEL 2>/dev/null | awk -v l="$lab" 'tolower($2) == l { print $1 }'); do
                 [ "$(pdisk "$c")" = "$LOGDISK" ] && continue
                 d="$c"; break
             done
             echo "-- $lab: ${d:-absent} --"
             [ -b "$d" ] || continue
             mkdir -p "$I/$lab"
-            mount -o ro "$d" "$I/$lab" 2>/dev/null || mount -o ro,norecovery "$d" "$I/$lab" 2>&1
+            if mount -o ro "$d" "$I/$lab" 2>&1 || mount -o ro,norecovery "$d" "$I/$lab" 2>&1; then
+                echo "mounted $d on $I/$lab: $(grep " $I/$lab " /proc/mounts)"
+            fi
         done
         if mountpoint -q "$I/esp"; then
             ls -lR "$I/esp/EFI" 2>/dev/null | head -80
@@ -43,7 +47,8 @@ if grep -qw sing.live=1 /proc/cmdline 2>/dev/null; then
             done
         fi
         if mountpoint -q "$I/atom-data"; then
-            ls -la "$I/atom-data" 2>/dev/null
+            ls -la "$I/atom-data" "$I/atom-data/boot" "$I/atom-data/boot/rootfs" 2>&1
+            df -h "$I/atom-data" 2>/dev/null
             find "$I/atom-data" -maxdepth 4 \( -name messages -o -name '*.log' -o -name boot-state \) -type f 2>/dev/null | head -20 |
             while read -r f; do
                 echo "== $f =="; tail -n 300 "$f" 2>/dev/null
