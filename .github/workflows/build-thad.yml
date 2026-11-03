@@ -1,0 +1,193 @@
+name: Singularity Build (self-hosted)
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-thad
+  cancel-in-progress: false
+
+jobs:
+  build:
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.event.head_commit.message, 'build(thad)')
+    runs-on: [self-hosted, thad]
+    timeout-minutes: 1440
+    env:
+      CACHE: /home/runner/cache
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Checkout Atom Loops
+        uses: actions/checkout@v4
+        with:
+          repository: mirkobrombin/AtomLoops
+          ref: 15c87ab8a2598fbfff90606b1881035dce01c9e3
+          path: _deps/AtomLoops
+          persist-credentials: false
+
+      - name: Checkout recovery
+        uses: actions/checkout@v4
+        with:
+          repository: singularityos-lab/sinty-recovery
+          ref: 6e44fd52e47828ba19431f7e00e17fc2dade2a11
+          path: _deps/sinty-recovery
+          persist-credentials: false
+
+      - name: Checkout initramfs
+        uses: actions/checkout@v4
+        with:
+          repository: singularityos-lab/sinty-initramfs
+          ref: 0869ef28501110b82cef02774913d467397c825c
+          path: _deps/sinty-initramfs
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: '1.26.x'
+          cache: false
+
+      - name: Link the persistent Buildroot trees
+        run: |
+          mkdir -p "$CACHE/src" "$CACHE/build" "$CACHE/dl"
+          ln -sfn "$CACHE/build" buildroot-build
+          ln -sfn "$CACHE/dl" buildroot-dl
+          [ -e "$CACHE/src/Makefile" ] && ln -sfn "$CACHE/src" buildroot-src || true
+          cp buildroot-build/build/buildroot-config/auto.conf "$RUNNER_TEMP/cached-auto.conf" 2>/dev/null || : > "$RUNNER_TEMP/cached-auto.conf"
+          df -h "$CACHE"
+
+      - name: Prepare Buildroot
+        run: |
+          ./scripts/prepare.sh
+          if [ ! -L buildroot-src ]; then
+            rm -rf "$CACHE/src"
+            mv buildroot-src "$CACHE/src"
+            ln -sfn "$CACHE/src" buildroot-src
+          fi
+
+      - name: Rebuild the packages whose options changed
+        run: |
+          [ -s "$RUNNER_TEMP/cached-auto.conf" ] || exit 0
+          export LC_ALL=C
+          grep '^BR2_PACKAGE_' "$RUNNER_TEMP/cached-auto.conf" | sort > "$RUNNER_TEMP/old.cfg"
+          grep '^BR2_PACKAGE_' buildroot-build/.config | sort > "$RUNNER_TEMP/new.cfg"
+          for o in $(comm -3 "$RUNNER_TEMP/old.cfg" "$RUNNER_TEMP/new.cfg" | sed 's/^\t//; s/^BR2_PACKAGE_//; s/=.*//' | sort -u); do
+            n=$(printf '%s' "$o" | tr 'A-Z_' 'a-z-')
+            while [ -n "$n" ]; do
+              if ls -d buildroot-build/build/"$n"-* >/dev/null 2>&1; then
+                echo "options of $n changed ($o): rebuilding"
+                rm -rf buildroot-build/build/"$n"-*
+                break
+              fi
+              case "$n" in *-*) n=${n%-*} ;; *) n= ;; esac
+            done
+          done
+
+      - name: Reset target dir and re-stage from the build tree
+        run: |
+          rm -rf buildroot-build/target
+          mkdir -p buildroot-build/target
+          find buildroot-build/build -name ".stamp_target_installed" -delete 2>/dev/null || true
+          find buildroot-build/build -name ".stamp_staging_installed" -delete 2>/dev/null || true
+          find buildroot-build/build -name ".stamp_images_installed" -delete 2>/dev/null || true
+
+      - name: Rebuild the packages built from this repo's own sources
+        run: |
+          for p in $(grep -l 'SITE_METHOD = local' package/*/*.mk | xargs -n1 dirname | xargs -n1 basename) linux-pam; do
+            rm -rf buildroot-build/build/${p}-* 2>/dev/null || true
+          done
+          rm -f buildroot-build/host/*/sysroot/usr/lib/libsystemd.so* \
+                buildroot-build/host/*/sysroot/usr/lib/pkgconfig/libsystemd.pc 2>/dev/null || true
+          rm -rf buildroot-build/host/*/sysroot/usr/include/systemd 2>/dev/null || true
+
+      - name: Rebuild the packages changed by the Buildroot source patches
+        run: |
+          rec=buildroot-build/build/.source-patch-hashes
+          mkdir -p buildroot-build/build
+          touch "$rec"
+          for p in $(sed -n 's|^diff --git a/package/\([^/]*\)/.*|\1|p' buildroot-source-patches/*.patch | sort -u); do
+            h=$(grep -l "^diff --git a/package/$p/" buildroot-source-patches/*.patch | xargs cat | sha256sum | cut -c1-16)
+            if ! grep -qx "$p $h" "$rec"; then
+              echo "patch for $p changed: rebuilding it"
+              rm -rf buildroot-build/build/"$p"-*
+              sed -i "/^$p /d" "$rec"
+              echo "$p $h" >> "$rec"
+            fi
+          done
+
+      - name: Compile
+        env:
+          ATOM_BUILD: rc
+        run: |
+          set -o pipefail
+          ./scripts/compile.sh 2>&1 | tee build.log
+
+      - name: Package with a development signing chain
+        env:
+          ATOMLOOPS: ${{ github.workspace }}/_deps/AtomLoops
+          SINTY_RECOVERY: ${{ github.workspace }}/_deps/sinty-recovery
+          SINTY_INITRAMFS: ${{ github.workspace }}/_deps/sinty-initramfs
+          ATOM_BUILD: rc
+        run: |
+          set -o pipefail
+          ATOM_VERSION="$(git rev-list --count HEAD)"
+          export ATOM_VERSION
+          ./scripts/package.sh 2>&1 | tee package.log
+
+      - name: Boot the image to the default target
+        run: |
+          accel=tcg
+          [ -w /dev/kvm ] && accel=kvm
+          cp /usr/share/OVMF/OVMF_VARS_4M.fd vars.fd
+          cp artifacts/sinty-os.img disk.img
+          part=$(sfdisk -J disk.img | jq -r '.partitiontable as $t | .partitiontable.partitions[] | select(.name == "sintylogs") | "\(.start) \(.size) \($t.sectorsize // 512)"')
+          read -r start size sector <<< "$part"
+          timeout 600 qemu-system-x86_64 -machine q35,accel=$accel -m 4096 -smp 2 \
+            -drive if=pflash,format=raw,readonly=on,file=/usr/share/OVMF/OVMF_CODE_4M.fd \
+            -drive if=pflash,format=raw,file=vars.fd \
+            -drive file=disk.img,if=none,id=usb0,format=raw \
+            -device qemu-xhci -device usb-storage,drive=usb0,bootindex=0 \
+            -display none -serial file:serial.log -no-reboot &
+          qemu=$!
+          logs() {
+            dd if=disk.img of=logs.ext4 bs=$sector skip=$start count=$size status=none
+            for f in $(debugfs -R "ls -p /" logs.ext4 2>/dev/null | awk -F/ '$6 ~ /^boot-.*\.log$/ {print $6}'); do
+              debugfs -R "cat /$f" logs.ext4 2>/dev/null
+            done > boot.log
+          }
+          for _ in $(seq 60); do
+            sleep 10
+            grep -qE "signature INVALID|Kernel panic" serial.log 2>/dev/null && break
+            kill -0 $qemu 2>/dev/null || break
+            logs
+            grep -q "atom\[1\]: reached " boot.log && break
+          done
+          kill $qemu 2>/dev/null || true
+          wait $qemu 2>/dev/null || true
+          logs
+          tr -d '\r' < serial.log | tail -n 20
+          grep -E "atom\[1\]: " boot.log | tail -n 40
+          grep -q "atom\[1\]: reached " boot.log
+          ! grep -q "atom\[1\]: ERROR starting" boot.log
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: thad-build-log-${{ github.sha }}
+          path: |
+            build.log
+            package.log
+            boot.log
+          retention-days: 3
+          if-no-files-found: ignore
