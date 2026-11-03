@@ -27,4 +27,17 @@ sscommon_log "installer: DRM master free after ${_i} ticks (marker=$([ -e /run/s
 export LIBSEAT_BACKEND=builtin
 sscommon_log "LIBSEAT_BACKEND=builtin (installer only: seatd may be absent at install time)"
 
-sscommon_exec_labwc -s "atom-installer-launch"
+_labwc() {
+    _rc=0
+    dbus-run-session -- labwc -s atom-installer-launch 2>>"$XDG_RUNTIME_DIR/labwc.log" || _rc=$?
+}
+sscommon_log "installer: launching labwc"
+_labwc
+if [ "${WLR_RENDERER:-}" != pixman ] && [ "$_rc" != 0 ] && [ "$_rc" != 143 ]; then
+    sscommon_log "installer: labwc exited $_rc, restarting with software render"
+    : > /run/singularity/render-software 2>/dev/null || true
+    export WLR_RENDERER=pixman WLR_RENDERER_ALLOW_SOFTWARE=1 LIBGL_ALWAYS_SOFTWARE=1 GALLIUM_DRIVER=llvmpipe GSK_RENDERER=cairo
+    _labwc
+fi
+sscommon_log "installer: labwc exited $_rc"
+exit "$_rc"

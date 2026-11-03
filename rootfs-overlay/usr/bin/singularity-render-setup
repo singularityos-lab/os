@@ -1,23 +1,37 @@
 #!/bin/sh
-# Enable software GL rendering only when there is no hardware GPU driver
-# (VMs: virtio-gpu without virgl, vkms, simpledrm). Real GPUs keep hardware
-# rendering. Appends to /etc/environment (writable tmpfs overlay, reset each boot).
-hw=0
-for c in /sys/class/drm/card[0-9]*; do
-    [ -e "$c/device/uevent" ] || continue
-    drv=$(sed -n 's/^DRIVER=//p' "$c/device/uevent")
-    case "$drv" in
-        i915|xe|amdgpu|radeon|nouveau|nova*|msm|panfrost|panthor|v3d|lima|etnaviv|tegra)
-            hw=1 ;;
+hwdrv() {
+    case "$1" in
+        i915|xe|amdgpu|radeon|nouveau|nova*|msm|panfrost|panthor|v3d|lima|etnaviv|tegra) return 0 ;;
+    esac
+    return 1
+}
+gpus=""
+for p in /sys/bus/pci/devices/*; do
+    case "$(cat "$p/class" 2>/dev/null)" in
+        0x03*) gpus="$gpus $p" ;;
     esac
 done
-if [ "$hw" = 0 ]; then
+hw=0
+i=0
+while :; do
+    pending=0
+    for p in $gpus; do
+        if [ -e "$p/driver" ] && ls "$p"/drm/card[0-9]* >/dev/null 2>&1; then
+            hwdrv "$(basename "$(readlink "$p/driver")")" && hw=1
+        else
+            pending=1
+        fi
+    done
+    for c in /sys/class/drm/card[0-9]*; do
+        [ -e "$c/device/uevent" ] || continue
+        hwdrv "$(sed -n 's/^DRIVER=//p' "$c/device/uevent")" && hw=1
+    done
+    [ "$hw" = 1 ] || [ "$pending" = 0 ] || [ "$i" -ge 150 ] && break
+    sleep 0.1
+    i=$((i + 1))
+done
+if [ "$hw" = 0 ] && ! grep -q '^WLR_RENDERER=pixman$' /etc/environment 2>/dev/null; then
     {
-        # Match the desktop session's proven software path (singularity-labwc-session,
-        # e58dd90): cairo + pixman + llvmpipe. Do NOT set MESA_LOADER_DRIVER_OVERRIDE:
-        # forcing kms_swrast at the mesa loader level re-pins the swrast DRM driver and
-        # overrides GALLIUM_DRIVER=llvmpipe, so on a modeset-less simpledrm framebuffer
-        # it stays black. llvmpipe is pure software and needs no DRM.
         echo "GSK_RENDERER=cairo"
         echo "WLR_RENDERER=pixman"
         echo "WLR_RENDERER_ALLOW_SOFTWARE=1"

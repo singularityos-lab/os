@@ -37,6 +37,7 @@ while :; do
             [ -f "$f" ] || continue
             echo "== $f =="; tail -n 300 "$f"
         done
+        echo; echo "### environment"; cat /etc/environment 2>/dev/null
         echo; echo "### drm"
         ls -l /dev/dri 2>/dev/null
         for c in /sys/class/drm/card*; do
