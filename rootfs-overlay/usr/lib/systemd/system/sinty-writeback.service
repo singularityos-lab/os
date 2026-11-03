@@ -2,6 +2,7 @@
 Description=Limit pending disk writes
 DefaultDependencies=no
 Before=sysinit.target
+ConditionPathExists=/proc/sys/vm/dirty_bytes
 
 [Service]
 Type=oneshot
