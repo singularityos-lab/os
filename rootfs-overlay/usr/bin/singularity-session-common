@@ -79,49 +79,58 @@ sscommon_softrender_backstop() {
 sscommon_drm_devices() {
     _boot=""
     for _p in /sys/bus/pci/devices/*; do
-        [ "$(cat "$_p/boot_vga" 2>/dev/null)" = 1 ] && _boot="$_p" && break
+        if [ "$(cat "$_p/boot_vga" 2>/dev/null)" = 1 ]; then
+            _boot="$_p"
+            break
+        fi
     done
     _i=0
     while [ "$_i" -lt 150 ]; do
         if [ -n "$_boot" ]; then
-            ls "$_boot"/drm/card[0-9]* >/dev/null 2>&1 && break
-        else
-            ls -d /sys/class/drm/card[0-9]* >/dev/null 2>&1 && break
+            if ls "$_boot"/drm/card[0-9]* >/dev/null 2>&1; then break; fi
+        elif ls -d /sys/class/drm/card[0-9]* >/dev/null 2>&1; then
+            break
         fi
         sleep 0.1
         _i=$((_i + 1))
     done
     _bootcard=""
-    [ -n "$_boot" ] && for _c in "$_boot"/drm/card[0-9]*; do
-        [ -e "$_c" ] && _bootcard="${_c##*/}" && break
-    done
+    if [ -n "$_boot" ]; then
+        for _c in "$_boot"/drm/card[0-9]*; do
+            if [ -e "$_c" ]; then
+                _bootcard="${_c##*/}"
+                break
+            fi
+        done
+    fi
     _list=""
     _add() {
-        case ":$_list:" in *":/dev/dri/$1:"*) return ;; esac
+        case ":$_list:" in *":/dev/dri/$1:"*) return 0 ;; esac
         _list="${_list:+$_list:}/dev/dri/$1"
     }
     _connected() {
         for _s in /sys/class/drm/"$1"-*/status; do
-            [ "$(cat "$_s" 2>/dev/null)" = connected ] && return 0
+            if [ "$(cat "$_s" 2>/dev/null)" = connected ]; then return 0; fi
         done
         return 1
     }
-    [ -n "$_bootcard" ] && _connected "$_bootcard" && _add "$_bootcard"
+    if [ -n "$_bootcard" ] && _connected "$_bootcard"; then _add "$_bootcard"; fi
     for _c in /sys/class/drm/card[0-9]*; do
         _n="${_c##*/}"
         case "$_n" in *-*) continue ;; esac
         case "$(sed -n 's/^DRIVER=//p' "$_c/device/uevent" 2>/dev/null)" in
             simple-framebuffer|simpledrm|efidrm|vesadrm|ofdrm) continue ;;
         esac
-        _connected "$_n" && _add "$_n"
+        if _connected "$_n"; then _add "$_n"; fi
     done
-    [ -z "$_list" ] && [ -n "$_bootcard" ] && _add "$_bootcard"
+    if [ -z "$_list" ] && [ -n "$_bootcard" ]; then _add "$_bootcard"; fi
     if [ -n "$_list" ]; then
         export WLR_DRM_DEVICES="$_list"
         sscommon_log "WLR_DRM_DEVICES=$_list (boot_vga=${_bootcard:-none} after ${_i} ticks)"
     else
         sscommon_log "no display GPU found after ${_i} ticks, letting wlroots choose"
     fi
+    return 0
 }
 
 sscommon_exec_labwc() {
