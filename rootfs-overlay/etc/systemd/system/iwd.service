@@ -13,7 +13,7 @@ Environment=DBUS_SYSTEM_BUS_ADDRESS=unix:path=/run/dbus/system_bus_socket
 ExecStartPre=/bin/sh -c 'n=0; while [ $n -lt 50 ]; do [ -S /run/dbus/system_bus_socket ] && break; sleep 0.1; n=$((n+1)); done'
 ExecStartPre=-/usr/bin/udevadm trigger --type=subsystems --action=add
 ExecStartPre=-/usr/bin/udevadm trigger --type=devices --action=add
-ExecStartPre=-/usr/bin/udevadm settle
+ExecStartPre=-/usr/bin/udevadm settle --timeout=5
 ExecStart=/usr/libexec/iwd
 Restart=on-failure
 RestartSec=1
