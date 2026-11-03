@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 )
 
 func newInstallID() (string, error) {
@@ -29,6 +30,48 @@ func run(name string, args ...string) error {
 		return fmt.Errorf("%s %s: %w: %s", name, strings.Join(args, " "), err, strings.TrimSpace(string(out)))
 	}
 	return nil
+}
+
+// mountTemp mounts with the given mount arguments on a fresh temporary directory.
+func mountTemp(pattern string, args ...string) (string, error) {
+	mnt, err := os.MkdirTemp("", pattern)
+	if err != nil {
+		return "", err
+	}
+	if err := run("mount", append(args, mnt)...); err != nil {
+		os.Remove(mnt)
+		return "", err
+	}
+	return mnt, nil
+}
+
+// release flushes the filesystem mounted at mnt, unmounts it and removes the empty
+// mountpoint. It never removes recursively: a failed unmount must not turn into
+// deleting the filesystem that is still mounted there.
+func release(mnt string) error {
+	if err := run("sync", "-f", mnt); err != nil {
+		return err
+	}
+	var err error
+	for i := 0; i < 20; i++ {
+		if err = run("umount", mnt); err == nil {
+			return os.Remove(mnt)
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	return err
+}
+
+// sizeOf reports the size of a regular file or a block device.
+func sizeOf(path string) (int64, error) {
+	fi, err := os.Stat(path)
+	if err != nil {
+		return 0, err
+	}
+	if fi.Mode().IsRegular() {
+		return fi.Size(), nil
+	}
+	return deviceSizeBytes(path)
 }
 
 // deviceSizeBytes reads a block device/partition size from sysfs (512-byte sectors).
@@ -195,6 +238,7 @@ func main() {
 
 	die(run("dd", "if="+esp, "of="+partName(dev, 1), "bs=4M", "conv=fsync"))
 	die(setupData(partName(dev, 2), erofs, hash, esp, installID))
+	die(verifyData(partName(dev, 2), erofs, hash))
 	die(activateInstalledKernelcache(partName(dev, 1), installID))
 	setUEFIEntry(dev) // best-effort
 
@@ -203,16 +247,16 @@ func main() {
 
 // activateInstalledKernelcache replaces the live-only UKI copied with the source ESP.
 // The installed UKI accepts slot files instead of waiting for raw removable partitions.
-func activateInstalledKernelcache(esp, installID string) error {
-	mnt, err := os.MkdirTemp("", "atom-esp-target")
+func activateInstalledKernelcache(esp, installID string) (err error) {
+	mnt, err := mountTemp("atom-esp-target", "-t", "vfat", esp)
 	if err != nil {
 		return err
 	}
-	defer os.RemoveAll(mnt)
-	if err := run("mount", "-t", "vfat", esp, mnt); err != nil {
-		return err
-	}
-	defer run("umount", mnt)
+	defer func() {
+		if rerr := release(mnt); err == nil {
+			err = rerr
+		}
+	}()
 
 	dir := filepath.Join(mnt, "EFI", "atom")
 	stateDir := filepath.Join(dir, "state")
@@ -245,19 +289,19 @@ func activateInstalledKernelcache(esp, installID string) error {
 // with encrypt so fscrypt can protect the user data -- the data, not the whole disk.
 // .atom-var is what tells the init this is an installed system rather than a live
 // medium, which is what arms the update daemon.
-func setupData(part, erofs, hash, esp, installID string) error {
+func setupData(part, erofs, hash, esp, installID string) (err error) {
 	if err := run("mkfs.f2fs", "-f", "-l", "atom-data", "-O", "encrypt,extra_attr", part); err != nil {
 		return err
 	}
-	mnt, err := os.MkdirTemp("", "atom-data")
+	mnt, err := mountTemp("atom-data", "-t", "f2fs", part)
 	if err != nil {
 		return err
 	}
-	defer os.RemoveAll(mnt)
-	if err := run("mount", "-t", "f2fs", part, mnt); err != nil {
-		return err
-	}
-	defer run("umount", mnt)
+	defer func() {
+		if rerr := release(mnt); err == nil {
+			err = rerr
+		}
+	}()
 
 	for _, d := range []string{
 		"boot/rootfs", "boot/efi", "boot/firmware",
@@ -299,6 +343,40 @@ func setupData(part, erofs, hash, esp, installID string) error {
 		return fmt.Errorf("read the live greetd config: %w", err)
 	}
 	return os.WriteFile(filepath.Join(gd, "config.toml"), []byte(installedGreetdConfig(string(live))), 0o644)
+}
+
+// verifyData mounts the data partition again, read-only, and checks that the root
+// image, its hash and the installed-system marker reached the disk.
+func verifyData(part, erofs, hash string) (err error) {
+	mnt, err := mountTemp("atom-data-check", "-t", "f2fs", "-o", "ro", part)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if rerr := release(mnt); err == nil {
+			err = rerr
+		}
+	}()
+	slots := filepath.Join(mnt, "boot/rootfs")
+	for _, c := range [][2]string{{erofs, "rootfs-active.erofs"}, {hash, "rootfs-active.hash"}} {
+		want, err := sizeOf(c[0])
+		if err != nil {
+			return err
+		}
+		fi, err := os.Stat(filepath.Join(slots, c[1]))
+		if err != nil {
+			return fmt.Errorf("installed data check: %w", err)
+		}
+		if fi.Size() != want {
+			return fmt.Errorf("installed data check: %s is %d bytes, want %d", c[1], fi.Size(), want)
+		}
+	}
+	for _, f := range []string{".atom-var", "boot/rootfs/deployment.json", "etc-upper/greetd/config.toml"} {
+		if _, err := os.Stat(filepath.Join(mnt, f)); err != nil {
+			return fmt.Errorf("installed data check: %w", err)
+		}
+	}
+	return nil
 }
 
 // setUEFIEntry points the firmware at the internal disk so a leftover install USB does
@@ -343,15 +421,11 @@ func mountedDevice(mnt string) string {
 func copyDeployment(esp, slots string) error {
 	src := "/boot/efi/EFI/atom/deployment.json"
 	if _, err := os.Stat(src); err != nil {
-		mnt, err := os.MkdirTemp("", "atom-esp")
+		mnt, err := mountTemp("atom-esp", "-t", "vfat", "-o", "ro", esp)
 		if err != nil {
 			return err
 		}
-		defer os.RemoveAll(mnt)
-		if err := run("mount", "-t", "vfat", "-o", "ro", esp, mnt); err != nil {
-			return err
-		}
-		defer run("umount", mnt)
+		defer release(mnt)
 		src = filepath.Join(mnt, "EFI/atom/deployment.json")
 	}
 	b, err := os.ReadFile(src)
