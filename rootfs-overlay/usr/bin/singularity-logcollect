@@ -22,13 +22,17 @@ if grep -qw sing.live=1 /proc/cmdline 2>/dev/null; then
     I=/run/sintyinst
     {
         echo "===== INSTALLED DISK  uptime=$(cut -d' ' -f1 /proc/uptime 2>/dev/null)s ====="
-        lsblk -o NAME,SIZE,TYPE,FSTYPE,PARTLABEL,LABEL,MOUNTPOINTS 2>/dev/null
+        lsblk -o NAME,SIZE,TYPE,MOUNTPOINTS 2>/dev/null
+        blkid 2>/dev/null
         echo "-- mounts --"; grep -E '^/dev/' /proc/mounts 2>/dev/null
         pdisk() { basename "$(readlink -f "/sys/class/block/${1##*/}/..")"; }
         LOGDISK="$(pdisk "$DEV")"
         for lab in esp atom-data; do
             d=""
-            for c in $(lsblk -nrpo NAME,PARTLABEL 2>/dev/null | awk -v l="$lab" 'tolower($2) == l { print $1 }'); do
+            for c in /sys/class/block/*; do
+                [ -e "$c/partition" ] || continue
+                c="/dev/${c##*/}"
+                [ "$(blkid -o value -s PARTLABEL "$c" 2>/dev/null | tr 'A-Z' 'a-z')" = "$lab" ] || continue
                 [ "$(pdisk "$c")" = "$LOGDISK" ] && continue
                 d="$c"; break
             done
