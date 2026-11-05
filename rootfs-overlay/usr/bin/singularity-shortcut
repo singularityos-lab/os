@@ -52,16 +52,17 @@ def serve():
         with conn:
             raw = conn.recv(256).decode("utf-8", "replace")
         action = raw.splitlines()[0].strip() if raw else ""
-        # Only a bare [a-z_] action name is ever forwarded, as argv, never through
-        # a shell: a caller cannot smuggle arguments or a command into gdbus.
-        if action and all(ch.islower() or ch == "_" for ch in action):
+        # Only a bare action name ([A-Za-z0-9_:.-]) is ever forwarded, as one
+        # quoted GVariant string argument, never through a shell: a caller cannot
+        # smuggle arguments or a command into gdbus.
+        if action and all(ch.isascii() and (ch.isalnum() or ch in "_:.-") for ch in action):
             subprocess.run(
                 [
                     "gdbus", "call", "--session",
                     "--dest", "dev.sinty.desktop",
                     "--object-path", "/dev/sinty/desktop/Shortcuts",
                     "--method", "dev.sinty.desktop.Shortcuts.ExecuteAction",
-                    action,
+                    "'" + action + "'",
                 ],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,

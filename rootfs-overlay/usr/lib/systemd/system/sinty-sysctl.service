@@ -1,0 +1,12 @@
+[Unit]
+Description=Apply kernel parameters from sysctl.d
+DefaultDependencies=no
+Before=sysinit.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/sbin/sysctl -q --system
+
+[Install]
+WantedBy=sysinit.target

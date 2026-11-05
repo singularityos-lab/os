@@ -1,0 +1,11 @@
+[Unit]
+Description=Save kernel crash records from pstore
+After=local-fs.target sealedlogd.service
+Wants=local-fs.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/sinty-pstore-save
+
+[Install]
+WantedBy=graphical.target

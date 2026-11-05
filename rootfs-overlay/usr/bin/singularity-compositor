@@ -76,6 +76,10 @@ if [ -d "$_login" ] && rm -rf "$_merged" && mkdir -p "$_merged" \
     _cfg="$_merged"
     sscommon_log "compositor: using the login screen settings from $_login"
 fi
+_session=/run/singularity/labwc-session
+mkdir -p "$_session" && rm -f "$_session/rc.xml" "$_session/menu.xml" \
+    && chgrp singularity-session "$_session" 2>/dev/null && chmod 2770 "$_session" \
+    && export LABWC_SESSION_RC="$_session/rc.xml" LABWC_SESSION_MENU="$_session/menu.xml"
 labwc -C "$_cfg" 2>>"$XDG_RUNTIME_DIR/labwc.log" &
 _pid=$!
 trap 'kill -TERM "$_pid" 2>/dev/null' TERM INT HUP

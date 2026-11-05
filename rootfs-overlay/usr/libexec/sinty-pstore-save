@@ -1,0 +1,16 @@
+#!/bin/sh
+src=/sys/fs/pstore
+set -- "$src"/*
+[ -e "$1" ] || exit 0
+if [ -x /usr/libexec/sealedlogd ]; then
+	n=0
+	while [ "$n" -lt 100 ] && [ ! -S /run/sealedlog/socket ]; do
+		sleep 0.1
+		n=$((n + 1))
+	done
+fi
+dst=/var/log/pstore/$(date +%Y%m%d-%H%M%S)
+install -d -m 0750 -g singularity-session /var/log/pstore "$dst" || exit 1
+for f in "$src"/*; do
+	install -m 0640 -g singularity-session "$f" "$dst/" && rm -f "$f"
+done

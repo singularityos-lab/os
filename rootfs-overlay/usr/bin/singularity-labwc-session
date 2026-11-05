@@ -39,4 +39,19 @@ sscommon_log "labwc-session: connecting desktop shell to persistent compositor a
 
 # No labwc here: exactly one compositor for the whole session. Just the desktop
 # shell, under its own session bus.
-exec dbus-run-session -- "$BIN/singularity-desktop-session"
+_drain() {
+    _n=0
+    while [ "$_n" -lt 40 ] && pgrep -g "$$" | grep -qvx "$$"; do
+        sleep 0.1
+        _n=$((_n + 1))
+    done
+    rm -f /run/singularity/labwc-session/rc.xml /run/singularity/labwc-session/menu.xml
+}
+trap _drain EXIT
+dbus-run-session -- "$BIN/singularity-desktop-session" &
+_child=$!
+trap 'kill -TERM "$_child" 2>/dev/null' TERM HUP INT
+wait "$_child"
+_rc=$?
+kill -0 "$_child" 2>/dev/null && wait "$_child"
+exit $_rc
