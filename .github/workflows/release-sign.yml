@@ -1,0 +1,151 @@
+name: Sign a release
+
+on:
+  workflow_run:
+    workflows: ["Singularity Build (self-hosted)"]
+    types: [completed]
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: release-sign
+  cancel-in-progress: false
+
+jobs:
+  sign:
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event != 'pull_request' &&
+      github.event.workflow_run.head_branch == 'main'
+    runs-on: ubuntu-24.04
+    environment: release
+    timeout-minutes: 120
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          persist-credentials: false
+
+      - name: Checkout Atom Loops
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: mirkobrombin/AtomLoops
+          ref: 15c87ab8a2598fbfff90606b1881035dce01c9e3
+          path: _deps/AtomLoops
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
+        with:
+          go-version: '1.26.x'
+          cache: false
+
+      - name: Install the image tools
+        run: |
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq genimage xorriso mtools dosfstools e2fsprogs qemu-system-x86 ovmf jq
+
+      - name: Download the unsigned stage
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: unsigned-${{ github.event.workflow_run.head_sha }}
+          path: artifacts
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+
+      - name: Sign and assemble
+        env:
+          ATOMLOOPS: ${{ github.workspace }}/_deps/AtomLoops
+          SIGNING_KEY: ${{ secrets.ATOM_SIGNING_KEY_B64 }}
+          SIGNING_CERT: ${{ secrets.ATOM_SIGNING_CERT_B64 }}
+          SIGNING_CERT_SIG: ${{ secrets.ATOM_SIGNING_CERT_SIG_B64 }}
+        run: |
+          set -o pipefail
+          umask 077
+          keys="$RUNNER_TEMP/keys"
+          mkdir -p "$keys"
+          trap 'rm -rf "$keys"' EXIT
+          printf '%s' "$SIGNING_KEY" | base64 -d > "$keys/signing-v1.key"
+          printf '%s' "$SIGNING_CERT" | base64 -d > "$keys/signing-cert-v1.json"
+          printf '%s' "$SIGNING_CERT_SIG" | base64 -d > "$keys/signing-cert-v1.json.sig"
+          export ATOM_SIGNING_KEY="$keys/signing-v1.key"
+          export ATOM_SIGNING_CERT="$keys/signing-cert-v1.json"
+          export ATOM_SIGNING_CERT_SIG="$keys/signing-cert-v1.json.sig"
+          ./scripts/sign-release.sh 2>&1 | tee sign.log
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Boot the image to the default target
+        run: |
+          accel=tcg
+          [ -w /dev/kvm ] && accel=kvm
+          cp /usr/share/OVMF/OVMF_VARS_4M.fd vars.fd
+          cp artifacts/sinty-os.img disk.img
+          part=$(sfdisk -J disk.img | jq -r '.partitiontable as $t | .partitiontable.partitions[] | select(.name == "sintylogs") | "\(.start) \(.size) \($t.sectorsize // 512)"')
+          read -r start size sector <<< "$part"
+          timeout 900 qemu-system-x86_64 -machine q35,accel=$accel -m 4096 -smp 2 \
+            -drive if=pflash,format=raw,readonly=on,file=/usr/share/OVMF/OVMF_CODE_4M.fd \
+            -drive if=pflash,format=raw,file=vars.fd \
+            -drive file=disk.img,if=none,id=usb0,format=raw \
+            -device qemu-xhci -device usb-storage,drive=usb0,bootindex=0 \
+            -display none -serial file:serial.log -no-reboot &
+          qemu=$!
+          logs() {
+            dd if=disk.img of=logs.ext4 bs=$sector skip=$start count=$size status=none
+            for f in $(debugfs -R "ls -p /" logs.ext4 2>/dev/null | awk -F/ '$6 ~ /^boot-.*\.log$/ {print $6}'); do
+              debugfs -R "cat /$f" logs.ext4 2>/dev/null
+            done > boot.log
+          }
+          for _ in $(seq 90); do
+            sleep 10
+            grep -qE "signature INVALID|Kernel panic" serial.log 2>/dev/null && break
+            kill -0 $qemu 2>/dev/null || break
+            logs
+            grep -q "atom\[1\]: reached " boot.log && break
+          done
+          kill $qemu 2>/dev/null || true
+          wait $qemu 2>/dev/null || true
+          logs
+          tr -d '\r' < serial.log | tail -n 20
+          grep -E "atom\[1\]: " boot.log | tail -n 40
+          grep -q "atom\[1\]: reached " boot.log
+          ! grep -q "atom\[1\]: ERROR starting" boot.log
+
+      - name: Upload the signed release
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: signed-${{ github.event.workflow_run.head_sha }}
+          path: |
+            artifacts/signed.sha256
+            artifacts/unsigned.sha256
+            artifacts/release-version.txt
+            artifacts/rootfs.erofs
+            artifacts/rootfs.hash
+            artifacts/kernelcache*.efi
+            artifacts/kernelcache*.efi.sig
+            artifacts/sinty-os.img
+            artifacts/sinty-os-portable.img
+            artifacts/sinty-os.iso
+          retention-days: 5
+          compression-level: 0
+          if-no-files-found: error
+
+      - name: Upload the logs
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: sign-log-${{ github.event.workflow_run.head_sha }}
+          path: |
+            sign.log
+            serial.log
+            boot.log
+          retention-days: 5
+          if-no-files-found: ignore

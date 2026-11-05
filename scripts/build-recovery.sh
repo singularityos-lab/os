@@ -302,7 +302,8 @@ INIT
 chmod 0755 "$WORK/init"
 
 echo "[recovery] cpio.xz"
-( cd "$WORK" && find . | cpio -o -H newc -R 0:0 2>/dev/null | xz -9 --check=crc32 ) > artifacts/recovery-initrd.cpio.xz
+find "$WORK" -exec touch -h -d "@${SOURCE_DATE_EPOCH:-0}" {} +
+( cd "$WORK" && find . | LC_ALL=C sort | cpio -o -H newc -R 0:0 --reproducible --quiet | xz -9 --check=crc32 --threads=1 ) > artifacts/recovery-initrd.cpio.xz
 
 echo "[recovery] UKI (kernel + recovery initramfs + recovery cmdline)"
 BASE=$((16#$(objdump -p "$STUB" | awk '/ImageBase/{print $2}')))
@@ -313,6 +314,10 @@ objcopy \
 	--add-section .linux="$KERNEL"                        --change-section-vma .linux=$(vma 0x200000) \
 	--add-section .initrd=artifacts/recovery-initrd.cpio.xz --change-section-vma .initrd=$(vma 0x2000000) \
 	"$STUB" "$OUT"
+if [ -n "${ATOM_UNSIGNED:-}" ]; then
+	echo "[recovery] DONE unsigned: $OUT"
+	exit 0
+fi
 echo "[recovery] signing"
 ( cd "$ATOMLOOPS" && "${ATOMLOOPS_GO:-go}" run ./cmd/atom-sign sign --manifest "$REPO_DIR/$OUT" --priv "$ATOM_SIGNING_KEY" )
 echo "[recovery] DONE: $OUT ($(du -h "$OUT" | cut -f1)) + $OUT.sig -- wire into package.sh (replace the cp)"

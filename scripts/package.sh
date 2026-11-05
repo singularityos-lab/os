@@ -53,7 +53,15 @@ LOADER_PINNED=1
 [ -n "${ATOM_LOADER_EFI:-}" ] || LOADER_PINNED=0
 ATOM_LOADER_EFI="${ATOM_LOADER_EFI:-${ATOMLOOPS}/loader/bootx64.efi}"
 
-if [ -f "${ATOM_ROOT_PUB}" ] && [ -f "${ATOM_SIGNING_KEY}" ] \
+if [ -n "${ATOM_UNSIGNED:-}" ]; then
+    echo "[package] unsigned stage: no signing key is read, sign-release.sh signs the output"
+    ATOM_ROOT_PUB="${REPO_DIR}/package/atomloops/root.pub"
+    SIGNING_WORK="$(mktemp -d "${SINTY_WORK_ROOT}/package-signing.XXXXXX")"
+    cp -a "${ATOMLOOPS}/loader" "${SIGNING_WORK}/loader"
+    cp "${ATOM_ROOT_PUB}" "${SIGNING_WORK}/loader/src/root.pub"
+    ( cd "${SIGNING_WORK}/loader" && ZIG="${ZIG:-zig}" ./build.sh )
+    ATOM_LOADER_EFI="${SIGNING_WORK}/loader/bootx64.efi"
+elif [ -f "${ATOM_ROOT_PUB}" ] && [ -f "${ATOM_SIGNING_KEY}" ] \
     && [ -f "${ATOM_SIGNING_CERT}" ] && [ -f "${ATOM_SIGNING_CERT_SIG}" ]; then
     # A signing chain was provided (release/production). Build a loader that trusts
     # this root.pub unless the caller pinned a matching loader EFI.
@@ -229,99 +237,15 @@ objcopy \
     --change-section-vma .initrd=$(vma 0x2000000) \
     "$STUB" artifacts/kernelcache-portable.efi
 
-# Installable GPT disk image: ESP (UKI as default boot) + raw root/hash.
-HOSTBIN="${REPO_DIR}/buildroot-build/host/bin"
-HOSTSBIN="${REPO_DIR}/buildroot-build/host/sbin"
-export PATH="${HOSTBIN}:${HOSTSBIN}:${PATH}"
-export MTOOLS_SKIP_CHECK=1
+if [ -n "${ATOM_UNSIGNED:-}" ]; then
+    bash scripts/build-recovery.sh
+    cp "${ATOM_LOADER_EFI}" artifacts/bootx64.efi
+    printf '%s\n' "${RELEASE_VERSION}" > artifacts/release-version.txt
+    ( cd artifacts && sha256sum release-version.txt bootx64.efi rootfs.erofs rootfs.hash verity-output.txt \
+        kernelcache.efi kernelcache-live.efi kernelcache-portable.efi kernelcache-recovery.efi ) > artifacts/unsigned.sha256
+    echo "[package] unsigned stage done:"
+    cat artifacts/unsigned.sha256
+    exit 0
+fi
 
-rm -f artifacts/esp.vfat
-# 256M: must hold the loader + active UKI + its sig + certs AND the Tier-2 recovery UKI
-# (~65M) + its sig. 64M overflowed once the recovery slot was added (mcopy: Disk full).
-dd if=/dev/zero of=artifacts/esp.vfat bs=1M count=256 status=none
-mkfs.fat -F 32 -n SINGEFI artifacts/esp.vfat >/dev/null
-# Atom Loops loader is BOOTX64.EFI; it verifies + chainloads the signed UKI slot.
-# Development builds use a throwaway root key; release builds use the offline root.
-( cd "${ATOMLOOPS}" && "${ATOMLOOPS_GO:-go}" run ./cmd/atom-sign sign \
-    --manifest "${REPO_DIR}/artifacts/kernelcache.efi" --priv "${ATOM_SIGNING_KEY}" )
-( cd "${ATOMLOOPS}" && "${ATOMLOOPS_GO:-go}" run ./cmd/atom-sign sign \
-    --manifest "${REPO_DIR}/artifacts/kernelcache-live.efi" --priv "${ATOM_SIGNING_KEY}" )
-( cd "${ATOMLOOPS}" && "${ATOMLOOPS_GO:-go}" run ./cmd/atom-sign sign \
-    --manifest "${REPO_DIR}/artifacts/kernelcache-portable.efi" --priv "${ATOM_SIGNING_KEY}" )
-mmd -i artifacts/esp.vfat ::EFI ::EFI/BOOT ::EFI/atom
-mcopy -i artifacts/esp.vfat "${ATOM_LOADER_EFI}" ::EFI/BOOT/BOOTX64.EFI
-mcopy -i artifacts/esp.vfat artifacts/kernelcache.efi          ::EFI/atom/kernelcache-active.efi
-mcopy -i artifacts/esp.vfat artifacts/kernelcache.efi.sig      ::EFI/atom/kernelcache-active.efi.sig
-mcopy -i artifacts/esp.vfat artifacts/kernelcache.efi          ::EFI/atom/kernelcache-install.efi
-mcopy -i artifacts/esp.vfat artifacts/kernelcache.efi.sig      ::EFI/atom/kernelcache-install.efi.sig
-mcopy -i artifacts/esp.vfat "${ATOM_SIGNING_CERT}"     ::EFI/atom/signing-cert.json
-mcopy -i artifacts/esp.vfat "${ATOM_SIGNING_CERT_SIG}" ::EFI/atom/signing-cert.json.sig
-# recovery slot (Tier-2): a REAL standalone recovery image -- busybox + wpa_supplicant +
-# udhcpc + the atom-recovery menu (wifi, verified reinstall, repair), NOT a copy of active.
-# build-recovery.sh builds + signs artifacts/kernelcache-recovery.efi (self-contained UKI,
-# so the loader's Ed25519 over the whole image already verifies it). Proven to boot to the
-# recovery menu in QEMU. The loader selects+chainloads it on boot-state target=recovery.
-bash scripts/build-recovery.sh
-mcopy -i artifacts/esp.vfat artifacts/kernelcache-recovery.efi     ::EFI/atom/kernelcache-recovery.efi
-mcopy -i artifacts/esp.vfat artifacts/kernelcache-recovery.efi.sig ::EFI/atom/kernelcache-recovery.efi.sig
-printf 'target=active\ntrial=0\nattempts=0\n' > artifacts/boot-state
-mcopy -i artifacts/esp.vfat artifacts/boot-state ::EFI/atom/boot-state
-cat > artifacts/deployment.json <<DJ
-{
-  "rootfs": { "current": "${RELEASE_VERSION}", "pending": "", "rollback": "", "boot_attempts": 0, "max_attempts": 3, "last_known_good": "${RELEASE_VERSION}" },
-  "kernelcache": { "state": "stable", "stable_boots": 0, "stable_threshold": 3, "format": "uki" },
-  "security": { "level": 2, "dm_verity": true, "secure_boot": false }
-}
-DJ
-mcopy -i artifacts/esp.vfat artifacts/deployment.json ::EFI/atom/deployment.json
-
-# The live and portable ESPs differ only in their signed active UKI. The installer
-# promotes kernelcache-install.efi after copying the source ESP to the target disk.
-cp artifacts/esp.vfat artifacts/esp-live.vfat
-mcopy -o -i artifacts/esp-live.vfat artifacts/kernelcache-live.efi \
-    ::EFI/atom/kernelcache-active.efi
-mcopy -o -i artifacts/esp-live.vfat artifacts/kernelcache-live.efi.sig \
-    ::EFI/atom/kernelcache-active.efi.sig
-
-cp artifacts/esp.vfat artifacts/esp-portable.vfat
-mcopy -o -i artifacts/esp-portable.vfat artifacts/kernelcache-portable.efi \
-    ::EFI/atom/kernelcache-active.efi
-mcopy -o -i artifacts/esp-portable.vfat artifacts/kernelcache-portable.efi.sig \
-    ::EFI/atom/kernelcache-active.efi.sig
-
-# Removable log-collection partition (SINTYLOGS): singularity-logcollect mirrors the
-# boot journal/dmesg/session logs here so they can be read back off-device.
-rm -f artifacts/sintylogs.ext4
-dd if=/dev/zero of=artifacts/sintylogs.ext4 bs=1M count=256 status=none
-/usr/sbin/mkfs.ext4 -q -L SINTYLOGS -F artifacts/sintylogs.ext4
-
-rm -rf genimage-tmp
-"${HOSTBIN}/genimage" \
-    --config scripts/genimage.cfg \
-    --inputpath artifacts \
-    --outputpath artifacts \
-    --tmppath genimage-tmp
-
-rm -rf genimage-portable-tmp
-"${HOSTBIN}/genimage" \
-    --config scripts/genimage-portable.cfg \
-    --inputpath artifacts \
-    --outputpath artifacts \
-    --tmppath genimage-portable-tmp
-
-# Bootable optical ISO: El Torito boots the full live ESP, while ISO9660 carries the
-# root and hash as files for the initramfs to attach and verify through loop devices.
-ISO_ROOT="$(mktemp -d "${SINTY_WORK_ROOT}/package-iso.XXXXXX")"
-mkdir -p "${ISO_ROOT}/EFI" "${ISO_ROOT}/live"
-cp artifacts/esp-live.vfat "${ISO_ROOT}/EFI/efiboot.img"
-cp artifacts/rootfs.erofs "${ISO_ROOT}/live/rootfs.erofs"
-cp artifacts/rootfs.hash "${ISO_ROOT}/live/rootfs.hash"
-"${HOSTBIN}/xorriso" -as mkisofs \
-    -iso-level 3 -volid SINTY_OS \
-    -e EFI/efiboot.img -no-emul-boot \
-    -o artifacts/sinty-os.iso "${ISO_ROOT}"
-rm -rf "${ISO_ROOT}"
-
-echo "[package] disk image: artifacts/sinty-os.img"
-echo "[package] portable image: artifacts/sinty-os-portable.img"
-echo "[package] iso: artifacts/sinty-os.iso"
+. scripts/assemble-image.sh

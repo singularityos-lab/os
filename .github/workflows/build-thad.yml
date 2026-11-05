@@ -132,53 +132,37 @@ jobs:
           set -o pipefail
           ./scripts/compile.sh 2>&1 | tee build.log
 
-      - name: Package with a development signing chain
+      - name: Package the unsigned stage
         env:
           ATOMLOOPS: ${{ github.workspace }}/_deps/AtomLoops
           SINTY_RECOVERY: ${{ github.workspace }}/_deps/sinty-recovery
           SINTY_INITRAMFS: ${{ github.workspace }}/_deps/sinty-initramfs
           ATOM_BUILD: rc
+          ATOM_UNSIGNED: 1
         run: |
           set -o pipefail
           ATOM_VERSION="$(git rev-list --count HEAD)"
           export ATOM_VERSION
           ./scripts/package.sh 2>&1 | tee package.log
 
-      - name: Boot the image to the default target
-        run: |
-          accel=tcg
-          [ -w /dev/kvm ] && accel=kvm
-          cp /usr/share/OVMF/OVMF_VARS_4M.fd vars.fd
-          cp artifacts/sinty-os.img disk.img
-          part=$(sfdisk -J disk.img | jq -r '.partitiontable as $t | .partitiontable.partitions[] | select(.name == "sintylogs") | "\(.start) \(.size) \($t.sectorsize // 512)"')
-          read -r start size sector <<< "$part"
-          timeout 600 qemu-system-x86_64 -machine q35,accel=$accel -m 4096 -smp 2 \
-            -drive if=pflash,format=raw,readonly=on,file=/usr/share/OVMF/OVMF_CODE_4M.fd \
-            -drive if=pflash,format=raw,file=vars.fd \
-            -drive file=disk.img,if=none,id=usb0,format=raw \
-            -device qemu-xhci -device usb-storage,drive=usb0,bootindex=0 \
-            -display none -serial file:serial.log -no-reboot &
-          qemu=$!
-          logs() {
-            dd if=disk.img of=logs.ext4 bs=$sector skip=$start count=$size status=none
-            for f in $(debugfs -R "ls -p /" logs.ext4 2>/dev/null | awk -F/ '$6 ~ /^boot-.*\.log$/ {print $6}'); do
-              debugfs -R "cat /$f" logs.ext4 2>/dev/null
-            done > boot.log
-          }
-          for _ in $(seq 60); do
-            sleep 10
-            grep -qE "signature INVALID|Kernel panic" serial.log 2>/dev/null && break
-            kill -0 $qemu 2>/dev/null || break
-            logs
-            grep -q "atom\[1\]: reached " boot.log && break
-          done
-          kill $qemu 2>/dev/null || true
-          wait $qemu 2>/dev/null || true
-          logs
-          tr -d '\r' < serial.log | tail -n 20
-          grep -E "atom\[1\]: " boot.log | tail -n 40
-          grep -q "atom\[1\]: reached " boot.log
-          ! grep -q "atom\[1\]: ERROR starting" boot.log
+      - name: Upload the unsigned stage
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: unsigned-${{ github.sha }}
+          path: |
+            artifacts/unsigned.sha256
+            artifacts/release-version.txt
+            artifacts/bootx64.efi
+            artifacts/rootfs.erofs
+            artifacts/rootfs.hash
+            artifacts/verity-output.txt
+            artifacts/kernelcache.efi
+            artifacts/kernelcache-live.efi
+            artifacts/kernelcache-portable.efi
+            artifacts/kernelcache-recovery.efi
+          retention-days: 7
+          compression-level: 0
+          if-no-files-found: error
 
       - name: Upload build log
         if: always()
@@ -188,6 +172,5 @@ jobs:
           path: |
             build.log
             package.log
-            boot.log
           retention-days: 3
           if-no-files-found: ignore
