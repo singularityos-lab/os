@@ -130,6 +130,11 @@ jobs:
           ATOM_BUILD: rc
         run: |
           set -o pipefail
+          ./scripts/compile.sh 2>&1 | tee build.log && exit 0
+          stale=$(sed -n 's|.*\*\*\* \[package/pkg-generic.mk:[0-9]*: .*/build/build/\([^/]*\)/\.stamp_.*|\1|p' build.log | tail -n 1)
+          [ -n "$stale" ] && [ -d "buildroot-build/build/$stale" ] || exit 1
+          echo "rebuilding $stale from scratch after a failure in the cached tree"
+          rm -rf "buildroot-build/build/$stale"
           ./scripts/compile.sh 2>&1 | tee build.log
 
       - name: Package the unsigned stage
