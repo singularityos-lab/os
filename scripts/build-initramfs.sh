@@ -128,5 +128,7 @@ cp -a "$WORK/lib/." "$WORK/usr/lib/"
 cp -a "$WORK/lib/." "$WORK/usr/lib64/"
 
 mkdir -p "$(dirname "$OUT")"
-( cd "$WORK" && find . | cpio -o -H newc -R 0:0 --quiet | xz -9 --check=crc32 ) > "$OUT"
+EPOCH="${SOURCE_DATE_EPOCH:-0}"
+find "$WORK" -exec touch -h -d "@$EPOCH" {} +
+( cd "$WORK" && find . | LC_ALL=C sort | cpio -o -H newc -R 0:0 --reproducible --quiet | xz -9 --check=crc32 --threads=1 ) > "$OUT"
 echo "[initramfs] wrote $OUT ($(du -sh "$OUT" | cut -f1))"

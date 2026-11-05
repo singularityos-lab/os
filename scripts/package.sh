@@ -3,6 +3,12 @@
 set -eo pipefail
 
 REPO_DIR="$(pwd)"
+SOURCE_DATE_EPOCH="${SOURCE_DATE_EPOCH:-$(git -C "$REPO_DIR" log -1 --format=%ct)}"
+export SOURCE_DATE_EPOCH
+BUILD_SEED="$(git -C "$REPO_DIR" rev-parse HEAD)"
+seed_uuid() {
+    printf '%s-%s' "$1" "$BUILD_SEED" | sha256sum | sed -E 's/^(.{8})(.{4})(.{4})(.{4})(.{12}).*/\1-\2-\3-\4-\5/'
+}
 ATOMLOOPS="${ATOMLOOPS:-${REPO_DIR}/../AtomLoops}"
 SINTY_WORK_ROOT="${SINTY_WORK_ROOT:-${HOME}/sinty-work}"
 mkdir -p "${SINTY_WORK_ROOT}"
@@ -123,13 +129,13 @@ echo "[package] update agent trust root verified"
 # missing a package added since). Remove it first so the image always reflects the
 # current tarball.
 rm -f artifacts/rootfs.erofs
-mkfs.erofs --tar=f -z lz4hc,9 -E ztailpacking artifacts/rootfs.erofs "$ROOTFS_TAR"
+mkfs.erofs --tar=f -z lz4hc,9 -E ztailpacking -T"$SOURCE_DATE_EPOCH" -U "$(seed_uuid erofs)" artifacts/rootfs.erofs "$ROOTFS_TAR"
 
 # Verity
 # Same class as the erofs above: veritysetup format does not truncate a pre-existing
 # hash file, so a larger stale rootfs.hash would keep a dead tail past the hash tree.
 rm -f artifacts/rootfs.hash
-veritysetup format artifacts/rootfs.erofs artifacts/rootfs.hash | tee artifacts/verity-output.txt
+veritysetup format --salt="$(printf 'verity-salt-%s' "$BUILD_SEED" | sha256sum | cut -c1-64)" --uuid="$(seed_uuid verity)" artifacts/rootfs.erofs artifacts/rootfs.hash | tee artifacts/verity-output.txt
 ROOT_HASH=$(awk '/Root hash:/{print $3}' artifacts/verity-output.txt)
 DATA_BLOCKS=$(awk '/Data blocks:/{print $3}' artifacts/verity-output.txt)
 SALT=$(awk '/Salt:/{print $2}' artifacts/verity-output.txt)
