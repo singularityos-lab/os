@@ -82,6 +82,7 @@ ln -sf sinty-sh "$WORK/bin/sh"
 # closure (tpm2-tss, libsintykey) is pulled in by resolve_libs below, so they must
 # be staged before it runs.
 copy_bin sintykey usr/bin 2>/dev/null || true
+copy_bin fsck.f2fs sbin
 if [ -e "$TARGET_DIR/usr/libexec/sintykey-tpm" ]; then
 	mkdir -p "$WORK/usr/libexec"
 	cp -aL "$TARGET_DIR/usr/libexec/sintykey-tpm" "$WORK/usr/libexec/sintykey-tpm"
