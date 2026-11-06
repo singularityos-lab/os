@@ -532,6 +532,17 @@ int sd_uid_get_sessions(uid_t uid, int require_active, char ***sessions) {
 	for_each_session(coll_cb, &c);
 	return coll_finish(&c, sessions);
 }
+int sd_uid_get_state(uid_t uid, char **state) {
+	const char *v = "offline";
+	if (sd_uid_get_sessions(uid, 1, NULL) > 0)
+		v = "active";
+	else if (sd_uid_get_sessions(uid, 0, NULL) > 0)
+		v = "online";
+	if (!state)
+		return 0;
+	*state = strdup(v);
+	return *state ? 0 : -ENOMEM;
+}
 int sd_uid_get_seats(uid_t uid, int require_active, char ***seats) {
 	struct collector c = {.use_uid = 1, .uid = uid, .require_active = require_active, .field = "seat"};
 	for_each_session(coll_cb, &c);
@@ -619,6 +630,19 @@ int sd_pid_get_session(pid_t pid, char **session) {
 	if (!m.found_id)
 		return -ENODATA;
 	if (session) *session = m.found_id; else free(m.found_id);
+	return 0;
+}
+int sd_pid_get_owner_uid(pid_t pid, uid_t *uid) {
+	char *id = NULL;
+	int r = sd_pid_get_session(pid, &id);
+	if (r < 0)
+		return r;
+	int ok = 0;
+	uid_t owner = session_uid(id, &ok);
+	free(id);
+	if (!ok)
+		return -ENODATA;
+	if (uid) *uid = owner;
 	return 0;
 }
 int sd_pid_get_user_unit(pid_t pid, char **unit) { (void)pid; if (unit) *unit = NULL; return -ENODATA; }
