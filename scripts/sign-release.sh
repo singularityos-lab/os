@@ -23,11 +23,12 @@ if key not in open(sys.argv[2], 'rb').read():
     sys.exit("sign-release: the loader does not embed the release root")
 PY
 
+ATOMLOOPS_GO="${ATOMLOOPS_GO:-$(command -v go)}"
 ATOM_LOADER_EFI="${REPO_DIR}/artifacts/bootx64.efi"
 RECOVERY_PREBUILT=1
 HOSTBIN="${HOSTBIN:-/usr/bin}"
 HOSTSBIN="${HOSTSBIN:-/usr/sbin}"
-export ATOMLOOPS ATOM_SIGNING_KEY ATOM_SIGNING_CERT ATOM_SIGNING_CERT_SIG RECOVERY_PREBUILT
+export ATOMLOOPS ATOMLOOPS_GO ATOM_SIGNING_KEY ATOM_SIGNING_CERT ATOM_SIGNING_CERT_SIG RECOVERY_PREBUILT
 
 . scripts/assemble-image.sh
 

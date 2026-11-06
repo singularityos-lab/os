@@ -66,6 +66,7 @@ jobs:
         run: |
           set -o pipefail
           umask 077
+          export ATOMLOOPS_GO="$(command -v go)"
           keys="$RUNNER_TEMP/keys"
           mkdir -p "$keys"
           trap 'rm -rf "$keys"' EXIT
