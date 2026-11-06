@@ -153,8 +153,7 @@ done
 
 recovery_fail() {
 	echo "$1"
-	sleep 10
-	/sbin/atom-recovery --mode reboot
+	echo "Turn the computer off with its power button."
 	while :; do sleep 60; done
 }
 
@@ -315,23 +314,24 @@ broken_recovery() {
 	exec /sbin/atom-recovery --mode reboot
 }
 
+locate_system() {
+	find_pairs 1 && return 0
+	[ "$?" -ne 2 ] || recovery_fail "Sinty Recovery found multiple armed installed systems."
+	find_pairs 0 && return 0
+	[ "$?" -ne 2 ] || recovery_fail "Sinty Recovery found multiple installed systems."
+	find_broken && broken_recovery
+	return 1
+}
+
 ESP_DEV=
 DATA_DEV=
 DATA_BROKEN=
-if find_pairs 1; then
-	:
-else
-	_pair_status=$?
-	[ "$_pair_status" -ne 2 ] || recovery_fail "Sinty Recovery found multiple armed installed systems."
-	if find_pairs 0; then
-		:
-	else
-		_pair_status=$?
-		[ "$_pair_status" -ne 2 ] || recovery_fail "Sinty Recovery found multiple installed systems."
-		find_broken && broken_recovery
-		recovery_fail "Sinty Recovery could not find a valid installed system."
-	fi
-fi
+_try=0
+until locate_system; do
+	_try=$((_try + 1))
+	[ "$_try" -lt 30 ] || recovery_fail "Sinty Recovery could not find a valid installed system."
+	sleep 0.5
+done
 
 mount "$DATA_DEV" /var 2>/dev/null || {
 	recovery_fail "Sinty Recovery could not mount atom-data."
