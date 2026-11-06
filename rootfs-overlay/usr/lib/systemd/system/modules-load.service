@@ -12,6 +12,7 @@ ExecStart=-/sbin/modprobe snd_hda_intel
 ExecStart=-/sbin/modprobe btusb
 ExecStart=-/sbin/modprobe kvm_intel
 ExecStart=-/sbin/modprobe kvm_amd
+ExecStart=-/bin/sh -c 'cat /etc/modules-load.d/*.conf /usr/lib/modules-load.d/*.conf 2>/dev/null | sed -e "s/#.*//" -e "s/;.*//" | xargs -r -n1 /sbin/modprobe -q'
 
 [Install]
 WantedBy=sysinit.target
