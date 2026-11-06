@@ -274,14 +274,44 @@ start_wifi() {
 	mkdir -p "$XDG_CACHE_HOME"
 }
 
+stop_agent() {
+	kill "$AGENT_PID" 2>/dev/null
+	_i=0
+	while kill -0 "$AGENT_PID" 2>/dev/null && [ "$_i" -lt 30 ]; do
+		sleep 0.1
+		_i=$((_i + 1))
+	done
+	kill -9 "$AGENT_PID" 2>/dev/null
+}
+
+start_agent() {
+	/sbin/atom-recovery --mode serve "$@" &
+	AGENT_PID=$!
+	_wait=0
+	while [ ! -S /run/atom-recovery.sock ] && [ "$_wait" -lt 50 ]; do
+		sleep 0.1
+		_wait=$((_wait + 1))
+	done
+}
+
 broken_recovery() {
 	mount "$ESP_DEV" /boot/efi 2>/dev/null || {
 		recovery_fail "Sinty Recovery could not mount the system partition."
 	}
 	start_wifi
-	/sbin/atom-recovery --mode tty --iface "$WIFI" --data-broken "$DATA_BROKEN" \
+	set -- --iface "$WIFI" --data-broken "$DATA_BROKEN" \
 		--wal /run/no-deployment.json --rootfs-dir /run/no-rootfs \
 		--esp-dir /boot/efi/EFI/atom --sintykey /usr/bin/sintykey
+	if [ -x /usr/bin/sinty-recovery-ui ]; then
+		start_agent "$@"
+		if [ -S /run/atom-recovery.sock ] && /usr/bin/sinty-recovery-ui; then
+			stop_agent
+			exec /sbin/atom-recovery --mode reboot
+		fi
+		stop_agent
+		echo "Graphical recovery unavailable. Starting text recovery."
+	fi
+	/sbin/atom-recovery --mode tty "$@"
 	exec /sbin/atom-recovery --mode reboot
 }
 
@@ -316,24 +346,8 @@ mount "$ESP_DEV" /boot/efi 2>/dev/null || {
 
 start_wifi
 
-stop_agent() {
-	kill "$AGENT_PID" 2>/dev/null
-	_i=0
-	while kill -0 "$AGENT_PID" 2>/dev/null && [ "$_i" -lt 30 ]; do
-		sleep 0.1
-		_i=$((_i + 1))
-	done
-	kill -9 "$AGENT_PID" 2>/dev/null
-}
-
 RECOVERY_ARGS="--iface $WIFI --wal /boot/rootfs/deployment.json --data-dir /var --rootfs-dir /boot/rootfs --esp-dir /boot/efi/EFI/atom --sintykey /usr/bin/sintykey"
-/sbin/atom-recovery --mode serve $RECOVERY_ARGS &
-AGENT_PID=$!
-_wait=0
-while [ ! -S /run/atom-recovery.sock ] && [ "$_wait" -lt 50 ]; do
-	sleep 0.1
-	_wait=$((_wait + 1))
-done
+start_agent $RECOVERY_ARGS
 
 if [ -x /usr/bin/sinty-recovery-ui ] && [ -S /run/atom-recovery.sock ]; then
 	/usr/bin/sinty-recovery-ui && {
