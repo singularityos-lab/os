@@ -113,7 +113,7 @@ fi
 KVER="$(basename "$(ls -d "$TARGET_DIR"/lib/modules/*/ 2>/dev/null | head -1)")"
 if [ -n "$KVER" ]; then
 	mkdir -p "$WORK/lib/modules/$KVER"
-	for mod in crc16 mbcache jbd2 ext4; do
+	for mod in crc16 mbcache jbd2 ext4 efivarfs; do
 		ko="$(find "$TARGET_DIR/lib/modules/$KVER" \( -name "$mod.ko" -o -name "$mod.ko.*" \) 2>/dev/null | head -1)"
 		[ -n "$ko" ] || continue
 		case "$ko" in

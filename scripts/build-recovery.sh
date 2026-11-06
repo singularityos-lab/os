@@ -147,7 +147,7 @@ mount -t sysfs sys /sys 2>/dev/null
 mount -t devtmpfs dev /dev 2>/dev/null
 mount -t tmpfs tmp /run 2>/dev/null
 mkdir -p /run/probe /run/data-probe /var /boot /boot/efi
-for m in f2fs vfat tpm tpm_tis tpm_crb simpledrm cfg80211 mac80211 iwlwifi mt7921e ath11k_pci; do
+for m in f2fs vfat efivarfs tpm tpm_tis tpm_crb simpledrm cfg80211 mac80211 iwlwifi mt7921e ath11k_pci; do
 	modprobe "$m" 2>/dev/null
 done
 
