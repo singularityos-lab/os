@@ -83,6 +83,10 @@ ln -sf sinty-sh "$WORK/bin/sh"
 # be staged before it runs.
 copy_bin sintykey usr/bin 2>/dev/null || true
 copy_bin fsck.f2fs sbin
+if [ -e "$TARGET_DIR/usr/share/fonts/inter/Inter-Regular.ttf" ]; then
+	mkdir -p "$WORK/usr/share/fonts"
+	cp -aL "$TARGET_DIR/usr/share/fonts/inter/Inter-Regular.ttf" "$WORK/usr/share/fonts/Inter-Regular.ttf"
+fi
 if [ -e "$TARGET_DIR/usr/libexec/sintykey-tpm" ]; then
 	mkdir -p "$WORK/usr/libexec"
 	cp -aL "$TARGET_DIR/usr/libexec/sintykey-tpm" "$WORK/usr/libexec/sintykey-tpm"
