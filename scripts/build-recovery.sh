@@ -67,6 +67,7 @@ copy_bin blkid usr/bin
 copy_bin kmod bin
 ln -sf kmod "$WORK/bin/modprobe"
 copy_bin wpa_supplicant sbin || echo "  (wpa_supplicant missing -- add BR2_PACKAGE_WPA_SUPPLICANT)"
+copy_bin fsck.f2fs sbin
 for b in "$WORK"/bin/* "$WORK"/sbin/* "$WORK"/usr/bin/*; do [ -f "$b" ] && [ ! -L "$b" ] && copy_libs "$b"; done
 cp -aL "$TARGET_DIR/lib/ld-linux-x86-64.so.2" "$WORK/lib/" 2>/dev/null || true
 rm -rf "$WORK/lib64"; ln -sf lib "$WORK/lib64"
@@ -198,7 +199,7 @@ find_pairs() {
 				[ "$(parent_disk "$_data")" = "$_parent" ] || continue
 				[ "$(blkid -s LABEL -o value "/dev/$_data" 2>/dev/null)" = "atom-data" ] || continue
 				[ "$(blkid -s TYPE -o value "/dev/$_data" 2>/dev/null)" = "f2fs" ] || continue
-				mount -t f2fs -o ro "/dev/$_data" /run/data-probe 2>/dev/null || continue
+				mount -t f2fs -o ro,norecovery "/dev/$_data" /run/data-probe 2>/dev/null || continue
 				_data_id=$(tr -d '\r\n' < /run/data-probe/.atom-install-id 2>/dev/null || true)
 				if [ -f /run/data-probe/.atom-var ] \
 					&& valid_install_id "$_data_id" \
@@ -224,8 +225,69 @@ find_pairs() {
 	return 0
 }
 
+find_broken() {
+	_broken_count=0
+	for _esp_sys in /sys/class/block/*; do
+		[ -f "$_esp_sys/partition" ] || continue
+		_esp=$(basename "$_esp_sys")
+		[ "$(blkid -s TYPE -o value "/dev/$_esp" 2>/dev/null)" = "vfat" ] || continue
+		mount -t vfat -o ro "/dev/$_esp" /run/probe 2>/dev/null || continue
+		_atom=/run/probe/EFI/atom
+		_esp_id=$(tr -d '\r\n' < "$_atom/state/install-id" 2>/dev/null || true)
+		if [ -f "$_atom/kernelcache-recovery.efi" ] && valid_install_id "$_esp_id"; then
+			_parent=$(parent_disk "$_esp")
+			for _data_sys in /sys/class/block/*; do
+				[ -f "$_data_sys/partition" ] || continue
+				_data=$(basename "$_data_sys")
+				[ "$_data" != "$_esp" ] || continue
+				[ "$(parent_disk "$_data")" = "$_parent" ] || continue
+				[ "$(blkid -s LABEL -o value "/dev/$_data" 2>/dev/null)" = "atom-data" ] || continue
+				[ "$(blkid -s TYPE -o value "/dev/$_data" 2>/dev/null)" = "f2fs" ] || continue
+				if mount -t f2fs -o ro,norecovery "/dev/$_data" /run/data-probe 2>/dev/null; then
+					umount /run/data-probe 2>/dev/null
+					continue
+				fi
+				_broken_count=$((_broken_count + 1))
+				ESP_DEV="/dev/$_esp"
+				DATA_BROKEN="/dev/$_data"
+			done
+		fi
+		umount /run/probe 2>/dev/null
+	done
+	[ "$_broken_count" -eq 1 ]
+}
+
+start_wifi() {
+	WIFI=
+	for _n in /sys/class/net/*; do
+		[ -d "$_n/wireless" ] || continue
+		WIFI=$(basename "$_n")
+		break
+	done
+	mkdir -p /run/wpa_supplicant
+	if [ -n "$WIFI" ] && [ -x /sbin/wpa_supplicant ]; then
+		/sbin/wpa_supplicant -B -i "$WIFI" -C /run/wpa_supplicant 2>/dev/null \
+			|| echo "Sinty Recovery could not start the wireless supplicant on $WIFI."
+	fi
+	WIFI=${WIFI:-wlan0}
+	export XDG_CACHE_HOME=/run/cache
+	mkdir -p "$XDG_CACHE_HOME"
+}
+
+broken_recovery() {
+	mount "$ESP_DEV" /boot/efi 2>/dev/null || {
+		recovery_fail "Sinty Recovery could not mount the system partition."
+	}
+	start_wifi
+	/sbin/atom-recovery --mode tty --iface "$WIFI" --data-broken "$DATA_BROKEN" \
+		--wal /run/no-deployment.json --rootfs-dir /run/no-rootfs \
+		--esp-dir /boot/efi/EFI/atom --sintykey /usr/bin/sintykey
+	exec /sbin/atom-recovery --mode reboot
+}
+
 ESP_DEV=
 DATA_DEV=
+DATA_BROKEN=
 if find_pairs 1; then
 	:
 else
@@ -236,6 +298,7 @@ else
 	else
 		_pair_status=$?
 		[ "$_pair_status" -ne 2 ] || recovery_fail "Sinty Recovery found multiple installed systems."
+		find_broken && broken_recovery
 		recovery_fail "Sinty Recovery could not find a valid installed system."
 	fi
 fi
@@ -251,20 +314,7 @@ mount "$ESP_DEV" /boot/efi 2>/dev/null || {
 	recovery_fail "Sinty Recovery could not mount the system partition."
 }
 
-WIFI=
-for _n in /sys/class/net/*; do
-	[ -d "$_n/wireless" ] || continue
-	WIFI=$(basename "$_n")
-	break
-done
-mkdir -p /run/wpa_supplicant
-if [ -n "$WIFI" ] && [ -x /sbin/wpa_supplicant ]; then
-	/sbin/wpa_supplicant -B -i "$WIFI" -C /run/wpa_supplicant 2>/dev/null \
-		|| echo "Sinty Recovery could not start the wireless supplicant on $WIFI."
-fi
-WIFI=${WIFI:-wlan0}
-export XDG_CACHE_HOME=/run/cache
-mkdir -p "$XDG_CACHE_HOME"
+start_wifi
 
 stop_agent() {
 	kill "$AGENT_PID" 2>/dev/null
