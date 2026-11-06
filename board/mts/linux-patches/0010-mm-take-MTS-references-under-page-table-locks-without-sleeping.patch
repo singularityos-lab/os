@@ -1,0 +1,606 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Mirko Brombin <9479903+mirkobrombin@users.noreply.github.com>
+Date: Fri, 6 Nov 2026 12:00:00 +0100
+Subject: [PATCH] mm: take MTS references under page table locks without sleeping
+
+Fork, zap and reclaim take and drop MTS references while holding PTE
+spinlocks, but the reference table and the tier were guarded by mutexes, so
+those paths slept in atomic context. The tier and reference locks become
+spinlocks; provider I/O keeps its per-object mutex, which is now taken outside
+the tier lock and revalidated against the generation. Allocating a new object
+no longer sleeps under the tier lock.
+
+install_mts_pte() returned on failure without ending the page walk, leaving
+the PTE lock held: the next walk of that page spun forever. Fork cloned a
+frozen object under both PTE locks; the clone now happens after they are
+dropped and the copy retries. A stale reference failed fork through the swap
+retry path, which loops on non-swap entries; it now fails with -ENOMEM.
+
+---
+--- a/mm/mts_tier.c
++++ b/mm/mts_tier.c
+@@ -48,7 +48,7 @@
+ struct mts_tier {
+ 	struct kref kref;
+ 	/* Protects state, allocation, generation and reference counts. */
+-	struct mutex lock;
++	spinlock_t lock;
+ 	struct xarray objects;
+ 	struct file *provider;
+ 	struct mts_tier_desc_v2 desc;
+@@ -95,7 +95,7 @@
+ static LIST_HEAD(mts_domains);
+ static DEFINE_XARRAY_ALLOC1(mts_pte_objects);
+ static DEFINE_XARRAY(mts_prepared_pages);
+-static DEFINE_MUTEX(mts_pte_lock);
++static DEFINE_SPINLOCK(mts_pte_lock);
+ static atomic64_t mts_hysteresis_bypass = ATOMIC64_INIT(0);
+ 
+ static struct mts_tier *mts_tier_lookup(u8 tier_slot)
+@@ -178,12 +178,14 @@
+ 			       struct mts_object_id *id,
+ 			       struct mts_object **result)
+ {
++	struct mts_object *spare = NULL;
+ 	struct mts_object *object;
+ 	unsigned long index;
+ 	u32 slot;
+ 	int err;
+ 
+-	mutex_lock(&tier->lock);
++retry:
++	spin_lock(&tier->lock);
+ 	if (tier->state != MTS_TIER_ACTIVE) {
+ 		err = -ESHUTDOWN;
+ 		goto out_unlock;
+@@ -204,33 +206,39 @@
+ 		err = -ENOSPC;
+ 		goto out_unlock;
+ 	}
+-	object = kzalloc(sizeof(*object), GFP_KERNEL);
+-	if (!object) {
+-		err = -ENOMEM;
+-		goto out_unlock;
+-	}
+-	mutex_init(&object->lock);
+-	slot = tier->next_slot++;
+-	err = xa_err(xa_store(&tier->objects, slot, object, GFP_KERNEL));
+-	if (err) {
+-		kfree(object);
++	if (!spare) {
++		spin_unlock(&tier->lock);
++		spare = kzalloc(sizeof(*spare), GFP_KERNEL);
++		if (!spare)
++			return -ENOMEM;
++		mutex_init(&spare->lock);
++		goto retry;
++	}
++	slot = tier->next_slot;
++	err = xa_err(xa_store(&tier->objects, slot, spare,
++			      GFP_NOWAIT | __GFP_NOWARN));
++	if (err)
+ 		goto out_unlock;
+-	}
++	tier->next_slot++;
++	object = spare;
++	spare = NULL;
+ 
+ found:
+-	mutex_lock(&object->lock);
+ 	object->generation++;
+ 	object->refs = 1;
+ 	object->frozen = false;
+ 	id->slot = slot;
+ 	id->generation = object->generation;
+ 	*result = object;
++	spin_unlock(&tier->lock);
++	kfree(spare);
++	mutex_lock(&object->lock);
+ 	mutex_unlock(&object->lock);
+-	mutex_unlock(&tier->lock);
+ 	return 0;
+ 
+ out_unlock:
+-	mutex_unlock(&tier->lock);
++	spin_unlock(&tier->lock);
++	kfree(spare);
+ 	return err;
+ }
+ 
+@@ -245,6 +253,29 @@
+ 	return object;
+ }
+ 
++static struct mts_object *mts_object_lock_io(struct mts_tier *tier,
++					     const struct mts_object_id *id,
++					     u32 *checksum)
++{
++	struct mts_object *object;
++
++	spin_lock(&tier->lock);
++	object = mts_object_lookup(tier, id);
++	spin_unlock(&tier->lock);
++	if (IS_ERR(object))
++		return object;
++	mutex_lock(&object->lock);
++	spin_lock(&tier->lock);
++	if (mts_object_lookup(tier, id) != object) {
++		spin_unlock(&tier->lock);
++		mutex_unlock(&object->lock);
++		return ERR_PTR(-ESTALE);
++	}
++	*checksum = object->checksum;
++	spin_unlock(&tier->lock);
++	return object;
++}
++
+ int mts_tier_put_page(u8 tier_slot, struct page *page,
+ 		      struct mts_object_id *id)
+ {
+@@ -259,10 +290,10 @@
+ 	if (!err) {
+ 		err = mts_provider_write(tier, id->slot, page, &object->checksum);
+ 		if (err) {
+-			mutex_lock(&tier->lock);
++			spin_lock(&tier->lock);
+ 			object->refs = 0;
+ 			xa_set_mark(&tier->objects, id->slot, MTS_OBJECT_FREE);
+-			mutex_unlock(&tier->lock);
++			spin_unlock(&tier->lock);
+ 		}
+ 	}
+ 	mts_tier_put(tier);
+@@ -275,21 +306,18 @@
+ {
+ 	struct mts_object *object;
+ 	struct mts_tier *tier;
++	u32 checksum;
+ 	int err;
+ 
+ 	tier = mts_tier_lookup(tier_slot);
+ 	if (!tier)
+ 		return -ENODEV;
+-	mutex_lock(&tier->lock);
+-	object = mts_object_lookup(tier, id);
++	object = mts_object_lock_io(tier, id, &checksum);
+ 	if (IS_ERR(object)) {
+ 		err = PTR_ERR(object);
+-		mutex_unlock(&tier->lock);
+ 		goto out;
+ 	}
+-	mutex_lock(&object->lock);
+-	mutex_unlock(&tier->lock);
+-	err = mts_provider_read(tier, id->slot, page, object->checksum);
++	err = mts_provider_read(tier, id->slot, page, checksum);
+ 	mutex_unlock(&object->lock);
+ out:
+ 	mts_tier_put(tier);
+@@ -306,7 +334,7 @@
+ 	tier = mts_tier_lookup(tier_slot);
+ 	if (!tier)
+ 		return -ENODEV;
+-	mutex_lock(&tier->lock);
++	spin_lock(&tier->lock);
+ 	object = mts_object_lookup(tier, id);
+ 	if (IS_ERR(object)) {
+ 		err = PTR_ERR(object);
+@@ -318,7 +346,7 @@
+ 		if (object->refs == MTS_REFCOUNT_FREEZE)
+ 			object->frozen = true;
+ 	}
+-	mutex_unlock(&tier->lock);
++	spin_unlock(&tier->lock);
+ 	mts_tier_put(tier);
+ 	return err;
+ }
+@@ -333,13 +361,13 @@
+ 	tier = mts_tier_lookup(tier_slot);
+ 	if (!tier)
+ 		return -ENODEV;
+-	mutex_lock(&tier->lock);
++	spin_lock(&tier->lock);
+ 	object = mts_object_lookup(tier, id);
+ 	if (IS_ERR(object))
+ 		err = PTR_ERR(object);
+ 	else
+ 		mts_object_unref_locked(tier, id->slot, object);
+-	mutex_unlock(&tier->lock);
++	spin_unlock(&tier->lock);
+ 	mts_tier_put(tier);
+ 	return err;
+ }
+@@ -507,7 +535,7 @@
+ 	if (err)
+ 		goto free_object;
+ 
+-	mutex_lock(&mts_pte_lock);
++	spin_lock(&mts_pte_lock);
+ 	err = xa_alloc(&mts_pte_objects, &cookie, pte_object,
+ 		       XA_LIMIT(1, U32_MAX), GFP_NOWAIT);
+ 	if (err)
+@@ -519,14 +547,14 @@
+ 		xa_erase(&mts_pte_objects, cookie);
+ 		goto unlock_put_object;
+ 	}
+-	mutex_unlock(&mts_pte_lock);
++	spin_unlock(&mts_pte_lock);
+ 	return 0;
+ 
+ unlock_put_object:
+-	mutex_unlock(&mts_pte_lock);
+-	mutex_lock(&tier->lock);
++	spin_unlock(&mts_pte_lock);
++	spin_lock(&tier->lock);
+ 	mts_object_put_ref_locked(tier, &pte_object->id);
+-	mutex_unlock(&tier->lock);
++	spin_unlock(&tier->lock);
+ free_object:
+ 	kref_put(&pte_object->kref, mts_pte_object_release);
+ 	return err;
+@@ -541,24 +569,24 @@
+ 	struct mts_pte_object *pte_object;
+ 	bool found = false;
+ 
+-	mutex_lock(&mts_pte_lock);
++	spin_lock(&mts_pte_lock);
+ 	pte_object = xa_load(&mts_prepared_pages, page_to_pfn(page));
+ 	if (!pte_object)
+ 		goto unlock;
+ 	if (pte_object->pte_refs) {
+-		mutex_lock(&pte_object->tier->lock);
++		spin_lock(&pte_object->tier->lock);
+ 		if (mts_object_get_ref_locked(pte_object->tier,
+ 					      &pte_object->id)) {
+-			mutex_unlock(&pte_object->tier->lock);
++			spin_unlock(&pte_object->tier->lock);
+ 			goto unlock;
+ 		}
+-		mutex_unlock(&pte_object->tier->lock);
++		spin_unlock(&pte_object->tier->lock);
+ 	}
+ 	pte_object->pte_refs++;
+ 	*entry = swp_entry(SWP_MTS, pte_object->cookie);
+ 	found = true;
+ unlock:
+-	mutex_unlock(&mts_pte_lock);
++	spin_unlock(&mts_pte_lock);
+ 	return found;
+ }
+ EXPORT_SYMBOL_GPL(mts_folio_entry);
+@@ -568,20 +596,20 @@
+ 	struct mts_pte_object *pte_object;
+ 	unsigned long pfn = folio_pfn(folio);
+ 
+-	mutex_lock(&mts_pte_lock);
++	spin_lock(&mts_pte_lock);
+ 	pte_object = xa_erase(&mts_prepared_pages, pfn);
+ 	if (!pte_object) {
+-		mutex_unlock(&mts_pte_lock);
++		spin_unlock(&mts_pte_lock);
+ 		return false;
+ 	}
+ 	if (!pte_object->pte_refs) {
+ 		xa_erase(&mts_pte_objects, pte_object->cookie);
+-		mutex_lock(&pte_object->tier->lock);
++		spin_lock(&pte_object->tier->lock);
+ 		mts_object_put_ref_locked(pte_object->tier, &pte_object->id);
+-		mutex_unlock(&pte_object->tier->lock);
++		spin_unlock(&pte_object->tier->lock);
+ 		kref_put(&pte_object->kref, mts_pte_object_release);
+ 	}
+-	mutex_unlock(&mts_pte_lock);
++	spin_unlock(&mts_pte_lock);
+ 	return true;
+ }
+ EXPORT_SYMBOL_GPL(mts_finish_folio);
+@@ -591,17 +619,17 @@
+ 	struct mts_pte_object *pte_object;
+ 	int err = -ESTALE;
+ 
+-	mutex_lock(&mts_pte_lock);
++	spin_lock(&mts_pte_lock);
+ 	pte_object = xa_load(&mts_pte_objects, swp_offset(entry));
+ 	if (!pte_object)
+ 		goto unlock;
+-	mutex_lock(&pte_object->tier->lock);
++	spin_lock(&pte_object->tier->lock);
+ 	err = mts_object_get_ref_locked(pte_object->tier, &pte_object->id);
+-	mutex_unlock(&pte_object->tier->lock);
++	spin_unlock(&pte_object->tier->lock);
+ 	if (!err)
+ 		pte_object->pte_refs++;
+ unlock:
+-	mutex_unlock(&mts_pte_lock);
++	spin_unlock(&mts_pte_lock);
+ 	return err;
+ }
+ EXPORT_SYMBOL_GPL(mts_entry_dup);
+@@ -620,24 +648,19 @@
+ 	page = alloc_page(GFP_HIGHUSER_MOVABLE);
+ 	if (!page)
+ 		return -ENOMEM;
+-	mutex_lock(&mts_pte_lock);
++	spin_lock(&mts_pte_lock);
+ 	source = xa_load(&mts_pte_objects, swp_offset(entry));
+ 	if (source)
+ 		kref_get(&source->kref);
+-	mutex_unlock(&mts_pte_lock);
++	spin_unlock(&mts_pte_lock);
+ 	if (!source)
+ 		goto free_page;
+ 
+-	mutex_lock(&source->tier->lock);
+-	source_object = mts_object_lookup(source->tier, &source->id);
++	source_object = mts_object_lock_io(source->tier, &source->id, &checksum);
+ 	if (IS_ERR(source_object)) {
+ 		err = PTR_ERR(source_object);
+-		mutex_unlock(&source->tier->lock);
+ 		goto put_source;
+ 	}
+-	mutex_lock(&source_object->lock);
+-	checksum = source_object->checksum;
+-	mutex_unlock(&source->tier->lock);
+ 	err = mts_provider_read(source->tier, source->id.slot, page, checksum);
+ 	mutex_unlock(&source_object->lock);
+ 	if (err)
+@@ -659,21 +682,19 @@
+ 	if (err)
+ 		goto put_copy_object;
+ 	copy->pte_refs = 1;
+-	mutex_lock(&mts_pte_lock);
+ 	err = xa_alloc(&mts_pte_objects, &cookie, copy,
+ 		       XA_LIMIT(1, U32_MAX), GFP_KERNEL);
+ 	if (!err) {
+ 		copy->cookie = cookie;
+ 		*clone = swp_entry(SWP_MTS, cookie);
+ 	}
+-	mutex_unlock(&mts_pte_lock);
+ 	if (!err)
+ 		goto put_source;
+ 
+ put_copy_object:
+-	mutex_lock(&copy->tier->lock);
++	spin_lock(&copy->tier->lock);
+ 	mts_object_put_ref_locked(copy->tier, &copy->id);
+-	mutex_unlock(&copy->tier->lock);
++	spin_unlock(&copy->tier->lock);
+ put_copy:
+ 	kref_put(&copy->kref, mts_pte_object_release);
+ put_source:
+@@ -688,20 +709,20 @@
+ {
+ 	struct mts_pte_object *pte_object;
+ 
+-	mutex_lock(&mts_pte_lock);
++	spin_lock(&mts_pte_lock);
+ 	pte_object = xa_load(&mts_pte_objects, swp_offset(entry));
+ 	if (!pte_object || !pte_object->pte_refs)
+ 		goto unlock;
+-	mutex_lock(&pte_object->tier->lock);
++	spin_lock(&pte_object->tier->lock);
+ 	mts_object_put_ref_locked(pte_object->tier, &pte_object->id);
+-	mutex_unlock(&pte_object->tier->lock);
++	spin_unlock(&pte_object->tier->lock);
+ 	pte_object->pte_refs--;
+ 	if (!pte_object->pte_refs) {
+ 		xa_erase(&mts_pte_objects, pte_object->cookie);
+ 		kref_put(&pte_object->kref, mts_pte_object_release);
+ 	}
+ unlock:
+-	mutex_unlock(&mts_pte_lock);
++	spin_unlock(&mts_pte_lock);
+ }
+ EXPORT_SYMBOL_GPL(mts_entry_put);
+ 
+@@ -711,26 +732,23 @@
+ 	struct mts_pte_object *pte_object;
+ 	struct mts_object *object;
+ 	int err = -ESTALE;
++	u32 checksum;
+ 
+-	mutex_lock(&mts_pte_lock);
++	spin_lock(&mts_pte_lock);
+ 	pte_object = xa_load(&mts_pte_objects, swp_offset(entry));
+ 	if (pte_object)
+ 		kref_get(&pte_object->kref);
+-	mutex_unlock(&mts_pte_lock);
++	spin_unlock(&mts_pte_lock);
+ 	if (!pte_object)
+ 		return err;
+ 
+-	mutex_lock(&pte_object->tier->lock);
+-	object = mts_object_lookup(pte_object->tier, &pte_object->id);
++	object = mts_object_lock_io(pte_object->tier, &pte_object->id, &checksum);
+ 	if (IS_ERR(object)) {
+ 		err = PTR_ERR(object);
+-		mutex_unlock(&pte_object->tier->lock);
+ 		goto put_object;
+ 	}
+-	mutex_lock(&object->lock);
+-	mutex_unlock(&pte_object->tier->lock);
+ 	err = mts_provider_read(pte_object->tier, pte_object->id.slot, page,
+-				object->checksum);
++				checksum);
+ 	mutex_unlock(&object->lock);
+ 	if (!err) {
+ 		*id = pte_object->id;
+@@ -803,9 +821,9 @@
+ 
+ 	if (tier->desc.flags & MTS_TIER_F_FD_SCOPED) {
+ 		mutex_lock(&mts_registry_lock);
+-		mutex_lock(&tier->lock);
++		spin_lock(&tier->lock);
+ 		tier->state = MTS_TIER_DRAINING;
+-		mutex_unlock(&tier->lock);
++		spin_unlock(&tier->lock);
+ 		mts_mark_tier_domains_at_risk(tier,
+ 					      MTS_CAUSE_PROVIDER_FD_CLOSED);
+ 		xa_erase(&mts_tiers, tier->slot);
+@@ -882,13 +900,13 @@
+ 		struct mts_domain_tier *binding = &domain->tiers[index];
+ 		struct mts_tier *tier = binding->tier;
+ 
+-		mutex_lock(&tier->lock);
++		spin_lock(&tier->lock);
+ 		tier->reserved_capacity -= binding->request.capacity_bytes;
+ 		tier->reserved_read_bw -= binding->request.read_bandwidth_bytes_s;
+ 		tier->reserved_write_bw -= binding->request.write_bandwidth_bytes_s;
+ 		tier->reserved_queue_slots -= binding->request.queue_slots;
+ 		mts_update_prices_locked(tier);
+-		mutex_unlock(&tier->lock);
++		spin_unlock(&tier->lock);
+ 	}
+ 	mutex_unlock(&mts_registry_lock);
+ 	for (index = 0; index < domain->tier_count; index++)
+@@ -949,13 +967,13 @@
+ 		struct mts_domain_tier *binding = &domain->tiers[index];
+ 		struct mts_tier *tier = binding->tier;
+ 
+-		mutex_lock(&tier->lock);
++		spin_lock(&tier->lock);
+ 		tier->reserved_capacity -= binding->request.capacity_bytes;
+ 		tier->reserved_read_bw -= binding->request.read_bandwidth_bytes_s;
+ 		tier->reserved_write_bw -= binding->request.write_bandwidth_bytes_s;
+ 		tier->reserved_queue_slots -= binding->request.queue_slots;
+ 		mts_update_prices_locked(tier);
+-		mutex_unlock(&tier->lock);
++		spin_unlock(&tier->lock);
+ 		mts_tier_put(tier);
+ 	}
+ }
+@@ -1014,12 +1032,12 @@
+ 		domain->tiers[index].tier = tier;
+ 		domain->tiers[index].request = reservations[index];
+ 		tier_request = &domain->tiers[index].request;
+-		mutex_lock(&tier->lock);
++		spin_lock(&tier->lock);
+ 		if (tier->state == MTS_TIER_ACTIVE)
+ 			err = mts_charge_reservation(tier, tier_request);
+ 		else
+ 			err = -ESHUTDOWN;
+-		mutex_unlock(&tier->lock);
++		spin_unlock(&tier->lock);
+ 		if (err) {
+ 			mts_tier_put(tier);
+ 			goto rollback;
+@@ -1075,9 +1093,9 @@
+ 			err = -EINVAL;
+ 			break;
+ 		}
+-		mutex_lock(&tier->lock);
++		spin_lock(&tier->lock);
+ 		tier->state = MTS_TIER_DRAINING;
+-		mutex_unlock(&tier->lock);
++		spin_unlock(&tier->lock);
+ 		mts_mark_tier_domains_at_risk(tier,
+ 					      MTS_CAUSE_RESERVATION_REVOKED);
+ 		xa_erase(&mts_tiers, index);
+@@ -1135,7 +1153,7 @@
+ 		goto free_tier;
+ 	}
+ 	kref_init(&tier->kref);
+-	mutex_init(&tier->lock);
++	spin_lock_init(&tier->lock);
+ 	xa_init(&tier->objects);
+ 	tier->desc = request.tier;
+ 	tier->state = MTS_TIER_ACTIVE;
+--- a/mm/rmap.c
++++ b/mm/rmap.c
+@@ -2768,6 +2768,7 @@
+ 			continue;
+ 		if (!mts_folio_entry(&folio->page, &mts_entry)) {
+ 			install->failed = true;
++			page_vma_mapped_walk_done(&pvmw);
+ 			return false;
+ 		}
+ 		new_pte = swp_entry_to_pte(mts_entry);
+--- a/mm/memory.c
++++ b/mm/memory.c
+@@ -945,7 +945,8 @@
+ static unsigned long
+ copy_nonpresent_pte(struct mm_struct *dst_mm, struct mm_struct *src_mm,
+ 		pte_t *dst_pte, pte_t *src_pte, struct vm_area_struct *dst_vma,
+-		struct vm_area_struct *src_vma, unsigned long addr, int *rss)
++		struct vm_area_struct *src_vma, unsigned long addr, int *rss,
++		swp_entry_t *mts_clone)
+ {
+ 	vm_flags_t vm_flags = dst_vma->vm_flags;
+ 	pte_t orig_pte = ptep_get(src_pte);
+@@ -958,18 +959,17 @@
+ 		int err = mts_entry_dup(entry);
+ 
+ 		if (err == -EOVERFLOW) {
+-			swp_entry_t clone;
+-
+-			if (mts_entry_clone(entry, &clone))
+-				return -EIO;
+-			pte = swp_entry_to_pte(clone);
++			if (!mts_clone->val)
++				return -EOVERFLOW;
++			pte = swp_entry_to_pte(*mts_clone);
++			mts_clone->val = 0;
+ 			pte = pte_swp_mkexclusive(pte);
+ 			if (pte_swp_soft_dirty(orig_pte))
+ 				pte = pte_swp_mksoft_dirty(pte);
+ 			if (pte_swp_uffd_wp(orig_pte))
+ 				pte = pte_swp_mkuffd_wp(pte);
+ 		} else if (err) {
+-			return -EIO;
++			return -ESTALE;
+ 		} else if (pte_swp_exclusive(orig_pte)) {
+ 			pte = pte_swp_clear_exclusive(orig_pte);
+ 			set_pte_at(src_mm, addr, src_pte, pte);
+@@ -1261,6 +1261,7 @@
+ 	int progress, max_nr, ret = 0;
+ 	int rss[NR_MM_COUNTERS];
+ 	softleaf_t entry = softleaf_mk_none();
++	swp_entry_t mts_clone = { .val = 0 };
+ 	struct folio *prealloc = NULL;
+ 	int nr;
+ 
+@@ -1322,11 +1323,11 @@
+ 			ret = copy_nonpresent_pte(dst_mm, src_mm,
+ 						  dst_pte, src_pte,
+ 						  dst_vma, src_vma,
+-						  addr, rss);
+-			if (ret == -EIO) {
++						  addr, rss, &mts_clone);
++			if (ret == -EIO || ret == -EOVERFLOW) {
+ 				entry = softleaf_from_pte(ptep_get(src_pte));
+ 				break;
+-			} else if (ret == -EBUSY) {
++			} else if (ret == -EBUSY || ret == -ESTALE) {
+ 				break;
+ 			} else if (!ret) {
+ 				progress += 8;
+@@ -1380,6 +1381,18 @@
+ 			goto out;
+ 		}
+ 		entry.val = 0;
++	} else if (ret == -EOVERFLOW) {
++		if (mts_clone.val)
++			mts_entry_put(mts_clone);
++		mts_clone.val = 0;
++		if (mts_entry_clone(entry, &mts_clone)) {
++			ret = -ENOMEM;
++			goto out;
++		}
++		entry.val = 0;
++	} else if (ret == -ESTALE) {
++		ret = -ENOMEM;
++		goto out;
+ 	} else if (ret == -EBUSY || unlikely(ret == -EHWPOISON)) {
+ 		goto out;
+ 	} else if (ret ==  -EAGAIN) {
+@@ -1398,6 +1411,8 @@
+ out:
+ 	if (unlikely(prealloc))
+ 		folio_put(prealloc);
++	if (mts_clone.val)
++		mts_entry_put(mts_clone);
+ 	return ret;
+ }
+ 
+-- 
+2.47.0
+

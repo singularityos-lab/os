@@ -1,0 +1,42 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Mirko Brombin <9479903+mirkobrombin@users.noreply.github.com>
+Date: Fri, 6 Nov 2026 13:00:00 +0100
+Subject: [PATCH] mm: pin the folio memcg before asking MTS to reclaim
+
+mts_try_demote_folio() passed folio_memcg() straight into
+mts_can_reclaim(), which may sleep, without RCU or a css reference, so the
+memcg could be freed underneath it. Take a css reference under RCU first.
+
+---
+--- a/mm/vmscan.c
++++ b/mm/vmscan.c
+@@ -362,10 +362,28 @@
+ 	return can_demote(nid, sc, memcg);
+ }
+ 
++static bool mts_folio_can_reclaim(struct folio *folio)
++{
++	struct mem_cgroup *memcg;
++	bool ok;
++
++	rcu_read_lock();
++	memcg = folio_memcg(folio);
++	if (memcg && !css_tryget(&memcg->css)) {
++		rcu_read_unlock();
++		return false;
++	}
++	rcu_read_unlock();
++	ok = mts_can_reclaim(memcg);
++	if (memcg)
++		css_put(&memcg->css);
++	return ok;
++}
++
+ static bool mts_try_demote_folio(struct folio *folio)
+ {
+ 	if (folio_test_large(folio) || folio_mapcount(folio) != 1 ||
+-	    !mts_can_reclaim(folio_memcg(folio)))
++	    !mts_folio_can_reclaim(folio))
+ 		return false;
+ 	/*
+ 	 * Migration entries freeze the only mapping before the provider
