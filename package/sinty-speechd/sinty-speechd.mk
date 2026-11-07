@@ -4,7 +4,7 @@
 #
 ################################################################################
 
-SINTY_SPEECHD_VERSION = 550e78f3884e77ab8d9ee62b5aeac083aa02cf9c
+SINTY_SPEECHD_VERSION = 64fd53839701b3a6e74486c98ed0981d4cb4e927
 SINTY_SPEECHD_SITE = $(call github,singularityos-lab,sinty-speechd,$(SINTY_SPEECHD_VERSION))
 SINTY_SPEECHD_LICENSE = GPL-3.0-only
 SINTY_SPEECHD_LICENSE_FILES = LICENSE
