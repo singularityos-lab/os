@@ -1,0 +1,9 @@
+config BR2_PACKAGE_SINTY_SPEECHD
+	bool "sinty-speechd"
+	depends on BR2_PACKAGE_HOST_GO_TARGET_ARCH_SUPPORTS
+	select BR2_PACKAGE_ESPEAK_NG
+	help
+	  The speech service of SintyOS: Piper and eSpeak NG voices
+	  on dev.sinty.Speech1 and on the speech-dispatcher socket.
+
+	  https://github.com/singularityos-lab/sinty-speechd

@@ -1,0 +1,9 @@
+config BR2_PACKAGE_ESPEAK_NG
+	bool "espeak-ng"
+	depends on BR2_INSTALL_LIBSTDCPP
+	help
+	  Compact speech synthesizer with voices for more than a
+	  hundred languages. The language data is compiled on the
+	  build host.
+
+	  https://github.com/espeak-ng/espeak-ng
