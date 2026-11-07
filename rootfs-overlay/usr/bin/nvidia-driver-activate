@@ -19,18 +19,43 @@ if [ "$want" != "$have" ]; then
 	exit 0
 fi
 
-# Userspace driver libraries (libGLX_nvidia, libEGL_nvidia, libnvidia-*) on the loader path.
-if [ -d "$B/usr/lib" ]; then
-	printf '%s\n' "$B/usr/lib" > /etc/ld.so.conf.d/nvidia-addon.conf 2>/dev/null || true
-	ldconfig 2>/dev/null || true
-fi
+held=""
+for d in /sys/bus/pci/devices/*; do
+	[ "$(cat "$d/vendor" 2>/dev/null)" = 0x10de ] || continue
+	case "$(cat "$d/class" 2>/dev/null)" in 0x03*) ;; *) continue ;; esac
+	[ -L "$d/driver" ] || continue
+	[ "$(basename "$(readlink "$d/driver")")" = nouveau ] || continue
+	if [ "$(cat "$d/boot_vga" 2>/dev/null)" = 1 ]; then
+		log "$(basename "$d") drives the boot display with nouveau (skipped)"
+		exit 0
+	fi
+	held="$held $(basename "$d")"
+done
 
 # GSP firmware the driver loads: extend the kernel firmware search path to the bundle.
 if [ -d "$B/usr/lib/firmware" ] && [ -e /sys/module/firmware_class/parameters/path ]; then
 	printf '%s\n' "$B/usr/lib/firmware" > /sys/module/firmware_class/parameters/path 2>/dev/null || true
 fi
 
-for m in nvidia nvidia-modeset nvidia-drm nvidia-uvm; do
+for a in $held; do
+	printf '%s' "$a" > /sys/bus/pci/drivers/nouveau/unbind 2>/dev/null && log "released $a from nouveau"
+done
+
+if ! modprobe nvidia 2>/dev/null; then
+	log "modprobe nvidia failed (skipped)"
+	for a in $held; do
+		printf '%s' "$a" > /sys/bus/pci/drivers/nouveau/bind 2>/dev/null && log "returned $a to nouveau"
+	done
+	exit 0
+fi
+log "loaded nvidia"
+
+if [ -d "$B/usr/lib" ]; then
+	printf '%s\n' "$B/usr/lib" > /etc/ld.so.conf.d/nvidia-addon.conf 2>/dev/null || true
+	ldconfig 2>/dev/null || true
+fi
+
+for m in nvidia-modeset nvidia-drm nvidia-uvm; do
 	if modprobe "$m" 2>/dev/null; then log "loaded $m"; else log "modprobe $m failed (skipped)"; fi
 done
 exit 0
