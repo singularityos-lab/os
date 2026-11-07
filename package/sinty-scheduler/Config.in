@@ -1,0 +1,8 @@
+config BR2_PACKAGE_SINTY_SCHEDULER
+	bool "sinty-scheduler"
+	depends on BR2_LINUX_KERNEL
+	depends on BR2_x86_64
+	help
+	  Workload scheduler: kernel module and daemon.
+
+	  https://github.com/singularityos-lab/sinty-scheduler

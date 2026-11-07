@@ -1,0 +1,9 @@
+config BR2_PACKAGE_CPAK_PREBUILT
+	bool "cpak (prebuilt)"
+	depends on BR2_x86_64
+	help
+	  cpak container package manager, built in managed self-update
+	  mode, with its storage daemon, slirp4netns and the system
+	  authority D-Bus service.
+
+	  https://github.com/Containerpak/cpak

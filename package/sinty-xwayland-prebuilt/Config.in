@@ -1,0 +1,6 @@
+config BR2_PACKAGE_SINTY_XWAYLAND_PREBUILT
+	bool "sinty-xwayland-prebuilt"
+	depends on BR2_x86_64
+	select BR2_PACKAGE_XWAYLAND
+	help
+	  Xwayland build of the session with its private libraries.

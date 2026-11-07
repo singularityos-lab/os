@@ -1,0 +1,9 @@
+config BR2_PACKAGE_FOTONE_PREBUILT
+	bool "fotone (prebuilt)"
+	depends on BR2_x86_64
+	depends on BR2_PACKAGE_WEBKITGTK_PREBUILT
+	help
+	  Fotone web engine: WPE WebKit with the Sinty patches and the
+	  WebKitGTK compatible libraries that apps load in its place.
+
+	  https://github.com/singularityos-lab/fotone

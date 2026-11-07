@@ -1,0 +1,8 @@
+config BR2_PACKAGE_SINTY_MEDIA_PREBUILT
+	bool "sinty-media-prebuilt"
+	depends on BR2_x86_64
+	select BR2_PACKAGE_GSTREAMER1
+	select BR2_PACKAGE_GST1_PLUGINS_BASE
+	select BR2_PACKAGE_GST1_PLUGINS_GOOD
+	help
+	  Sinty media: the in-house GStreamer 1.28 compatible core libraries, plugins and media service.

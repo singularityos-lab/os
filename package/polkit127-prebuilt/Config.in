@@ -1,0 +1,6 @@
+config BR2_PACKAGE_POLKIT127_PREBUILT
+	bool "polkit127-prebuilt"
+	depends on BR2_x86_64
+	select BR2_PACKAGE_POLKIT
+	help
+	  polkit 127 with the socket activated agent helper.

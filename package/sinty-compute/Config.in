@@ -1,0 +1,8 @@
+config BR2_PACKAGE_SINTY_COMPUTE
+	bool "sinty-compute"
+	depends on BR2_LINUX_KERNEL
+	depends on BR2_x86_64
+	help
+	  Shared compute service: kernel module, daemon, library and command line tool.
+
+	  https://github.com/singularityos-lab/sinty-compute
