@@ -4,9 +4,9 @@
 #
 ################################################################################
 
-SINTY_MEDIA_PREBUILT_VERSION = 26A131
+SINTY_MEDIA_PREBUILT_VERSION = 26A133
 SINTY_MEDIA_PREBUILT_SOURCE = sinty-media-$(SINTY_MEDIA_PREBUILT_VERSION)-x86_64.tar.zst
-SINTY_MEDIA_PREBUILT_SITE = https://github.com/singularityos-lab/os/releases/download/prebuilt-26A131
+SINTY_MEDIA_PREBUILT_SITE = https://github.com/singularityos-lab/os/releases/download/prebuilt-$(SINTY_MEDIA_PREBUILT_VERSION)
 SINTY_MEDIA_PREBUILT_LICENSE = GPL-3.0
 SINTY_MEDIA_PREBUILT_DEPENDENCIES = host-zstd gstreamer1 gst1-plugins-base gst1-plugins-good \
 	$(if $(BR2_PACKAGE_GST1_PLUGINS_BAD),gst1-plugins-bad) \
