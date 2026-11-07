@@ -13,7 +13,7 @@ ATOMLOOPS="${ATOMLOOPS:-${REPO_DIR}/../AtomLoops}"
 SINTY_WORK_ROOT="${SINTY_WORK_ROOT:-${HOME}/sinty-work}"
 mkdir -p "${SINTY_WORK_ROOT}"
 if [ -z "${ATOM_VERSION:-}" ]; then
-    ATOM_VERSION="$(git rev-list --count HEAD)"
+    ATOM_VERSION="$(cat "${REPO_DIR}/release/atom-version")"
 fi
 case "${ATOM_VERSION}" in
     *[!0-9]*|"")
@@ -32,6 +32,8 @@ if [ ! -f "${ATOMLOOPS}/go.mod" ] || [ ! -f "${ATOMLOOPS}/loader/build.sh" ]; th
     echo "package: AtomLoops checkout not found at ${ATOMLOOPS}" >&2
     exit 1
 fi
+ATOMLOOPS="${ATOMLOOPS}" SINTY_RECOVERY="${SINTY_RECOVERY:-}" SINTY_INITRAMFS="${SINTY_INITRAMFS:-}" \
+    bash "${REPO_DIR}/scripts/check-build-deps.sh"
 mkdir -p artifacts
 
 SIGNING_WORK=""

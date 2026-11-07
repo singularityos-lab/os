@@ -30,11 +30,20 @@ jobs:
           ref: ${{ github.event.workflow_run.head_sha }}
           persist-credentials: false
 
+      - name: Read the declared dependencies
+        id: deps
+        run: |
+          for k in ATOMLOOPS SINTY_RECOVERY SINTY_INITRAMFS; do
+            v=$(sed -n "s/^$k=//p" build-deps)
+            printf '%s\n' "$v" | grep -Eq '^[0-9a-f]{40}$' || { echo "build-deps does not declare $k"; exit 1; }
+            echo "$(echo "$k" | tr 'A-Z_' 'a-z-')=$v" >> "$GITHUB_OUTPUT"
+          done
+
       - name: Checkout Atom Loops
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           repository: mirkobrombin/AtomLoops
-          ref: 15c87ab8a2598fbfff90606b1881035dce01c9e3
+          ref: ${{ steps.deps.outputs.atomloops }}
           path: _deps/AtomLoops
           persist-credentials: false
 

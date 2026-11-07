@@ -27,11 +27,20 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      - name: Read the declared dependencies
+        id: deps
+        run: |
+          for k in ATOMLOOPS SINTY_RECOVERY SINTY_INITRAMFS; do
+            v=$(sed -n "s/^$k=//p" build-deps)
+            printf '%s\n' "$v" | grep -Eq '^[0-9a-f]{40}$' || { echo "build-deps does not declare $k"; exit 1; }
+            echo "$(echo "$k" | tr 'A-Z_' 'a-z-')=$v" >> "$GITHUB_OUTPUT"
+          done
+
       - name: Checkout Atom Loops
         uses: actions/checkout@v4
         with:
           repository: mirkobrombin/AtomLoops
-          ref: 15c87ab8a2598fbfff90606b1881035dce01c9e3
+          ref: ${{ steps.deps.outputs.atomloops }}
           path: _deps/AtomLoops
           persist-credentials: false
 
@@ -39,7 +48,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: singularityos-lab/sinty-recovery
-          ref: 6e44fd52e47828ba19431f7e00e17fc2dade2a11
+          ref: ${{ steps.deps.outputs.sinty-recovery }}
           path: _deps/sinty-recovery
           persist-credentials: false
 
@@ -47,7 +56,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: singularityos-lab/sinty-initramfs
-          ref: 0869ef28501110b82cef02774913d467397c825c
+          ref: ${{ steps.deps.outputs.sinty-initramfs }}
           path: _deps/sinty-initramfs
           persist-credentials: false
 
@@ -146,8 +155,6 @@ jobs:
           ATOM_UNSIGNED: 1
         run: |
           set -o pipefail
-          ATOM_VERSION="$(git rev-list --count HEAD)"
-          export ATOM_VERSION
           ./scripts/package.sh 2>&1 | tee package.log
 
       - name: Upload the unsigned stage

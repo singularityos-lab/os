@@ -26,10 +26,20 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Read the declared dependencies
+        id: deps
+        run: |
+          for k in ATOMLOOPS SINTY_RECOVERY SINTY_INITRAMFS; do
+            v=$(sed -n "s/^$k=//p" build-deps)
+            printf '%s\n' "$v" | grep -Eq '^[0-9a-f]{40}$' || { echo "build-deps does not declare $k"; exit 1; }
+            echo "$(echo "$k" | tr 'A-Z_' 'a-z-')=$v" >> "$GITHUB_OUTPUT"
+          done
+
       - name: Checkout Atom Loops
         uses: actions/checkout@v4
         with:
           repository: mirkobrombin/AtomLoops
+          ref: ${{ steps.deps.outputs.atomloops }}
           path: _deps/AtomLoops
 
       - name: Set up Go
