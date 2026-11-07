@@ -4,7 +4,7 @@
 #
 ################################################################################
 
-SINGULARITY_TASKS_VERSION = ba62fe02f41cd4f9b06a4ae1df346cd4f950dce4
+SINGULARITY_TASKS_VERSION = 255a6254c830a71ba8e53f5b0d9bf4c125fc024e
 SINGULARITY_TASKS_SITE = $(call github,singularityos-lab,singularity-tasks,$(SINGULARITY_TASKS_VERSION))
 SINGULARITY_TASKS_LICENSE = GPL-3.0+
 SINGULARITY_TASKS_LICENSE_FILES = LICENSE

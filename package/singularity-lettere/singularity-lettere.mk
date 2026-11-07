@@ -4,7 +4,7 @@
 #
 ################################################################################
 
-SINGULARITY_LETTERE_VERSION = 1170649f3a78b0deacf129cf3b8d632b74e2466f
+SINGULARITY_LETTERE_VERSION = 517c938e563d5f328636cdc4347dd008e8c41c85
 SINGULARITY_LETTERE_SITE = $(call github,singularityos-lab,singularity-lettere,$(SINGULARITY_LETTERE_VERSION))
 SINGULARITY_LETTERE_LICENSE = GPL-3.0+
 SINGULARITY_LETTERE_LICENSE_FILES = LICENSE

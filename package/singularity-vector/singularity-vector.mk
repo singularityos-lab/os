@@ -4,7 +4,7 @@
 #
 ################################################################################
 
-SINGULARITY_VECTOR_VERSION = b5e0131592d6959cde4c7d2783473f5c76466ffb
+SINGULARITY_VECTOR_VERSION = 3c76aa18d19c419687d6c35e5c1a48af27bb04b4
 SINGULARITY_VECTOR_SITE = $(call github,singularityos-lab,singularity-vector,$(SINGULARITY_VECTOR_VERSION))
 SINGULARITY_VECTOR_LICENSE = GPL-3.0+
 SINGULARITY_VECTOR_LICENSE_FILES = LICENSE

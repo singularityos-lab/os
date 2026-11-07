@@ -4,7 +4,7 @@
 #
 ################################################################################
 
-SINGULARITY_KEYFRAME_VERSION = 79913aa23197bc92fba9acd160a409b2cebdcb74
+SINGULARITY_KEYFRAME_VERSION = 5743d5fa028c6e3bfa82026746ea7cd313165743
 SINGULARITY_KEYFRAME_SITE = $(call github,singularityos-lab,singularity-keyframe,$(SINGULARITY_KEYFRAME_VERSION))
 SINGULARITY_KEYFRAME_LICENSE = GPL-3.0+
 SINGULARITY_KEYFRAME_LICENSE_FILES = LICENSE

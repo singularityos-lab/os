@@ -4,7 +4,7 @@
 #
 ################################################################################
 
-SINGULARITY_MESSAGES_VERSION = 819443ce39ab1f46c488e081f3984ef6d0c09a31
+SINGULARITY_MESSAGES_VERSION = baf454268b635f4cb7cbc54cb3badb5acdabcc21
 SINGULARITY_MESSAGES_SITE = $(call github,singularityos-lab,singularity-messages,$(SINGULARITY_MESSAGES_VERSION))
 SINGULARITY_MESSAGES_LICENSE = GPL-3.0+
 SINGULARITY_MESSAGES_LICENSE_FILES = LICENSE

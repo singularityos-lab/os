@@ -4,7 +4,7 @@
 #
 ################################################################################
 
-SINGULARITY_VOICE_VERSION = e0e33e390316e7a9ceb972162ec8c8e247570047
+SINGULARITY_VOICE_VERSION = 70785c4366e85436e84a7322e32b90f93dc9b9cc
 SINGULARITY_VOICE_SITE = $(call github,singularityos-lab,singularity-voice,$(SINGULARITY_VOICE_VERSION))
 SINGULARITY_VOICE_LICENSE = GPL-3.0+
 SINGULARITY_VOICE_LICENSE_FILES = LICENSE
