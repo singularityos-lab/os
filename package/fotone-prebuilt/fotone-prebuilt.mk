@@ -4,7 +4,7 @@
 #
 ################################################################################
 
-FOTONE_PREBUILT_VERSION = 2.54.2-a995ab5
+FOTONE_PREBUILT_VERSION = 2.54.2-a995ab5.1
 FOTONE_PREBUILT_SOURCE = fotone-engine-$(FOTONE_PREBUILT_VERSION)-x86_64.tar.zst
 FOTONE_PREBUILT_SITE = https://github.com/singularityos-lab/fotone/releases/download/engine-$(FOTONE_PREBUILT_VERSION)
 FOTONE_PREBUILT_LICENSE = LGPL-2.1+, BSD-2-Clause
