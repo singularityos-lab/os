@@ -1,0 +1,11 @@
+[Unit]
+Description=Kernel log copy readable by administrators
+
+[Service]
+Type=simple
+ExecStart=/usr/libexec/sinty-kmsg-mirror
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Sealed Log Reader
+Comment=Keeps the key that opens the sealed boot log in your home
+Exec=/usr/bin/sealedlogd claim
+NoDisplay=true
+OnlyShowIn=Singularity;
+X-GNOME-Autostart-enabled=true

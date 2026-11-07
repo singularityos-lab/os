@@ -1,0 +1,13 @@
+[Unit]
+Description=Sealed boot and session log
+DefaultDependencies=no
+Before=atom-boot-success.service sinty-logind.service updated.service six-bridge.service
+
+[Service]
+Type=simple
+ExecStart=/usr/libexec/sealedlogd serve
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

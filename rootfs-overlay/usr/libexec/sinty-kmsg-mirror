@@ -1,0 +1,21 @@
+#!/bin/sh
+set -eu
+D=/run/log
+F=$D/kernel.log
+mkdir -p "$D"
+chgrp wheel "$D"
+chmod 0750 "$D"
+umask 027
+n=0
+: > "$F"
+chgrp wheel "$F"
+dmesg -r -w | while IFS= read -r line; do
+	printf '%s\n' "$line" >> "$F"
+	n=$((n + 1))
+	if [ "$n" -ge 20000 ]; then
+		mv -f "$F" "$F.1"
+		: > "$F"
+		chgrp wheel "$F"
+		n=0
+	fi
+done

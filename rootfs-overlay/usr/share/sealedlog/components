@@ -1,0 +1,15 @@
+4 sinit init
+8 six-bridge ota
+9 logind session
+10 greeter session user
+11 shell session user
+12 compositor session user
+13 sinty-nm -
+14 devd -
+15 powerd session
+16 diskd session
+17 torchio -
+18 mediad -
+19 recovery -
+20 sdb -
+22 session session user
