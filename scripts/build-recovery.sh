@@ -203,9 +203,7 @@ find_pairs() {
 				if [ -f /run/data-probe/.atom-var ] \
 					&& valid_install_id "$_data_id" \
 					&& [ "$_data_id" = "$_esp_id" ] \
-					&& [ -f /run/data-probe/boot/rootfs/deployment.json ] \
-					&& [ -f /run/data-probe/boot/rootfs/rootfs-active.erofs ] \
-					&& [ -f /run/data-probe/boot/rootfs/rootfs-active.hash ]; then
+					&& [ -f /run/data-probe/boot/rootfs/deployment.json ]; then
 					_pair_count=$((_pair_count + 1))
 					_pair_esp="/dev/$_esp"
 					_pair_data="/dev/$_data"
@@ -256,6 +254,23 @@ find_broken() {
 	[ "$_broken_count" -eq 1 ]
 }
 
+find_esp_only() {
+	_esp_count=0
+	for _esp_sys in /sys/class/block/*; do
+		[ -f "$_esp_sys/partition" ] || continue
+		_esp=$(basename "$_esp_sys")
+		[ "$(blkid -s TYPE -o value "/dev/$_esp" 2>/dev/null)" = "vfat" ] || continue
+		mount -t vfat -o ro "/dev/$_esp" /run/probe 2>/dev/null || continue
+		_esp_id=$(tr -d '\r\n' < /run/probe/EFI/atom/state/install-id 2>/dev/null || true)
+		if [ -f /run/probe/EFI/atom/kernelcache-recovery.efi ] && valid_install_id "$_esp_id"; then
+			_esp_count=$((_esp_count + 1))
+			ESP_DEV="/dev/$_esp"
+		fi
+		umount /run/probe 2>/dev/null
+	done
+	[ "$_esp_count" -eq 1 ]
+}
+
 start_wifi() {
 	WIFI=
 	for _n in /sys/class/net/*; do
@@ -298,9 +313,10 @@ broken_recovery() {
 		recovery_fail "Sinty Recovery could not mount the system partition."
 	}
 	start_wifi
-	set -- --iface "$WIFI" --data-broken "$DATA_BROKEN" \
+	set -- --iface "$WIFI" \
 		--wal /run/no-deployment.json --rootfs-dir /run/no-rootfs \
 		--esp-dir /boot/efi/EFI/atom --sintykey /usr/bin/sintykey
+	[ -z "$DATA_BROKEN" ] || set -- --data-broken "$DATA_BROKEN" "$@"
 	if [ -x /usr/bin/sinty-recovery-ui ]; then
 		start_agent "$@"
 		if [ -S /run/atom-recovery.sock ] && /usr/bin/sinty-recovery-ui; then
@@ -329,7 +345,10 @@ DATA_BROKEN=
 _try=0
 until locate_system; do
 	_try=$((_try + 1))
-	[ "$_try" -lt 30 ] || recovery_fail "Sinty Recovery could not find a valid installed system."
+	if [ "$_try" -ge 30 ]; then
+		find_esp_only && broken_recovery
+		recovery_fail "Sinty Recovery could not find a valid installed system."
+	fi
 	sleep 0.5
 done
 
