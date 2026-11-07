@@ -17,7 +17,7 @@ log() { printf '[nv-drv] %s\n' "$*" >&2; }
 die() { printf '[nv-drv] ERROR: %s\n' "$*" >&2; exit 1; }
 
 # Kernel the bundle is gated on: the release of the shipped kernel tree.
-KDIR="${KDIR:-$(for d in "$OS"/buildroot-build/build/linux-[0-9]*/; do [ -f "${d}include/config/kernel.release" ] && { echo "$d"; break; }; done)}"
+KDIR="${KDIR:-$(for d in "$OS"/buildroot-build/build/linux-[0-9]*/; do [ -f "${d}include/config/kernel.release" ] && { echo "$d"; break; }; done; true)}"
 KVER="${KVER:-$(cat "${KDIR%/}/include/config/kernel.release" 2>/dev/null)}"
 [ -n "$KVER" ] || die "set KVER or build the kernel first"
 log "kernel: $KVER"
@@ -86,7 +86,10 @@ if [ "${PACKAGE:-1}" = 1 ]; then
 	[ -n "$roothash" ] || die "veritysetup produced no root hash"
 	"$ATOM_SIGN" manifest --out "$BDIR/fw-manifest-active.json" --version v1 \
 		--rootfs "$PLACE" --rootfs-url "$URL_BASE/_unused/rootfs" \
+		--rootfs-verity-hash "$(printf '0%.0s' $(seq 64))" \
+		--rootfs-hashtree "$PLACE" --rootfs-hashtree-url "$URL_BASE/_unused/rootfs.hash" \
 		--kernelcache "$PLACE" --kc-url "$URL_BASE/_unused/kernelcache" \
+		--kc-sig "$PLACE" --kc-sig-url "$URL_BASE/_unused/kernelcache.sig" \
 		--bundle "name=nvidia,img=$BDIR/firmware-active.img,url=$URL_BASE/nvidia/firmware-active.img,verity=$roothash,hashtree=$BDIR/firmware-active.hash,hashtree-url=$URL_BASE/nvidia/firmware-active.hash,version=1,chips=nvidia" >&2
 	"$ATOM_SIGN" sign --manifest "$BDIR/fw-manifest-active.json" --priv "$SIGNING_KEY" >&2
 	cp "$SIGNING_CERT" "$BDIR/fw-signing-cert-active.json"
