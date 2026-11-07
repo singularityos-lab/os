@@ -2,9 +2,9 @@
 # Drops what the shipped system cannot use. Runs on the assembled target tree, so
 # nothing has to be rebuilt and every cut is reversible by removing a block here.
 #
-# NVIDIA is not supported: the proprietary stack is not shipped and nouveau is
-# not wanted, so both the GSP blobs and the module go. A laptop with a discrete
-# NVIDIA card still boots on its integrated GPU; the card simply stays unused.
+# NVIDIA GPUs run on the open kernel modules of the image once the NVIDIA bundle
+# provides the user space and the GSP firmware of the same version, so the
+# linux-firmware GSP blobs and nouveau go. Without the bundle the card stays unused.
 set -eu
 TARGET="${1:?usage: trim-image.sh <target-dir>}"
 FW="$TARGET/usr/lib/firmware"

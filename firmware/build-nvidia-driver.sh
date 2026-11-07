@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 #
-# Builds the PROPRIETARY NVIDIA driver payload (kernel modules + userspace) for the
-# NVIDIA GPU add-on bundle, against the EXACT shipped kernel. Output is a staging tree
-# stamped with the kernel version; build-fw.sh turns it into the signed, kernel-bound
-# dm-verity bundle. The .run is NVIDIA-licensed: fetched at build, extracted under
-# .tools/ (gitignored), never committed; the built .ko/userspace go only into the
-# bundle, which ships from a PRIVATE feed (not a public release).
+# Builds the PROPRIETARY NVIDIA driver payload (user space libraries + GSP firmware) for
+# the NVIDIA GPU add-on bundle, at the version of the nvidia-open-modules package whose
+# kernel modules ship in the system image. Output is a staging tree stamped with the
+# kernel version; build-fw.sh turns it into the signed, kernel-bound dm-verity bundle.
+# The .run is NVIDIA-licensed: fetched at build, extracted under .tools/ (gitignored),
+# never committed; its files go only into the bundle, which ships from a PRIVATE feed.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -16,17 +16,14 @@ OUT="${OUT:-$HERE/out/nvidia-driver}"
 log() { printf '[nv-drv] %s\n' "$*" >&2; }
 die() { printf '[nv-drv] ERROR: %s\n' "$*" >&2; exit 1; }
 
-# Kernel to build against: the built buildroot tree (has Module.symvers + .config).
-KDIR="${KDIR:-$(for d in "$OS"/buildroot-build/build/linux-[0-9]*/; do [ -f "${d}Module.symvers" ] && { echo "$d"; break; }; done)}"
-[ -f "${KDIR%/}/Module.symvers" ] || die "kernel build tree not built at KDIR=$KDIR (run the kernel build first)"
-KDIR="${KDIR%/}"
-KVER="$(cat "$KDIR/include/config/kernel.release")"
-CROSS="${CROSS:-$OS/buildroot-build/host/bin/x86_64-buildroot-linux-gnu-}"
-[ -x "${CROSS}gcc" ] || die "cross toolchain not found at ${CROSS}gcc"
-log "kernel: $KVER   KDIR=$KDIR   CROSS=${CROSS##*/bin/}"
+# Kernel the bundle is gated on: the release of the shipped kernel tree.
+KDIR="${KDIR:-$(for d in "$OS"/buildroot-build/build/linux-[0-9]*/; do [ -f "${d}include/config/kernel.release" ] && { echo "$d"; break; }; done)}"
+KVER="${KVER:-$(cat "${KDIR%/}/include/config/kernel.release" 2>/dev/null)}"
+[ -n "$KVER" ] || die "set KVER or build the kernel first"
+log "kernel: $KVER"
 
 # Resolve + fetch the .run (licensed; never committed). "latest" resolves current prod.
-NVIDIA_VERSION="${NVIDIA_VERSION:-latest}"
+NVIDIA_VERSION="${NVIDIA_VERSION:-$(sed -n 's/^NVIDIA_OPEN_MODULES_VERSION = //p' "$OS/package/nvidia-open-modules/nvidia-open-modules.mk")}"
 base="https://download.nvidia.com/XFree86/Linux-x86_64"
 ver="$NVIDIA_VERSION"
 [ "$ver" = latest ] && ver="$(curl -fsSL "$base/latest.txt" | awk '{print $1}')"
@@ -37,23 +34,9 @@ mkdir -p "$DL"
 [ -d "$ex" ] || ( cd "$DL" && sh "$run" --extract-only >/dev/null 2>&1 ) || die "extract failed"
 log "driver $ver extracted at $ex"
 
-# Proprietary kernel modules live in kernel/ (kernel-open/ is the open variant we are
-# NOT using per the proprietary decision). Build against our kernel with our toolchain.
-KSRC="$ex/kernel"
-[ -d "$KSRC" ] || die "no proprietary kernel/ module source in the .run (only kernel-open/?)"
-log "building nvidia kernel modules against $KVER ..."
-make -C "$KSRC" -j"$(nproc)" \
-	SYSSRC="$KDIR" SYSOUT="$KDIR" \
-	ARCH=x86_64 CC="${CROSS}gcc" LD="${CROSS}ld" OBJCOPY="${CROSS}objcopy" \
-	modules >&2 || die "nvidia kernel module build FAILED against $KVER (kernel API drift?)"
-
-mods="$(find "$KSRC" -maxdepth 1 -name 'nvidia*.ko' | sort)"
-[ -n "$mods" ] || die "no nvidia*.ko produced"
-log "built modules:"; echo "$mods" | sed 's/^/[nv-drv]   /' >&2
-
-# Stage: modules under /usr/lib/modules/<kver>/extra/nvidia, userspace .so under /usr/lib.
-rm -rf "$OUT"; mkdir -p "$OUT/usr/lib/modules/$KVER/extra/nvidia" "$OUT/usr/lib"
-for m in $mods; do "${CROSS}strip" --strip-debug "$m" -o "$OUT/usr/lib/modules/$KVER/extra/nvidia/$(basename "$m")"; done
+# The kernel modules ship in the system image (package nvidia-open-modules), built and
+# signed with the kernel. The bundle carries what they need at the same version.
+rm -rf "$OUT"; mkdir -p "$OUT/usr/lib"
 for so in \
 	libGLX_nvidia.so."$ver" libEGL_nvidia.so."$ver" libGLESv2_nvidia.so."$ver" \
 	libnvidia-glcore.so."$ver" libnvidia-eglcore.so."$ver" libnvidia-glsi.so."$ver" \
