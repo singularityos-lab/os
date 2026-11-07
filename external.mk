@@ -8,3 +8,12 @@ define SINTY_MIME_DESCRIPTIONS
 	fi
 endef
 TARGET_FINALIZE_HOOKS += SINTY_MIME_DESCRIPTIONS
+
+define SINTY_KEEP_TARGET_SCHEMAS
+	mkdir -p $(STAGING_DIR)/usr/share/glib-2.0/schemas
+	for f in $(TARGET_DIR)/usr/share/glib-2.0/schemas/*.xml; do \
+		[ -e "$$f" ] || continue; \
+		[ -e $(STAGING_DIR)/usr/share/glib-2.0/schemas/$${f##*/} ] || cp "$$f" $(STAGING_DIR)/usr/share/glib-2.0/schemas/; \
+	done
+endef
+TARGET_FINALIZE_HOOKS := SINTY_KEEP_TARGET_SCHEMAS $(TARGET_FINALIZE_HOOKS)

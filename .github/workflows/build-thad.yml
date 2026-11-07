@@ -71,6 +71,12 @@ jobs:
           mkdir -p "$CACHE/src" "$CACHE/build" "$CACHE/dl"
           ln -sfn "$CACHE/build" buildroot-build
           ln -sfn "$CACHE/dl" buildroot-dl
+          stamp=$(cat scripts/prepare.sh buildroot-source-patches/*.patch | sha256sum | cut -d' ' -f1)
+          echo "BR_SRC_STAMP=$stamp" >> "$GITHUB_ENV"
+          if [ "$(cat "$CACHE/src/.source-stamp" 2>/dev/null)" != "$stamp" ]; then
+            rm -rf "$CACHE/src"
+            mkdir -p "$CACHE/src"
+          fi
           [ -e "$CACHE/src/Makefile" ] && ln -sfn "$CACHE/src" buildroot-src || true
           cp buildroot-build/build/buildroot-config/auto.conf "$RUNNER_TEMP/cached-auto.conf" 2>/dev/null || : > "$RUNNER_TEMP/cached-auto.conf"
           df -h "$CACHE"
@@ -83,6 +89,7 @@ jobs:
             mv buildroot-src "$CACHE/src"
             ln -sfn "$CACHE/src" buildroot-src
           fi
+          echo "$BR_SRC_STAMP" > "$CACHE/src/.source-stamp"
 
       - name: Rebuild the packages whose options changed
         run: |
