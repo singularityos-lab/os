@@ -22,6 +22,7 @@ config BR2_PACKAGE_SINGULARITY_SESSION
 	select BR2_PACKAGE_SINGULARITY_CALENDAR
 	select BR2_PACKAGE_SINGULARITY_CALCULATOR
 	select BR2_PACKAGE_SINGULARITY_LEAFS
+	select BR2_PACKAGE_SINGULARITY_COLLECTION_RUNTIME
 	help
 	  The Singularity session: labwc session launcher and config plus
 	  the Singularity desktop (shell, greeter, keyring and the core
@@ -29,3 +30,43 @@ config BR2_PACKAGE_SINGULARITY_SESSION
 	  collection.
 
 	  https://github.com/singularityos-lab/singularity-session
+
+config BR2_PACKAGE_SINGULARITY_COLLECTION_RUNTIME
+	bool
+	select BR2_PACKAGE_CAIRO
+	select BR2_PACKAGE_FONTCONFIG
+	select BR2_PACKAGE_FREETYPE
+	select BR2_PACKAGE_GDK_PIXBUF
+	select BR2_PACKAGE_GNUTLS
+	select BR2_PACKAGE_GST1_PLUGINS_BASE
+	select BR2_PACKAGE_GSTREAMER1
+	select BR2_PACKAGE_GTKSOURCEVIEW
+	select BR2_PACKAGE_HARFBUZZ
+	select BR2_PACKAGE_JSON_GLIB
+	select BR2_PACKAGE_LCMS2
+	select BR2_PACKAGE_LIBFIDO2
+	select BR2_PACKAGE_LIBGCRYPT
+	select BR2_PACKAGE_LIBGEE
+	select BR2_PACKAGE_LIBGPHOTO2
+	select BR2_PACKAGE_LIBPEAS2
+	select BR2_PACKAGE_LIBRSVG
+	select BR2_PACKAGE_LIBSECRET
+	select BR2_PACKAGE_LIBSOUP3
+	select BR2_PACKAGE_LIBXML2
+	select BR2_PACKAGE_MYTHES_DATA
+	select BR2_PACKAGE_NETTLE
+	select BR2_PACKAGE_PANGO
+	select BR2_PACKAGE_POLKIT
+	select BR2_PACKAGE_POPPLER
+	select BR2_PACKAGE_SQLITE
+	select BR2_PACKAGE_SQLITE_ENABLE_COLUMN_METADATA
+	select BR2_PACKAGE_TIFF
+	select BR2_PACKAGE_WEBP
+	select BR2_PACKAGE_WEBP_MUX
+	select BR2_PACKAGE_XZ
+	select BR2_PACKAGE_ZBAR
+	select BR2_PACKAGE_ZLIB
+	select BR2_PACKAGE_ZSTD
+	help
+	  Libraries and data the apps of the Singularity collection
+	  link against or read from the base system.
