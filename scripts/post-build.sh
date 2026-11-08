@@ -377,3 +377,23 @@ python3 "$(dirname "$0")/scrub-build-paths.py" \
     "$TARGET_DIR" "$(dirname "$TARGET_DIR")" "$(cd "$(dirname "$0")/.." && pwd)" "$HOME"
 
 python3 "$(dirname "$0")/check-framework-symbols.py" "$TARGET_DIR"
+
+_rc="$TARGET_DIR/usr/share/singularity/labwc-locked/rc.xml"
+_checked=0
+for _src in "$BUILD_DIR"/singularity-shell-*/src/core/shortcut_manager.vala; do
+    [ -f "$_src" ] || continue
+    _missing=""
+    for _action in $(grep -oE 'register_shortcut\("[^"]*", "[^"]*", "[^"]*", "[a-z_]+"' "$_src" | sed -E 's/.*"([a-z_]+)"$/\1/' | sort -u); do
+        case "$_action" in switch_input_method) continue ;; esac
+        grep -q "singularity-shortcut $_action<" "$_rc" || _missing="$_missing $_action"
+    done
+    if [ -n "$_missing" ]; then
+        echo "post-build: shortcuts registered by the shell but not bound in labwc-locked:$_missing" >&2
+        exit 1
+    fi
+    _checked=1
+done
+if [ "$_checked" = 0 ]; then
+    echo "post-build: no singularity-shell source to check labwc-locked shortcuts against" >&2
+    exit 1
+fi

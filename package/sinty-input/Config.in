@@ -1,0 +1,8 @@
+config BR2_PACKAGE_SINTY_INPUT
+	bool "sinty-input"
+	depends on BR2_PACKAGE_HOST_GO_TARGET_ARCH_SUPPORTS
+	help
+	  The input method service of SintyOS: Chinese, Japanese,
+	  Korean and Vietnamese engines on dev.sinty.Input1.
+
+	  https://github.com/singularityos-lab/sinty-input
