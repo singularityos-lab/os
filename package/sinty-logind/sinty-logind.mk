@@ -4,7 +4,7 @@
 #
 ################################################################################
 
-SINTY_LOGIND_VERSION = 114d733306ea7dcefc0acfb23c78a07ef80226b1
+SINTY_LOGIND_VERSION = 0fe87d9cfed2684d7c1cc2da21008f2f14b77ef7
 SINTY_LOGIND_SITE = $(call github,singularityos-lab,sinty-logind,$(SINTY_LOGIND_VERSION))
 SINTY_LOGIND_LICENSE = GPL-3.0-only
 SINTY_LOGIND_LICENSE_FILES = LICENSE
