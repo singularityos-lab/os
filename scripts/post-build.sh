@@ -383,7 +383,7 @@ _checked=0
 for _src in "$BUILD_DIR"/singularity-shell-*/src/core/shortcut_manager.vala; do
     [ -f "$_src" ] || continue
     _missing=""
-    for _action in $(grep -oE 'register_shortcut\("[^"]*", "[^"]*", "[^"]*", "[a-z_]+"' "$_src" | sed -E 's/.*"([a-z_]+)"$/\1/' | sort -u); do
+    for _action in $( { grep -oE 'register_shortcut\("[^"]*", "[^"]*", "[^"]*", "[a-z_]+"' "$_src" | sed -E 's/.*"([a-z_]+)"$/\1/'; grep '<keybind ' "$_src" | grep -oE '<command>%s [a-z_]+</command>' | sed -E 's/.*%s ([a-z_]+)<.*/\1/'; } | sort -u); do
         case "$_action" in switch_input_method) continue ;; esac
         grep -q "singularity-shortcut $_action<" "$_rc" || _missing="$_missing $_action"
     done

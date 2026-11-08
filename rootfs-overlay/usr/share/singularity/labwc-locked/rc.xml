@@ -82,5 +82,7 @@
     <keybind key="XF86AudioMute"><action name="Execute"><command>/usr/bin/singularity-shortcut volume_mute</command></action></keybind>
     <keybind key="XF86MonBrightnessUp"><action name="Execute"><command>/usr/bin/singularity-shortcut brightness_up</command></action></keybind>
     <keybind key="XF86MonBrightnessDown"><action name="Execute"><command>/usr/bin/singularity-shortcut brightness_down</command></action></keybind>
+    <keybind key="XF86PowerOff" overrideInhibition="yes"><action name="Execute"><command>/usr/bin/singularity-shortcut power_button</command></action></keybind>
+    <keybind key="XF86Sleep" overrideInhibition="yes"><action name="Execute"><command>/usr/bin/singularity-shortcut sleep_button</command></action></keybind>
   </keyboard>
 </labwc_config>
