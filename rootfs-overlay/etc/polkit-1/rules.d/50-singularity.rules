@@ -12,4 +12,7 @@ polkit.addRule(function(action, subject) {
         action.id == "dev.sinty.fprint-driver") {
         return polkit.Result.YES;
     }
+    if (action.id == "dev.sinty.logs.read-crashes") {
+        return polkit.Result.AUTH_SELF_KEEP;
+    }
 });

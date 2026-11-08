@@ -1,0 +1,37 @@
+diff --git a/package/polkit/polkit.hash b/package/polkit/polkit.hash
+--- a/package/polkit/polkit.hash
++++ b/package/polkit/polkit.hash
+@@ -1,3 +1,3 @@
+ # Locally calculated
+-sha256  2814a7281989f6baa9e57bd33bbc5e148827e2721ccef22aaf28ab2b376068e8  polkit-126.tar.gz
++sha256  9b7bc16f086479dcc626c575976568ba4a85d34297a750d8ab3d2e57f6d8b988  polkit-127.tar.gz
+ sha256  d2e2aa973e29c75e1b492e67ea7b7da9de2d501d49a934657971fd74f9a0b0a8  COPYING
+diff --git a/package/polkit/polkit.mk b/package/polkit/polkit.mk
+--- a/package/polkit/polkit.mk
++++ b/package/polkit/polkit.mk
+@@ -4,14 +4,14 @@
+ #
+ ################################################################################
+ 
+-POLKIT_VERSION = 126
++POLKIT_VERSION = 127
+ POLKIT_SITE = $(call github,polkit-org,polkit,$(POLKIT_VERSION))
+ POLKIT_LICENSE = GPL-2.0
+ POLKIT_LICENSE_FILES = COPYING
+ POLKIT_CPE_ID_VALID = YES
+ POLKIT_INSTALL_STAGING = YES
+ POLKIT_DEPENDENCIES = \
+-	duktape libglib2 host-intltool expat $(TARGET_NLS_DEPENDENCIES)
++	duktape libglib2 host-intltool expat libsystemd-shim $(TARGET_NLS_DEPENDENCIES)
+ 
+ POLKIT_SELINUX_MODULES = policykit
+ 
+@@ -20,7 +20,7 @@
+ POLKIT_CONF_OPTS = \
+ 	-Dman=false \
+ 	-Dexamples=false \
+-	-Dsession_tracking=ConsoleKit
++	-Dsession_tracking=logind
+ 
+ ifeq ($(BR2_PACKAGE_GOBJECT_INTROSPECTION),y)
+ POLKIT_CONF_OPTS += -Dintrospection=true
