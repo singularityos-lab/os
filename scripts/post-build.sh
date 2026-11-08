@@ -375,3 +375,5 @@ echo "[singularity] post-build: framework in /usr/lib/sinty-framework, version $
 # remain unchanged, then fail if any original prefix survived.
 python3 "$(dirname "$0")/scrub-build-paths.py" \
     "$TARGET_DIR" "$(dirname "$TARGET_DIR")" "$(cd "$(dirname "$0")/.." && pwd)" "$HOME"
+
+python3 "$(dirname "$0")/check-framework-symbols.py" "$TARGET_DIR"
