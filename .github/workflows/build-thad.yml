@@ -60,6 +60,13 @@ jobs:
           path: _deps/sinty-initramfs
           persist-credentials: false
 
+      - name: Check the declared dependencies
+        env:
+          ATOMLOOPS: ${{ github.workspace }}/_deps/AtomLoops
+          SINTY_RECOVERY: ${{ github.workspace }}/_deps/sinty-recovery
+          SINTY_INITRAMFS: ${{ github.workspace }}/_deps/sinty-initramfs
+        run: ./scripts/check-build-deps.sh
+
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
