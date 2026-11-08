@@ -109,12 +109,11 @@ jobs:
             done
           done
 
-      - name: Reset target dir and re-stage from the build tree
+      - name: Reset the target dir and reinstall into it from the build tree
         run: |
           rm -rf buildroot-build/target
           mkdir -p buildroot-build/target
           find buildroot-build/build -name ".stamp_target_installed" -delete 2>/dev/null || true
-          find buildroot-build/build -name ".stamp_staging_installed" -delete 2>/dev/null || true
           find buildroot-build/build -name ".stamp_images_installed" -delete 2>/dev/null || true
 
       - name: Rebuild the packages built from this repo's own sources
