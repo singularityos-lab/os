@@ -1,6 +1,10 @@
 package main
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
 
 func TestClassify(t *testing.T) {
 	hash := append([]byte("verity"), make([]byte, 2000)...)
@@ -77,4 +81,22 @@ func contains(s, sub string) bool {
 		}
 	}
 	return false
+}
+
+func TestMarkPortable(t *testing.T) {
+	mnt := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(mnt, "lib"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := markPortable(mnt); err != nil {
+		t.Fatal(err)
+	}
+	fi, err := os.Stat(filepath.Join(mnt, "lib", "sinty", "portable"))
+	if err != nil || fi.Mode().Perm() != 0o600 {
+		t.Fatalf("marker %v %v", fi, err)
+	}
+	d, err := os.Stat(filepath.Join(mnt, "lib", "sinty"))
+	if err != nil || d.Mode().Perm() != 0o700 {
+		t.Fatalf("state dir %v %v", d, err)
+	}
 }

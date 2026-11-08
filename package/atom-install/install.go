@@ -266,11 +266,16 @@ func main() {
 		fmt.Fprintln(os.Stderr, "atom-install: must run as root")
 		os.Exit(1)
 	}
-	if len(os.Args) != 2 {
-		fmt.Fprintln(os.Stderr, "usage: atom-install /dev/DISK")
+	args := os.Args[1:]
+	key := len(args) == 2 && args[0] == "--key"
+	if key {
+		args = args[1:]
+	}
+	if len(args) != 1 {
+		fmt.Fprintln(os.Stderr, "usage: atom-install [--key] /dev/DISK")
 		os.Exit(1)
 	}
-	dev := os.Args[1]
+	dev := args[0]
 	if fi, err := os.Stat(dev); err != nil || fi.Mode()&os.ModeDevice == 0 {
 		fmt.Fprintf(os.Stderr, "atom-install: %s is not a block device\n", dev)
 		os.Exit(1)
@@ -292,9 +297,11 @@ func main() {
 	_ = run("partprobe", dev)
 
 	die(run("dd", "if="+esp, "of="+partName(dev, 1), "bs=4M", "conv=fsync"))
-	die(setupData(partName(dev, 2), erofs, hash, esp, installID))
+	die(setupData(partName(dev, 2), erofs, hash, esp, installID, key))
 	die(activateInstalledKernelcache(partName(dev, 1), installID))
-	setUEFIEntry(dev) // best-effort
+	if !key {
+		setUEFIEntry(dev) // best-effort
+	}
 
 	fmt.Printf("atom-install: %s provisioned\n", dev)
 }
@@ -343,7 +350,7 @@ func activateInstalledKernelcache(esp, installID string) (err error) {
 // with encrypt so fscrypt can protect the user data -- the data, not the whole disk.
 // .atom-var is what tells the init this is an installed system rather than a live
 // medium, which is what arms the update daemon.
-func setupData(part, erofs, hash, esp, installID string) (err error) {
+func setupData(part, erofs, hash, esp, installID string, key bool) (err error) {
 	if err := run("mkfs.f2fs", "-f", "-l", "atom-data", "-O", "encrypt,extra_attr", part); err != nil {
 		return err
 	}
@@ -383,6 +390,11 @@ func setupData(part, erofs, hash, esp, installID string) (err error) {
 	}
 	if err := os.WriteFile(filepath.Join(mnt, ".atom-install-id"), []byte(installID+"\n"), 0o644); err != nil {
 		return err
+	}
+	if key {
+		if err := markPortable(mnt); err != nil {
+			return err
+		}
 	}
 	// First boot runs the OOBE; the greeter session takes over afterwards. The running
 	// image's own config is the source: it tracks how the session is actually started
@@ -487,4 +499,12 @@ func copyDeployment(esp, slots string) error {
 		return err
 	}
 	return os.WriteFile(filepath.Join(slots, "deployment.json.bak"), b, 0o644)
+}
+
+func markPortable(mnt string) error {
+	dir := filepath.Join(mnt, "lib", "sinty")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(dir, "portable"), nil, 0o600)
 }
