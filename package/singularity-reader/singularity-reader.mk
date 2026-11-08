@@ -21,4 +21,9 @@ define SINGULARITY_READER_PDF_ENGINE
 endef
 SINGULARITY_READER_POST_EXTRACT_HOOKS += SINGULARITY_READER_PDF_ENGINE
 
+define SINGULARITY_READER_INSTALL_TARGET_CMDS
+	$(TARGET_MAKE_ENV) $(SINGULARITY_READER_NINJA_ENV) \
+		$(HOST_DIR)/bin/meson install -C $(@D)/buildroot-build --no-rebuild --skip-subprojects --destdir $(TARGET_DIR)
+endef
+
 $(eval $(meson-package))

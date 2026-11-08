@@ -21,4 +21,9 @@ define SINGULARITY_PUBLISH_PDF_ENGINE
 endef
 SINGULARITY_PUBLISH_POST_EXTRACT_HOOKS += SINGULARITY_PUBLISH_PDF_ENGINE
 
+define SINGULARITY_PUBLISH_INSTALL_TARGET_CMDS
+	$(TARGET_MAKE_ENV) $(SINGULARITY_PUBLISH_NINJA_ENV) \
+		$(HOST_DIR)/bin/meson install -C $(@D)/buildroot-build --no-rebuild --skip-subprojects --destdir $(TARGET_DIR)
+endef
+
 $(eval $(meson-package))

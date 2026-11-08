@@ -21,4 +21,9 @@ define SINGULARITY_SCANNER_PDF_ENGINE
 endef
 SINGULARITY_SCANNER_POST_EXTRACT_HOOKS += SINGULARITY_SCANNER_PDF_ENGINE
 
+define SINGULARITY_SCANNER_INSTALL_TARGET_CMDS
+	$(TARGET_MAKE_ENV) $(SINGULARITY_SCANNER_NINJA_ENV) \
+		$(HOST_DIR)/bin/meson install -C $(@D)/buildroot-build --no-rebuild --skip-subprojects --destdir $(TARGET_DIR)
+endef
+
 $(eval $(meson-package))
