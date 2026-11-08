@@ -9,13 +9,24 @@ SINTY_SCHEDULER_SITE = $(call github,singularityos-lab,sinty-scheduler,$(SINTY_S
 SINTY_SCHEDULER_LICENSE = GPL-2.0
 SINTY_SCHEDULER_LICENSE_FILES = LICENSE
 SINTY_SCHEDULER_MODULE_SUBDIRS = kmod
-SINTY_SCHEDULER_USERSPACE = sinty-scheduler-26A131-x86_64.tar.zst
-SINTY_SCHEDULER_EXTRA_DOWNLOADS = https://github.com/singularityos-lab/os/releases/download/prebuilt-26A131/$(SINTY_SCHEDULER_USERSPACE)
-SINTY_SCHEDULER_DEPENDENCIES = host-zstd
+SINTY_SCHEDULER_DEPENDENCIES = libglib2 host-pkgconf
+
+define SINTY_SCHEDULER_BUILD_CMDS
+	cd $(@D) && $(TARGET_MAKE_ENV) PKG_CONFIG=$(PKG_CONFIG_HOST_BINARY) zig build -Doptimize=ReleaseSafe \
+		-Dtarget=$(BR2_ARCH)-linux-gnu \
+		-Dcpu=x86_64_v2 \
+		--search-prefix $(STAGING_DIR)/usr \
+		--prefix $(@D)/out
+endef
 
 define SINTY_SCHEDULER_INSTALL_TARGET_CMDS
-	$(HOST_DIR)/bin/zstd -dc $(SINTY_SCHEDULER_DL_DIR)/$(SINTY_SCHEDULER_USERSPACE) | \
-		$(TAR) -x -f - --strip-components=1 -C $(TARGET_DIR)
+	$(INSTALL) -D -m 0755 $(@D)/out/libexec/sinty-schedd $(TARGET_DIR)/usr/libexec/sinty-schedd
+	$(INSTALL) -D -m 0644 $(@D)/out/share/dbus-1/system.d/dev.sinty.Scheduler.conf $(TARGET_DIR)/usr/share/dbus-1/system.d/dev.sinty.Scheduler.conf
+	$(INSTALL) -D -m 0644 $(@D)/out/share/dbus-1/system-services/dev.sinty.Scheduler.service $(TARGET_DIR)/usr/share/dbus-1/system-services/dev.sinty.Scheduler.service
+	$(INSTALL) -D -m 0644 $(@D)/out/share/polkit-1/actions/dev.sinty.scheduler.policy $(TARGET_DIR)/usr/share/polkit-1/actions/dev.sinty.scheduler.policy
+	$(INSTALL) -D -m 0644 $(@D)/out/lib/systemd/system/sinty-schedd.service $(TARGET_DIR)/usr/lib/systemd/system/sinty-schedd.service
+	mkdir -p $(TARGET_DIR)/usr/lib/systemd/system/graphical.target.wants
+	ln -sf /usr/lib/systemd/system/sinty-schedd.service $(TARGET_DIR)/usr/lib/systemd/system/graphical.target.wants/sinty-schedd.service
 endef
 
 $(eval $(kernel-module))
