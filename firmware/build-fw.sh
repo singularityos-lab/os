@@ -85,8 +85,8 @@ resolve_nvidia
 # where the closed driver loads it; amd is linux-firmware's amdgpu (AMD's official
 # redistributable GPU firmware).
 BUNDLES=(
-	"nvidia $NVIDIA_FW_DIR $NVIDIA_DEST"
-	"amd $LINUX_FIRMWARE/amdgpu amdgpu"
+	"nvidia $NVIDIA_FW_DIR $NVIDIA_DEST 0x10de"
+	"amd $LINUX_FIRMWARE/amdgpu amdgpu 0x1002"
 )
 
 # atom-sign manifest requires rootfs+kernelcache fields (it is the whole-system
@@ -97,7 +97,7 @@ PLACE="$OUT/.placeholder"
 printf 'firmware-only anchor placeholder\n' > "$PLACE"
 
 build_bundle() {
-	local name="$1" src="$2" dest="$3"
+	local name="$1" src="$2" dest="$3" vendors="$4"
 	[ -d "$src" ] || die "firmware source $src not found"
 	local bdir="$OUT/$name" stage="$OUT/.stage-$name"
 	rm -rf "$bdir" "$stage"; mkdir -p "$bdir" "$stage/$(dirname "$dest")"
@@ -105,6 +105,7 @@ build_bundle() {
 	# Stage so the erofs root mirrors /usr/lib/firmware: files land at
 	# /usr/lib/firmware/<dest>/ once overlay-unioned over the base.
 	cp -al "$src" "$stage/$dest" 2>/dev/null || cp -a "$src" "$stage/$dest"
+	[ -z "$vendors" ] || printf '%s\n' "$vendors" > "$stage/.pci-vendors"
 	local nfiles; nfiles="$(find "$stage" -type f | wc -l)"
 	log "$name: staged $nfiles files -> /usr/lib/firmware/$dest ($(du -sh "$src" | cut -f1))"
 
@@ -137,7 +138,7 @@ log "output -> $OUT"
 for spec in "${BUNDLES[@]}"; do
 	set -- $spec
 	log "=== bundle: $1 (from $2) ==="
-	build_bundle "$1" "$2" "$3"
+	build_bundle "$1" "$2" "$3" "${4:-}"
 done
 rm -f "$PLACE"
 log "DONE. Built ${#BUNDLES[@]} signed firmware bundles under $OUT"

@@ -57,6 +57,7 @@ fi
 # bundle if it does not match the running kernel (a kernel update invalidates it).
 printf '%s\n' "$KVER" > "$OUT/.kernel-abi"
 printf '%s\n' "$ver"  > "$OUT/.nvidia-version"
+printf '0x10de\n' > "$OUT/.pci-vendors"
 log "payload -> $OUT   (kernel-abi=$KVER, nvidia=$ver, $(du -sh "$OUT" | cut -f1))"
 
 # --- package into the signed, kernel-bound dm-verity bundle -------------------
