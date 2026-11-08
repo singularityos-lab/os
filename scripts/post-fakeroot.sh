@@ -9,7 +9,7 @@ for d in usr/bin usr/sbin; do
 		esac
 	done
 done
-rm -f "$TARGET/usr/bin/busybox" "$TARGET/linuxrc"
+rm -f "$TARGET/usr/bin/busybox" "$TARGET/linuxrc" "$TARGET/usr/bin/pkexec"
 for l in dbclient dropbearconvert dropbearkey scp; do
 	[ -L "$TARGET/usr/bin/$l" ] && [ "$(readlink "$TARGET/usr/bin/$l")" = ../sbin/dropbear ] && [ ! -e "$TARGET/usr/sbin/dropbear" ] && rm -f "$TARGET/usr/bin/$l"
 done
