@@ -1,0 +1,298 @@
+diff --git a/package/libglib2/0002-gsettings-fall-back-to-a-default-value-for-a-missing-key.patch b/package/libglib2/0002-gsettings-fall-back-to-a-default-value-for-a-missing-key.patch
+new file mode 100644
+--- /dev/null
++++ b/package/libglib2/0002-gsettings-fall-back-to-a-default-value-for-a-missing-key.patch
+@@ -0,0 +1,293 @@
++From: Sinty OS <dev@sinty.dev>
++Subject: [PATCH] gsettings: fall back to a default value for a missing key
++
++A key missing from an installed schema aborted the whole process.
++Report it as a warning and return the type default instead.
++---
++--- a/gio/gsettings.c
+++++ b/gio/gsettings.c
++@@ -32,6 +32,7 @@
++ #include "gsettings-mapping.h"
++ #include "gsettingsschema-internal.h"
++ #include "gaction.h"
+++#include "gsimpleaction.h"
++ #include "gmarshal-internal.h"
++ 
++ #include "strinfo.c"
++@@ -1274,6 +1275,19 @@
++ }
++ 
++ /* Public Get/Set API {{{1 (get, get_value, set, set_value, get_mapped) */
+++static gboolean
+++g_settings_key_missing (GSettings   *settings,
+++                        const gchar *key)
+++{
+++  if (!G_IS_SETTINGS (settings) || key == NULL ||
+++      g_settings_schema_has_key (settings->priv->schema, key))
+++    return FALSE;
+++
+++  g_warning ("Settings schema '%s' does not contain a key named '%s'; using a default value",
+++             g_settings_schema_get_id (settings->priv->schema), key);
+++  return TRUE;
+++}
+++
++ /**
++  * g_settings_get_value:
++  * @settings: the settings object
++@@ -1298,6 +1312,9 @@
++   g_return_val_if_fail (G_IS_SETTINGS (settings), NULL);
++   g_return_val_if_fail (key != NULL, NULL);
++ 
+++  if (g_settings_key_missing (settings, key))
+++    return NULL;
+++
++   g_settings_schema_key_init (&skey, settings->priv->schema, key);
++   value = g_settings_read_from_backend (settings, &skey, FALSE, FALSE);
++ 
++@@ -1347,6 +1364,9 @@
++   g_return_val_if_fail (G_IS_SETTINGS (settings), NULL);
++   g_return_val_if_fail (key != NULL, NULL);
++ 
+++  if (g_settings_key_missing (settings, key))
+++    return NULL;
+++
++   g_settings_schema_key_init (&skey, settings->priv->schema, key);
++   value = g_settings_read_from_backend (settings, &skey, TRUE, FALSE);
++   g_settings_schema_key_clear (&skey);
++@@ -1395,6 +1415,9 @@
++   g_return_val_if_fail (G_IS_SETTINGS (settings), NULL);
++   g_return_val_if_fail (key != NULL, NULL);
++ 
+++  if (g_settings_key_missing (settings, key))
+++    return NULL;
+++
++   g_settings_schema_key_init (&skey, settings->priv->schema, key);
++   value = g_settings_read_from_backend (settings, &skey, FALSE, TRUE);
++ 
++@@ -1439,6 +1462,9 @@
++   g_return_val_if_fail (G_IS_SETTINGS (settings), -1);
++   g_return_val_if_fail (key != NULL, -1);
++ 
+++  if (g_settings_key_missing (settings, key))
+++    return 0;
+++
++   g_settings_schema_key_init (&skey, settings->priv->schema, key);
++ 
++   if (!skey.is_enum)
++@@ -1492,6 +1518,9 @@
++   g_return_val_if_fail (G_IS_SETTINGS (settings), FALSE);
++   g_return_val_if_fail (key != NULL, FALSE);
++ 
+++  if (g_settings_key_missing (settings, key))
+++    return FALSE;
+++
++   g_settings_schema_key_init (&skey, settings->priv->schema, key);
++ 
++   if (!skey.is_enum)
++@@ -1549,6 +1578,9 @@
++   g_return_val_if_fail (G_IS_SETTINGS (settings), -1);
++   g_return_val_if_fail (key != NULL, -1);
++ 
+++  if (g_settings_key_missing (settings, key))
+++    return 0;
+++
++   g_settings_schema_key_init (&skey, settings->priv->schema, key);
++ 
++   if (!skey.is_flags)
++@@ -1603,6 +1635,9 @@
++   g_return_val_if_fail (G_IS_SETTINGS (settings), FALSE);
++   g_return_val_if_fail (key != NULL, FALSE);
++ 
+++  if (g_settings_key_missing (settings, key))
+++    return FALSE;
+++
++   g_settings_schema_key_init (&skey, settings->priv->schema, key);
++ 
++   if (!skey.is_flags)
++@@ -1657,6 +1692,12 @@
++   g_return_val_if_fail (G_IS_SETTINGS (settings), FALSE);
++   g_return_val_if_fail (key != NULL, FALSE);
++ 
+++  if (g_settings_key_missing (settings, key))
+++    {
+++      g_variant_unref (g_variant_ref_sink (value));
+++      return FALSE;
+++    }
+++
++   g_variant_ref_sink (value);
++   g_settings_schema_key_init (&skey, settings->priv->schema, key);
++ 
++@@ -1715,6 +1756,9 @@
++   GVariant *value;
++   va_list ap;
++ 
+++  if (g_settings_key_missing (settings, key))
+++    return;
+++
++   value = g_settings_get_value (settings, key);
++ 
++   if (strchr (format, '&'))
++@@ -1821,6 +1865,9 @@
++   g_return_val_if_fail (key != NULL, NULL);
++   g_return_val_if_fail (mapping != NULL, NULL);
++ 
+++  if (g_settings_key_missing (settings, key))
+++    return NULL;
+++
++   g_settings_schema_key_init (&skey, settings->priv->schema, key);
++ 
++   if ((value = g_settings_read_from_backend (settings, &skey, FALSE, FALSE)))
++@@ -1882,6 +1929,9 @@
++   GVariant *value;
++   gchar *result;
++ 
+++  if (g_settings_key_missing (settings, key))
+++    return g_strdup ("");
+++
++   value = g_settings_get_value (settings, key);
++   result = g_variant_dup_string (value, NULL);
++   g_variant_unref (value);
++@@ -1938,6 +1988,9 @@
++   GVariant *value;
++   gint result;
++ 
+++  if (g_settings_key_missing (settings, key))
+++    return 0;
+++
++   value = g_settings_get_value (settings, key);
++   result = g_variant_get_int32 (value);
++   g_variant_unref (value);
++@@ -1994,6 +2047,9 @@
++   GVariant *value;
++   gint64 result;
++ 
+++  if (g_settings_key_missing (settings, key))
+++    return 0;
+++
++   value = g_settings_get_value (settings, key);
++   result = g_variant_get_int64 (value);
++   g_variant_unref (value);
++@@ -2051,6 +2107,9 @@
++   GVariant *value;
++   guint result;
++ 
+++  if (g_settings_key_missing (settings, key))
+++    return 0;
+++
++   value = g_settings_get_value (settings, key);
++   result = g_variant_get_uint32 (value);
++   g_variant_unref (value);
++@@ -2109,6 +2168,9 @@
++   GVariant *value;
++   guint64 result;
++ 
+++  if (g_settings_key_missing (settings, key))
+++    return 0;
+++
++   value = g_settings_get_value (settings, key);
++   result = g_variant_get_uint64 (value);
++   g_variant_unref (value);
++@@ -2166,6 +2228,9 @@
++   GVariant *value;
++   gdouble result;
++ 
+++  if (g_settings_key_missing (settings, key))
+++    return 0.0;
+++
++   value = g_settings_get_value (settings, key);
++   result = g_variant_get_double (value);
++   g_variant_unref (value);
++@@ -2222,6 +2287,9 @@
++   GVariant *value;
++   gboolean result;
++ 
+++  if (g_settings_key_missing (settings, key))
+++    return FALSE;
+++
++   value = g_settings_get_value (settings, key);
++   result = g_variant_get_boolean (value);
++   g_variant_unref (value);
++@@ -2278,6 +2346,9 @@
++   GVariant *value;
++   gchar **result;
++ 
+++  if (g_settings_key_missing (settings, key))
+++    return g_new0 (gchar *, 1);
+++
++   value = g_settings_get_value (settings, key);
++   result = g_variant_dup_strv (value, NULL);
++   g_variant_unref (value);
++@@ -2448,6 +2519,9 @@
++   g_return_if_fail (G_IS_SETTINGS (settings));
++   g_return_if_fail (key != NULL);
++ 
+++  if (g_settings_key_missing (settings, key))
+++    return;
+++
++   path = g_strconcat (settings->priv->path, key, NULL);
++   g_settings_backend_reset (settings->priv->backend, path, NULL);
++   g_free (path);
++@@ -2493,6 +2567,9 @@
++ 
++   g_return_val_if_fail (G_IS_SETTINGS (settings), FALSE);
++ 
+++  if (g_settings_key_missing (settings, name))
+++    return FALSE;
+++
++   path = g_strconcat (settings->priv->path, name, NULL);
++   writable = g_settings_backend_get_writable (settings->priv->backend, path);
++   g_free (path);
++@@ -2611,6 +2688,9 @@
++   GSettingsSchemaKey skey;
++   GVariant *range;
++ 
+++  if (g_settings_key_missing (settings, key))
+++    return NULL;
+++
++   g_settings_schema_key_init (&skey, settings->priv->schema, key);
++   range = g_settings_schema_key_get_range (&skey);
++   g_settings_schema_key_clear (&skey);
++@@ -2641,6 +2721,9 @@
++   GSettingsSchemaKey skey;
++   gboolean good;
++ 
+++  if (g_settings_key_missing (settings, key))
+++    return FALSE;
+++
++   g_settings_schema_key_init (&skey, settings->priv->schema, key);
++   good = g_settings_schema_key_range_check (&skey, value);
++   g_settings_schema_key_clear (&skey);
++@@ -2966,6 +3049,9 @@
++   g_return_if_fail (property != NULL);
++   g_return_if_fail (~flags & G_SETTINGS_BIND_INVERT_BOOLEAN);
++ 
+++  if (g_settings_key_missing (settings, key))
+++    return;
+++
++   objectclass = G_OBJECT_GET_CLASS (object);
++ 
++   binding = g_slice_new0 (GSettingsBinding);
++@@ -3329,6 +3415,9 @@
++ 
++   g_return_if_fail (G_IS_SETTINGS (settings));
++ 
+++  if (g_settings_key_missing (settings, key))
+++    return;
+++
++   pspec = g_object_class_find_property (G_OBJECT_GET_CLASS (object), property);
++   if (pspec == NULL)
++     {
++@@ -3631,6 +3720,13 @@
++   g_return_val_if_fail (G_IS_SETTINGS (settings), NULL);
++   g_return_val_if_fail (key != NULL, NULL);
++ 
+++  if (g_settings_key_missing (settings, key))
+++    {
+++      GSimpleAction *missing = g_simple_action_new (key, NULL);
+++      g_simple_action_set_enabled (missing, FALSE);
+++      return G_ACTION (missing);
+++    }
+++
++   gsa = g_object_new (g_settings_action_get_type (), NULL);
++   gsa->settings = g_object_ref (settings);
++   g_settings_schema_key_init (&gsa->key, settings->priv->schema, key);
