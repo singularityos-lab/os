@@ -1,0 +1,10 @@
+config BR2_PACKAGE_SINTY_KEYD
+	bool "sinty-keyd"
+	depends on BR2_PACKAGE_HOST_GO_TARGET_ARCH_SUPPORTS
+	select BR2_PACKAGE_SINTY_CRYPTO
+	help
+	  The Sinty Key service of SintyOS: encrypted USB Keys
+	  unlocked with a PIN, sealed in the TPM of remembered
+	  computers, on dev.sinty.Key1.
+
+	  https://github.com/singularityos-lab/sinty-keyd
