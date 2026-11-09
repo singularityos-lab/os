@@ -5,6 +5,12 @@ set -e
 BUILDROOT_VERSION="2026.02.2"
 BUILDROOT_SHA256="a833429929aefd4175b0651b2b356b761960cd46d36df6a0049d1f117e3ac8a6"
 REPO_DIR="$(pwd)"
+ARCH="${ARCH:-x86_64}"
+case "$ARCH" in
+    x86_64) BUILD_DIR="buildroot-build" ;;
+    aarch64) BUILD_DIR="buildroot-build-aarch64" ;;
+    *) echo "[prepare] unsupported ARCH $ARCH" >&2; exit 1 ;;
+esac
 
 if [ ! -d "buildroot-src" ]; then
     wget -q "https://buildroot.org/downloads/buildroot-${BUILDROOT_VERSION}.tar.xz"
@@ -24,13 +30,20 @@ for patch_file in buildroot-source-patches/*.patch; do
     fi
 done
 
-mkdir -p buildroot-build buildroot-dl
-cp buildroot-config/singularity_defconfig buildroot-src/configs/singularity_defconfig
+mkdir -p "$BUILD_DIR" buildroot-dl
+if [ "$ARCH" = x86_64 ]; then
+    cp buildroot-config/singularity_defconfig buildroot-src/configs/singularity_defconfig
+else
+    fragment="buildroot-config/$ARCH.fragment"
+    symbols=$(sed -n 's/^\(# \)\{0,1\}\(BR2_[A-Za-z0-9_]*\).*/\2/p' "$fragment" | sort -u)
+    grep -v -E "^(# )?($(echo $symbols | tr ' ' '|'))[= ]" buildroot-config/singularity_defconfig | grep -v '^BR2_x86_64=y' > buildroot-src/configs/singularity_defconfig
+    cat "$fragment" >> buildroot-src/configs/singularity_defconfig
+fi
 
 make -C buildroot-src \
-    O="${REPO_DIR}/buildroot-build" \
+    O="${REPO_DIR}/${BUILD_DIR}" \
     BR2_EXTERNAL="${REPO_DIR}" \
     BR2_DL_DIR="${REPO_DIR}/buildroot-dl" \
     singularity_defconfig
 
-sed -i "s|\$(BR2_EXTERNAL_SINGULARITY_PATH)|${REPO_DIR}|g" buildroot-build/.config
+sed -i "s|\$(BR2_EXTERNAL_SINGULARITY_PATH)|${REPO_DIR}|g" "${BUILD_DIR}/.config"

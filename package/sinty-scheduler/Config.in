@@ -1,7 +1,7 @@
 config BR2_PACKAGE_SINTY_SCHEDULER
 	bool "sinty-scheduler"
 	depends on BR2_LINUX_KERNEL
-	depends on BR2_x86_64
+	depends on BR2_x86_64 || BR2_aarch64
 	select BR2_PACKAGE_LIBGLIB2
 	help
 	  Workload scheduler: kernel module and daemon.

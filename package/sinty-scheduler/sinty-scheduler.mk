@@ -10,11 +10,12 @@ SINTY_SCHEDULER_LICENSE = GPL-2.0
 SINTY_SCHEDULER_LICENSE_FILES = LICENSE
 SINTY_SCHEDULER_MODULE_SUBDIRS = kmod
 SINTY_SCHEDULER_DEPENDENCIES = libglib2 host-pkgconf
+SINTY_SCHEDULER_CPU = $(if $(BR2_x86_64),x86_64_v2,baseline)
 
 define SINTY_SCHEDULER_BUILD_CMDS
 	cd $(@D) && $(TARGET_MAKE_ENV) PKG_CONFIG=$(PKG_CONFIG_HOST_BINARY) zig build -Doptimize=ReleaseSafe \
 		-Dtarget=$(BR2_ARCH)-linux-gnu \
-		-Dcpu=x86_64_v2 \
+		-Dcpu=$(SINTY_SCHEDULER_CPU) \
 		--search-prefix $(STAGING_DIR)/usr \
 		--prefix $(@D)/out
 endef
