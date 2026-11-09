@@ -1,0 +1,235 @@
+diff --git a/package/libglib2/0003-gtask-run-low-priority-work-idle-and-batch-completions.patch b/package/libglib2/0003-gtask-run-low-priority-work-idle-and-batch-completions.patch
+new file mode 100644
+--- /dev/null
++++ b/package/libglib2/0003-gtask-run-low-priority-work-idle-and-batch-completions.patch
+@@ -0,0 +1,230 @@
++From: Sinty OS <dev@sinty.dev>
++Subject: [PATCH] gtask: run low priority work idle and batch completions
++
++Thread tasks at G_PRIORITY_LOW or lower run at nice 19 with the idle
++disk class, and only where the thread can return to nice 0 afterwards.
++Results coming back from threads to the default main context are
++delivered in batches with a 2 ms budget per dispatch. SIT_ASYNC=off
++turns both off.
++---
++--- a/gio/gtask.c
+++++ b/gio/gtask.c
++@@ -31,6 +31,13 @@
++ #include "glibintl.h"
++ 
++ #include <string.h>
+++#include <errno.h>
+++
+++#ifdef __linux__
+++#include <sys/resource.h>
+++#include <sys/syscall.h>
+++#include <unistd.h>
+++#endif
++ 
++ /**
++  * GTask:
++@@ -1385,6 +1392,175 @@
++   G_TASK_RETURN_FROM_THREAD
++ } GTaskReturnType;
++ 
+++#define SIT_BATCH_BUDGET (2 * G_TIME_SPAN_MILLISECOND)
+++#define SIT_IOPRIO_IDLE (3 << 13)
+++
+++static gboolean
+++sit_async_enabled (void)
+++{
+++  static gint state = 0;
+++
+++  if (g_atomic_int_get (&state) == 0)
+++    g_atomic_int_set (&state, g_strcmp0 (g_getenv ("SIT_ASYNC"), "off") == 0 ? 2 : 1);
+++
+++  return g_atomic_int_get (&state) == 1;
+++}
+++
+++static gpointer
+++sit_probe_restore (gpointer data)
+++{
+++#if defined(__linux__) && defined(SYS_gettid)
+++  pid_t tid = (pid_t) syscall (SYS_gettid);
+++  int nice;
+++
+++  errno = 0;
+++  nice = getpriority (PRIO_PROCESS, tid);
+++  if (errno != 0 || nice >= 19)
+++    return GINT_TO_POINTER (FALSE);
+++  if (setpriority (PRIO_PROCESS, tid, nice + 1) < 0)
+++    return GINT_TO_POINTER (FALSE);
+++  return GINT_TO_POINTER (setpriority (PRIO_PROCESS, tid, nice) == 0);
+++#else
+++  return GINT_TO_POINTER (FALSE);
+++#endif
+++}
+++
+++static gboolean
+++sit_can_restore (void)
+++{
+++#if defined(__linux__) && defined(SYS_gettid) && defined(SYS_ioprio_set)
+++  static gsize state = 0;
+++
+++  if (g_once_init_enter (&state))
+++    {
+++      GThread *probe = g_thread_try_new ("gtask-probe", sit_probe_restore, NULL, NULL);
+++      gboolean can = probe != NULL && GPOINTER_TO_INT (g_thread_join (probe));
+++
+++      g_once_init_leave (&state, can ? 1 : 2);
+++    }
+++
+++  return state == 1;
+++#else
+++  return FALSE;
+++#endif
+++}
+++
+++typedef struct
+++{
+++  int nice;
+++  int ioprio;
+++} SitSaved;
+++
+++static gboolean
+++sit_lower (SitSaved *saved)
+++{
+++#if defined(__linux__) && defined(SYS_gettid) && defined(SYS_ioprio_set) && defined(SYS_ioprio_get)
+++  pid_t tid = (pid_t) syscall (SYS_gettid);
+++
+++  errno = 0;
+++  saved->nice = getpriority (PRIO_PROCESS, tid);
+++  if (errno != 0)
+++    return FALSE;
+++  saved->ioprio = (int) syscall (SYS_ioprio_get, 1, tid);
+++  if (saved->ioprio < 0)
+++    return FALSE;
+++  if (setpriority (PRIO_PROCESS, tid, 19) < 0)
+++    return FALSE;
+++  syscall (SYS_ioprio_set, 1, tid, SIT_IOPRIO_IDLE);
+++  return TRUE;
+++#else
+++  return FALSE;
+++#endif
+++}
+++
+++static void
+++sit_restore (const SitSaved *saved)
+++{
+++#if defined(__linux__) && defined(SYS_gettid) && defined(SYS_ioprio_set)
+++  pid_t tid = (pid_t) syscall (SYS_gettid);
+++
+++  syscall (SYS_ioprio_set, 1, tid, saved->ioprio);
+++  setpriority (PRIO_PROCESS, tid, saved->nice);
+++#endif
+++}
+++
+++typedef struct
+++{
+++  GSource source;
+++  GMutex lock;
+++  GQueue tasks;
+++} SitBatch;
+++
+++static GMutex sit_batches_lock;
+++static GHashTable *sit_batches;
+++
+++static gboolean
+++sit_batch_dispatch (GSource     *source,
+++                    GSourceFunc  callback,
+++                    gpointer     user_data)
+++{
+++  SitBatch *batch = (SitBatch *) source;
+++  gint64 start = g_get_monotonic_time ();
+++
+++  for (;;)
+++    {
+++      GTask *task;
+++
+++      g_mutex_lock (&batch->lock);
+++      task = g_queue_pop_head (&batch->tasks);
+++      if (task == NULL)
+++        g_source_set_ready_time (source, -1);
+++      g_mutex_unlock (&batch->lock);
+++      if (task == NULL)
+++        break;
+++
+++      g_task_return_now (task);
+++      g_object_unref (task);
+++
+++      if (g_get_monotonic_time () - start >= SIT_BATCH_BUDGET)
+++        break;
+++    }
+++
+++  return G_SOURCE_CONTINUE;
+++}
+++
+++static GSourceFuncs sit_batch_funcs = {
+++  .dispatch = sit_batch_dispatch,
+++};
+++
+++static gboolean
+++sit_batch_push (GTask *task)
+++{
+++  SitBatch *batch;
+++
+++  if (task->context != g_main_context_default () || !sit_async_enabled ())
+++    return FALSE;
+++
+++  g_mutex_lock (&sit_batches_lock);
+++  if (sit_batches == NULL)
+++    sit_batches = g_hash_table_new (NULL, NULL);
+++  batch = g_hash_table_lookup (sit_batches, GINT_TO_POINTER (task->priority));
+++  if (batch == NULL)
+++    {
+++      batch = (SitBatch *) g_source_new (&sit_batch_funcs, sizeof (SitBatch));
+++      g_mutex_init (&batch->lock);
+++      g_queue_init (&batch->tasks);
+++      g_source_set_priority (&batch->source, task->priority);
+++      g_source_set_static_name (&batch->source, "[gio] task completions");
+++      g_source_set_ready_time (&batch->source, -1);
+++      g_source_attach (&batch->source, g_main_context_default ());
+++      g_hash_table_insert (sit_batches, GINT_TO_POINTER (task->priority), batch);
+++    }
+++  g_mutex_unlock (&sit_batches_lock);
+++
+++  g_mutex_lock (&batch->lock);
+++  g_queue_push_tail (&batch->tasks, task);
+++  g_source_set_ready_time (&batch->source, 0);
+++  g_mutex_unlock (&batch->lock);
+++
+++  return TRUE;
+++}
+++
++ static void
++ g_task_return (GTask           *task,
++                GTaskReturnType  type)
++@@ -1437,6 +1613,9 @@
++     }
++ 
++   /* Otherwise, complete in the next iteration */
+++  if (type == G_TASK_RETURN_FROM_THREAD && sit_batch_push (task))
+++    return;
+++
++   source = g_idle_source_new ();
++ 
++   /* Note: in case the task name is NULL we set it as a const string instead
++@@ -1579,11 +1758,18 @@
++                            gpointer pool_data)
++ {
++   GTask *task = thread_data;
+++  SitSaved saved;
+++  gboolean lowered = FALSE;
++ 
++   g_task_thread_setup ();
++ 
+++  if (task->priority >= G_PRIORITY_LOW && sit_async_enabled () && sit_can_restore ())
+++    lowered = sit_lower (&saved);
+++
++   task->task_func (task, task->source_object, task->task_data,
++                    task->cancellable);
+++  if (lowered)
+++    sit_restore (&saved);
++   g_task_thread_complete (task);
++   g_object_unref (task);
++ 
