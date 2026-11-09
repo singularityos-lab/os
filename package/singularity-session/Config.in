@@ -32,14 +32,13 @@ config BR2_PACKAGE_SINGULARITY_SESSION
 	  https://github.com/singularityos-lab/singularity-session
 
 config BR2_PACKAGE_SINGULARITY_COLLECTION_RUNTIME
-	bool
+	bool "Singularity collection runtime libraries"
 	select BR2_PACKAGE_CAIRO
 	select BR2_PACKAGE_FONTCONFIG
 	select BR2_PACKAGE_FREETYPE
 	select BR2_PACKAGE_GDK_PIXBUF
 	select BR2_PACKAGE_GNUTLS
 	select BR2_PACKAGE_GST1_PLUGINS_BASE
-	select BR2_PACKAGE_GSTREAMER1
 	select BR2_PACKAGE_GTKSOURCEVIEW
 	select BR2_PACKAGE_HARFBUZZ
 	select BR2_PACKAGE_JSON_GLIB
