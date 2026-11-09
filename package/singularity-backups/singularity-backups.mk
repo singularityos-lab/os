@@ -4,7 +4,7 @@
 #
 ################################################################################
 
-SINGULARITY_BACKUPS_VERSION = 34c361d955b89e2145f217a7abbc540878979870
+SINGULARITY_BACKUPS_VERSION = e2db41db609be3e4dd0aec2d2b5b7c32e1728735
 SINGULARITY_BACKUPS_SITE = $(call github,singularityos-lab,singularity-backups,$(SINGULARITY_BACKUPS_VERSION))
 SINGULARITY_BACKUPS_LICENSE = GPL-3.0+
 SINGULARITY_BACKUPS_LICENSE_FILES = LICENSE

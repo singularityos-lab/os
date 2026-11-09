@@ -4,7 +4,7 @@
 #
 ################################################################################
 
-SINTY_DISKD_VERSION = cd7506869563166d1770210232ef694deeff46b8
+SINTY_DISKD_VERSION = 667460d52f47702e0286f46ffe5ea967b4f11b87
 SINTY_DISKD_SITE = $(call github,singularityos-lab,sinty-diskd,$(SINTY_DISKD_VERSION))
 SINTY_DISKD_LICENSE = GPL-3.0-only
 SINTY_DISKD_LICENSE_FILES = LICENSE
