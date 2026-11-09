@@ -60,3 +60,23 @@ func TestPromoteKeepsAnAlreadyActiveKernelcache(t *testing.T) {
 		t.Fatal("missing signature accepted")
 	}
 }
+
+func TestForgetSourceMachineDropsPinState(t *testing.T) {
+	state := t.TempDir()
+	os.MkdirAll(filepath.Join(state, "pin"), 0o755)
+	os.WriteFile(filepath.Join(state, "pin", "1001.priv"), []byte("x"), 0o600)
+	os.WriteFile(filepath.Join(state, "SINTYRESCUE.txt"), []byte("x"), 0o644)
+	os.WriteFile(filepath.Join(state, "install-id"), []byte("id\n"), 0o644)
+	if err := forgetSourceMachine(state); err != nil {
+		t.Fatal(err)
+	}
+	if fileExists(filepath.Join(state, "pin")) || fileExists(filepath.Join(state, "SINTYRESCUE.txt")) {
+		t.Fatal("source machine state copied to the new disk")
+	}
+	if !fileExists(filepath.Join(state, "install-id")) {
+		t.Fatal("install id removed")
+	}
+	if err := forgetSourceMachine(state); err != nil {
+		t.Fatalf("second run: %v", err)
+	}
+}

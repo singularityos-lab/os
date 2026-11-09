@@ -333,11 +333,24 @@ func activateInstalledKernelcache(esp, installID string) (err error) {
 	if err := os.WriteFile(filepath.Join(stateDir, "install-id"), []byte(installID+"\n"), 0o644); err != nil {
 		return err
 	}
+	if err := forgetSourceMachine(stateDir); err != nil {
+		return err
+	}
 	pairs := [][2]string{
 		{filepath.Join(dir, "kernelcache-install.efi"), filepath.Join(dir, "kernelcache-active.efi")},
 		{filepath.Join(dir, "kernelcache-install.efi.sig"), filepath.Join(dir, "kernelcache-active.efi.sig")},
 	}
 	return promoteKernelcache(pairs)
+}
+
+func forgetSourceMachine(stateDir string) error {
+	if err := os.RemoveAll(filepath.Join(stateDir, "pin")); err != nil {
+		return err
+	}
+	if err := os.Remove(filepath.Join(stateDir, "SINTYRESCUE.txt")); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
 }
 
 func promoteKernelcache(pairs [][2]string) error {
