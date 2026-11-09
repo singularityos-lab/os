@@ -19,4 +19,6 @@ unix_account_line="$(grep -n -F 'account    required   pam_unix.so' "$pam_file" 
 grep -Fq 'if [ "${ATOM_BUILD:-}" = "rc" ]; then' "$post_build"
 grep -Fq "sed -i 's/^root:[^:]*:/root:!:/' \"\$TARGET_DIR/etc/shadow\"" "$post_build"
 
+grep -Fq 'auth       required   pam_sinty.so verify' "$repo_dir/rootfs-overlay/etc/pam.d/polkit-1"
+
 echo "release login policy: ok"
