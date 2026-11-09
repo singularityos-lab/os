@@ -4,13 +4,14 @@
 #
 ################################################################################
 
-SINGULARITY_POLKIT_AGENT_VERSION = ab4b1ceb573267a29865512ebd88bd0f7bbc9ffc
+SINGULARITY_POLKIT_AGENT_VERSION = 5b170ecdbbf8358dfab69fd1331e370c36827cc8
 SINGULARITY_POLKIT_AGENT_SITE = $(call github,singularityos-lab,singularity-polkit-agent,$(SINGULARITY_POLKIT_AGENT_VERSION))
 SINGULARITY_POLKIT_AGENT_LICENSE = GPL-3.0+
 SINGULARITY_POLKIT_AGENT_LICENSE_FILES = LICENSE
 SINGULARITY_POLKIT_AGENT_DEPENDENCIES = \
 	host-pkgconf \
 	host-vala \
+	gtk4-layer-shell \
 	libsingularity \
 	libgtk4 \
 	polkit
