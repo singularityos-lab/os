@@ -4,7 +4,7 @@
 #
 ################################################################################
 
-LABWC_VERSION = 12e61dd3cb824a19097582264bfcb68d9c944a15
+LABWC_VERSION = 5aa79d4881e0821b5abc392e7862b333a7e1c784
 LABWC_SITE = $(call github,singularityos-lab,labwc,$(LABWC_VERSION))
 LABWC_LICENSE = GPL-2.0
 LABWC_LICENSE_FILES = LICENSE
