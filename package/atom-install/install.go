@@ -337,12 +337,19 @@ func activateInstalledKernelcache(esp, installID string) (err error) {
 		{filepath.Join(dir, "kernelcache-install.efi"), filepath.Join(dir, "kernelcache-active.efi")},
 		{filepath.Join(dir, "kernelcache-install.efi.sig"), filepath.Join(dir, "kernelcache-active.efi.sig")},
 	}
+	return promoteKernelcache(pairs)
+}
+
+func promoteKernelcache(pairs [][2]string) error {
 	for _, pair := range pairs {
-		if !fileExists(pair[0]) {
+		if !fileExists(pair[0]) && !fileExists(pair[1]) {
 			return fmt.Errorf("installed kernelcache missing: %s", pair[0])
 		}
 	}
 	for _, pair := range pairs {
+		if !fileExists(pair[0]) {
+			continue
+		}
 		if err := os.Rename(pair[0], pair[1]); err != nil {
 			return err
 		}
