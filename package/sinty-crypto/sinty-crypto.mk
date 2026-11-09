@@ -1,7 +1,7 @@
 ################################################################################
 # sinty-crypto (Zig 0.16)
 ################################################################################
-SINTY_CRYPTO_VERSION = c760503712c87e2433a616fbe939388b29f3c74e
+SINTY_CRYPTO_VERSION = 0fd38ab9aff64c8910edf968e2d7336aefd6165a
 SINTY_CRYPTO_SITE = $(call github,singularityos-lab,sinty-crypto,$(SINTY_CRYPTO_VERSION))
 SINTY_CRYPTO_LICENSE = GPL-3.0-only
 SINTY_CRYPTO_LICENSE_FILES = LICENSE
