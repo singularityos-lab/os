@@ -17,3 +17,5 @@ define SINTY_KEEP_TARGET_SCHEMAS
 	done
 endef
 TARGET_FINALIZE_HOOKS := SINTY_KEEP_TARGET_SCHEMAS $(TARGET_FINALIZE_HOOKS)
+
+WEBKITGTK_MAKE_OPTS += -j$(shell awk '/^MemAvailable:/ { j = int($$2 / 3000000); if (j < 2) j = 2; print j }' /proc/meminfo)
