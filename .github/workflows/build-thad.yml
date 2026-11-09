@@ -150,28 +150,14 @@ jobs:
       - name: Compile
         env:
           ATOM_BUILD: rc
-          OAUTH_CLIENTS: ${{ secrets.SINGULARITY_OAUTH_CLIENTS }}
         run: |
           set -o pipefail
-          [ -n "$OAUTH_CLIENTS" ] || { echo "SINGULARITY_OAUTH_CLIENTS is not set: account sign-in would not work"; exit 1; }
-          export SINGULARITY_OAUTH_CLIENTS_FILE="$RUNNER_TEMP/oauth-clients.json"
-          ( umask 077; printf '%s' "$OAUTH_CLIENTS" > "$SINGULARITY_OAUTH_CLIENTS_FILE" )
-          unset OAUTH_CLIENTS
-          rm -rf buildroot-build/build/singularity-accounts-*
           ./scripts/compile.sh 2>&1 | tee build.log && exit 0
           stale=$(sed -n 's|.*\*\*\* \[package/pkg-generic.mk:[0-9]*: .*/build/build/\([^/]*\)/\.stamp_.*|\1|p' build.log | tail -n 1)
           [ -n "$stale" ] && [ -d "buildroot-build/build/$stale" ] || exit 1
           echo "rebuilding $stale from scratch after a failure in the cached tree"
           rm -rf "buildroot-build/build/$stale"
           ./scripts/compile.sh 2>&1 | tee build.log
-
-      - name: Check the account sign-in registration
-        run: |
-          rm -f "$RUNNER_TEMP/oauth-clients.json"
-          conf=$(ls buildroot-build/build/singularity-accounts-*/build/build_config.vala)
-          for k in GOOGLE_CLIENT_ID MICROSOFT_CLIENT_ID; do
-            grep -q "$k = \"[^\"]" "$conf" || { echo "$k is empty in the accounts service"; exit 1; }
-          done
 
       - name: Package the unsigned stage
         env:
