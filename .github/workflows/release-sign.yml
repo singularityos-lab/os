@@ -10,7 +10,7 @@ permissions:
   actions: read
 
 concurrency:
-  group: release-sign
+  group: release-sign-${{ contains(github.event.workflow_run.display_title, 'aarch64') && 'aarch64' || 'x86_64' }}
   cancel-in-progress: false
 
 jobs:
@@ -18,11 +18,14 @@ jobs:
     if: >-
       github.event.workflow_run.conclusion == 'success' &&
       github.event.workflow_run.event != 'pull_request' &&
-      github.event.workflow_run.head_branch == 'main' &&
-      !contains(github.event.workflow_run.display_title, 'aarch64')
+      github.event.workflow_run.head_branch == 'main'
     runs-on: ubuntu-24.04
     environment: release
-    timeout-minutes: 120
+    timeout-minutes: 180
+    env:
+      ARCH: ${{ contains(github.event.workflow_run.display_title, 'aarch64') && 'aarch64' || 'x86_64' }}
+      STAGE: ${{ contains(github.event.workflow_run.display_title, 'aarch64') && format('unsigned-aarch64-{0}', github.event.workflow_run.head_sha) || format('unsigned-{0}', github.event.workflow_run.head_sha) }}
+      SIGNED: ${{ contains(github.event.workflow_run.display_title, 'aarch64') && format('signed-aarch64-{0}', github.event.workflow_run.head_sha) || format('signed-{0}', github.event.workflow_run.head_sha) }}
 
     steps:
       - name: Checkout
@@ -58,11 +61,14 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq genimage xorriso mtools dosfstools e2fsprogs qemu-system-x86 ovmf jq
+          if [ "$ARCH" = aarch64 ]; then
+            sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq binutils-aarch64-linux-gnu qemu-system-arm qemu-efi-aarch64
+          fi
 
       - name: Download the unsigned stage
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
-          name: unsigned-${{ github.event.workflow_run.head_sha }}
+          name: ${{ env.STAGE }}
           path: artifacts
           run-id: ${{ github.event.workflow_run.id }}
           github-token: ${{ github.token }}
@@ -96,18 +102,30 @@ jobs:
 
       - name: Boot the image to the default target
         run: |
-          accel=tcg
-          [ -w /dev/kvm ] && accel=kvm
-          cp /usr/share/OVMF/OVMF_VARS_4M.fd vars.fd
           cp artifacts/sinty-os.img disk.img
           part=$(sfdisk -J disk.img | jq -r '.partitiontable as $t | .partitiontable.partitions[] | select(.name == "sintylogs") | "\(.start) \(.size) \($t.sectorsize // 512)"')
           read -r start size sector <<< "$part"
-          timeout 900 qemu-system-x86_64 -machine q35,accel=$accel -m 4096 -smp 2 \
-            -drive if=pflash,format=raw,readonly=on,file=/usr/share/OVMF/OVMF_CODE_4M.fd \
-            -drive if=pflash,format=raw,file=vars.fd \
-            -drive file=disk.img,if=none,id=usb0,format=raw \
-            -device qemu-xhci -device usb-storage,drive=usb0,bootindex=0 \
-            -display none -serial file:serial.log -no-reboot &
+          if [ "$ARCH" = aarch64 ]; then
+            cp /usr/share/AAVMF/AAVMF_VARS.fd vars.fd
+            rounds=180
+            timeout 1800 qemu-system-aarch64 -machine virt -cpu max -m 4096 -smp 4 \
+              -drive if=pflash,format=raw,readonly=on,file=/usr/share/AAVMF/AAVMF_CODE.fd \
+              -drive if=pflash,format=raw,file=vars.fd \
+              -drive file=disk.img,if=none,id=usb0,format=raw \
+              -device qemu-xhci -device usb-kbd -device usb-storage,drive=usb0,bootindex=0 \
+              -device virtio-gpu-pci -display none -serial file:serial.log -no-reboot &
+          else
+            accel=tcg
+            [ -w /dev/kvm ] && accel=kvm
+            cp /usr/share/OVMF/OVMF_VARS_4M.fd vars.fd
+            rounds=90
+            timeout 900 qemu-system-x86_64 -machine q35,accel=$accel -m 4096 -smp 2 \
+              -drive if=pflash,format=raw,readonly=on,file=/usr/share/OVMF/OVMF_CODE_4M.fd \
+              -drive if=pflash,format=raw,file=vars.fd \
+              -drive file=disk.img,if=none,id=usb0,format=raw \
+              -device qemu-xhci -device usb-storage,drive=usb0,bootindex=0 \
+              -display none -serial file:serial.log -no-reboot &
+          fi
           qemu=$!
           logs() {
             dd if=disk.img of=logs.ext4 bs=$sector skip=$start count=$size status=none
@@ -115,7 +133,7 @@ jobs:
               debugfs -R "cat /$f" logs.ext4 2>/dev/null
             done > boot.log
           }
-          for _ in $(seq 90); do
+          for _ in $(seq $rounds); do
             sleep 10
             grep -qE "signature INVALID|Kernel panic" serial.log 2>/dev/null && break
             kill -0 $qemu 2>/dev/null || break
@@ -133,7 +151,7 @@ jobs:
       - name: Upload the signed release
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: signed-${{ github.event.workflow_run.head_sha }}
+          name: ${{ env.SIGNED }}
           path: |
             artifacts/signed.sha256
             artifacts/unsigned.sha256
@@ -153,7 +171,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: sign-log-${{ github.event.workflow_run.head_sha }}
+          name: sign-log-${{ env.ARCH }}-${{ github.event.workflow_run.head_sha }}
           path: |
             sign.log
             serial.log
