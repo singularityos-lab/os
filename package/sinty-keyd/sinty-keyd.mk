@@ -4,7 +4,7 @@
 #
 ################################################################################
 
-SINTY_KEYD_VERSION = fbfc6020ec89f4318ac2043e278f07a93f1efbd7
+SINTY_KEYD_VERSION = 08d7efd7afeaa48cf3e072b37e6f180631678937
 SINTY_KEYD_SITE = $(call github,singularityos-lab,sinty-keyd,$(SINTY_KEYD_VERSION))
 SINTY_KEYD_LICENSE = GPL-3.0-only
 SINTY_KEYD_LICENSE_FILES = LICENSE
