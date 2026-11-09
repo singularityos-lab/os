@@ -18,7 +18,8 @@ jobs:
     if: >-
       github.event.workflow_run.conclusion == 'success' &&
       github.event.workflow_run.event != 'pull_request' &&
-      github.event.workflow_run.head_branch == 'main'
+      github.event.workflow_run.head_branch == 'main' &&
+      !contains(github.event.workflow_run.display_title, 'aarch64')
     runs-on: ubuntu-24.04
     environment: release
     timeout-minutes: 120
