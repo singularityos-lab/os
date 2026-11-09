@@ -4,7 +4,7 @@
 #
 ################################################################################
 
-SINTY_INPUT_VERSION = ad4e3ae1ed76f542a0e0601dbf10737377d204df
+SINTY_INPUT_VERSION = 27a9cb440d46fb40815b5c7db4285b330f8889b6
 SINTY_INPUT_SITE = $(call github,singularityos-lab,sinty-input,$(SINTY_INPUT_VERSION))
 SINTY_INPUT_LICENSE = GPL-3.0-only, GPL-2.0+ (Japanese dictionary), CC-BY-SA-4.0 (Chinese dictionary)
 SINTY_INPUT_LICENSE_FILES = LICENSE internal/dict/data/NOTICE
