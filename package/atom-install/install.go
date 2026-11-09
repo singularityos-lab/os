@@ -296,7 +296,13 @@ func main() {
 	}
 	_ = run("partprobe", dev)
 
-	die(run("dd", "if="+esp, "of="+partName(dev, 1), "bs=4M", "conv=fsync"))
+	for _, src := range []string{esp, erofs, hash} {
+		n, err := sizeOf(src)
+		die(err)
+		copied.total += n
+	}
+	copied.add(0)
+	die(copyData(esp, partName(dev, 1)))
 	die(setupData(partName(dev, 2), erofs, hash, esp, installID, key))
 	die(activateInstalledKernelcache(partName(dev, 1), installID))
 	if !key {
@@ -376,10 +382,10 @@ func setupData(part, erofs, hash, esp, installID string, key bool) (err error) {
 		return err
 	}
 	slots := filepath.Join(mnt, "boot/rootfs")
-	if err := run("dd", "if="+erofs, "of="+filepath.Join(slots, "rootfs-active.erofs"), "bs=4M", "conv=fsync"); err != nil {
+	if err := copyData(erofs, filepath.Join(slots, "rootfs-active.erofs")); err != nil {
 		return err
 	}
-	if err := run("dd", "if="+hash, "of="+filepath.Join(slots, "rootfs-active.hash"), "bs=4M", "conv=fsync"); err != nil {
+	if err := copyData(hash, filepath.Join(slots, "rootfs-active.hash")); err != nil {
 		return err
 	}
 	if err := copyDeployment(esp, slots); err != nil {
