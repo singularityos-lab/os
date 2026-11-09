@@ -4,7 +4,7 @@
 #
 ################################################################################
 
-SINTY_AGENT_VERSION = 83ab08ef4990374b9568467396b03447505b70ae
+SINTY_AGENT_VERSION = 68ea876137f56b532202b728dc9e23101f37bd1e
 SINTY_AGENT_SITE = $(call github,singularityos-lab,sinty-agent,$(SINTY_AGENT_VERSION))
 SINTY_AGENT_LICENSE = GPL-3.0
 SINTY_AGENT_DEPENDENCIES = host-pkgconf host-wayland libglib2 libsoup3 libsecret wayland zlib
