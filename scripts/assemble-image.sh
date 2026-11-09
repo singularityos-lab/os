@@ -41,9 +41,11 @@ mcopy -i artifacts/esp.vfat artifacts/kernelcache-recovery.efi     ::EFI/atom/ke
 mcopy -i artifacts/esp.vfat artifacts/kernelcache-recovery.efi.sig ::EFI/atom/kernelcache-recovery.efi.sig
 printf 'target=active\ntrial=0\nattempts=0\n' > artifacts/boot-state
 mcopy -i artifacts/esp.vfat artifacts/boot-state ::EFI/atom/boot-state
+RECOVERY_RELEASE="$(tr -d '[:space:]' < "${REPO_DIR}/release/recovery-version")"
 cat > artifacts/deployment.json <<DJ
 {
   "rootfs": { "current": "${RELEASE_VERSION}", "pending": "", "rollback": "", "boot_attempts": 0, "max_attempts": 3, "last_known_good": "${RELEASE_VERSION}" },
+  "recovery": { "version": "${RECOVERY_RELEASE}", "path": "", "last_updated": "" },
   "kernelcache": { "state": "stable", "stable_boots": 0, "stable_threshold": 3, "format": "uki" },
   "security": { "level": 2, "dm_verity": true, "secure_boot": false }
 }

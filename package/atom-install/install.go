@@ -266,26 +266,34 @@ func main() {
 		fmt.Fprintln(os.Stderr, "atom-install: must run as root")
 		os.Exit(1)
 	}
-	args := os.Args[1:]
-	key := len(args) == 2 && args[0] == "--key"
-	if key {
-		args = args[1:]
-	}
-	if len(args) != 1 {
-		fmt.Fprintln(os.Stderr, "usage: atom-install [--key] /dev/DISK")
+	key, from, dev, err := parseArgs(os.Args[1:])
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "usage: atom-install [--key [--from DIR]] /dev/DISK")
 		os.Exit(1)
 	}
-	dev := args[0]
 	if fi, err := os.Stat(dev); err != nil || fi.Mode()&os.ModeDevice == 0 {
 		fmt.Fprintf(os.Stderr, "atom-install: %s is not a block device\n", dev)
 		os.Exit(1)
 	}
 
-	esp, erofs, hash, err := detectSources(dev)
-	die(err)
+	var esp, erofs, hash string
+	var rel releaseDir
+	var wal []byte
+	var espMB int64
+	var sources []string
+	if from != "" {
+		rel, err = readRelease(from)
+		die(err)
+		erofs, hash, wal, espMB = rel.erofs(), rel.hash(), deploymentWAL(rel.version, rel.recovery), releaseESPMB
+		sources = rel.sources()
+	} else {
+		esp, erofs, hash, err = detectSources(dev)
+		die(err)
+		espMB, err = mibOfDev(esp)
+		die(err)
+		sources = []string{esp, erofs, hash}
+	}
 	installID, err := newInstallID()
-	die(err)
-	espMB, err := mibOfDev(esp)
 	die(err)
 
 	// partition
@@ -296,14 +304,18 @@ func main() {
 	}
 	_ = run("partprobe", dev)
 
-	for _, src := range []string{esp, erofs, hash} {
+	for _, src := range sources {
 		n, err := sizeOf(src)
 		die(err)
 		copied.total += n
 	}
 	copied.add(0)
-	die(copyData(esp, partName(dev, 1)))
-	die(setupData(partName(dev, 2), erofs, hash, esp, installID, key))
+	if from != "" {
+		die(buildESP(partName(dev, 1), rel))
+	} else {
+		die(copyData(esp, partName(dev, 1)))
+	}
+	die(setupData(partName(dev, 2), erofs, hash, esp, installID, key, wal))
 	die(activateInstalledKernelcache(partName(dev, 1), installID))
 	if !key {
 		setUEFIEntry(dev) // best-effort
@@ -376,7 +388,7 @@ func promoteKernelcache(pairs [][2]string) error {
 // with encrypt so fscrypt can protect the user data -- the data, not the whole disk.
 // .atom-var is what tells the init this is an installed system rather than a live
 // medium, which is what arms the update daemon.
-func setupData(part, erofs, hash, esp, installID string, key bool) (err error) {
+func setupData(part, erofs, hash, esp, installID string, key bool, wal []byte) (err error) {
 	if err := run("mkfs.f2fs", "-f", "-l", "atom-data", "-O", "encrypt,extra_attr", part); err != nil {
 		return err
 	}
@@ -408,7 +420,7 @@ func setupData(part, erofs, hash, esp, installID string, key bool) (err error) {
 	if err := copyData(hash, filepath.Join(slots, "rootfs-active.hash")); err != nil {
 		return err
 	}
-	if err := copyDeployment(esp, slots); err != nil {
+	if err := copyDeployment(esp, slots, wal); err != nil {
 		return err
 	}
 	if err := os.WriteFile(filepath.Join(mnt, ".atom-var"), nil, 0o644); err != nil {
@@ -507,7 +519,10 @@ func mountedDevice(mnt string) string {
 
 // copyDeployment lands the deployment WAL (and its backup copy) beside the slot files.
 // The live ESP is mounted read-only when it is not already reachable at /boot/efi.
-func copyDeployment(esp, slots string) error {
+func copyDeployment(esp, slots string, wal []byte) error {
+	if wal != nil {
+		return writeDeployment(slots, wal)
+	}
 	src := "/boot/efi/EFI/atom/deployment.json"
 	if _, err := os.Stat(src); err != nil {
 		mnt, err := mountTemp("atom-esp", "-t", "vfat", "-o", "ro", esp)
@@ -521,10 +536,31 @@ func copyDeployment(esp, slots string) error {
 	if err != nil {
 		return fmt.Errorf("deployment.json: %w", err)
 	}
+	return writeDeployment(slots, b)
+}
+
+func writeDeployment(slots string, b []byte) error {
 	if err := os.WriteFile(filepath.Join(slots, "deployment.json"), b, 0o644); err != nil {
 		return err
 	}
 	return os.WriteFile(filepath.Join(slots, "deployment.json.bak"), b, 0o644)
+}
+
+func parseArgs(args []string) (key bool, from, dev string, err error) {
+	for len(args) > 1 {
+		switch {
+		case args[0] == "--key":
+			key, args = true, args[1:]
+		case args[0] == "--from" && len(args) > 2:
+			from, args = args[1], args[2:]
+		default:
+			return false, "", "", fmt.Errorf("unexpected %s", args[0])
+		}
+	}
+	if len(args) != 1 || (from != "" && !key) {
+		return false, "", "", fmt.Errorf("bad arguments")
+	}
+	return key, from, args[0], nil
 }
 
 func markPortable(mnt string) error {
