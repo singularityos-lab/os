@@ -8,7 +8,7 @@
 # only provides the binary.
 ATOM_PROBE_VERSION = v0.1.0
 ATOM_PROBE_SITE = https://github.com/singularityos-lab/atom/releases/download/$(ATOM_PROBE_VERSION)
-ATOM_PROBE_SOURCE = atom-probe-$(ATOM_PROBE_VERSION)-x86_64.tar.gz
+ATOM_PROBE_SOURCE = atom-probe-$(ATOM_PROBE_VERSION)-$(call qstrip,$(BR2_ARCH)).tar.gz
 ATOM_PROBE_LICENSE = GPL-3.0-or-later
 # The release asset is a flat tarball: a single `atom-probe` file with no top-level
 # directory. Buildroot's default --strip-components=1 would strip that one member and

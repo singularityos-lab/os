@@ -14,7 +14,7 @@ SINTY_CRYPTO_ZIG_TARGET = $(BR2_ARCH)-linux-gnu
 define SINTY_CRYPTO_BUILD_CMDS
 	cd $(@D) && $(SINTY_CRYPTO_ZIG) build -Doptimize=ReleaseSafe \
 		-Dtarget=$(SINTY_CRYPTO_ZIG_TARGET) \
-		-Dcpu=x86_64_v2 \
+		-Dcpu=$(if $(BR2_x86_64),x86_64_v2,baseline) \
 		-Denforce-tpm=false \
 		-Denforce-fscrypt=true \
 		--search-prefix $(STAGING_DIR)/usr

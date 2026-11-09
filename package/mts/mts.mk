@@ -1,6 +1,6 @@
 MTS_VERSION = v0.1.0
 MTS_SITE = https://github.com/mirkobrombin/memory-tiering-standard/releases/download/$(MTS_VERSION)
-MTS_SOURCE = mts-$(MTS_VERSION)-x86_64.tar.gz
+MTS_SOURCE = mts-$(MTS_VERSION)-$(call qstrip,$(BR2_ARCH)).tar.gz
 MTS_LICENSE = Apache-2.0
 # Flat release tarball (mtsd and mtsctl at the top level, no wrapping directory), so the
 # default --strip-components=1 would strip the binaries themselves and leave nothing to

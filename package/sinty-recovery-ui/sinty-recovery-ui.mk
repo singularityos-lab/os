@@ -30,7 +30,7 @@ define SINTY_RECOVERY_UI_BUILD_CMDS
 		PKG_CONFIG_LIBDIR="$(STAGING_DIR)/usr/lib/pkgconfig:$(STAGING_DIR)/usr/share/pkgconfig" \
 		$(SINTY_RECOVERY_UI_ZIG) build -Doptimize=ReleaseSafe \
 			-Dtarget=$(SINTY_RECOVERY_UI_ZIG_TARGET) \
-			-Dcpu=x86_64_v2 \
+			-Dcpu=$(if $(BR2_x86_64),x86_64_v2,baseline) \
 			--search-prefix $(STAGING_DIR)/usr
 endef
 
