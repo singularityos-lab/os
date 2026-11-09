@@ -1,0 +1,13 @@
+config BR2_PACKAGE_SINTY_AGENT
+	bool "sinty-agent"
+	depends on !BR2_PACKAGE_SINTY_AGENT_PREBUILT
+	select BR2_PACKAGE_LIBGLIB2
+	select BR2_PACKAGE_LIBSOUP3
+	select BR2_PACKAGE_LIBSECRET
+	select BR2_PACKAGE_WAYLAND
+	select BR2_PACKAGE_ZLIB
+	help
+	  Sinty Agent built from source: the system agent daemon, its
+	  bridge and command line tools.
+
+	  https://github.com/singularityos-lab/sinty-agent
