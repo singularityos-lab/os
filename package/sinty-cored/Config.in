@@ -1,0 +1,11 @@
+config BR2_PACKAGE_SINTY_CORED
+	bool "sinty-cored"
+	depends on BR2_PACKAGE_HOST_GO_TARGET_ARCH_SUPPORTS
+	select BR2_PACKAGE_SINTY_KEYD
+	help
+	  The Sinty Core service of SintyOS: shows the desktop on
+	  paired screens over the network, Wi-Fi Direct or USB-C,
+	  on dev.sinty.Core1. Also installs sinty-screen, the
+	  framebuffer client for screens.
+
+	  https://github.com/singularityos-lab/sinty-cored
