@@ -156,6 +156,17 @@ jobs:
             fi
           done
 
+      - name: Rebuild the kernel when its patches or config changed
+        run: |
+          rec="$BUILD_DIR"/build/.kernel-hash
+          h=$( { grep '^BR2_LINUX_KERNEL' "$BUILD_DIR"/.config; cat buildroot-config/kernel.config buildroot-config/kernel-*.fragment board/mts/linux-mts.fragment board/mts/linux-patches/*.patch; } | sha256sum | cut -c1-16)
+          if [ "$(cat "$rec" 2>/dev/null)" != "$h" ]; then
+            echo "kernel patches or config changed: rebuilding the kernel and its modules"
+            rm -rf "$BUILD_DIR"/build/linux-[0-9]* "$BUILD_DIR"/build/nvidia-open-modules-* "$BUILD_DIR"/build/sinty-compute-* "$BUILD_DIR"/build/sinty-scheduler-*
+            mkdir -p "$BUILD_DIR"/build
+            echo "$h" > "$rec"
+          fi
+
       - name: Compile
         env:
           ATOM_BUILD: rc
