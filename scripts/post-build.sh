@@ -93,6 +93,8 @@ rm -f "$TARGET_DIR"/etc/systemd/system/*.wants/seatd.service "$TARGET_DIR"/etc/s
 rm -f "$TARGET_DIR"/etc/systemd/system/*.wants/systemd-udevd.service "$TARGET_DIR"/etc/systemd/system/*.wants/udev-coldplug.service
 rm -f "$TARGET_DIR/etc/systemd/system/sysinit.target.wants/sinty-logind.service"
 rm -rf "$TARGET_DIR/etc/systemd/system/seatd.service.d"
+rm -f "$TARGET_DIR/usr/lib/systemd/system/polkit-agent-helper.socket" "$TARGET_DIR/usr/lib/systemd/system/polkit-agent-helper@.service"
+rm -f "$TARGET_DIR"/etc/systemd/system/*.wants/polkit-agent-helper.socket "$TARGET_DIR"/usr/lib/systemd/system/*.wants/polkit-agent-helper.socket
 if [ -x "$TARGET_DIR/usr/bin/sinty-devadm" ]; then
 	ln -sf sinty-devadm "$TARGET_DIR/usr/bin/udevadm"
 fi
