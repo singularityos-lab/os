@@ -208,6 +208,7 @@ printf '%s' "${ATOM_VERSION}" > artifacts/atomver.txt
     --add-section .initrd=artifacts/initrd.cpio.xz \
     --change-section-vma .initrd=$(vma "$INITRD_OFF") \
     "$STUB" artifacts/kernelcache.efi
+uki_add_dtbs artifacts/kernelcache.efi
 
 echo "[package] UKI: artifacts/kernelcache.efi"
 echo "[package] root hash: ${ROOT_HASH}"
@@ -227,6 +228,7 @@ printf '%s' "$LIVE_CMDLINE" > artifacts/cmdline-live.txt
     --add-section .initrd=artifacts/initrd.cpio.xz \
     --change-section-vma .initrd=$(vma "$INITRD_OFF") \
     "$STUB" artifacts/kernelcache-live.efi
+uki_add_dtbs artifacts/kernelcache-live.efi
 
 # Portable mode uses the live raw root and may attach installed writable data.
 PORTABLE_CMDLINE="${LIVE_CMDLINE} sing.portable=1"
@@ -242,6 +244,7 @@ printf '%s' "$PORTABLE_CMDLINE" > artifacts/cmdline-portable.txt
     --add-section .initrd=artifacts/initrd.cpio.xz \
     --change-section-vma .initrd=$(vma "$INITRD_OFF") \
     "$STUB" artifacts/kernelcache-portable.efi
+uki_add_dtbs artifacts/kernelcache-portable.efi
 
 if [ -n "${ATOM_UNSIGNED:-}" ]; then
     bash scripts/build-recovery.sh

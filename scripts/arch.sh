@@ -65,3 +65,13 @@ uki_initrd_offset() {
     [ "$end" -lt $((0x2000000)) ] && end=$((0x2000000))
     printf '0x%x' "$end"
 }
+
+uki_add_dtbs() {
+    local uki="$1" args="" dtb
+    [ "$ARCH" = aarch64 ] || return 0
+    for dtb in "${REPO_DIR}/${BUILD_DIR}"/images/*.dtb; do
+        [ -f "$dtb" ] && args="$args .dtbauto $dtb"
+    done
+    [ -n "$args" ] || return 0
+    python3 -I "${REPO_DIR}/scripts/pe-add-sections.py" "$uki" $args
+}

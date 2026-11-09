@@ -401,6 +401,7 @@ printf 'console=ttyS0 console=tty0 quiet loglevel=3 vt.global_cursor_default=0 a
 	--add-section .linux="$KERNEL"                        --change-section-vma .linux=$(vma 0x200000) \
 	--add-section .initrd=artifacts/recovery-initrd.cpio.xz --change-section-vma .initrd=$(vma "$INITRD_OFF") \
 	"$STUB" "$OUT"
+uki_add_dtbs "$OUT"
 if [ -n "${ATOM_UNSIGNED:-}" ]; then
 	echo "[recovery] DONE unsigned: $OUT"
 	exit 0
