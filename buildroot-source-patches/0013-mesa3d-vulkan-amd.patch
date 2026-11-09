@@ -1,0 +1,45 @@
+diff --git a/package/mesa3d/Config.in b/package/mesa3d/Config.in
+--- a/package/mesa3d/Config.in
++++ b/package/mesa3d/Config.in
+@@ -249,7 +249,7 @@
+ config BR2_PACKAGE_MESA3D_GALLIUM_DRIVER_RADEONSI
+ 	bool "Gallium Radeon SI driver"
+ 	depends on BR2_USE_MMU # libdrm
+-	depends on BR2_i386 || BR2_x86_64
++	depends on BR2_i386 || BR2_x86_64 || BR2_aarch64
+ 	depends on BR2_PACKAGE_MESA3D_LLVM
+ 	select BR2_PACKAGE_MESA3D_GALLIUM_DRIVER
+ 	select BR2_PACKAGE_LIBDRM_AMDGPU
+@@ -331,6 +331,21 @@
+ 
+ comment "Vulkan drivers"
+ 
++config BR2_PACKAGE_MESA3D_VULKAN_DRIVER_AMD
++	bool "Vulkan AMD driver"
++	depends on BR2_USE_MMU # libdrm
++	depends on BR2_i386 || BR2_x86_64 || BR2_aarch64
++	depends on BR2_TOOLCHAIN_HEADERS_AT_LEAST_3_17 # memfd.h
++	depends on BR2_TOOLCHAIN_USES_GLIBC
++	depends on BR2_PACKAGE_MESA3D_LLVM
++	select BR2_PACKAGE_MESA3D_VULKAN_DRIVER
++	select BR2_PACKAGE_LIBDRM_AMDGPU
++	select BR2_PACKAGE_LLVM_AMDGPU
++	select BR2_PACKAGE_ELFUTILS
++	select BR2_PACKAGE_MESA3D_NEEDS_ELFUTILS
++	help
++	  Vulkan driver for AMD GCN and newer GPUs (RADV).
++
+ config BR2_PACKAGE_MESA3D_VULKAN_DRIVER_BROADCOM
+ 	bool "Vulkan broadcom driver"
+ 	depends on BR2_arm || BR2_aarch64
+diff --git a/package/mesa3d/mesa3d.mk b/package/mesa3d/mesa3d.mk
+--- a/package/mesa3d/mesa3d.mk
++++ b/package/mesa3d/mesa3d.mk
+@@ -128,6 +128,7 @@
+ MESA3D_GALLIUM_DRIVERS-$(BR2_PACKAGE_MESA3D_GALLIUM_DRIVER_VIRGL)    += virgl
+ MESA3D_GALLIUM_DRIVERS-$(BR2_PACKAGE_MESA3D_GALLIUM_DRIVER_ZINK)     += zink
+ # Vulkan Drivers
++MESA3D_VULKAN_DRIVERS-$(BR2_PACKAGE_MESA3D_VULKAN_DRIVER_AMD) += amd
+ MESA3D_VULKAN_DRIVERS-$(BR2_PACKAGE_MESA3D_VULKAN_DRIVER_BROADCOM) += broadcom
+ MESA3D_VULKAN_DRIVERS-$(BR2_PACKAGE_MESA3D_VULKAN_DRIVER_IMAGINATION) += imagination
+ MESA3D_VULKAN_DRIVERS-$(BR2_PACKAGE_MESA3D_VULKAN_DRIVER_INTEL)   += intel
