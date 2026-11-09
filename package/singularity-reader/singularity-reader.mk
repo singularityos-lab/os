@@ -4,7 +4,7 @@
 #
 ################################################################################
 
-SINGULARITY_READER_VERSION = 3fe0a9a39cffbdf810c8f75e67edc11afbdb847a
+SINGULARITY_READER_VERSION = abd0c7c0c0148cc45fe165afa9852c9d2d0b9e83
 SINGULARITY_READER_SITE = $(call github,singularityos-lab,singularity-reader,$(SINGULARITY_READER_VERSION))
 SINGULARITY_READER_LICENSE = GPL-3.0+
 SINGULARITY_READER_LICENSE_FILES = LICENSE

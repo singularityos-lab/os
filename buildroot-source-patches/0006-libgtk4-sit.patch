@@ -20,7 +20,7 @@ diff --git a/package/libgtk4/libgtk4.mk b/package/libgtk4/libgtk4.mk
 -LIBGTK4_VERSION = $(LIBGTK4_VERSION_MAJOR).0
 -LIBGTK4_SOURCE = gtk-$(LIBGTK4_VERSION).tar.xz
 -LIBGTK4_SITE = https://download.gnome.org/sources/gtk/$(LIBGTK4_VERSION_MAJOR)
-+LIBGTK4_VERSION = d258e31c1b836b3e5848a59587501ec4d39fe582
++LIBGTK4_VERSION = 07a214e92a8198fd03c18fd78e13c1fd45f20900
 +LIBGTK4_SITE = $(call github,singularityos-lab,sit,$(LIBGTK4_VERSION))
  LIBGTK4_LICENSE = LGPL-2.0+
  LIBGTK4_LICENSE_FILES = COPYING

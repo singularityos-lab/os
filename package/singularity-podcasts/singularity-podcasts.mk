@@ -4,7 +4,7 @@
 #
 ################################################################################
 
-SINGULARITY_PODCASTS_VERSION = eacd9f3450d4901a7f790e7e7a01bfa4f0ed764c
+SINGULARITY_PODCASTS_VERSION = c4ecedcfe7fa27aad79f74e40a90a696c6552159
 SINGULARITY_PODCASTS_SITE = $(call github,singularityos-lab,singularity-podcasts,$(SINGULARITY_PODCASTS_VERSION))
 SINGULARITY_PODCASTS_LICENSE = GPL-3.0+
 SINGULARITY_PODCASTS_LICENSE_FILES = LICENSE

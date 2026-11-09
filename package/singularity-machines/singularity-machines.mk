@@ -4,7 +4,7 @@
 #
 ################################################################################
 
-SINGULARITY_MACHINES_VERSION = 54f8ff21b362a0a2644b510a52ec4b3f04d26ca1
+SINGULARITY_MACHINES_VERSION = 8f1926d850ddc03e2983c998cd0bda3c4a63ca0c
 SINGULARITY_MACHINES_SITE = $(call github,singularityos-lab,singularity-machines,$(SINGULARITY_MACHINES_VERSION))
 SINGULARITY_MACHINES_LICENSE = GPL-3.0+
 SINGULARITY_MACHINES_LICENSE_FILES = LICENSE
