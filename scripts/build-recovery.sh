@@ -13,10 +13,11 @@
 # usage: build-recovery.sh   (run from the singularity-os repo root, after a normal build)
 set -eu
 REPO_DIR="$(pwd)"
+. "${REPO_DIR}/scripts/arch.sh"
 SINTY_WORK_ROOT="${SINTY_WORK_ROOT:-${HOME}/sinty-work}"
 mkdir -p "$SINTY_WORK_ROOT"
-TARGET_DIR="${TARGET_DIR:-buildroot-build/target}"
-KERNEL="${KERNEL:-buildroot-build/images/bzImage}"
+TARGET_DIR="${TARGET_DIR:-${BUILD_DIR}/target}"
+KERNEL="${KERNEL:-${BUILD_DIR}/images/${KERNEL_IMAGE}}"
 ATOMLOOPS="${ATOMLOOPS:-${REPO_DIR}/../AtomLoops}"
 SINTY_RECOVERY="${SINTY_RECOVERY:-${REPO_DIR}/../sinty-recovery}"
 ATOM_ROOT_PUB="${ATOM_ROOT_PUB:-${ATOMLOOPS}/loader/src/root.pub}"
@@ -25,7 +26,9 @@ if [ ! -f "$SINTY_RECOVERY/go.mod" ]; then
 	echo "build-recovery: sinty-recovery checkout not found at $SINTY_RECOVERY" >&2
 	exit 1
 fi
-STUB="${STUB:-$(ls /usr/lib/systemd/boot/efi/linuxx64.efi.stub 2>/dev/null || echo "$TARGET_DIR/usr/lib/systemd/boot/efi/linuxx64.efi.stub")}"
+STUB="$(efi_stub)"
+OBJCOPY="$(pe_tool objcopy)"
+OBJDUMP="$(pe_tool objdump)"
 OUT="artifacts/kernelcache-recovery.efi"
 WORK="$(mktemp -d "${SINTY_WORK_ROOT}/recovery.XXXXXX")"
 trap 'rm -rf "$WORK"' EXIT
@@ -389,13 +392,14 @@ find "$WORK" -exec touch -h -d "@${SOURCE_DATE_EPOCH:-0}" {} +
 ( cd "$WORK" && find . | LC_ALL=C sort | cpio -o -H newc -R 0:0 --reproducible --quiet | xz -9 --check=crc32 --threads=1 ) > artifacts/recovery-initrd.cpio.xz
 
 echo "[recovery] UKI (kernel + recovery initramfs + recovery cmdline)"
-BASE=$((16#$(objdump -p "$STUB" | awk '/ImageBase/{print $2}')))
+BASE=$((16#$("$OBJDUMP" -p "$STUB" | awk '/ImageBase/{print $2}')))
 vma() { printf '0x%x' $((BASE + $1)); } # place sections ABOVE the stub's ImageBase (like package.sh)
+INITRD_OFF="$(uki_initrd_offset "$KERNEL")"
 printf 'console=ttyS0 console=tty0 quiet loglevel=3 vt.global_cursor_default=0 atom.recovery=1 ro\n' > artifacts/recovery-cmdline.txt
-objcopy \
+"$OBJCOPY" \
 	--add-section .cmdline=artifacts/recovery-cmdline.txt --change-section-vma .cmdline=$(vma 0x110000) \
 	--add-section .linux="$KERNEL"                        --change-section-vma .linux=$(vma 0x200000) \
-	--add-section .initrd=artifacts/recovery-initrd.cpio.xz --change-section-vma .initrd=$(vma 0x2000000) \
+	--add-section .initrd=artifacts/recovery-initrd.cpio.xz --change-section-vma .initrd=$(vma "$INITRD_OFF") \
 	"$STUB" "$OUT"
 if [ -n "${ATOM_UNSIGNED:-}" ]; then
 	echo "[recovery] DONE unsigned: $OUT"

@@ -1,6 +1,7 @@
 # Installable GPT disk image: ESP (UKI as default boot) + raw root/hash.
-HOSTBIN="${HOSTBIN:-${REPO_DIR}/buildroot-build/host/bin}"
-HOSTSBIN="${HOSTSBIN:-${REPO_DIR}/buildroot-build/host/sbin}"
+. "${REPO_DIR}/scripts/arch.sh"
+HOSTBIN="${HOSTBIN:-${REPO_DIR}/${BUILD_DIR}/host/bin}"
+HOSTSBIN="${HOSTSBIN:-${REPO_DIR}/${BUILD_DIR}/host/sbin}"
 export PATH="${HOSTBIN}:${HOSTSBIN}:${PATH}"
 export MTOOLS_SKIP_CHECK=1
 
@@ -9,7 +10,7 @@ rm -f artifacts/esp.vfat
 # (~65M) + its sig. 64M overflowed once the recovery slot was added (mcopy: Disk full).
 dd if=/dev/zero of=artifacts/esp.vfat bs=1M count=256 status=none
 mkfs.fat -F 32 -n SINGEFI artifacts/esp.vfat >/dev/null
-# Atom Loops loader is BOOTX64.EFI; it verifies + chainloads the signed UKI slot.
+# Atom Loops loader is the removable-media default (BOOTX64.EFI, BOOTAA64.EFI); it verifies + chainloads the signed UKI slot.
 # Development builds use a throwaway root key; release builds use the offline root.
 ( cd "${ATOMLOOPS}" && "${ATOMLOOPS_GO:-go}" run ./cmd/atom-sign sign \
     --manifest "${REPO_DIR}/artifacts/kernelcache.efi" --priv "${ATOM_SIGNING_KEY}" )
@@ -18,7 +19,7 @@ mkfs.fat -F 32 -n SINGEFI artifacts/esp.vfat >/dev/null
 ( cd "${ATOMLOOPS}" && "${ATOMLOOPS_GO:-go}" run ./cmd/atom-sign sign \
     --manifest "${REPO_DIR}/artifacts/kernelcache-portable.efi" --priv "${ATOM_SIGNING_KEY}" )
 mmd -i artifacts/esp.vfat ::EFI ::EFI/BOOT ::EFI/atom
-mcopy -i artifacts/esp.vfat "${ATOM_LOADER_EFI}" ::EFI/BOOT/BOOTX64.EFI
+mcopy -i artifacts/esp.vfat "${ATOM_LOADER_EFI}" "::EFI/BOOT/${LOADER_ESP_NAME}"
 mcopy -i artifacts/esp.vfat artifacts/kernelcache.efi          ::EFI/atom/kernelcache-active.efi
 mcopy -i artifacts/esp.vfat artifacts/kernelcache.efi.sig      ::EFI/atom/kernelcache-active.efi.sig
 mcopy -i artifacts/esp.vfat artifacts/kernelcache.efi          ::EFI/atom/kernelcache-install.efi

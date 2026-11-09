@@ -24,7 +24,7 @@ trap 'rm -rf "$WORK"' EXIT
 mkdir -p "$WORK"/{bin,sbin,proc,sys,dev,sysroot,lower,over,lib,lib64,run,etc} \
          "$WORK"/usr/{bin,sbin,lib,lib64}
 
-READELF="$(command -v x86_64-buildroot-linux-gnu-readelf || command -v readelf)"
+READELF="$(command -v "${ARCH:-x86_64}-buildroot-linux-gnu-readelf" || command -v readelf)"
 
 # Copy a binary from the target (searching the usual bin dirs) into the same
 # relative path in the initramfs.

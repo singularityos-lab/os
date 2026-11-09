@@ -3,6 +3,7 @@
 set -eo pipefail
 
 REPO_DIR="$(pwd)"
+. "${REPO_DIR}/scripts/arch.sh"
 SOURCE_DATE_EPOCH="${SOURCE_DATE_EPOCH:-$(git -C "$REPO_DIR" log -1 --format=%ct)}"
 export SOURCE_DATE_EPOCH
 BUILD_SEED="$(git -C "$REPO_DIR" rev-parse HEAD)"
@@ -48,12 +49,12 @@ ATOM_SIGNING_CERT="${ATOM_SIGNING_CERT:-${ATOMLOOPS}/signing-cert-v1.json}"
 ATOM_SIGNING_CERT_SIG="${ATOM_SIGNING_CERT_SIG:-${ATOM_SIGNING_CERT}.sig}"
 # Whether the caller pinned a loader binary. Only an explicit ATOM_LOADER_EFI is
 # trusted to match the signing chain: defaulting to the AtomLoops checkout would let
-# a leftover dev-root bootx64.efi sitting there silently replace the release loader,
+# a leftover dev-root loader sitting there silently replace the release loader,
 # and the image then halts at "signature INVALID" because that loader cannot verify
 # a production-signed UKI. Unset means always rebuild against ATOM_ROOT_PUB.
 LOADER_PINNED=1
 [ -n "${ATOM_LOADER_EFI:-}" ] || LOADER_PINNED=0
-ATOM_LOADER_EFI="${ATOM_LOADER_EFI:-${ATOMLOOPS}/loader/bootx64.efi}"
+ATOM_LOADER_EFI="${ATOM_LOADER_EFI:-${ATOMLOOPS}/loader/${LOADER_NAME}}"
 
 if [ -n "${ATOM_UNSIGNED:-}" ]; then
     echo "[package] unsigned stage: no signing key is read, sign-release.sh signs the output"
@@ -62,7 +63,7 @@ if [ -n "${ATOM_UNSIGNED:-}" ]; then
     cp -a "${ATOMLOOPS}/loader" "${SIGNING_WORK}/loader"
     cp "${ATOM_ROOT_PUB}" "${SIGNING_WORK}/loader/src/root.pub"
     ( cd "${SIGNING_WORK}/loader" && ZIG="${ZIG:-zig}" ./build.sh )
-    ATOM_LOADER_EFI="${SIGNING_WORK}/loader/bootx64.efi"
+    ATOM_LOADER_EFI="${SIGNING_WORK}/loader/${LOADER_NAME}"
 elif [ -f "${ATOM_ROOT_PUB}" ] && [ -f "${ATOM_SIGNING_KEY}" ] \
     && [ -f "${ATOM_SIGNING_CERT}" ] && [ -f "${ATOM_SIGNING_CERT_SIG}" ]; then
     # A signing chain was provided (release/production). Build a loader that trusts
@@ -72,7 +73,7 @@ elif [ -f "${ATOM_ROOT_PUB}" ] && [ -f "${ATOM_SIGNING_KEY}" ] \
         cp -a "${ATOMLOOPS}/loader" "${SIGNING_WORK}/loader"
         cp "${ATOM_ROOT_PUB}" "${SIGNING_WORK}/loader/src/root.pub"
         ( cd "${SIGNING_WORK}/loader" && ZIG="${ZIG:-zig}" ./build.sh )
-        ATOM_LOADER_EFI="${SIGNING_WORK}/loader/bootx64.efi"
+        ATOM_LOADER_EFI="${SIGNING_WORK}/loader/${LOADER_NAME}"
     fi
 else
     echo "[package] release signing assets incomplete; generating an ephemeral development chain"
@@ -93,7 +94,7 @@ else
     cp -a "${ATOMLOOPS}/loader" "${SIGNING_WORK}/loader"
     cp "${ATOM_ROOT_PUB}" "${SIGNING_WORK}/loader/src/root.pub"
     ( cd "${SIGNING_WORK}/loader" && ZIG="${ZIG:-zig}" ./build.sh )
-    ATOM_LOADER_EFI="${SIGNING_WORK}/loader/bootx64.efi"
+    ATOM_LOADER_EFI="${SIGNING_WORK}/loader/${LOADER_NAME}"
 fi
 export ATOM_ROOT_PUB ATOM_SIGNING_KEY ATOM_SIGNING_CERT ATOM_SIGNING_CERT_SIG
 
@@ -112,7 +113,7 @@ echo "[package] loader trust root verified: $(sha256sum "${ATOM_ROOT_PUB}" | cut
 
 # RootFS
 ROOTFS_TAR=artifacts/rootfs.tar
-bzcat buildroot-build/images/rootfs.tar.bz2 > "$ROOTFS_TAR"
+bzcat "${BUILD_DIR}/images/rootfs.tar.bz2" > "$ROOTFS_TAR"
 python3 - "${ATOM_ROOT_PUB}" "$ROOTFS_TAR" <<'PY' || exit 1
 import sys, tarfile
 key = open(sys.argv[1], 'rb').read()
@@ -171,7 +172,7 @@ export SINTY_INIT_BIN
 
 # Initramfs: the dm-verity aware init that waits for the kernel-created
 # verity device, mounts the verified erofs read-only and overlays a tmpfs.
-bash scripts/build-initramfs.sh buildroot-build/target artifacts/initrd.cpio.xz
+bash scripts/build-initramfs.sh "${BUILD_DIR}/target" artifacts/initrd.cpio.xz
 
 # The initramfs finds the root/hash partitions by content and opens the
 # verity device with this root hash, so no device names are baked in. The firmware
@@ -180,20 +181,23 @@ CMDLINE="console=tty0 console=ttyS0,115200 ro quiet loglevel=0 vt.global_cursor_
 
 # UKI: place the added sections above the stub's image so they do not fall
 # below the PE image base.
-KERNEL="buildroot-build/images/bzImage"
-STUB="/usr/lib/systemd/boot/efi/linuxx64.efi.stub"
-BASE=$((16#$(objdump -p "$STUB" | awk '/ImageBase/{print $2}')))
+KERNEL="${BUILD_DIR}/images/${KERNEL_IMAGE}"
+STUB="$(efi_stub)"
+OBJCOPY="$(pe_tool objcopy)"
+OBJDUMP="$(pe_tool objdump)"
+BASE=$((16#$("$OBJDUMP" -p "$STUB" | awk '/ImageBase/{print $2}')))
 vma() { printf "0x%x" $((BASE + $1)); }
+INITRD_OFF="$(uki_initrd_offset "$KERNEL")"
 
 OSREL=""
-[ -f buildroot-build/target/usr/lib/os-release ] && OSREL="--add-section .osrel=buildroot-build/target/usr/lib/os-release --change-section-vma .osrel=$(vma 0x100000)"
+[ -f "${BUILD_DIR}/target/usr/lib/os-release" ] && OSREL="--add-section .osrel=${BUILD_DIR}/target/usr/lib/os-release --change-section-vma .osrel=$(vma 0x100000)"
 
 printf '%s' "$CMDLINE" > artifacts/cmdline.txt
 # .atomver: the kernelcache version baked into the SIGNED UKI, read by the loader to
 # enforce anti-rollback. The daemon's NV counter (index 0x0150A701) is the floor.
 printf '%s' "${ATOM_VERSION}" > artifacts/atomver.txt
 
-objcopy \
+"$OBJCOPY" \
     $OSREL \
     --add-section .cmdline=artifacts/cmdline.txt \
     --change-section-vma .cmdline=$(vma 0x110000) \
@@ -202,7 +206,7 @@ objcopy \
     --add-section .linux="$KERNEL" \
     --change-section-vma .linux=$(vma 0x200000) \
     --add-section .initrd=artifacts/initrd.cpio.xz \
-    --change-section-vma .initrd=$(vma 0x2000000) \
+    --change-section-vma .initrd=$(vma "$INITRD_OFF") \
     "$STUB" artifacts/kernelcache.efi
 
 echo "[package] UKI: artifacts/kernelcache.efi"
@@ -212,7 +216,7 @@ echo "[package] root hash: ${ROOT_HASH}"
 # a slow removable root from falling through to an installed slot with the same hash.
 LIVE_CMDLINE="${CMDLINE} sing.live=1"
 printf '%s' "$LIVE_CMDLINE" > artifacts/cmdline-live.txt
-objcopy \
+"$OBJCOPY" \
     $OSREL \
     --add-section .cmdline=artifacts/cmdline-live.txt \
     --change-section-vma .cmdline=$(vma 0x110000) \
@@ -221,13 +225,13 @@ objcopy \
     --add-section .linux="$KERNEL" \
     --change-section-vma .linux=$(vma 0x200000) \
     --add-section .initrd=artifacts/initrd.cpio.xz \
-    --change-section-vma .initrd=$(vma 0x2000000) \
+    --change-section-vma .initrd=$(vma "$INITRD_OFF") \
     "$STUB" artifacts/kernelcache-live.efi
 
 # Portable mode uses the live raw root and may attach installed writable data.
 PORTABLE_CMDLINE="${LIVE_CMDLINE} sing.portable=1"
 printf '%s' "$PORTABLE_CMDLINE" > artifacts/cmdline-portable.txt
-objcopy \
+"$OBJCOPY" \
     $OSREL \
     --add-section .cmdline=artifacts/cmdline-portable.txt \
     --change-section-vma .cmdline=$(vma 0x110000) \
@@ -236,14 +240,14 @@ objcopy \
     --add-section .linux="$KERNEL" \
     --change-section-vma .linux=$(vma 0x200000) \
     --add-section .initrd=artifacts/initrd.cpio.xz \
-    --change-section-vma .initrd=$(vma 0x2000000) \
+    --change-section-vma .initrd=$(vma "$INITRD_OFF") \
     "$STUB" artifacts/kernelcache-portable.efi
 
 if [ -n "${ATOM_UNSIGNED:-}" ]; then
     bash scripts/build-recovery.sh
-    cp "${ATOM_LOADER_EFI}" artifacts/bootx64.efi
+    cp "${ATOM_LOADER_EFI}" "artifacts/${LOADER_NAME}"
     printf '%s\n' "${RELEASE_VERSION}" > artifacts/release-version.txt
-    ( cd artifacts && sha256sum release-version.txt bootx64.efi rootfs.erofs rootfs.hash verity-output.txt \
+    ( cd artifacts && sha256sum release-version.txt "${LOADER_NAME}" rootfs.erofs rootfs.hash verity-output.txt \
         kernelcache.efi kernelcache-live.efi kernelcache-portable.efi kernelcache-recovery.efi ) > artifacts/unsigned.sha256
     echo "[package] unsigned stage done:"
     cat artifacts/unsigned.sha256

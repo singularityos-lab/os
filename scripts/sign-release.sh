@@ -1,6 +1,7 @@
 #!/bin/bash
 set -eo pipefail
 REPO_DIR="$(pwd)"
+. "${REPO_DIR}/scripts/arch.sh"
 ATOMLOOPS="${ATOMLOOPS:?set ATOMLOOPS to an AtomLoops checkout}"
 SINTY_WORK_ROOT="${SINTY_WORK_ROOT:-${HOME}/sinty-work}"
 mkdir -p "${SINTY_WORK_ROOT}"
@@ -16,7 +17,7 @@ case "${RELEASE_VERSION}" in
     *) echo "sign-release: bad release version" >&2; exit 1 ;;
 esac
 
-python3 - package/atomloops/root.pub artifacts/bootx64.efi <<'PY'
+python3 - package/atomloops/root.pub "artifacts/${LOADER_NAME}" <<'PY'
 import sys
 key = open(sys.argv[1], 'rb').read()
 if key not in open(sys.argv[2], 'rb').read():
@@ -24,7 +25,7 @@ if key not in open(sys.argv[2], 'rb').read():
 PY
 
 ATOMLOOPS_GO="${ATOMLOOPS_GO:-$(command -v go)}"
-ATOM_LOADER_EFI="${REPO_DIR}/artifacts/bootx64.efi"
+ATOM_LOADER_EFI="${REPO_DIR}/artifacts/${LOADER_NAME}"
 RECOVERY_PREBUILT=1
 HOSTBIN="${HOSTBIN:-/usr/bin}"
 HOSTSBIN="${HOSTSBIN:-/usr/sbin}"
