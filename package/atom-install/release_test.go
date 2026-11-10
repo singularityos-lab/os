@@ -122,3 +122,38 @@ func TestWriteDeploymentKeepsABackup(t *testing.T) {
 		t.Fatalf("%q %q", a, b)
 	}
 }
+
+func TestCopyAnchor(t *testing.T) {
+	slots := t.TempDir()
+	os.WriteFile(filepath.Join(slots, "deployment.json"), []byte(`{"rootfs":{"current":"v7"}}`), 0o644)
+	src := t.TempDir()
+	os.MkdirAll(filepath.Join(src, "v7"), 0o755)
+	for _, f := range anchorFiles[:3] {
+		os.WriteFile(filepath.Join(src, "v7", f), []byte(f), 0o644)
+	}
+	if err := copyAnchor(slots, src); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(slots, "release")); !os.IsNotExist(err) {
+		t.Fatal("partial anchor copied")
+	}
+	os.WriteFile(filepath.Join(src, "v7", anchorFiles[3]), []byte("sig"), 0o644)
+	if err := copyAnchor(slots, src); err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range anchorFiles {
+		if _, err := os.Stat(filepath.Join(slots, "release", "v7", f)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rel := t.TempDir()
+	for _, f := range anchorFiles {
+		os.WriteFile(filepath.Join(rel, f), []byte("rel "+f), 0o644)
+	}
+	if err := copyAnchor(slots, rel); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(filepath.Join(slots, "release", "v7", "manifest.json")); string(b) != "rel manifest.json" {
+		t.Fatalf("release dir not used: %q", b)
+	}
+}

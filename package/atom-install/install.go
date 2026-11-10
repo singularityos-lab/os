@@ -3,6 +3,7 @@ package main
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -286,6 +287,7 @@ func main() {
 		die(err)
 		erofs, hash, wal, espMB = rel.erofs(), rel.hash(), deploymentWAL(rel.version, rel.recovery), releaseESPMB
 		sources = rel.sources()
+		anchorSource = rel.dir
 	} else {
 		esp, erofs, hash, err = detectSources(dev)
 		die(err)
@@ -423,6 +425,9 @@ func setupData(part, erofs, hash, esp, installID string, key bool, wal []byte) (
 	if err := copyDeployment(esp, slots, wal); err != nil {
 		return err
 	}
+	if err := copyAnchor(slots, anchorSource); err != nil {
+		return err
+	}
 	if err := os.WriteFile(filepath.Join(mnt, ".atom-var"), nil, 0o644); err != nil {
 		return err
 	}
@@ -537,6 +542,48 @@ func copyDeployment(esp, slots string, wal []byte) error {
 		return fmt.Errorf("deployment.json: %w", err)
 	}
 	return writeDeployment(slots, b)
+}
+
+var anchorSource = "/boot/rootfs/release"
+
+var anchorFiles = []string{"manifest.json", "manifest.json.sig", "signing-cert.json", "signing-cert.json.sig"}
+
+func copyAnchor(slots, source string) error {
+	b, err := os.ReadFile(filepath.Join(slots, "deployment.json"))
+	if err != nil {
+		return err
+	}
+	var d struct {
+		RootFS struct {
+			Current string `json:"current"`
+		} `json:"rootfs"`
+	}
+	if err := json.Unmarshal(b, &d); err != nil || d.RootFS.Current == "" || strings.ContainsAny(d.RootFS.Current, "/\\") {
+		return nil
+	}
+	src := source
+	if !fileExists(filepath.Join(src, "manifest.json")) {
+		src = filepath.Join(source, d.RootFS.Current)
+	}
+	for _, f := range anchorFiles {
+		if !fileExists(filepath.Join(src, f)) {
+			return nil
+		}
+	}
+	dst := filepath.Join(slots, "release", d.RootFS.Current)
+	if err := os.MkdirAll(dst, 0o755); err != nil {
+		return err
+	}
+	for _, f := range anchorFiles {
+		data, err := os.ReadFile(filepath.Join(src, f))
+		if err != nil {
+			return err
+		}
+		if err := os.WriteFile(filepath.Join(dst, f), data, 0o644); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func writeDeployment(slots string, b []byte) error {
