@@ -1,0 +1,55 @@
+#!/bin/sh
+
+set -eu
+
+if [ $# -ne 5 ]; then
+	echo "usage: sinty-rescue COMPUTER-DATA COMPUTER-ESP KEY-ESP RESCUE-DIR SOCKET" >&2
+	exit 2
+fi
+
+if [ "${SINTY_RESCUE_NS:-}" != 1 ]; then
+	SINTY_RESCUE_NS=1 exec unshare --mount --propagation private "$0" "$@"
+fi
+
+pc_data=$1
+pc_esp=$2
+key_esp=$3
+out=$4
+sock=$5
+work=/run/sinty-rescue/work
+
+mkdir -p "$work"
+mount -t tmpfs -o mode=0700 sinty-rescue "$work"
+mkdir -p "$work/key-rootfs" "$work/key-esp" "$work/key-esp-part" "$work/pc-esp" "$work/release" "$work/out"
+
+mount --bind /boot/rootfs "$work/key-rootfs"
+if [ -f /boot/efi/EFI/atom/kernelcache-active.efi ]; then
+	mount --bind /boot/efi/EFI/atom "$work/key-esp"
+elif [ -n "$key_esp" ]; then
+	mount -o ro "$key_esp" "$work/key-esp-part"
+	mount --bind "$work/key-esp-part/EFI/atom" "$work/key-esp"
+fi
+
+/usr/libexec/updated.real export-release --out "$work/release" \
+	--wal "$work/key-rootfs/deployment.json" \
+	--rootfs-dir "$work/key-rootfs" --esp-dir "$work/key-esp"
+
+mount --bind "$out" "$work/out"
+mount "$pc_esp" "$work/pc-esp"
+mkdir -p "$work/pc-esp/EFI/atom"
+
+broken=
+if ! mount "$pc_data" /var; then
+	mount -t tmpfs -o mode=0755 sinty-rescue-var /var
+	broken=$pc_data
+fi
+mkdir -p /var/boot/rootfs
+
+exec atom-recovery --mode serve --socket "$sock" \
+	--data-dir /var \
+	--wal /var/boot/rootfs/deployment.json \
+	--rootfs-dir /var/boot/rootfs \
+	--esp-dir "$work/pc-esp/EFI/atom" \
+	--from "$work/release" \
+	--rescue-dir "$work/out" \
+	--data-broken "$broken"
