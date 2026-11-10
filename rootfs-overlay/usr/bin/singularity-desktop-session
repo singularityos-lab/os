@@ -32,6 +32,10 @@ export XDG_DATA_DIRS="$HOME/.local/share/flatpak/exports/share:/var/lib/flatpak/
 export XDG_CONFIG_DIRS="${XDG_CONFIG_DIRS:-/etc/xdg}:/run/sxi/config"
 export GSETTINGS_SCHEMA_DIR="$SHARE/glib-2.0/schemas"
 export GI_TYPELIB_PATH="$LIB/girepository-1.0${GI_TYPELIB_PATH:+:$GI_TYPELIB_PATH}"
+if [ "$(id -u)" = 61000 ] && [ -n "$XDG_RUNTIME_DIR" ]; then
+    export XDG_CACHE_HOME="$XDG_RUNTIME_DIR/cache"
+    mkdir -p -m 700 "$XDG_CACHE_HOME"
+fi
 
 if [ -d /run/sinty ]; then
     _SINTY_SESSION="/run/sinty/session-$(id -u)"
