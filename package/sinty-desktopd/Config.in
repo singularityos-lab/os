@@ -1,0 +1,11 @@
+config BR2_PACKAGE_SINTY_DESKTOPD
+	bool "sinty-desktopd"
+	depends on BR2_PACKAGE_HOST_GO_TARGET_ARCH_SUPPORTS
+	help
+	  Writes the login screen settings, installs fingerprint
+	  reader drivers and reads the kernel log for the desktop
+	  over D-Bus (dev.sinty.LoginScreen1,
+	  dev.sinty.FingerprintDriver1, dev.sinty.Logs1), in place
+	  of pkexec helpers.
+
+	  https://github.com/singularityos-lab/sinty-desktopd

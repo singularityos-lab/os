@@ -4,12 +4,13 @@
 #
 ################################################################################
 
-SINTY_DISKD_VERSION = 667460d52f47702e0286f46ffe5ea967b4f11b87
+SINTY_DISKD_VERSION = 06294e3121feb7960b2f29190c5afb0a133b3a6d
 SINTY_DISKD_SITE = $(call github,singularityos-lab,sinty-diskd,$(SINTY_DISKD_VERSION))
 SINTY_DISKD_LICENSE = GPL-3.0-only
 SINTY_DISKD_LICENSE_FILES = LICENSE
 SINTY_DISKD_GOMOD = github.com/singularityos-lab/sinty-diskd
 SINTY_DISKD_BUILD_TARGETS = cmd/sinty-diskd
+SINTY_DISKD_DEPENDENCIES = host-pkgconf libsingularity
 
 define SINTY_DISKD_GO_VENDOR
 	cd $(@D) && env -u GOFLAGS GOPROXY=https://proxy.golang.org,direct GOTOOLCHAIN=local $(HOST_DIR)/bin/go mod vendor

@@ -1,0 +1,10 @@
+config BR2_PACKAGE_SINTY_FIREWALLD
+	bool "sinty-firewalld"
+	depends on BR2_PACKAGE_HOST_GO_TARGET_ARCH_SUPPORTS
+	depends on BR2_PACKAGE_LIBSINGULARITY
+	help
+	  The firewall daemon of SintyOS: one nftables table written
+	  over netlink, and dev.sinty.Firewall1 on the system bus so
+	  Settings and apps can open ports. Needs no nft binary.
+
+	  https://github.com/singularityos-lab/sinty-firewalld

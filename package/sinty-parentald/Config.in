@@ -1,0 +1,9 @@
+config BR2_PACKAGE_SINTY_PARENTALD
+	bool "sinty-parentald"
+	depends on BR2_PACKAGE_HOST_GO_TARGET_ARCH_SUPPORTS
+	help
+	  Keeps the parental controls policy of each account and lets
+	  an administrator change it over D-Bus (dev.sinty.Parental1),
+	  in place of a pkexec helper.
+
+	  https://github.com/singularityos-lab/sinty-parentald

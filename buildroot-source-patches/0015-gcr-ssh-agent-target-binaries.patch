@@ -1,0 +1,17 @@
+--- a/package/gcr/gcr.mk
++++ b/package/gcr/gcr.mk
+@@ -17,6 +17,14 @@
+ 	$(TARGET_NLS_DEPENDENCIES)
+ GCR_INSTALL_STAGING = YES
+ GCR_CONF_OPTS = -Dgtk_doc=false
++
++ifeq ($(BR2_PACKAGE_OPENSSH_CLIENT),y)
++GCR_DEPENDENCIES += openssh
++GCR_CONF_OPTS += -Dssh_agent=true
++GCR_MESON_EXTRA_BINARIES = ssh-add='/usr/bin/ssh-add' ssh-agent='/usr/bin/ssh-agent'
++else
++GCR_CONF_OPTS += -Dssh_agent=false
++endif
+ # Even though COPYING is v2 the code states v2.1+
+ GCR_LICENSE = LGPL-2.1+
+ GCR_LICENSE_FILES = COPYING

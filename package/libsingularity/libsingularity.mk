@@ -6,7 +6,7 @@
 
 # Local dev builds from buildroot-build/local.mk _OVERRIDE_SRCDIR (build dir -custom),
 # which supersedes this github SITE. Keep the pin for RC/CI (no override present).
-LIBSINGULARITY_VERSION = 2facb7fe3a64e1bef3845e065ce01ea925148156
+LIBSINGULARITY_VERSION = 6b14cb393af649ea75d0c94d65934fee454ea541
 LIBSINGULARITY_SITE = $(call github,singularityos-lab,libsingularity,$(LIBSINGULARITY_VERSION))
 
 define LIBSINGULARITY_ENSURE_SOURCE
@@ -18,6 +18,7 @@ LIBSINGULARITY_INSTALL_STAGING = YES
 LIBSINGULARITY_DEPENDENCIES = \
 	host-pkgconf \
 	host-vala \
+	host-zig \
 	gobject-introspection \
 	libgtk4 \
 	gtk4-layer-shell \
@@ -28,7 +29,6 @@ LIBSINGULARITY_DEPENDENCIES = \
 	pulseaudio \
 	libgudev \
 	upower \
-	network-manager \
 	libsoup3 \
 	cups \
 	lcms2 \
@@ -36,7 +36,11 @@ LIBSINGULARITY_DEPENDENCIES = \
 	gstreamer1 \
 	gst1-plugins-base
 
-LIBSINGULARITY_CONF_OPTS = -Dsystem=true
+LIBSINGULARITY_CONF_OPTS = \
+	-Dsystem=true \
+	-Dzig=$(HOST_DIR)/bin/zig \
+	-Dzig-target=$(call qstrip,$(BR2_ARCH))-linux-gnu \
+	-Dzig-cpu=baseline
 
 define LIBSINGULARITY_INSTALL_CUPS_VAPI
 	$(INSTALL) -D -m 0644 $(LIBSINGULARITY_PKGDIR)/cups.vapi $(STAGING_DIR)/usr/share/vala/vapi/cups.vapi

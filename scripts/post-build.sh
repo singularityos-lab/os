@@ -72,8 +72,8 @@ rm -f "$TARGET_DIR/etc/systemd/system/graphical.target.wants/wpa_supplicant.serv
 rm -f "$TARGET_DIR/etc/systemd/system/multi-user.target.wants/wpa_supplicant.service"
 
 # sinty-nm replaces the NetworkManager daemon: it owns org.freedesktop.NetworkManager,
-# so the NM daemon must not also start (two owners of one name). The libnm library and
-# the NM D-Bus policy stay (the desktop links libnm; the policy lets root own the name).
+# so the NM daemon must not also start (two owners of one name). The NM D-Bus policy
+# stays (it lets root own the name).
 # Drop the NM daemon unit and its wants from the target, which a stale target may retain.
 rm -f "$TARGET_DIR/etc/systemd/system/NetworkManager.service"
 rm -f "$TARGET_DIR/etc/systemd/system/graphical.target.wants/NetworkManager.service"
@@ -347,7 +347,7 @@ fi
 
 FW="$TARGET_DIR/usr/lib/sinty-framework"
 mkdir -p "$FW/girepository-1.0"
-for _so in libsingularity.so.0 libsingularity-system.so.0 libgtk-4.so.1; do
+for _so in libsingularity.so.0 libsingularity-system.so.1 libgtk-4.so.1; do
     _real="$(readlink -f "$TARGET_DIR/usr/lib/$_so")"
     [ -f "$_real" ] || _real="$FW/$_so"
     if [ ! -f "$_real" ]; then
