@@ -1,6 +1,6 @@
 config BR2_PACKAGE_WEBKITGTK_PREBUILT
 	bool "webkitgtk (prebuilt)"
-	depends on BR2_x86_64
+	depends on BR2_x86_64 || BR2_aarch64
 	depends on !BR2_PACKAGE_WEBKITGTK
 	depends on !BR2_STATIC_LIBS
 	depends on BR2_INSTALL_LIBSTDCPP
@@ -31,7 +31,7 @@ config BR2_PACKAGE_WEBKITGTK_PREBUILT
 	help
 	  Temporary drop-in prebuilt WebKitGTK, for faster builds.
 
-comment "webkitgtk-prebuilt needs a glibc toolchain w/ C++, NPTL, wchar (x86_64)"
-	depends on BR2_x86_64
+comment "webkitgtk-prebuilt needs a glibc toolchain w/ C++, NPTL, wchar (x86_64 or aarch64)"
+	depends on BR2_x86_64 || BR2_aarch64
 	depends on !BR2_INSTALL_LIBSTDCPP || !BR2_TOOLCHAIN_HAS_THREADS_NPTL \
 		|| !BR2_USE_WCHAR || BR2_STATIC_LIBS

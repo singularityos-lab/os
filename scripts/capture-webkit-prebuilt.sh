@@ -11,7 +11,8 @@ set -euo pipefail
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 SINTY_WORK_ROOT="${SINTY_WORK_ROOT:-${HOME}/sinty-work}"
 mkdir -p "$SINTY_WORK_ROOT"
-BUILD_DIR="${BUILD_DIR:-$REPO_DIR/buildroot-build}"
+. "$REPO_DIR/scripts/arch.sh"
+BUILD_DIR="$REPO_DIR/$BUILD_DIR"
 STAGING_DIR="${STAGING_DIR:-$(ls -d "$BUILD_DIR"/host/*/sysroot 2>/dev/null | head -1)}"
 TARGET_DIR="${TARGET_DIR:-$BUILD_DIR/target}"
 OUT_DIR="${1:-$REPO_DIR/prebuilt}"
@@ -20,7 +21,6 @@ WK_VERSION="$(sed -n 's/^WEBKITGTK_VERSION = //p' "$REPO_DIR/buildroot-src/packa
 [ -n "$WK_VERSION" ] || WK_VERSION="$(basename "$(ls -d "$BUILD_DIR"/build/webkitgtk-* 2>/dev/null | head -1)" | sed 's/^webkitgtk-//')"
 [ -n "$WK_VERSION" ] || { echo "ERROR: cannot determine webkitgtk version"; exit 1; }
 
-ARCH="$(uname -m)"
 PKG_BUILD="$BUILD_DIR/build/webkitgtk-$WK_VERSION"
 STAGING_LIST="$PKG_BUILD/.files-list-staging.txt"
 TARGET_LIST="$PKG_BUILD/.files-list.txt"
