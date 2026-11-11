@@ -1,0 +1,15 @@
+config BR2_PACKAGE_LINUX_L4T
+	bool "linux-l4t"
+	depends on BR2_aarch64
+	depends on BR2_LINUX_KERNEL
+	help
+	  The NVIDIA Jetson Linux r36 kernel with its out-of-tree
+	  drivers (nvgpu, display, ethernet, camera), built with the
+	  same feature set as the mainline kernel. Its UKI boots on
+	  Jetson Orin boards, every other board keeps mainline.
+
+	  https://developer.nvidia.com/embedded/jetson-linux
+
+comment "linux-l4t needs a Linux kernel to be built"
+	depends on BR2_aarch64
+	depends on !BR2_LINUX_KERNEL

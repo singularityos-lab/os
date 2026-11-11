@@ -1,0 +1,13 @@
+config BR2_PACKAGE_NVIDIA_L4T_USERSPACE
+	bool "nvidia-l4t-userspace"
+	depends on BR2_aarch64
+	depends on BR2_PACKAGE_LINUX_L4T
+	select BR2_PACKAGE_LIBGLVND
+	help
+	  The NVIDIA Jetson Linux r36 graphics and multimedia stack
+	  for Orin: EGL, OpenGL ES and Vulkan through libglvnd, the
+	  GBM backend and the Wayland platform for the compositor,
+	  the V4L2 video encoder and decoder libraries and the GPU
+	  and engine firmware. Other boards keep Mesa.
+
+	  https://developer.nvidia.com/embedded/jetson-linux
