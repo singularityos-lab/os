@@ -4,7 +4,7 @@
 #
 ################################################################################
 
-SINGULARITY_MUSIC_VERSION = 0388417ec853d80f49157d25808d26f868f4b916
+SINGULARITY_MUSIC_VERSION = 47e6fa863d3df5191bc2be691bdae20d09b687d9
 SINGULARITY_MUSIC_SITE = $(call github,singularityos-lab,singularity-music,$(SINGULARITY_MUSIC_VERSION))
 SINGULARITY_MUSIC_LICENSE = GPL-3.0+
 SINGULARITY_MUSIC_LICENSE_FILES = LICENSE

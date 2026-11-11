@@ -4,7 +4,7 @@
 #
 ################################################################################
 
-SINGULARITY_CLOCK_VERSION = 087dc31c47c69dae9d26ed5b64e713edd6f6f03f
+SINGULARITY_CLOCK_VERSION = 27d44ba4886501e5e52c66d8c093beb3c64d838b
 SINGULARITY_CLOCK_SITE = $(call github,singularityos-lab,singularity-clock,$(SINGULARITY_CLOCK_VERSION))
 SINGULARITY_CLOCK_LICENSE = GPL-3.0+
 SINGULARITY_CLOCK_LICENSE_FILES = LICENSE
