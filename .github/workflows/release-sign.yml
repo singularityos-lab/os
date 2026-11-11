@@ -20,7 +20,7 @@ permissions:
   actions: read
 
 concurrency:
-  group: release-sign-${{ github.event_name == 'workflow_dispatch' && inputs.arch || (contains(github.event.workflow_run.display_title, 'aarch64') && 'aarch64' || 'x86_64') }}
+  group: release-sign-${{ (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion != 'success') && format('idle-{0}', github.run_id) || (github.event_name == 'workflow_dispatch' && inputs.arch || (contains(github.event.workflow_run.display_title, 'aarch64') && 'aarch64' || 'x86_64')) }}
   cancel-in-progress: false
 
 jobs:
