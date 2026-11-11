@@ -3,7 +3,6 @@ Description=Activate the NVIDIA driver add-on (kernel-matched proprietary bundle
 DefaultDependencies=no
 After=sinty-devd.service
 Before=basic.target
-ConditionPathExists=/var/.fw-nvidia
 
 [Service]
 Type=oneshot

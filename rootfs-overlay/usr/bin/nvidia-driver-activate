@@ -11,6 +11,17 @@ set -u
 B=/var/.fw-nvidia
 log() { echo "nvidia-activate: $*"; }
 
+fallback() {
+	for d in /sys/bus/pci/devices/*; do
+		[ "$(cat "$d/vendor" 2>/dev/null)" = 0x10de ] || continue
+		case "$(cat "$d/class" 2>/dev/null)" in 0x03*) ;; *) continue ;; esac
+		[ -L "$d/driver" ] && continue
+		modprobe nouveau 2>/dev/null && log "$(basename "$d") had no driver, started nouveau"
+		return
+	done
+}
+trap fallback EXIT
+
 [ -f "$B/.nvidia-version" ] || exit 0
 want="$(cat /usr/lib/nvidia-open-modules.version 2>/dev/null)"
 have="$(cat "$B/.nvidia-version")"

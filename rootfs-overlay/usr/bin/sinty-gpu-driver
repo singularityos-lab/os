@@ -1,0 +1,48 @@
+#!/bin/sh
+set -u
+CONF=/etc/modprobe.d/sinty-gpu.conf
+
+choice() {
+	if [ -f "$CONF" ]; then
+		sed -n 's/^# driver //p' "$CONF"
+	else
+		echo nouveau
+	fi
+}
+
+show() {
+	echo "chosen: $(choice)"
+	for d in /sys/bus/pci/devices/*; do
+		[ "$(cat "$d/vendor" 2>/dev/null)" = 0x10de ] || continue
+		case "$(cat "$d/class" 2>/dev/null)" in 0x03*) ;; *) continue ;; esac
+		drv=none
+		[ -L "$d/driver" ] && drv="$(basename "$(readlink "$d/driver")")"
+		gen=gsp
+		[ $(( $(cat "$d/device") )) -lt $(( 0x1e00 )) ] && gen=pre-gsp
+		echo "$(basename "$d") $(cat "$d/device") $gen $drv"
+	done
+}
+
+write() {
+	mkdir -p /etc/modprobe.d
+	tmp="$CONF.new"
+	{
+		echo "# driver $1"
+		shift
+		for m in "$@"; do echo "blacklist $m"; done
+	} > "$tmp" && mv "$tmp" "$CONF"
+}
+
+case "${1:-show}" in
+show) show ;;
+set)
+	case "${2:-}" in
+	nouveau) rm -f "$CONF" ;;
+	nvidia) write nvidia nouveau nova_core nova_drm ;;
+	nova) write nova nouveau ;;
+	*) echo "usage: sinty-gpu-driver set nouveau|nvidia|nova" >&2; exit 2 ;;
+	esac
+	echo "chosen: $(choice) (from the next start)"
+	;;
+*) echo "usage: sinty-gpu-driver [show | set nouveau|nvidia|nova]" >&2; exit 2 ;;
+esac
