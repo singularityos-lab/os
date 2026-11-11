@@ -6,7 +6,14 @@ REVIEW=$2
 SHA=$3
 IMAGES=$4
 REPO=${GITHUB_REPOSITORY:-singularityos-lab/os}
+ARCH=${ARCH:-x86_64}
 S=${SHA:0:7}
+N=$S
+FAMILIES=""
+if [ "$ARCH" = aarch64 ]; then
+    TAG=$TAG-arm64
+    N=arm64-$S
+fi
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$HERE/.." && pwd)"
 OUT="$(mktemp -d)"
@@ -16,21 +23,38 @@ VERSION="$(cat "$ROOT/release/product-version") ($(cat "$ROOT/release/product-bu
 DATE="$(date -u +%Y-%m-%d)"
 
 declare -A names=(
-    [sinty-os.img]="sinty-os-$S.img"
-    [sinty-os.iso]="sinty-os-$S.iso"
-    [sinty-os-portable.img]="sinty-os-portable-$S.img"
-    [kernelcache.efi]="kernelcache-$S.efi"
-    [kernelcache.efi.sig]="kernelcache-$S.efi.sig"
-    [kernelcache-recovery.efi]="kernelcache-recovery-$S.efi"
-    [kernelcache-recovery.efi.sig]="kernelcache-recovery-$S.efi.sig"
-    [rootfs.erofs]="rootfs-$S.erofs"
-    [rootfs.hash]="rootfs-$S.hash"
-    [verity-output.txt]="verity-output-$S.txt"
+    [sinty-os.img]="sinty-os-$N.img"
+    [sinty-os.iso]="sinty-os-$N.iso"
+    [sinty-os-portable.img]="sinty-os-portable-$N.img"
+    [kernelcache.efi]="kernelcache-$N.efi"
+    [kernelcache.efi.sig]="kernelcache-$N.efi.sig"
+    [kernelcache-recovery.efi]="kernelcache-recovery-$N.efi"
+    [kernelcache-recovery.efi.sig]="kernelcache-recovery-$N.efi.sig"
+    [rootfs.erofs]="rootfs-$N.erofs"
+    [rootfs.hash]="rootfs-$N.hash"
+    [verity-output.txt]="verity-output-$N.txt"
 )
 for src in "${!names[@]}"; do
     [ -f "$IMAGES/$src" ] || { echo "publish: missing $src" >&2; exit 1; }
     cp "$IMAGES/$src" "$OUT/${names[$src]}"
 done
+
+FW=0
+if [ "$ARCH" = aarch64 ]; then
+    for kc in "$IMAGES"/kernelcache.*.efi; do
+        [ -f "$kc" ] || continue
+        fam=$(basename "$kc" .efi)
+        fam=${fam#kernelcache.}
+        [ -f "$kc.sig" ] || { echo "publish: $fam kernelcache is not signed" >&2; exit 1; }
+        cp "$kc" "$OUT/kernelcache-$fam-$N.efi"
+        cp "$kc.sig" "$OUT/kernelcache-$fam-$N.efi.sig"
+        FAMILIES=${FAMILIES:+$FAMILIES,}$fam
+    done
+    if [ -f "$IMAGES/sinty-board-firmware.tar.xz" ]; then
+        cp "$IMAGES/sinty-board-firmware.tar.xz" "$OUT/sinty-board-firmware-$N.tar.xz"
+        FW=1
+    fi
+fi
 
 firmware_from() {
     gh release view "$1" -R "$REPO" --json assets \
@@ -38,12 +62,14 @@ firmware_from() {
         | sed -E 's/^sinty-firmware-nvidia-([0-9a-f]{7})\.tar\.zst$/\1/'
 }
 
-FW=0
 FW_RELEASE=$TAG
-PREV=$(firmware_from "$TAG")
-if [ -z "$PREV" ] && [ "$TAG" != nightly ]; then
-    FW_RELEASE=nightly
-    PREV=$(firmware_from nightly)
+PREV=""
+if [ "$ARCH" != aarch64 ]; then
+    PREV=$(firmware_from "$TAG")
+    if [ -z "$PREV" ] && [ "$TAG" != nightly ]; then
+        FW_RELEASE=nightly
+        PREV=$(firmware_from nightly)
+    fi
 fi
 if [ -n "$PREV" ]; then
     gh release download "$FW_RELEASE" -R "$REPO" -D "$OUT/prev" \
@@ -57,12 +83,12 @@ if [ -n "$PREV" ]; then
     FW=1
 fi
 
-(cd "$OUT" && sha256sum -- * > "SHA256SUMS-$S.txt")
+(cd "$OUT" && sha256sum -- * > "SHA256SUMS-$N.txt")
 
 if ! gh release view "$TAG" -R "$REPO" >/dev/null 2>&1; then
     PRERELEASE=--prerelease
-    [ "$TAG" = stable ] && PRERELEASE=
-    python3 "$HERE/release-table.py" - "$REPO" "$TAG" "$REVIEW" "$VERSION" "$DATE" "$S" "$FW" > "$OUT.notes"
+    case "$TAG" in stable|stable-arm64) PRERELEASE= ;; esac
+    python3 "$HERE/release-table.py" - "$REPO" "$TAG" "$REVIEW" "$VERSION" "$DATE" "$S" "$FW" "$ARCH" "$FAMILIES" > "$OUT.notes"
     gh release create "$TAG" -R "$REPO" --target "$SHA" --title "Sinty OS $TAG" $PRERELEASE --notes-file "$OUT.notes"
     rm -f "$OUT.notes"
     BODY_DONE=1
@@ -80,9 +106,9 @@ done
 
 if [ "$BODY_DONE" = 0 ]; then
     gh release view "$TAG" -R "$REPO" --json body -q .body > "$OUT.body"
-    python3 "$HERE/release-table.py" "$OUT.body" "$REPO" "$TAG" "$REVIEW" "$VERSION" "$DATE" "$S" "$FW" > "$OUT.notes"
+    python3 "$HERE/release-table.py" "$OUT.body" "$REPO" "$TAG" "$REVIEW" "$VERSION" "$DATE" "$S" "$FW" "$ARCH" "$FAMILIES" > "$OUT.notes"
     gh release edit "$TAG" -R "$REPO" --notes-file "$OUT.notes"
     rm -f "$OUT.body" "$OUT.notes"
 fi
 
-echo "publish: $REVIEW on $TAG from $S ($VERSION)"
+echo "publish: $REVIEW on $TAG from $S ($VERSION, $ARCH)"

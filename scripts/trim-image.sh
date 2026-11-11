@@ -9,17 +9,26 @@ set -eu
 TARGET="${1:?usage: trim-image.sh <target-dir>}"
 FW="$TARGET/usr/lib/firmware"
 before=$(du -sm "$TARGET" | cut -f1)
+CONFIG="${BR2_CONFIG:-$(dirname "$0")/../buildroot-build/.config}"
+ARM=0
+grep -q '^BR2_aarch64=y' "$CONFIG" 2>/dev/null && ARM=1
 
-rm -rf "$FW/nvidia"
-find "$TARGET/usr/lib/modules" -name 'nouveau*' -prune -exec rm -rf {} + 2>/dev/null || true
+if [ "$ARM" = 0 ]; then
+    rm -rf "$FW/nvidia"
+    find "$TARGET/usr/lib/modules" -name 'nouveau*' -prune -exec rm -rf {} + 2>/dev/null || true
+fi
 
 # Modules for any kernel other than the one being shipped are leftovers from an
 # earlier build: they are never loaded and cost their full size in every image
 # and every update.
-shipped=$(sed -n 's/^BR2_LINUX_KERNEL_VERSION="\(.*\)"$/\1/p' "$(dirname "$0")/../buildroot-build/.config" 2>/dev/null | tail -1)
+shipped=$(sed -n 's/^BR2_LINUX_KERNEL_VERSION="\(.*\)"$/\1/p' "$CONFIG" 2>/dev/null | tail -1)
+families=$(cat "${BINARIES_DIR:-/nonexistent}"/families/*/kernel.release 2>/dev/null || true)
 if [ -n "$shipped" ] && [ -d "$TARGET/usr/lib/modules/$shipped" ]; then
     for d in "$TARGET"/usr/lib/modules/*/; do
-        [ "$(basename "$d")" = "$shipped" ] || rm -rf "$d"
+        name=$(basename "$d")
+        [ "$name" = "$shipped" ] && continue
+        printf '%s\n' "$families" | grep -qxF "$name" && continue
+        rm -rf "$d"
     done
 fi
 
@@ -46,7 +55,7 @@ done
 rm -f "$TARGET/usr/share/dbus-1/system-services/org.freedesktop.nm_dispatcher.service" "$TARGET/usr/share/dbus-1/system-services/org.freedesktop.nm_priv_helper.service"
 find "$TARGET/usr/lib/NetworkManager" -mindepth 1 -maxdepth 1 -type d -name '[0-9]*' -exec rm -rf {} + 2>/dev/null || true
 
-find "$TARGET/usr/bin" "$TARGET/usr/lib" -type f -name '*.so*' -exec strip --strip-unneeded {} + 2>/dev/null || true
+[ "$ARM" = 1 ] || find "$TARGET/usr/bin" "$TARGET/usr/lib" -type f -name '*.so*' -exec strip --strip-unneeded {} + 2>/dev/null || true
 
 after=$(du -sm "$TARGET" | cut -f1)
 echo "trim-image: $before MB -> $after MB (freed $((before - after)) MB)"

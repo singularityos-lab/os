@@ -110,8 +110,9 @@ if [ -n "${FW_ROOT_PUB:-}" ] && [ -f "$FW_ROOT_PUB" ]; then
 fi
 
 # Kernel modules for the persistent /var (ext4 is a module in the Sinty kernel).
-KVER="$(basename "$(ls -d "$TARGET_DIR"/lib/modules/*/ 2>/dev/null | head -1)")"
-if [ -n "$KVER" ]; then
+for KDIR in "$TARGET_DIR"/lib/modules/*/; do
+	[ -d "$KDIR" ] || continue
+	KVER="$(basename "$KDIR")"
 	mkdir -p "$WORK/lib/modules/$KVER"
 	for mod in crc16 mbcache jbd2 ext4 efivarfs; do
 		ko="$(find "$TARGET_DIR/lib/modules/$KVER" \( -name "$mod.ko" -o -name "$mod.ko.*" \) 2>/dev/null | head -1)"
@@ -123,7 +124,7 @@ if [ -n "$KVER" ]; then
 			*)     cp "$ko" "$WORK/lib/modules/$KVER/$mod.ko" ;;
 		esac
 	done
-fi
+done
 
 resolve_libs
 

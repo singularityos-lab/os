@@ -271,9 +271,12 @@ fi
 # the extra dirs are passed to ldconfig as positional arguments (relative to -r root)
 # instead of via a conf file. Runs last so it indexes the final tree. Non-fatal so a
 # host without ldconfig still produces an image.
-if command -v ldconfig >/dev/null 2>&1; then
-    ldconfig -r "$TARGET_DIR" \
-        /usr/lib/systemd /usr/lib/tracker-3.0 /usr/lib/tracker-miners-3.0 2>/dev/null || true
+LD_EXTRA_DIRS="/usr/lib/systemd /usr/lib/tracker-3.0 /usr/lib/tracker-miners-3.0"
+if grep -q '^BR2_aarch64=y' "${BR2_CONFIG}" 2>/dev/null; then
+    python3 "$SCRIPT_DIR/ld-cache.py" "$TARGET_DIR" aarch64 /lib /usr/lib $LD_EXTRA_DIRS \
+        /usr/lib/aarch64-linux-gnu/nvidia /usr/lib/aarch64-linux-gnu/tegra-egl
+elif command -v ldconfig >/dev/null 2>&1; then
+    ldconfig -r "$TARGET_DIR" $LD_EXTRA_DIRS 2>/dev/null || true
     echo "[singularity] post-build: generated /etc/ld.so.cache (with systemd + tracker dirs)"
 fi
 

@@ -240,12 +240,19 @@ for family in $(kernel_families); do
 done
 export FAMILY_UKIS
 
+BOARD_FIRMWARE=""
+if [ -d "${BUILD_DIR}/images/board-firmware" ]; then
+    tar -C "${BUILD_DIR}/images" --sort=name --mtime="@${SOURCE_DATE_EPOCH}" --owner=0 --group=0 --numeric-owner \
+        -cJf artifacts/sinty-board-firmware.tar.xz board-firmware
+    BOARD_FIRMWARE=sinty-board-firmware.tar.xz
+fi
+
 if [ -n "${ATOM_UNSIGNED:-}" ]; then
     bash scripts/build-recovery.sh
     cp "${ATOM_LOADER_EFI}" "artifacts/${LOADER_NAME}"
     printf '%s\n' "${RELEASE_VERSION}" > artifacts/release-version.txt
     ( cd artifacts && sha256sum release-version.txt "${LOADER_NAME}" rootfs.erofs rootfs.hash verity-output.txt \
-        kernelcache.efi kernelcache-live.efi kernelcache-portable.efi kernelcache-recovery.efi ${FAMILY_UKIS} ) > artifacts/unsigned.sha256
+        kernelcache.efi kernelcache-live.efi kernelcache-portable.efi kernelcache-recovery.efi ${FAMILY_UKIS} ${BOARD_FIRMWARE} ) > artifacts/unsigned.sha256
     echo "[package] unsigned stage done:"
     cat artifacts/unsigned.sha256
     exit 0

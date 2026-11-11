@@ -163,6 +163,7 @@ jobs:
             artifacts/sinty-os.img
             artifacts/sinty-os-portable.img
             artifacts/sinty-os.iso
+            artifacts/sinty-board-firmware.tar.xz
           retention-days: 5
           compression-level: 0
           if-no-files-found: error

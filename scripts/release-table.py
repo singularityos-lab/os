@@ -6,9 +6,24 @@ VISIBLE = 5
 
 COLUMNS = ["review", "version", "date", "commit", "IMG", "ISO", "kc", "rfs", "rec",
            "sha", "sig", "vo", "nv", "amd", "portable"]
+ARM_COLUMNS = ["review", "version", "date", "commit", "IMG", "ISO", "kc", "family", "rfs", "rec",
+               "sha", "sig", "vo", "boards", "portable"]
+ARCH = "x86_64"
+
+
+def columns():
+    return ARM_COLUMNS if ARCH == "aarch64" else COLUMNS
+
+
+def asset(name, sha):
+    if ARCH != "aarch64":
+        return name.replace("@", sha)
+    return name.replace("@", "arm64-" + sha)
 
 
 def header(channel):
+    if ARCH == "aarch64":
+        return arm_header(channel)
     return f"""Builds of Sinty OS on the {channel} channel. Each row below is one build, identified by
 the short commit it was built from. Assets are suffixed with that commit so builds
 never overwrite each other and every row links its own set.
@@ -40,15 +55,69 @@ never overwrite each other and every row links its own set.
 """
 
 
+def arm_header(channel):
+    return f"""Builds of Sinty OS for 64-bit ARM on the {channel} channel. One image serves every
+supported board; the loader picks the kernel for the board it runs on. Assets carry the
+short commit they were built from, so builds never overwrite each other.
+
+<details>
+<summary>Column key</summary>
+
+- **review**: sequential review identifier for this release table
+- **version**: public Sinty OS version and build
+- **date**: build date
+- **commit**: the os source commit the build came from
+- **IMG**: raw disk image, write to a USB stick, SD card or disk with `dd`
+- **portable**: portable recovery and test image; it boots from removable media and can attach an installed data partition without changing deployment state
+- **ISO**: hybrid ISO, boot in a VM or burn to install
+- **kc**: kernelcache, the signed mainline UKI (kernel + initramfs + cmdline + device trees) the loader boots
+- **family**: signed kernelcache for boards that need their vendor kernel (`l4t`: Jetson Orin)
+- **rfs**: read-only erofs Root, dm-verity sealed (ships alongside its `.hash` tree)
+- **rec**: recovery kernelcache, the recovery-slot UKI
+- **sha**: `SHA256SUMS` covering every asset in the build
+- **sig**: detached signatures for **kc** and **rec** (kept next to the file each one signs; a `.sig` alone is useless)
+- **vo**: verity-output, the dm-verity root hash and parameters for the Root
+- **boards**: UEFI firmware for boards that ship without one (Jetson Nano, TX1, TX2, Rock 5B, Raspberry Pi 4 and 5)
+
+</details>
+
+### Builds
+
+{table_head()}
+"""
+
+
 def table_head():
-    return "| " + " | ".join(COLUMNS) + " |\n|" + "|".join("-" * max(3, len(c) + 2) for c in COLUMNS) + "|"
+    cols = columns()
+    return "| " + " | ".join(cols) + " |\n|" + "|".join("-" * max(3, len(c) + 2) for c in cols) + "|"
 
 
-def row(repo, tag, review, version, date, sha, firmware):
+def row(repo, tag, review, version, date, sha, firmware, families=()):
     base = f"https://github.com/{repo}/releases/download/{tag}"
 
     def link(label, name):
-        return f"[{label}]({base}/{name})"
+        return f"[{label}]({base}/{asset(name, sha)})"
+
+    if ARCH == "aarch64":
+        fams = ", ".join(link(f, f"kernelcache-{f}-@.efi") for f in families) or "-"
+        cells = [
+            review,
+            version,
+            date,
+            f"[`{sha}`](https://github.com/{repo}/commit/{sha})",
+            link("img", "sinty-os-@.img"),
+            link("iso", "sinty-os-@.iso"),
+            link("kc", "kernelcache-@.efi"),
+            fams,
+            link("rfs", "rootfs-@.erofs"),
+            link("rec", "kernelcache-recovery-@.efi"),
+            link("sha", "SHA256SUMS-@.txt"),
+            link("kc", "kernelcache-@.efi.sig") + ", " + link("rec", "kernelcache-recovery-@.efi.sig"),
+            link("vo", "verity-output-@.txt"),
+            link("boards", "sinty-board-firmware-@.tar.xz") if firmware else "-",
+            link("portable", "sinty-os-portable-@.img"),
+        ]
+        return "| " + " | ".join(cells) + " |"
 
     nv = link("nv", f"sinty-firmware-nvidia-{sha}.tar.zst") if firmware else "-"
     amd = link("amd", f"sinty-firmware-amd-{sha}.tar.zst") if firmware else "-"
@@ -102,9 +171,13 @@ def insert(body, new_row, channel):
 
 
 def main():
+    global ARCH
     body_file, repo, tag, review, version, date, sha, firmware = sys.argv[1:9]
+    if len(sys.argv) > 9:
+        ARCH = sys.argv[9]
+    families = sys.argv[10].split(",") if len(sys.argv) > 10 and sys.argv[10] else []
     body = open(body_file).read() if body_file != "-" else ""
-    new_row = row(repo, tag, review, version, date, sha, firmware == "1")
+    new_row = row(repo, tag, review, version, date, sha, firmware == "1", families)
     sys.stdout.write(insert(body, new_row, tag))
 
 
