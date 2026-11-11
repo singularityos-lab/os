@@ -1,0 +1,12 @@
+config BR2_PACKAGE_CPAK
+	bool "cpak"
+	depends on BR2_aarch64
+	depends on BR2_PACKAGE_HOST_GO_TARGET_ARCH_SUPPORTS
+	depends on BR2_PACKAGE_LIBGTK4
+	help
+	  cpak container package manager built from source, in managed
+	  self-update mode, with its storage daemon, slirp4netns and the
+	  system authority D-Bus service. Same layout as the x86_64
+	  prebuilt.
+
+	  https://github.com/containerpak/cpak
