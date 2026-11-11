@@ -4,7 +4,7 @@
 #
 ################################################################################
 
-SINTY_AGENT_VERSION = 68ea876137f56b532202b728dc9e23101f37bd1e
+SINTY_AGENT_VERSION = a3145de824a8346ab3bbe40584b928166039ca92
 SINTY_AGENT_SITE = $(call github,singularityos-lab,sinty-agent,$(SINTY_AGENT_VERSION))
 SINTY_AGENT_LICENSE = GPL-3.0
 SINTY_AGENT_DEPENDENCIES = host-pkgconf host-wayland libglib2 libsoup3 libsecret wayland zlib
@@ -32,8 +32,9 @@ define SINTY_AGENT_INSTALL_TARGET_CMDS
 	$(INSTALL) -D -m 0755 $(@D)/out/bin/sinty-agent-bridge $(TARGET_DIR)/usr/libexec/sinty-agent-bridge
 	$(INSTALL) -D -m 0644 $(@D)/out/share/dbus-1/services/dev.sinty.Agent.service \
 		$(TARGET_DIR)/usr/share/dbus-1/services/dev.sinty.Agent.service
-	$(INSTALL) -D -m 0644 $(@D)/out/share/singularity/tour/75-sinty-ai.slide \
-		$(TARGET_DIR)/usr/share/singularity/tour/75-sinty-ai.slide
+	$(INSTALL) -d $(TARGET_DIR)/usr/share/singularity/tour
+	$(INSTALL) -m 0644 $(@D)/out/share/singularity/tour/*.slide \
+		$(TARGET_DIR)/usr/share/singularity/tour/
 endef
 
 $(eval $(generic-package))

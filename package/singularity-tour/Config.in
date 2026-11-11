@@ -4,6 +4,7 @@ config BR2_PACKAGE_SINGULARITY_TOUR
 	select BR2_PACKAGE_LIBSINGULARITY
 	select BR2_PACKAGE_LIBGEE
 	select BR2_PACKAGE_PANGO
+	select BR2_PACKAGE_JSON_GLIB
 	help
 	  Singularity Tour: a short look at how the desktop works.
 
