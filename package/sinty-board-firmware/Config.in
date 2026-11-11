@@ -1,0 +1,9 @@
+config BR2_PACKAGE_SINTY_BOARD_FIRMWARE
+	bool "sinty-board-firmware"
+	depends on BR2_aarch64
+	help
+	  UEFI firmware for boards that do not ship one, so they boot
+	  the Sinty OS image like a PC: U-Boot with its EFI loader for
+	  Jetson Nano, TX1 and TX2, EDK2 for Rock 5B and 5B+, and the
+	  UEFI firmware for Raspberry Pi 4 and 5. The files land in
+	  images/board-firmware, one folder per board.
