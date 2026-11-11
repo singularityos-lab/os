@@ -1,5 +1,5 @@
 name: Singularity Build (self-hosted)
-run-name: Singularity Build ${{ inputs.arch || 'x86_64' }}
+run-name: Singularity Build ${{ inputs.arch || 'x86_64' }}${{ inputs.anywhere && ' (moved)' || '' }}
 
 on:
   push:
@@ -11,17 +11,55 @@ on:
         type: choice
         options: [x86_64, aarch64]
         default: x86_64
+      anywhere:
+        description: Run on any build runner instead of the one that keeps this architecture's cache
+        type: boolean
+        default: false
 
 permissions:
   contents: read
 
 jobs:
+  route:
+    if: (github.event_name == 'workflow_dispatch' && !inputs.anywhere) || (github.event_name == 'push' && startsWith(github.event.head_commit.message, 'build(self-hosted)'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 330
+    permissions:
+      actions: write
+    steps:
+      - name: Move the build when its home runner does not take it
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN: ${{ github.run_id }}
+          ARCH: ${{ inputs.arch || 'x86_64' }}
+          REF: ${{ github.ref_name }}
+        run: |
+          waited=0
+          for i in $(seq 1 600); do
+            state=$(gh api "repos/$REPO/actions/runs/$RUN/jobs" --jq '.jobs[] | select(.name == "build") | .status + " " + (.runner_name // "")')
+            case "$state" in
+              "") ;;
+              queued*) ;;
+              *) echo "build started: $state"; exit 0 ;;
+            esac
+            busy=$(gh api "repos/$REPO/actions/workflows/build-self-hosted.yml/runs?status=in_progress" --jq "[.workflow_runs[] | select(.id != $RUN) | select(.display_title | startswith(\"Singularity Build $ARCH\"))] | length")
+            if [ "$busy" = 0 ]; then waited=$((waited + 30)); else waited=0; fi
+            if [ "$waited" -ge 900 ]; then
+              echo "the home runner for $ARCH has not taken the build in 15 minutes, moving it"
+              gh workflow run build-self-hosted.yml -R "$REPO" --ref "$REF" -f arch="$ARCH" -f anywhere=true
+              gh run cancel "$RUN" -R "$REPO"
+              exit 0
+            fi
+            sleep 30
+          done
+
   build:
     if: github.event_name == 'workflow_dispatch' || startsWith(github.event.head_commit.message, 'build(self-hosted)')
     concurrency:
       group: build-self-hosted-${{ inputs.arch || 'x86_64' }}
       cancel-in-progress: false
-    runs-on: [self-hosted, sinty-build, "${{ inputs.arch || 'x86_64' }}"]
+    runs-on: [self-hosted, sinty-build, "${{ inputs.anywhere && (inputs.arch || 'x86_64') || format('home-{0}', inputs.arch || 'x86_64') }}"]
     timeout-minutes: 1440
     env:
       ARCH: ${{ inputs.arch || 'x86_64' }}
