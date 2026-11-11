@@ -45,8 +45,8 @@ jobs:
             esac
             busy=$(gh api "repos/$REPO/actions/workflows/build-self-hosted.yml/runs?status=in_progress" --jq "[.workflow_runs[] | select(.id != $RUN) | select(.display_title | startswith(\"Singularity Build $ARCH\"))] | length")
             if [ "$busy" = 0 ]; then waited=$((waited + 30)); else waited=0; fi
-            if [ "$waited" -ge 900 ]; then
-              echo "the home runner for $ARCH has not taken the build in 15 minutes, moving it"
+            if [ "$waited" -ge 300 ]; then
+              echo "the home runner for $ARCH has not taken the build in 5 minutes, moving it"
               gh workflow run build-self-hosted.yml -R "$REPO" --ref "$REF" -f arch="$ARCH" -f anywhere=true
               gh run cancel "$RUN" -R "$REPO"
               exit 0
