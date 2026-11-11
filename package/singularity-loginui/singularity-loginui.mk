@@ -6,7 +6,7 @@
 
 # SITE=local: build from the local desktop subproject (auth_label PIN field).
 # Release builds use the pinned repository version.
-SINGULARITY_LOGINUI_VERSION = 90e9c819f8e748b5aeb656fddf26123ca1131fa0
+SINGULARITY_LOGINUI_VERSION = e9c9f082dea53b78220fe1004f293f9693e39878
 SINGULARITY_LOGINUI_SITE = $(call github,singularityos-lab,singularity-loginui,$(SINGULARITY_LOGINUI_VERSION))
 SINGULARITY_LOGINUI_LICENSE = LGPL-2.1
 SINGULARITY_LOGINUI_LICENSE_FILES = LICENSE
