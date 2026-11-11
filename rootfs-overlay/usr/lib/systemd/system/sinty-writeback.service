@@ -7,7 +7,7 @@ ConditionPathExists=/proc/sys/vm/dirty_bytes
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-ExecStart=/bin/sh -c 'echo 67108864 > /proc/sys/vm/dirty_background_bytes; echo 268435456 > /proc/sys/vm/dirty_bytes'
+ExecStart=/bin/sh -c 'echo 33554432 > /proc/sys/vm/dirty_background_bytes; echo 134217728 > /proc/sys/vm/dirty_bytes'
 
 [Install]
 WantedBy=sysinit.target
