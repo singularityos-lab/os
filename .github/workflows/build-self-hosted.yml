@@ -61,6 +61,8 @@ jobs:
       cancel-in-progress: false
     runs-on: [self-hosted, sinty-build, "${{ inputs.anywhere && (inputs.arch || 'x86_64') || format('home-{0}', inputs.arch || 'x86_64') }}"]
     timeout-minutes: 1440
+    permissions:
+      contents: write
     env:
       ARCH: ${{ inputs.arch || 'x86_64' }}
       CACHE: ${{ (inputs.arch || 'x86_64') == 'x86_64' && '/home/runner/cache' || format('/home/runner/cache-{0}', inputs.arch) }}
@@ -204,6 +206,10 @@ jobs:
             echo "$h" > "$rec"
           fi
 
+      - name: Restore cached packages
+        continue-on-error: true
+        run: python3 scripts/pkg-cache.py restore --work "$RUNNER_TEMP" --base-url "https://github.com/${{ github.repository }}/releases/download/pkg-cache"
+
       - name: Compile
         env:
           ATOM_BUILD: rc
@@ -215,6 +221,28 @@ jobs:
           echo "rebuilding $stale from scratch after a failure in the cached tree"
           rm -rf "$BUILD_DIR/build/$stale"
           ./scripts/compile.sh 2>&1 | tee build.log
+
+      - name: Save new packages to the cache
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          api="https://api.github.com/repos/$REPO/releases/tags/pkg-cache"
+          rel=$(curl -fsS -H "Authorization: Bearer $GH_TOKEN" "$api")
+          id=$(printf '%s' "$rel" | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')
+          have=$(printf '%s' "$rel" | python3 -c 'import json,sys; print(",".join(a["name"] for a in json.load(sys.stdin)["assets"]))')
+          out="$RUNNER_TEMP/pkg-cache"
+          rm -rf "$out"
+          python3 scripts/pkg-cache.py save --work "$RUNNER_TEMP" --skip "$have" --out "$out"
+          for f in "$out"/*.tar.zst; do
+            [ -e "$f" ] || continue
+            curl -fsS -o /dev/null -H "Authorization: Bearer $GH_TOKEN" -H "Content-Type: application/zstd" \
+              --data-binary @"$f" "https://uploads.github.com/repos/$REPO/releases/$id/assets?name=$(basename "$f")"
+            mkdir -p "$CACHE/pkg-cache" && cp -f "$f" "$CACHE/pkg-cache/" 2>/dev/null || true
+            echo "uploaded $(basename "$f")"
+          done
+          rm -rf "$out"
 
       - name: Capture the web engines built from source
         id: engines
