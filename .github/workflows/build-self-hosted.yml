@@ -17,11 +17,11 @@ permissions:
 
 jobs:
   build:
-    if: github.event_name == 'workflow_dispatch' || startsWith(github.event.head_commit.message, 'build(thad)')
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.event.head_commit.message, 'build(self-hosted)')
     concurrency:
-      group: build-thad-${{ inputs.arch || 'x86_64' }}
+      group: build-self-hosted-${{ inputs.arch || 'x86_64' }}
       cancel-in-progress: false
-    runs-on: [self-hosted, thad]
+    runs-on: [self-hosted, sinty-build]
     timeout-minutes: 1440
     env:
       ARCH: ${{ inputs.arch || 'x86_64' }}
@@ -212,7 +212,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: thad-build-log-${{ env.ARCH }}-${{ github.sha }}
+          name: build-log-${{ env.ARCH }}-${{ github.sha }}
           path: |
             build.log
             package.log
