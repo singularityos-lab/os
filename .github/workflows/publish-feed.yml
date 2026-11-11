@@ -1,0 +1,237 @@
+name: Publish to the update feed
+
+on:
+  workflow_run:
+    workflows: ["Sign a release"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      sign_run:
+        description: Id of a successful Sign a release run
+        required: true
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: publish-feed-${{ (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion != 'success') && format('idle-{0}', github.run_id) || 'feed' }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: >-
+      github.event_name == 'workflow_dispatch' || (
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event != 'pull_request')
+    runs-on: ubuntu-24.04
+    environment: release
+    timeout-minutes: 240
+    env:
+      SIGN_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.sign_run || github.event.workflow_run.id }}
+      FEED_REPO: singularityos-lab/sinty-updates
+    steps:
+      - name: Resolve the signed release
+        id: sign
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          printf '%s\n' "$SIGN_RUN" | grep -Eq '^[0-9]+$' || { echo "sign run must be a number"; exit 1; }
+          info=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SIGN_RUN" --jq '[.path, .conclusion] | @tsv')
+          [ "$info" = "$(printf '.github/workflows/release-sign.yml\tsuccess')" ] || { echo "run $SIGN_RUN is not a successful Sign a release run"; exit 1; }
+          name=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SIGN_RUN/artifacts" --jq '[.artifacts[] | select(.name | test("^signed(-aarch64)?-[0-9a-f]{40}$")) | .name] | first // ""')
+          [ -n "$name" ] || { echo "run $SIGN_RUN kept no signed release"; exit 1; }
+          sha=${name##*-}
+          case "$name" in signed-aarch64-*) arch=aarch64 ;; *) arch=x86_64 ;; esac
+          {
+            echo "SIGNED=$name"
+            echo "ARCH=$arch"
+          } >> "$GITHUB_ENV"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ steps.sign.outputs.sha }}
+          path: os
+          persist-credentials: false
+
+      - name: Read the release
+        id: rel
+        run: |
+          set -euo pipefail
+          v=$(cat os/release/atom-version)
+          printf '%s\n' "$v" | grep -Eq '^[0-9]+$' || { echo "atom-version is not a number"; exit 1; }
+          atom=$(sed -n 's/^ATOMLOOPS=//p' os/build-deps)
+          printf '%s\n' "$atom" | grep -Eq '^[0-9a-f]{40}$' || { echo "build-deps does not declare ATOMLOOPS"; exit 1; }
+          if [ "$ARCH" = aarch64 ]; then
+            channel=stable/aarch64
+            tag=v$v-aarch64
+          else
+            channel=stable
+            tag=v$v
+          fi
+          {
+            echo "VERSION=v$v"
+            echo "TAG=$tag"
+            echo "CHANNEL=$channel"
+            echo "PRODUCT_VERSION=$(cat os/release/product-version)"
+            echo "PRODUCT_BUILD=$(cat os/release/product-build)"
+            echo "RECOVERY_VERSION=$(cat os/release/recovery-version)"
+          } >> "$GITHUB_ENV"
+          echo "atomloops=$atom" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout Atom Loops
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: mirkobrombin/AtomLoops
+          ref: ${{ steps.rel.outputs.atomloops }}
+          path: AtomLoops
+          persist-credentials: false
+
+      - name: Checkout the feed
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: ${{ env.FEED_REPO }}
+          path: feed
+          token: ${{ secrets.SINTY_UPDATES_TOKEN }}
+
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
+        with:
+          go-version: '1.26.x'
+          cache: false
+
+      - name: Download the signed release
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ env.SIGNED }}
+          path: rel
+          run-id: ${{ env.SIGN_RUN }}
+          github-token: ${{ github.token }}
+
+      - name: Check the signed release
+        run: |
+          set -euo pipefail
+          cd rel
+          sha256sum -c signed.sha256
+          sha256sum -c --ignore-missing unsigned.sha256
+          for f in rootfs.erofs rootfs.hash kernelcache.efi kernelcache-recovery.efi; do
+            grep -q " $f\$" unsigned.sha256 || { echo "$f is not covered by the build checksums"; exit 1; }
+          done
+          grep -qx "$VERSION" release-version.txt || grep -qx "${VERSION#v}" release-version.txt || { echo "the signed release is not $VERSION"; cat release-version.txt; exit 1; }
+          root=$(grep -ao 'sing\.roothash=[0-9a-f]\{64\}' kernelcache.efi | head -n 1 | cut -d= -f2)
+          [ -n "$root" ] || { echo "kernelcache.efi carries no root hash"; exit 1; }
+          printf 'Root hash:      \t%s\n' "$root" > verity-output.txt
+          if [ -n "$(git -C ../feed tag -l "$TAG")" ] || gh release view "$TAG" -R "$FEED_REPO" >/dev/null 2>&1; then
+            echo "$TAG is already published"
+            exit 1
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.SINTY_UPDATES_TOKEN }}
+
+      - name: Carry the firmware bundles over
+        run: |
+          set -euo pipefail
+          live=feed/$CHANNEL/manifest.json
+          [ -f "$live" ] || { echo "no live manifest on $CHANNEL to take the firmware bundles from"; exit 1; }
+          for name in amd nvidia; do
+            b=$(jq -c --arg n "$name" '.firmware_bundles[] | select(.name == $n)' "$live")
+            [ -n "$b" ] || { echo "the live manifest has no $name bundle"; exit 1; }
+            for part in "url hash img" "hashtree_url hashtree_hash hash"; do
+              set -- $part
+              url=$(jq -r ".$1" <<<"$b")
+              want=$(jq -r ".$2" <<<"$b")
+              out=rel/firmware-active-$name.$3
+              path=${url#https://updates.sinty.dev/artifacts/}
+              [ "$path" != "$url" ] || { echo "$url is not a feed artifact"; exit 1; }
+              ver=${path%%/*}
+              rest=${path#*/}
+              case "$rest" in */*) ver=$ver-${rest%%/*} ;; esac
+              curl -fsSL --retry 5 -o "$out" "https://github.com/$FEED_REPO/releases/download/$ver/${rest##*/}"
+              [ "$(sha256sum "$out" | cut -d' ' -f1)" = "$want" ] || { echo "$url does not match the live manifest"; exit 1; }
+            done
+            up=$(echo "$name" | tr a-z A-Z)
+            {
+              echo "${up}_FIRMWARE_VERITY_HASH=$(jq -r .verity_hash <<<"$b")"
+              echo "${up}_FIRMWARE_VERSION=$(jq -r .version <<<"$b")"
+            } >> "$GITHUB_ENV"
+          done
+
+      - name: Sign the manifest
+        env:
+          SIGNING_KEY_B64: ${{ secrets.ATOM_SIGNING_KEY_B64 }}
+          SIGNING_CERT_B64: ${{ secrets.ATOM_SIGNING_CERT_B64 }}
+          SIGNING_CERT_SIG_B64: ${{ secrets.ATOM_SIGNING_CERT_SIG_B64 }}
+        run: |
+          set -euo pipefail
+          umask 077
+          keys="$RUNNER_TEMP/keys"
+          mkdir -p "$keys"
+          trap 'rm -rf "$keys"' EXIT
+          printf '%s' "$SIGNING_KEY_B64" | base64 -d > "$keys/signing-v1.key"
+          printf '%s' "$SIGNING_CERT_B64" | base64 -d > "$keys/signing-cert-v1.json"
+          printf '%s' "$SIGNING_CERT_SIG_B64" | base64 -d > "$keys/signing-cert-v1.json.sig"
+          loader=$(ls feed/loader/atom-loader-*.efi | sort -t- -k3 -n | tail -n 1)
+          ATOMLOOPS="$GITHUB_WORKSPACE/AtomLoops" \
+          SIGNING_KEY="$keys/signing-v1.key" SIGNING_CERT="$keys/signing-cert-v1.json" \
+          ARCH="$ARCH" \
+          LOADER_IMG="$GITHUB_WORKSPACE/$loader" LOADER_BASE=https://updates.sinty.dev/loader \
+          RECOVERY_IMG="$GITHUB_WORKSPACE/rel/kernelcache-recovery.efi" \
+            sh feed/publish.sh "$VERSION" "$GITHUB_WORKSPACE/rel/rootfs.erofs" "$GITHUB_WORKSPACE/rel/kernelcache.efi" "$CHANNEL"
+
+      - name: Compress the images
+        run: |
+          set -euo pipefail
+          cd rel
+          for img in sinty-os sinty-os-portable; do
+            [ -f "$img.img" ] || continue
+            xz -T0 -6 -c "$img.img" > "$img-$VERSION.img.xz"
+            sha256sum "$img-$VERSION.img.xz" > "$img-$VERSION.img.xz.sha256"
+          done
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ secrets.SINTY_UPDATES_TOKEN }}
+          SHA: ${{ steps.sign.outputs.sha }}
+        run: |
+          set -euo pipefail
+          cd rel
+          s=${SHA:0:7}
+          mv verity-output.txt "verity-output-$s.txt"
+          files="rootfs.erofs rootfs.hash kernelcache.efi kernelcache.efi.sig kernelcache-recovery.efi kernelcache-recovery.efi.sig"
+          files="$files firmware-active-amd.img firmware-active-amd.hash firmware-active-nvidia.img firmware-active-nvidia.hash verity-output-$s.txt"
+          for f in kernelcache.*.efi kernelcache.*.efi.sig sinty-board-firmware.tar.xz sinty-os-$VERSION.img.xz sinty-os-$VERSION.img.xz.sha256 sinty-os-portable-$VERSION.img.xz sinty-os-portable-$VERSION.img.xz.sha256; do
+            [ -f "$f" ] && files="$files $f"
+          done
+          sha256sum $files > "SHA256SUMS-$s.txt"
+          files="$files SHA256SUMS-$s.txt"
+          for f in $files; do
+            [ "$(stat -c %s "$f")" -lt 2147483648 ] || { echo "$f is over the 2 GiB asset limit"; exit 1; }
+          done
+          gh release create "$TAG" -R "$FEED_REPO" --draft --title "Sinty OS $PRODUCT_BUILD ($TAG)" --notes "Sinty OS $PRODUCT_VERSION ($PRODUCT_BUILD) from singularityos-lab/os@$s."
+          gh release upload "$TAG" -R "$FEED_REPO" --clobber $files
+          for f in $files; do
+            size=$(gh release view "$TAG" -R "$FEED_REPO" --json assets -q ".assets[] | select(.name == \"$f\") | .size")
+            [ "$size" = "$(stat -c %s "$f")" ] || { echo "$f did not upload intact"; exit 1; }
+          done
+          gh release edit "$TAG" -R "$FEED_REPO" --draft=false
+
+      - name: Push the manifest
+        run: |
+          set -euo pipefail
+          cd feed
+          git config user.name "github-actions[bot]"
+          git config user.email "41898283+github-actions[bot]@users.noreply.github.com"
+          git add "$CHANNEL/manifest.json" "$CHANNEL/manifest.json.sig" "$CHANNEL/signing-cert.json" "$CHANNEL/signing-cert.json.sig"
+          if [ "$ARCH" = aarch64 ]; then what="$VERSION aarch64 stable"; else what="$VERSION stable"; fi
+          git commit -q -m "feat: publish the $what manifest"
+          git push -q origin HEAD:main
+          for i in 1 2 3 4 5 6 7 8 9 10 11 12; do
+            sleep 20
+            live=$(curl -fsS "https://updates.sinty.dev/$CHANNEL/manifest.json" | jq -r .version) || live=""
+            [ "$live" = "$VERSION" ] && { echo "the feed serves $VERSION"; exit 0; }
+          done
+          echo "the feed still serves $live"
+          exit 1
