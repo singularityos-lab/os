@@ -1,0 +1,6 @@
+[Desktop Entry]
+Type=Application
+Name=Media service
+Exec=/usr/libexec/sinty-mediad
+NoDisplay=true
+OnlyShowIn=Singularity;

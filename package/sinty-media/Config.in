@@ -1,0 +1,20 @@
+config BR2_PACKAGE_SINTY_MEDIA
+	bool "sinty-media"
+	depends on BR2_aarch64
+	select BR2_PACKAGE_GSTREAMER1
+	select BR2_PACKAGE_GST1_PLUGINS_BASE
+	select BR2_PACKAGE_GST1_PLUGINS_GOOD
+	select BR2_PACKAGE_PIPEWIRE
+	select BR2_PACKAGE_PANGO
+	select BR2_PACKAGE_LIBGUDEV
+	select BR2_PACKAGE_LIBDRM
+	select BR2_PACKAGE_GRAPHENE
+	select BR2_PACKAGE_LIBPNG
+	select BR2_PACKAGE_JPEG
+	select BR2_PACKAGE_XLIB_LIBXI if BR2_PACKAGE_XORG7
+	select BR2_PACKAGE_XLIB_LIBXV if BR2_PACKAGE_XORG7
+	select BR2_PACKAGE_XLIB_LIBXEXT if BR2_PACKAGE_XORG7
+	help
+	  Sinty media built from source: the in-house GStreamer 1.28
+	  compatible core libraries, plugins and media service, with
+	  the same files as the x86_64 prebuilt.
