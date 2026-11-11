@@ -1,0 +1,28 @@
+name: Requeue a lost build
+
+on:
+  workflow_run:
+    workflows: ["Singularity Build (self-hosted)"]
+    types: [completed]
+
+permissions:
+  actions: write
+
+jobs:
+  requeue:
+    if: github.event.workflow_run.conclusion == 'failure' && github.event.workflow_run.run_attempt < 3
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Rerun when the runner went away
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN: ${{ github.event.workflow_run.id }}
+          REPO: ${{ github.repository }}
+        run: |
+          lost=$(gh api "repos/$REPO/actions/runs/$RUN/jobs" --jq '[.jobs[] | select(.conclusion == "failure") | select(all(.steps[]?; .conclusion != "failure"))] | length')
+          if [ "$lost" = 0 ]; then
+            echo "the build failed on its own, nothing to requeue"
+            exit 0
+          fi
+          echo "a runner went away during run $RUN, queueing it again"
+          gh run rerun "$RUN" --failed -R "$REPO"
