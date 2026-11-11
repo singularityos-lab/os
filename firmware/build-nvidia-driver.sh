@@ -91,7 +91,7 @@ if [ "${PACKAGE:-1}" = 1 ]; then
 		--rootfs-hashtree "$PLACE" --rootfs-hashtree-url "$URL_BASE/_unused/rootfs.hash" \
 		--kernelcache "$PLACE" --kc-url "$URL_BASE/_unused/kernelcache" \
 		--kc-sig "$PLACE" --kc-sig-url "$URL_BASE/_unused/kernelcache.sig" \
-		--bundle "name=nvidia,img=$BDIR/firmware-active.img,url=$URL_BASE/nvidia/firmware-active.img,verity=$roothash,hashtree=$BDIR/firmware-active.hash,hashtree-url=$URL_BASE/nvidia/firmware-active.hash,version=1,chips=nvidia" >&2
+		--bundle "name=nvidia,img=$BDIR/firmware-active.img,url=$URL_BASE/nvidia/firmware-active.img,verity=$roothash,hashtree=$BDIR/firmware-active.hash,hashtree-url=$URL_BASE/nvidia/firmware-active.hash,version=1,chips=nvidia,opt-in=true" >&2
 	"$ATOM_SIGN" sign --manifest "$BDIR/fw-manifest-active.json" --priv "$SIGNING_KEY" >&2
 	cp "$SIGNING_CERT" "$BDIR/fw-signing-cert-active.json"
 	cp "$SIGNING_CERT.sig" "$BDIR/fw-signing-cert-active.json.sig"
