@@ -1,6 +1,8 @@
 #!/bin/sh
 set -u
 CONF=/etc/modprobe.d/sinty-gpu.conf
+OPTIN=/var/lib/atom/firmware-optin
+BUNDLE=/var/.fw-nvidia/.nvidia-version
 
 choice() {
 	if [ -f "$CONF" ]; then
@@ -33,8 +35,17 @@ write() {
 	} > "$tmp" && mv "$tmp" "$CONF"
 }
 
+sync() {
+	if grep -qx nvidia "$OPTIN" 2>/dev/null && [ -f "$BUNDLE" ]; then
+		[ "$(choice)" = nvidia ] || write nvidia nouveau nova_core nova_drm
+	elif [ "$(choice)" = nvidia ]; then
+		rm -f "$CONF"
+	fi
+}
+
 case "${1:-show}" in
 show) show ;;
+sync) sync ;;
 set)
 	case "${2:-}" in
 	nouveau) rm -f "$CONF" ;;
@@ -44,5 +55,5 @@ set)
 	esac
 	echo "chosen: $(choice) (from the next start)"
 	;;
-*) echo "usage: sinty-gpu-driver [show | set nouveau|nvidia|nova]" >&2; exit 2 ;;
+*) echo "usage: sinty-gpu-driver [show | sync | set nouveau|nvidia|nova]" >&2; exit 2 ;;
 esac

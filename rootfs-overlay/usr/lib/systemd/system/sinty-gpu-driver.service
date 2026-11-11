@@ -1,0 +1,12 @@
+[Unit]
+Description=Apply the chosen graphics driver before devices are probed
+DefaultDependencies=no
+Before=sinty-devd.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/sinty-gpu-driver sync
+RemainAfterExit=yes
+
+[Install]
+WantedBy=sysinit.target
