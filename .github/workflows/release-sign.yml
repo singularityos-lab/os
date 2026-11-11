@@ -4,34 +4,70 @@ on:
   workflow_run:
     workflows: ["Singularity Build (self-hosted)"]
     types: [completed]
+  workflow_dispatch:
+    inputs:
+      build_run:
+        description: Id of a successful self-hosted build run on main
+        required: true
+      arch:
+        description: Architecture of that build
+        type: choice
+        options: [x86_64, aarch64]
+        default: x86_64
 
 permissions:
   contents: read
   actions: read
 
 concurrency:
-  group: release-sign-${{ contains(github.event.workflow_run.display_title, 'aarch64') && 'aarch64' || 'x86_64' }}
+  group: release-sign-${{ github.event_name == 'workflow_dispatch' && inputs.arch || (contains(github.event.workflow_run.display_title, 'aarch64') && 'aarch64' || 'x86_64') }}
   cancel-in-progress: false
 
 jobs:
   sign:
     if: >-
+      github.event_name == 'workflow_dispatch' || (
       github.event.workflow_run.conclusion == 'success' &&
       github.event.workflow_run.event != 'pull_request' &&
-      github.event.workflow_run.head_branch == 'main'
+      github.event.workflow_run.head_branch == 'main')
     runs-on: ubuntu-24.04
     environment: release
     timeout-minutes: 180
     env:
-      ARCH: ${{ contains(github.event.workflow_run.display_title, 'aarch64') && 'aarch64' || 'x86_64' }}
-      STAGE: ${{ contains(github.event.workflow_run.display_title, 'aarch64') && format('unsigned-aarch64-{0}', github.event.workflow_run.head_sha) || format('unsigned-{0}', github.event.workflow_run.head_sha) }}
-      SIGNED: ${{ contains(github.event.workflow_run.display_title, 'aarch64') && format('signed-aarch64-{0}', github.event.workflow_run.head_sha) || format('signed-{0}', github.event.workflow_run.head_sha) }}
-
+      ARCH: ${{ github.event_name == 'workflow_dispatch' && inputs.arch || (contains(github.event.workflow_run.display_title, 'aarch64') && 'aarch64' || 'x86_64') }}
+      BUILD_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.build_run || github.event.workflow_run.id }}
     steps:
+      - name: Resolve the build
+        id: build
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          printf '%s\n' "$BUILD_RUN" | grep -Eq '^[0-9]+$' || { echo "build run must be a number"; exit 1; }
+          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
+            info=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$BUILD_RUN" --jq '[.path, .conclusion, .head_branch, .event, .head_sha, .display_title] | @tsv')
+            IFS="$(printf '\t')" read -r name conclusion branch event sha title <<EOF2
+          $info
+          EOF2
+            [ "$name" = ".github/workflows/build-self-hosted.yml" ] && [ "$conclusion" = success ] && [ "$branch" = main ] && [ "$event" != pull_request ] || { echo "run $BUILD_RUN is not a successful build on main"; exit 1; }
+            case "$title" in *aarch64*) want=aarch64 ;; *) want=x86_64 ;; esac
+            [ "$want" = "$ARCH" ] || { echo "run $BUILD_RUN built $want, not $ARCH"; exit 1; }
+          else
+            sha=$EVENT_SHA
+          fi
+          printf '%s\n' "$sha" | grep -Eq '^[0-9a-f]{40}$' || { echo "no commit for run $BUILD_RUN"; exit 1; }
+          if [ "$ARCH" = aarch64 ]; then pre=-aarch64; else pre=; fi
+          {
+            echo "sha=$sha"
+            echo "STAGE=unsigned$pre-$sha"
+            echo "SIGNED=signed$pre-$sha"
+          } >> "$GITHUB_ENV"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
-          ref: ${{ github.event.workflow_run.head_sha }}
+          ref: ${{ steps.build.outputs.sha }}
           persist-credentials: false
 
       - name: Read the declared dependencies
@@ -59,6 +95,8 @@ jobs:
 
       - name: Install the image tools
         run: |
+          printf 'http://archive.ubuntu.com/ubuntu\tpriority:1\nhttp://azure.archive.ubuntu.com/ubuntu/\tpriority:2\n' | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
+          printf 'Acquire::Retries "5";\nAcquire::http::Timeout "30";\n' | sudo tee /etc/apt/apt.conf.d/99retries >/dev/null
           sudo apt-get update -qq
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq genimage xorriso mtools dosfstools e2fsprogs qemu-system-x86 ovmf jq
           if [ "$ARCH" = aarch64 ]; then
@@ -70,7 +108,7 @@ jobs:
         with:
           name: ${{ env.STAGE }}
           path: artifacts
-          run-id: ${{ github.event.workflow_run.id }}
+          run-id: ${{ env.BUILD_RUN }}
           github-token: ${{ github.token }}
 
       - name: Sign and assemble
@@ -172,7 +210,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: sign-log-${{ env.ARCH }}-${{ github.event.workflow_run.head_sha }}
+          name: sign-log-${{ env.ARCH }}-${{ steps.build.outputs.sha }}
           path: |
             sign.log
             serial.log
