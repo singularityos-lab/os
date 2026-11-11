@@ -1,0 +1,29 @@
+diff -ru a/package/libgtk4/Config.in b/package/libgtk4/Config.in
+--- a/package/libgtk4/Config.in	2026-11-11 07:40:47.844006797 +0000
++++ b/package/libgtk4/Config.in	2026-11-11 07:40:47.880006797 +0000
+@@ -82,6 +82,12 @@
+ 	select BR2_PACKAGE_XLIB_LIBXCURSOR
+ 	select BR2_PACKAGE_XLIB_LIBXI
+ 	select BR2_PACKAGE_XLIB_LIBXINERAMA
++	select BR2_PACKAGE_XLIB_LIBX11
++	select BR2_PACKAGE_XLIB_LIBXDAMAGE
++	select BR2_PACKAGE_XLIB_LIBXEXT
++	select BR2_PACKAGE_XLIB_LIBXFIXES
++	select BR2_PACKAGE_XLIB_LIBXRANDR
++	select BR2_PACKAGE_XLIB_LIBXRENDER
+ 	help
+ 	  This enables the X11 backend for GDK.
+ 
+diff -ru a/package/libgtk4/libgtk4.mk b/package/libgtk4/libgtk4.mk
+--- a/package/libgtk4/libgtk4.mk	2026-11-11 07:40:47.844006797 +0000
++++ b/package/libgtk4/libgtk4.mk	2026-11-11 07:40:47.880006797 +0000
+@@ -37,7 +37,8 @@
+ 	-Dman-pages=false
+ 
+ ifeq ($(BR2_PACKAGE_LIBGTK4_X11),y)
+-LIBGTK4_DEPENDENCIES += xlib_libXcursor xlib_libXi xlib_libXinerama
++LIBGTK4_DEPENDENCIES += xlib_libX11 xlib_libXcursor xlib_libXdamage xlib_libXext \
++	xlib_libXfixes xlib_libXi xlib_libXinerama xlib_libXrandr xlib_libXrender
+ LIBGTK4_CONF_OPTS += -Dx11-backend=true
+ else
+ LIBGTK4_CONF_OPTS += -Dx11-backend=false
