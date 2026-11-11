@@ -61,6 +61,34 @@ func TestPromoteKeepsAnAlreadyActiveKernelcache(t *testing.T) {
 	}
 }
 
+func TestFamilyKernelcachesArePromoted(t *testing.T) {
+	dir := t.TempDir()
+	for _, n := range []string{"kernelcache-install.efi", "kernelcache-install.l4t.efi", "kernelcache-install.l4t.efi.sig", "kernelcache-active.l4t.efi", "kernelcache-install.efi.sig", "kernelcache-recovery.efi"} {
+		os.WriteFile(filepath.Join(dir, n), []byte(n), 0o644)
+	}
+	pairs, err := familyPairs(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pairs) != 2 {
+		t.Fatalf("pairs %v", pairs)
+	}
+	if err := promoteKernelcache(pairs); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(filepath.Join(dir, "kernelcache-active.l4t.efi")); string(b) != "kernelcache-install.l4t.efi" {
+		t.Fatalf("family kernelcache not promoted: %q", b)
+	}
+	if b, _ := os.ReadFile(filepath.Join(dir, "kernelcache-active.l4t.efi.sig")); string(b) != "kernelcache-install.l4t.efi.sig" {
+		t.Fatalf("family signature not promoted: %q", b)
+	}
+	os.WriteFile(filepath.Join(dir, "kernelcache-install.rk.efi"), []byte("rk"), 0o644)
+	pairs, _ = familyPairs(dir)
+	if err := promoteKernelcache(pairs); err == nil {
+		t.Fatal("family kernelcache without a signature accepted")
+	}
+}
+
 func TestForgetSourceMachineDropsPinState(t *testing.T) {
 	state := t.TempDir()
 	os.MkdirAll(filepath.Join(state, "pin"), 0o755)

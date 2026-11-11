@@ -5,12 +5,16 @@ case "$ARCH" in
         EFI_ARCH=x64
         KERNEL_IMAGE=bzImage
         CROSS_PREFIX=x86_64-buildroot-linux-gnu-
+        EROFS_FEATURES="-E ztailpacking"
+        ESP_MB=256
         ;;
     aarch64)
         BUILD_DIR="${BUILD_DIR:-buildroot-build-aarch64}"
         EFI_ARCH=aa64
         KERNEL_IMAGE=Image
         CROSS_PREFIX=aarch64-buildroot-linux-gnu-
+        EROFS_FEATURES=""
+        ESP_MB=512
         ;;
     *)
         echo "unsupported ARCH: $ARCH" >&2
@@ -19,7 +23,7 @@ case "$ARCH" in
 esac
 LOADER_NAME="boot${EFI_ARCH}.efi"
 LOADER_ESP_NAME="BOOT$(printf '%s' "$EFI_ARCH" | tr a-z A-Z).EFI"
-export ARCH BUILD_DIR EFI_ARCH LOADER_NAME LOADER_ESP_NAME
+export ARCH BUILD_DIR EFI_ARCH LOADER_NAME LOADER_ESP_NAME EROFS_FEATURES ESP_MB
 
 STUB_DEB_VERSION="257.13-1~deb13u1"
 STUB_DEB_SHA256_arm64="0e4529d9a72b35c31f34151ef8a0df20f322cfef679f4f5439394e60505b91a2"
@@ -69,6 +73,26 @@ uki_initrd_offset() {
     end=$(( (end + 0x1fffff) & ~0x1fffff ))
     [ "$end" -lt $((0x2000000)) ] && end=$((0x2000000))
     printf '0x%x' "$end"
+}
+
+kernel_families() {
+    local image family
+    for image in "${REPO_DIR}/${BUILD_DIR}"/images/families/*/"${KERNEL_IMAGE}"; do
+        [ -f "$image" ] || continue
+        family="${image%/*}"
+        printf '%s\n' "${family##*/}"
+    done
+}
+
+uki_families() {
+    local uki family
+    for uki in "${REPO_DIR}"/artifacts/kernelcache.*.efi; do
+        [ -f "$uki" ] || continue
+        family="${uki##*/kernelcache.}"
+        family="${family%.efi}"
+        case "$family" in *.*|"") continue ;; esac
+        printf '%s\n' "$family"
+    done
 }
 
 uki_add_dtbs() {

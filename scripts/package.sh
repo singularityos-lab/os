@@ -140,7 +140,7 @@ echo "[package] update agent trust root verified"
 # missing a package added since). Remove it first so the image always reflects the
 # current tarball.
 rm -f artifacts/rootfs.erofs
-mkfs.erofs --tar=f -z lz4hc,9 -E ztailpacking -T"$SOURCE_DATE_EPOCH" -U "$(seed_uuid erofs)" artifacts/rootfs.erofs "$ROOTFS_TAR"
+mkfs.erofs --tar=f -z lz4hc,9 ${EROFS_FEATURES} -T"$SOURCE_DATE_EPOCH" -U "$(seed_uuid erofs)" artifacts/rootfs.erofs "$ROOTFS_TAR"
 
 # Verity
 # Same class as the erofs above: veritysetup format does not truncate a pre-existing
@@ -187,7 +187,6 @@ OBJCOPY="$(pe_tool objcopy)"
 OBJDUMP="$(pe_tool objdump)"
 BASE=$((16#$("$OBJDUMP" -p "$STUB" | awk '/ImageBase/{print $2}')))
 vma() { printf "0x%x" $((BASE + $1)); }
-INITRD_OFF="$(uki_initrd_offset "$KERNEL")"
 
 OSREL=""
 [ -f "${BUILD_DIR}/target/usr/lib/os-release" ] && OSREL="--add-section .osrel=${BUILD_DIR}/target/usr/lib/os-release --change-section-vma .osrel=$(vma 0x100000)"
@@ -197,17 +196,22 @@ printf '%s' "$CMDLINE" > artifacts/cmdline.txt
 # enforce anti-rollback. The daemon's NV counter (index 0x0150A701) is the floor.
 printf '%s' "${ATOM_VERSION}" > artifacts/atomver.txt
 
-"$OBJCOPY" \
-    $OSREL \
-    --add-section .cmdline=artifacts/cmdline.txt \
-    --change-section-vma .cmdline=$(vma 0x110000) \
-    --add-section .atomver=artifacts/atomver.txt \
-    --change-section-vma .atomver=$(vma 0x108000) \
-    --add-section .linux="$KERNEL" \
-    --change-section-vma .linux=$(vma 0x200000) \
-    --add-section .initrd=artifacts/initrd.cpio.xz \
-    --change-section-vma .initrd=$(vma "$INITRD_OFF") \
-    "$STUB" artifacts/kernelcache.efi
+make_uki() {
+    local kernel="$1" cmdline="$2" out="$3"
+    "$OBJCOPY" \
+        $OSREL \
+        --add-section .cmdline="$cmdline" \
+        --change-section-vma .cmdline=$(vma 0x110000) \
+        --add-section .atomver=artifacts/atomver.txt \
+        --change-section-vma .atomver=$(vma 0x108000) \
+        --add-section .linux="$kernel" \
+        --change-section-vma .linux=$(vma 0x200000) \
+        --add-section .initrd=artifacts/initrd.cpio.xz \
+        --change-section-vma .initrd=$(vma "$(uki_initrd_offset "$kernel")") \
+        "$STUB" "$out"
+}
+
+make_uki "$KERNEL" artifacts/cmdline.txt artifacts/kernelcache.efi
 uki_add_dtbs artifacts/kernelcache.efi
 
 echo "[package] UKI: artifacts/kernelcache.efi"
@@ -217,41 +221,31 @@ echo "[package] root hash: ${ROOT_HASH}"
 # a slow removable root from falling through to an installed slot with the same hash.
 LIVE_CMDLINE="${CMDLINE} sing.live=1"
 printf '%s' "$LIVE_CMDLINE" > artifacts/cmdline-live.txt
-"$OBJCOPY" \
-    $OSREL \
-    --add-section .cmdline=artifacts/cmdline-live.txt \
-    --change-section-vma .cmdline=$(vma 0x110000) \
-    --add-section .atomver=artifacts/atomver.txt \
-    --change-section-vma .atomver=$(vma 0x108000) \
-    --add-section .linux="$KERNEL" \
-    --change-section-vma .linux=$(vma 0x200000) \
-    --add-section .initrd=artifacts/initrd.cpio.xz \
-    --change-section-vma .initrd=$(vma "$INITRD_OFF") \
-    "$STUB" artifacts/kernelcache-live.efi
+make_uki "$KERNEL" artifacts/cmdline-live.txt artifacts/kernelcache-live.efi
 uki_add_dtbs artifacts/kernelcache-live.efi
 
 # Portable mode uses the live raw root and may attach installed writable data.
 PORTABLE_CMDLINE="${LIVE_CMDLINE} sing.portable=1"
 printf '%s' "$PORTABLE_CMDLINE" > artifacts/cmdline-portable.txt
-"$OBJCOPY" \
-    $OSREL \
-    --add-section .cmdline=artifacts/cmdline-portable.txt \
-    --change-section-vma .cmdline=$(vma 0x110000) \
-    --add-section .atomver=artifacts/atomver.txt \
-    --change-section-vma .atomver=$(vma 0x108000) \
-    --add-section .linux="$KERNEL" \
-    --change-section-vma .linux=$(vma 0x200000) \
-    --add-section .initrd=artifacts/initrd.cpio.xz \
-    --change-section-vma .initrd=$(vma "$INITRD_OFF") \
-    "$STUB" artifacts/kernelcache-portable.efi
+make_uki "$KERNEL" artifacts/cmdline-portable.txt artifacts/kernelcache-portable.efi
 uki_add_dtbs artifacts/kernelcache-portable.efi
+
+FAMILY_UKIS=""
+for family in $(kernel_families); do
+    for kind in "" -live -portable; do
+        make_uki "${BUILD_DIR}/images/families/${family}/${KERNEL_IMAGE}" "artifacts/cmdline${kind}.txt" "artifacts/kernelcache${kind}.${family}.efi"
+        FAMILY_UKIS="${FAMILY_UKIS} kernelcache${kind}.${family}.efi"
+    done
+    echo "[package] UKI: artifacts/kernelcache.${family}.efi"
+done
+export FAMILY_UKIS
 
 if [ -n "${ATOM_UNSIGNED:-}" ]; then
     bash scripts/build-recovery.sh
     cp "${ATOM_LOADER_EFI}" "artifacts/${LOADER_NAME}"
     printf '%s\n' "${RELEASE_VERSION}" > artifacts/release-version.txt
     ( cd artifacts && sha256sum release-version.txt "${LOADER_NAME}" rootfs.erofs rootfs.hash verity-output.txt \
-        kernelcache.efi kernelcache-live.efi kernelcache-portable.efi kernelcache-recovery.efi ) > artifacts/unsigned.sha256
+        kernelcache.efi kernelcache-live.efi kernelcache-portable.efi kernelcache-recovery.efi ${FAMILY_UKIS} ) > artifacts/unsigned.sha256
     echo "[package] unsigned stage done:"
     cat artifacts/unsigned.sha256
     exit 0

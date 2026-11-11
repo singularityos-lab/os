@@ -96,6 +96,35 @@ func TestPopulateESPFromAnARMRelease(t *testing.T) {
 	}
 }
 
+func TestARMReleaseCarriesFamilyKernels(t *testing.T) {
+	dir := fakeRelease(t, "aarch64")
+	for _, n := range []string{"kernelcache.l4t.efi", "kernelcache.l4t.efi.sig", "kernelcache.rk.efi"} {
+		os.WriteFile(filepath.Join(dir, n), []byte(n), 0o644)
+	}
+	r, err := readRelease(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.espMB() != 512 {
+		t.Fatalf("ESP %d MiB for an ARM release", r.espMB())
+	}
+	esp := t.TempDir()
+	if err := populateESP(esp, r); err != nil {
+		t.Fatal(err)
+	}
+	for path, want := range map[string]string{
+		"EFI/atom/kernelcache-active.l4t.efi":     "kernelcache.l4t.efi",
+		"EFI/atom/kernelcache-active.l4t.efi.sig": "kernelcache.l4t.efi.sig",
+	} {
+		if got, err := os.ReadFile(filepath.Join(esp, path)); err != nil || string(got) != want {
+			t.Errorf("%s: %q %v", path, got, err)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(esp, "EFI/atom/kernelcache-active.rk.efi")); !os.IsNotExist(err) {
+		t.Errorf("unsigned family kernel installed: %v", err)
+	}
+}
+
 func TestReleaseWithoutArchIsX86(t *testing.T) {
 	r, err := readRelease(fakeRelease(t, ""))
 	if err != nil || r.arch != "x86_64" || loaderFileName(r.arch) != "BOOTX64.EFI" {

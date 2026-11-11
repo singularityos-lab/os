@@ -5,9 +5,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
-
-const releaseESPMB = 256
 
 type releaseDir struct {
 	dir, arch, version string
@@ -47,6 +46,13 @@ func readRelease(dir string) (releaseDir, error) {
 	return r, nil
 }
 
+func (r releaseDir) espMB() int64 {
+	if r.arch == "aarch64" {
+		return 512
+	}
+	return 256
+}
+
 func (r releaseDir) erofs() string { return filepath.Join(r.dir, "rootfs.erofs") }
 func (r releaseDir) hash() string  { return filepath.Join(r.dir, "rootfs.hash") }
 
@@ -70,6 +76,20 @@ func (r releaseDir) espFiles() [][2]string {
 		files = append(files,
 			[2]string{in("kernelcache-recovery.efi"), "EFI/atom/kernelcache-recovery.efi"},
 			[2]string{in("kernelcache-recovery.efi.sig"), "EFI/atom/kernelcache-recovery.efi.sig"})
+	}
+	entries, _ := os.ReadDir(r.dir)
+	for _, e := range entries {
+		family, ok := strings.CutPrefix(e.Name(), "kernelcache.")
+		if !ok {
+			continue
+		}
+		family, ok = strings.CutSuffix(family, ".efi")
+		if !ok || family == "" || strings.Contains(family, ".") || !fileExists(in(e.Name()+".sig")) {
+			continue
+		}
+		files = append(files,
+			[2]string{in(e.Name()), "EFI/atom/kernelcache-active." + family + ".efi"},
+			[2]string{in(e.Name() + ".sig"), "EFI/atom/kernelcache-active." + family + ".efi.sig"})
 	}
 	return files
 }

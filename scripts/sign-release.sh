@@ -33,6 +33,10 @@ export ATOMLOOPS ATOMLOOPS_GO ATOM_SIGNING_KEY ATOM_SIGNING_CERT ATOM_SIGNING_CE
 
 . scripts/assemble-image.sh
 
+FAMILY_SIGS=""
+for family in $(uki_families); do
+    FAMILY_SIGS="${FAMILY_SIGS} kernelcache.${family}.efi.sig kernelcache-live.${family}.efi.sig kernelcache-portable.${family}.efi.sig"
+done
 ( cd artifacts && sha256sum kernelcache.efi.sig kernelcache-live.efi.sig kernelcache-portable.efi.sig \
-    kernelcache-recovery.efi.sig sinty-os.img sinty-os-portable.img sinty-os.iso ) > artifacts/signed.sha256
+    kernelcache-recovery.efi.sig ${FAMILY_SIGS} sinty-os.img sinty-os-portable.img sinty-os.iso ) > artifacts/signed.sha256
 cat artifacts/signed.sha256

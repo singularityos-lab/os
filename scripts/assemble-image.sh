@@ -8,7 +8,7 @@ export MTOOLS_SKIP_CHECK=1
 rm -f artifacts/esp.vfat
 # 256M: must hold the loader + active UKI + its sig + certs AND the Tier-2 recovery UKI
 # (~65M) + its sig. 64M overflowed once the recovery slot was added (mcopy: Disk full).
-dd if=/dev/zero of=artifacts/esp.vfat bs=1M count=256 status=none
+dd if=/dev/zero of=artifacts/esp.vfat bs=1M count="${ESP_MB}" status=none
 mkfs.fat -F 32 -n SINGEFI artifacts/esp.vfat >/dev/null
 # Atom Loops loader is the removable-media default (BOOTX64.EFI, BOOTAA64.EFI); it verifies + chainloads the signed UKI slot.
 # Development builds use a throwaway root key; release builds use the offline root.
@@ -18,12 +18,24 @@ mkfs.fat -F 32 -n SINGEFI artifacts/esp.vfat >/dev/null
     --manifest "${REPO_DIR}/artifacts/kernelcache-live.efi" --priv "${ATOM_SIGNING_KEY}" )
 ( cd "${ATOMLOOPS}" && "${ATOMLOOPS_GO:-go}" run ./cmd/atom-sign sign \
     --manifest "${REPO_DIR}/artifacts/kernelcache-portable.efi" --priv "${ATOM_SIGNING_KEY}" )
+for family in $(uki_families); do
+    for kind in "" -live -portable; do
+        ( cd "${ATOMLOOPS}" && "${ATOMLOOPS_GO:-go}" run ./cmd/atom-sign sign \
+            --manifest "${REPO_DIR}/artifacts/kernelcache${kind}.${family}.efi" --priv "${ATOM_SIGNING_KEY}" )
+    done
+done
 mmd -i artifacts/esp.vfat ::EFI ::EFI/BOOT ::EFI/atom
 mcopy -i artifacts/esp.vfat "${ATOM_LOADER_EFI}" "::EFI/BOOT/${LOADER_ESP_NAME}"
 mcopy -i artifacts/esp.vfat artifacts/kernelcache.efi          ::EFI/atom/kernelcache-active.efi
 mcopy -i artifacts/esp.vfat artifacts/kernelcache.efi.sig      ::EFI/atom/kernelcache-active.efi.sig
 mcopy -i artifacts/esp.vfat artifacts/kernelcache.efi          ::EFI/atom/kernelcache-install.efi
 mcopy -i artifacts/esp.vfat artifacts/kernelcache.efi.sig      ::EFI/atom/kernelcache-install.efi.sig
+for family in $(uki_families); do
+    for slot in active install; do
+        mcopy -i artifacts/esp.vfat "artifacts/kernelcache.${family}.efi" "::EFI/atom/kernelcache-${slot}.${family}.efi"
+        mcopy -i artifacts/esp.vfat "artifacts/kernelcache.${family}.efi.sig" "::EFI/atom/kernelcache-${slot}.${family}.efi.sig"
+    done
+done
 mcopy -i artifacts/esp.vfat "${ATOM_SIGNING_CERT}"     ::EFI/atom/signing-cert.json
 mcopy -i artifacts/esp.vfat "${ATOM_SIGNING_CERT_SIG}" ::EFI/atom/signing-cert.json.sig
 # recovery slot (Tier-2): a REAL standalone recovery image -- busybox + wpa_supplicant +
@@ -59,12 +71,20 @@ mcopy -o -i artifacts/esp-live.vfat artifacts/kernelcache-live.efi \
     ::EFI/atom/kernelcache-active.efi
 mcopy -o -i artifacts/esp-live.vfat artifacts/kernelcache-live.efi.sig \
     ::EFI/atom/kernelcache-active.efi.sig
+for family in $(uki_families); do
+    mcopy -o -i artifacts/esp-live.vfat "artifacts/kernelcache-live.${family}.efi" "::EFI/atom/kernelcache-active.${family}.efi"
+    mcopy -o -i artifacts/esp-live.vfat "artifacts/kernelcache-live.${family}.efi.sig" "::EFI/atom/kernelcache-active.${family}.efi.sig"
+done
 
 cp artifacts/esp.vfat artifacts/esp-portable.vfat
 mcopy -o -i artifacts/esp-portable.vfat artifacts/kernelcache-portable.efi \
     ::EFI/atom/kernelcache-active.efi
 mcopy -o -i artifacts/esp-portable.vfat artifacts/kernelcache-portable.efi.sig \
     ::EFI/atom/kernelcache-active.efi.sig
+for family in $(uki_families); do
+    mcopy -o -i artifacts/esp-portable.vfat "artifacts/kernelcache-portable.${family}.efi" "::EFI/atom/kernelcache-active.${family}.efi"
+    mcopy -o -i artifacts/esp-portable.vfat "artifacts/kernelcache-portable.${family}.efi.sig" "::EFI/atom/kernelcache-active.${family}.efi.sig"
+done
 
 # Removable log-collection partition (SINTYLOGS): singularity-logcollect mirrors the
 # boot journal/dmesg/session logs here so they can be read back off-device.

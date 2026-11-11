@@ -285,7 +285,7 @@ func main() {
 	if from != "" {
 		rel, err = readRelease(from)
 		die(err)
-		erofs, hash, wal, espMB = rel.erofs(), rel.hash(), deploymentWAL(rel.version, rel.recovery), releaseESPMB
+		erofs, hash, wal, espMB = rel.erofs(), rel.hash(), deploymentWAL(rel.version, rel.recovery), rel.espMB()
 		sources = rel.sources()
 		anchorSource = rel.dir
 	} else {
@@ -354,7 +354,34 @@ func activateInstalledKernelcache(esp, installID string) (err error) {
 		{filepath.Join(dir, "kernelcache-install.efi"), filepath.Join(dir, "kernelcache-active.efi")},
 		{filepath.Join(dir, "kernelcache-install.efi.sig"), filepath.Join(dir, "kernelcache-active.efi.sig")},
 	}
-	return promoteKernelcache(pairs)
+	families, err := familyPairs(dir)
+	if err != nil {
+		return err
+	}
+	return promoteKernelcache(append(pairs, families...))
+}
+
+func familyPairs(dir string) ([][2]string, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, err
+	}
+	var pairs [][2]string
+	for _, e := range entries {
+		family, ok := strings.CutPrefix(e.Name(), "kernelcache-install.")
+		if !ok {
+			continue
+		}
+		family, ok = strings.CutSuffix(family, ".efi")
+		if !ok || family == "" || strings.Contains(family, ".") {
+			continue
+		}
+		name := "kernelcache-active." + family + ".efi"
+		pairs = append(pairs,
+			[2]string{filepath.Join(dir, e.Name()), filepath.Join(dir, name)},
+			[2]string{filepath.Join(dir, e.Name()+".sig"), filepath.Join(dir, name+".sig")})
+	}
+	return pairs, nil
 }
 
 func forgetSourceMachine(stateDir string) error {
