@@ -21,7 +21,7 @@ jobs:
     concurrency:
       group: build-self-hosted-${{ inputs.arch || 'x86_64' }}
       cancel-in-progress: false
-    runs-on: [self-hosted, sinty-build]
+    runs-on: [self-hosted, sinty-build, "${{ inputs.arch || 'x86_64' }}"]
     timeout-minutes: 1440
     env:
       ARCH: ${{ inputs.arch || 'x86_64' }}
