@@ -93,11 +93,27 @@ jobs:
           go-version: '1.26.x'
           cache: false
 
+      - name: Make sure the package mirrors resolve
+        run: |
+          if getent hosts archive.ubuntu.com >/dev/null && getent hosts azure.archive.ubuntu.com >/dev/null; then exit 0; fi
+          echo "the runner resolver fails, switching to public DNS"
+          sudo mkdir -p /etc/systemd/resolved.conf.d
+          printf '[Resolve]\nDNS=1.1.1.1 8.8.8.8 9.9.9.9\nFallbackDNS=1.0.0.1 8.8.4.4\nDomains=~.\n' | sudo tee /etc/systemd/resolved.conf.d/90-public.conf >/dev/null
+          sudo systemctl restart systemd-resolved || true
+          for i in 1 2 3 4 5 6; do
+            getent hosts archive.ubuntu.com >/dev/null && exit 0
+            sleep 5
+          done
+          echo "resolved still fails, writing resolv.conf directly"
+          sudo rm -f /etc/resolv.conf
+          printf 'nameserver 1.1.1.1\nnameserver 8.8.8.8\nnameserver 9.9.9.9\noptions timeout:2 attempts:3\n' | sudo tee /etc/resolv.conf >/dev/null
+          getent hosts archive.ubuntu.com || { echo "no DNS reaches the Ubuntu archive"; exit 1; }
+
       - name: Install the image tools
         run: |
           printf 'http://archive.ubuntu.com/ubuntu\tpriority:1\nhttp://azure.archive.ubuntu.com/ubuntu/\tpriority:2\n' | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
           printf 'Acquire::Retries "5";\nAcquire::http::Timeout "30";\n' | sudo tee /etc/apt/apt.conf.d/99retries >/dev/null
-          sudo apt-get update -qq
+          sudo apt-get update -qq -o APT::Update::Error-Mode=any
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq genimage xorriso mtools dosfstools e2fsprogs qemu-system-x86 ovmf jq
           if [ "$ARCH" = aarch64 ]; then
             sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq binutils-aarch64-linux-gnu qemu-system-arm qemu-efi-aarch64
