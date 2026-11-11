@@ -2,9 +2,10 @@
 # Drops what the shipped system cannot use. Runs on the assembled target tree, so
 # nothing has to be rebuilt and every cut is reversible by removing a block here.
 #
-# NVIDIA GPUs run on the open kernel modules of the image once the NVIDIA bundle
-# provides the user space and the GSP firmware of the same version, so the
-# linux-firmware GSP blobs and nouveau go. Without the bundle the card stays unused.
+# NVIDIA GPUs from Turing on start on nouveau with the GSP firmware of
+# linux-firmware, so a card that is the only video output reaches an accelerated
+# desktop on first boot; older cards keep the firmware nouveau already uses. On x86
+# only the firmware of Tegra integrated GPUs goes.
 set -eu
 TARGET="${1:?usage: trim-image.sh <target-dir>}"
 FW="$TARGET/usr/lib/firmware"
@@ -13,9 +14,12 @@ CONFIG="${BR2_CONFIG:-$(dirname "$0")/../buildroot-build/.config}"
 ARM=0
 grep -q '^BR2_aarch64=y' "$CONFIG" 2>/dev/null && ARM=1
 
-if [ "$ARM" = 0 ]; then
-    rm -rf "$FW/nvidia"
-    find "$TARGET/usr/lib/modules" -name 'nouveau*' -prune -exec rm -rf {} + 2>/dev/null || true
+if [ "$ARM" = 0 ] && [ -d "$FW/nvidia" ]; then
+    for d in "$FW"/nvidia/*; do
+        case "$(basename "$d")" in
+            tegra*|gk20a|gm20b|gp10b) rm -rf "$d" ;;
+        esac
+    done
 fi
 
 # Modules for any kernel other than the one being shipped are leftovers from an
