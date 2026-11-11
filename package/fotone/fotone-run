@@ -1,0 +1,4 @@
+#!/bin/sh
+export LD_LIBRARY_PATH="/usr/local/lib/fotone-proxy:/usr/local/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+export WEBKIT_EXEC_PATH=/usr/local/libexec/wpe-webkit-2.0
+exec "$@"
