@@ -170,6 +170,29 @@ runs:
         done
 
 
+    - name: Rebuild the packages whose staged libraries are for another architecture
+      shell: bash
+      run: |
+        list="$BUILD_DIR"/build/packages-file-list-staging.txt
+        sysroot=$(ls -d "$BUILD_DIR"/host/*/sysroot 2>/dev/null | head -n 1)
+        [ -f "$list" ] && [ -n "$sysroot" ] || exit 0
+        case "$ARCH" in
+          aarch64) want=AArch64 ;;
+          *) want=X86-64 ;;
+        esac
+        bad=$(while IFS=, read -r pkg path; do
+          case "$path" in *.so|*.so.*) ;; *) continue ;; esac
+          f="$sysroot/${path#./}"
+          [ -f "$f" ] && [ ! -L "$f" ] || continue
+          m=$(readelf -h "$f" 2>/dev/null | sed -n 's/^ *Machine: *//p')
+          [ -n "$m" ] && [ "${m%"$want"}" = "$m" ] && echo "$pkg"
+        done < "$list" | sort -u)
+        for p in $bad; do
+          echo "staged libraries of $p are not $ARCH: rebuilding it"
+          rm -rf "$BUILD_DIR"/build/"$p"-*
+        done
+
+
     - name: Rebuild the kernel when its patches or config changed
       shell: bash
       run: |
