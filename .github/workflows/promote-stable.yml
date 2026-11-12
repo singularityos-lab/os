@@ -1,0 +1,97 @@
+name: Promote to stable
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Release number already on canary, for example 315
+        required: true
+      arch:
+        description: Architecture
+        type: choice
+        options: [x86_64, aarch64]
+        default: x86_64
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-feed-feed
+  cancel-in-progress: false
+
+jobs:
+  promote:
+    runs-on: ubuntu-24.04
+    environment: release
+    timeout-minutes: 30
+    env:
+      FEED_REPO: singularityos-lab/sinty-updates
+    steps:
+      - name: Read the request
+        env:
+          REQ_VERSION: ${{ inputs.version }}
+          REQ_ARCH: ${{ inputs.arch }}
+        run: |
+          set -euo pipefail
+          v=${REQ_VERSION#v}
+          printf '%s\n' "$v" | grep -Eq '^[1-9][0-9]*$' || { echo "version must be a release number"; exit 1; }
+          if [ "$REQ_ARCH" = aarch64 ]; then
+            from=canary/aarch64
+            to=stable/aarch64
+            what="v$v aarch64"
+          else
+            from=canary
+            to=stable
+            what="v$v"
+          fi
+          {
+            echo "VERSION=v$v"
+            echo "FROM=$from"
+            echo "TO=$to"
+            echo "WHAT=$what"
+          } >> "$GITHUB_ENV"
+
+      - name: Checkout the feed
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: ${{ env.FEED_REPO }}
+          path: feed
+          fetch-depth: 0
+          token: ${{ secrets.SINTY_UPDATES_TOKEN }}
+
+      - name: Take the canary manifest
+        run: |
+          set -euo pipefail
+          cd feed
+          src=""
+          for c in $(git log --format=%H -- "$FROM/manifest.json"); do
+            v=$(git show "$c:$FROM/manifest.json" 2>/dev/null | jq -r .version) || continue
+            if [ "$v" = "$VERSION" ]; then src=$c; break; fi
+          done
+          [ -n "$src" ] || { echo "$VERSION was never published on $FROM"; exit 1; }
+          if [ -f "$TO/manifest.json" ]; then
+            cur=$(jq -r .version "$TO/manifest.json")
+            [ "${cur#v}" -lt "${VERSION#v}" ] || { echo "$TO already serves $cur"; exit 1; }
+          fi
+          mkdir -p "$TO"
+          for f in manifest.json manifest.json.sig signing-cert.json signing-cert.json.sig; do
+            git show "$src:$FROM/$f" > "$TO/$f"
+          done
+          echo "$WHAT from $FROM at ${src:0:7}"
+
+      - name: Push the manifest
+        run: |
+          set -euo pipefail
+          cd feed
+          git config user.name "github-actions[bot]"
+          git config user.email "41898283+github-actions[bot]@users.noreply.github.com"
+          git add "$TO/manifest.json" "$TO/manifest.json.sig" "$TO/signing-cert.json" "$TO/signing-cert.json.sig"
+          git commit -q -m "feat: promote $WHAT to stable"
+          git push -q origin HEAD:main
+          for i in 1 2 3 4 5 6 7 8 9 10 11 12; do
+            sleep 20
+            live=$(curl -fsS "https://updates.sinty.dev/$TO/manifest.json" | jq -r .version) || live=""
+            [ "$live" = "$VERSION" ] && { echo "stable serves $VERSION"; exit 0; }
+          done
+          echo "stable still serves $live"
+          exit 1

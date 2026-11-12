@@ -66,10 +66,10 @@ jobs:
           atom=$(sed -n 's/^ATOMLOOPS=//p' os/build-deps)
           printf '%s\n' "$atom" | grep -Eq '^[0-9a-f]{40}$' || { echo "build-deps does not declare ATOMLOOPS"; exit 1; }
           if [ "$ARCH" = aarch64 ]; then
-            channel=stable/aarch64
+            channel=canary/aarch64
             tag=v$v-aarch64
           else
-            channel=stable
+            channel=canary
             tag=v$v
           fi
           {
@@ -135,6 +135,7 @@ jobs:
         run: |
           set -euo pipefail
           live=feed/$CHANNEL/manifest.json
+          [ -f "$live" ] || live=feed/stable${CHANNEL#canary}/manifest.json
           [ -f "$live" ] || { echo "no live manifest on $CHANNEL to take the firmware bundles from"; exit 1; }
           for name in amd nvidia; do
             b=$(jq -c --arg n "$name" '.firmware_bundles[] | select(.name == $n)' "$live")
@@ -225,7 +226,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898283+github-actions[bot]@users.noreply.github.com"
           git add "$CHANNEL/manifest.json" "$CHANNEL/manifest.json.sig" "$CHANNEL/signing-cert.json" "$CHANNEL/signing-cert.json.sig"
-          if [ "$ARCH" = aarch64 ]; then what="$VERSION aarch64 stable"; else what="$VERSION stable"; fi
+          if [ "$ARCH" = aarch64 ]; then what="$VERSION aarch64 canary"; else what="$VERSION canary"; fi
           git commit -q -m "feat: publish the $what manifest"
           git push -q origin HEAD:main
           for i in 1 2 3 4 5 6 7 8 9 10 11 12; do
