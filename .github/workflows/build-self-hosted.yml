@@ -61,8 +61,7 @@ jobs:
           for i in $(seq 1 600); do
             state=$(gh api "repos/$REPO/actions/runs/$RUN/jobs" --jq ".jobs[] | select(.name == \"build $ARCH\") | .status + \" \" + (.runner_name // \"\")")
             case "$state" in
-              "") ;;
-              queued*) ;;
+              ""|queued*|pending*|waiting*) ;;
               *) echo "build started: $state"; exit 0 ;;
             esac
             busy=0
