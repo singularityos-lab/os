@@ -110,8 +110,8 @@ jobs:
 
   lost-x86_64:
     name: check the x86_64 runner
-    needs: [plan, build-x86_64]
-    if: always() && contains(needs.plan.outputs.arches, '"x86_64"') && needs.build-x86_64.outputs.ok != '1'
+    needs: build-x86_64
+    if: always() && needs.build-x86_64.result != 'skipped' && needs.build-x86_64.outputs.ok != '1'
     runs-on: ubuntu-24.04
     permissions:
       actions: read
@@ -136,7 +136,7 @@ jobs:
 
   moved-x86_64:
     name: build x86_64 (moved)
-    needs: [plan, build-x86_64, lost-x86_64]
+    needs: lost-x86_64
     if: always() && needs.lost-x86_64.outputs.lost == '1'
     concurrency:
       group: build-self-hosted-x86_64
@@ -192,8 +192,8 @@ jobs:
 
   released-x86_64:
     name: x86_64 released
-    needs: [plan, build-x86_64, moved-x86_64, sign-x86_64, publish-x86_64]
-    if: always() && contains(needs.plan.outputs.arches, '"x86_64"')
+    needs: [build-x86_64, moved-x86_64, sign-x86_64, publish-x86_64]
+    if: always() && needs.build-x86_64.result != 'skipped'
     runs-on: ubuntu-24.04
     steps:
       - name: Report the outcome of the x86_64 chain
@@ -238,8 +238,8 @@ jobs:
 
   lost-aarch64:
     name: check the aarch64 runner
-    needs: [plan, build-aarch64]
-    if: always() && contains(needs.plan.outputs.arches, '"aarch64"') && needs.build-aarch64.outputs.ok != '1'
+    needs: build-aarch64
+    if: always() && needs.build-aarch64.result != 'skipped' && needs.build-aarch64.outputs.ok != '1'
     runs-on: ubuntu-24.04
     permissions:
       actions: read
@@ -264,7 +264,7 @@ jobs:
 
   moved-aarch64:
     name: build aarch64 (moved)
-    needs: [plan, build-aarch64, lost-aarch64]
+    needs: lost-aarch64
     if: always() && needs.lost-aarch64.outputs.lost == '1'
     concurrency:
       group: build-self-hosted-aarch64
@@ -320,8 +320,8 @@ jobs:
 
   released-aarch64:
     name: aarch64 released
-    needs: [plan, build-aarch64, moved-aarch64, sign-aarch64, publish-aarch64]
-    if: always() && contains(needs.plan.outputs.arches, '"aarch64"')
+    needs: [build-aarch64, moved-aarch64, sign-aarch64, publish-aarch64]
+    if: always() && needs.build-aarch64.result != 'skipped'
     runs-on: ubuntu-24.04
     steps:
       - name: Report the outcome of the aarch64 chain
