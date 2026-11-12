@@ -12,11 +12,19 @@ on:
       signed:
         type: string
         required: true
+      min_stage:
+        type: number
+        default: 0
   workflow_dispatch:
     inputs:
       sign_run:
         description: Id of the run that signed the release
         required: true
+      min_stage:
+        description: Lowest stage the release may apply at (3 forces a restart)
+        type: choice
+        options: ['0', '1', '2', '3']
+        default: '0'
 
 permissions:
   contents: read
@@ -151,6 +159,7 @@ jobs:
       - name: Decide how the release applies
         env:
           GH_TOKEN: ${{ secrets.SINTY_UPDATES_TOKEN }}
+          MIN_STAGE: ${{ inputs.min_stage }}
         run: |
           set -euo pipefail
           sudo apt-get install -y -qq erofs-utils zstd >/dev/null
@@ -167,7 +176,7 @@ jobs:
           decision='{"stage":3,"class":"","highest":[["","3","no previous release to compare with"]]}'
           if [ -n "$prev" ] && gh release download "$prevtag" -R "$FEED_REPO" -p files.json.zst -D "$RUNNER_TEMP/prev" --clobber 2>/dev/null; then
             zstd -q -d -f "$RUNNER_TEMP/prev/files.json.zst" -o "$RUNNER_TEMP/prev/files.json"
-            decision=$(python3 os/scripts/live-stage.py decide --table os/release/live-stages --old "$RUNNER_TEMP/prev/files.json" --new rel/files.json)
+            decision=$(python3 os/scripts/live-stage.py decide --table os/release/live-stages --old "$RUNNER_TEMP/prev/files.json" --new rel/files.json --min-stage "${MIN_STAGE:-0}")
           fi
           class=$(printf '%s' "$decision" | jq -r .class)
           {
@@ -184,6 +193,47 @@ jobs:
             echo
             printf '%s' "$decision" | jq -r '.highest[] | "- `\(.[0])`: \(.[2])"'
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Try the live apply in a VM
+        if: env.APPLY_CLASS != ''
+        env:
+          GH_TOKEN: ${{ secrets.SINTY_UPDATES_TOKEN }}
+          SIGNING_KEY_B64: ${{ secrets.ATOM_SIGNING_KEY_B64 }}
+          SIGNING_CERT_B64: ${{ secrets.ATOM_SIGNING_CERT_B64 }}
+          SIGNING_CERT_SIG_B64: ${{ secrets.ATOM_SIGNING_CERT_SIG_B64 }}
+        run: |
+          set -euo pipefail
+          drop() {
+            { echo "APPLY_CLASS="; echo "LIVE_FROM="; } >> "$GITHUB_ENV"
+            { echo; echo "Live apply over $LIVE_FROM: $1. The release applies at the next restart."; } >> "$GITHUB_STEP_SUMMARY"
+          }
+          if [ "$ARCH" != x86_64 ]; then
+            drop "not tried on $ARCH"
+            exit 0
+          fi
+          sudo apt-get install -y -qq qemu-system-x86 swtpm cryptsetup-bin mtools dosfstools e2fsprogs >/dev/null
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm.rules >/dev/null
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          keys="$RUNNER_TEMP/live-keys"
+          prev="$RUNNER_TEMP/live-prev"
+          work="$RUNNER_TEMP/live-vm"
+          trap 'sudo rm -rf "$keys" "$prev" "$work"' EXIT
+          (umask 077; mkdir -p "$keys"
+            printf '%s' "$SIGNING_KEY_B64" | base64 -d > "$keys/signing.key"
+            printf '%s' "$SIGNING_CERT_B64" | base64 -d > "$keys/signing-cert.json"
+            printf '%s' "$SIGNING_CERT_SIG_B64" | base64 -d > "$keys/signing-cert.json.sig")
+          (cd AtomLoops && go build -o "$RUNNER_TEMP/atom-sign" ./cmd/atom-sign)
+          gh release download "$LIVE_FROM" -R "$FEED_REPO" -D "$prev" --clobber \
+            -p rootfs.erofs -p rootfs.hash -p kernelcache.efi -p kernelcache.efi.sig
+          if sudo env PREV_VERSION="$LIVE_FROM" NEW_VERSION="$VERSION" APPLY_CLASS="$APPLY_CLASS" KERNEL_RELEASE="$KERNEL_RELEASE" \
+              ATOM_SIGN="$RUNNER_TEMP/atom-sign" SIGNING_KEY="$keys/signing.key" SIGNING_CERT="$keys/signing-cert.json" \
+              bash os/scripts/live-vm-test.sh "$prev" rel "$work"; then
+            { echo; echo "Live apply over $LIVE_FROM passed in a VM."; } >> "$GITHUB_STEP_SUMMARY"
+          else
+            sudo tail -n 40 "$work/serial.log" 2>/dev/null || true
+            drop "failed in the VM"
+          fi
 
       - name: Carry the firmware bundles over
         run: |
