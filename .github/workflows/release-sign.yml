@@ -1,13 +1,24 @@
 name: Sign a release
 
 on:
-  workflow_run:
-    workflows: ["Singularity Build (self-hosted)"]
-    types: [completed]
+  workflow_call:
+    inputs:
+      arch:
+        type: string
+        required: true
+      sha:
+        type: string
+        required: true
+      stage:
+        type: string
+        required: true
+    outputs:
+      signed:
+        value: ${{ jobs.sign.outputs.signed }}
   workflow_dispatch:
     inputs:
       build_run:
-        description: Id of a successful self-hosted build run on main
+        description: Id of a release run on main that built this architecture
         required: true
       arch:
         description: Architecture of that build
@@ -19,50 +30,51 @@ permissions:
   contents: read
   actions: read
 
-concurrency:
-  group: release-sign-${{ (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion != 'success') && format('idle-{0}', github.run_id) || (github.event_name == 'workflow_dispatch' && inputs.arch || (contains(github.event.workflow_run.display_title, 'aarch64') && 'aarch64' || 'x86_64')) }}
-  cancel-in-progress: false
-
 jobs:
   sign:
-    if: >-
-      github.event_name == 'workflow_dispatch' || (
-      github.event.workflow_run.conclusion == 'success' &&
-      github.event.workflow_run.event != 'pull_request' &&
-      github.event.workflow_run.head_branch == 'main')
     runs-on: ubuntu-24.04
     environment: release
     timeout-minutes: 180
+    concurrency:
+      group: release-sign-${{ inputs.arch }}
+      cancel-in-progress: false
+    outputs:
+      signed: ${{ steps.build.outputs.signed }}
     env:
-      ARCH: ${{ github.event_name == 'workflow_dispatch' && inputs.arch || (contains(github.event.workflow_run.display_title, 'aarch64') && 'aarch64' || 'x86_64') }}
-      BUILD_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.build_run || github.event.workflow_run.id }}
+      ARCH: ${{ inputs.arch }}
+      BUILD_RUN: ${{ inputs.build_run || github.run_id }}
     steps:
       - name: Resolve the build
         id: build
         env:
           GH_TOKEN: ${{ github.token }}
-          EVENT_SHA: ${{ github.event.workflow_run.head_sha }}
+          MANUAL: ${{ inputs.build_run }}
+          CALL_SHA: ${{ inputs.sha }}
+          CALL_STAGE: ${{ inputs.stage }}
         run: |
           printf '%s\n' "$BUILD_RUN" | grep -Eq '^[0-9]+$' || { echo "build run must be a number"; exit 1; }
-          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
-            info=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$BUILD_RUN" --jq '[.path, .conclusion, .head_branch, .event, .head_sha, .display_title] | @tsv')
-            IFS="$(printf '\t')" read -r name conclusion branch event sha title <<EOF2
+          if [ "$ARCH" = aarch64 ]; then pre=-aarch64; else pre=; fi
+          if [ -n "$MANUAL" ]; then
+            info=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$BUILD_RUN" --jq '[.path, .head_branch, .event, .head_sha] | @tsv')
+            IFS="$(printf '\t')" read -r name branch event sha <<EOF2
           $info
           EOF2
-            [ "$name" = ".github/workflows/build-self-hosted.yml" ] && [ "$conclusion" = success ] && [ "$branch" = main ] && [ "$event" != pull_request ] || { echo "run $BUILD_RUN is not a successful build on main"; exit 1; }
-            case "$title" in *aarch64*) want=aarch64 ;; *) want=x86_64 ;; esac
-            [ "$want" = "$ARCH" ] || { echo "run $BUILD_RUN built $want, not $ARCH"; exit 1; }
+            [ "$name" = ".github/workflows/build-self-hosted.yml" ] && [ "$branch" = main ] && [ "$event" != pull_request ] || { echo "run $BUILD_RUN is not a release run on main"; exit 1; }
+            stage=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$BUILD_RUN/artifacts" --jq "[.artifacts[] | select(.expired | not) | .name | select(test(\"^unsigned$pre-$sha(-moved)?\$\"))] | first // \"\"")
+            [ -n "$stage" ] || { echo "run $BUILD_RUN kept no $ARCH stage for $sha"; exit 1; }
           else
-            sha=$EVENT_SHA
+            sha=$CALL_SHA
+            stage=$CALL_STAGE
           fi
           printf '%s\n' "$sha" | grep -Eq '^[0-9a-f]{40}$' || { echo "no commit for run $BUILD_RUN"; exit 1; }
-          if [ "$ARCH" = aarch64 ]; then pre=-aarch64; else pre=; fi
           {
-            echo "sha=$sha"
-            echo "STAGE=unsigned$pre-$sha"
+            echo "STAGE=$stage"
             echo "SIGNED=signed$pre-$sha"
           } >> "$GITHUB_ENV"
-          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          {
+            echo "sha=$sha"
+            echo "signed=signed$pre-$sha"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
@@ -205,6 +217,7 @@ jobs:
       - name: Upload the signed release
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
+          overwrite: true
           name: ${{ env.SIGNED }}
           path: |
             artifacts/signed.sha256
@@ -226,6 +239,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
+          overwrite: true
           name: sign-log-${{ env.ARCH }}-${{ steps.build.outputs.sha }}
           path: |
             sign.log

@@ -1,0 +1,303 @@
+name: Build the image
+description: Compile Sinty OS on a build runner and upload the unsigned stage
+
+inputs:
+  arch:
+    description: Target architecture
+    required: true
+  stage:
+    description: Name of the unsigned stage artifact
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Select the persistent trees
+      shell: bash
+      env:
+        ARCH: ${{ inputs.arch }}
+      run: |
+        if [ "$ARCH" = x86_64 ]; then
+          cache=/home/runner/cache
+          dir=buildroot-build
+        else
+          cache=/home/runner/cache-$ARCH
+          dir=buildroot-build-$ARCH
+        fi
+        {
+          echo "ARCH=$ARCH"
+          echo "CACHE=$cache"
+          echo "BUILD_DIR=$dir"
+        } >> "$GITHUB_ENV"
+
+    - name: Read the declared dependencies
+      id: deps
+      shell: bash
+      run: |
+        for k in ATOMLOOPS SINTY_RECOVERY SINTY_INITRAMFS; do
+          v=$(sed -n "s/^$k=//p" build-deps)
+          printf '%s\n' "$v" | grep -Eq '^[0-9a-f]{40}$' || { echo "build-deps does not declare $k"; exit 1; }
+          echo "$(echo "$k" | tr 'A-Z_' 'a-z-')=$v" >> "$GITHUB_OUTPUT"
+        done
+
+
+    - name: Checkout Atom Loops
+      uses: actions/checkout@v4
+      with:
+        repository: mirkobrombin/AtomLoops
+        ref: ${{ steps.deps.outputs.atomloops }}
+        path: _deps/AtomLoops
+        persist-credentials: false
+
+
+    - name: Checkout recovery
+      uses: actions/checkout@v4
+      with:
+        repository: singularityos-lab/sinty-recovery
+        ref: ${{ steps.deps.outputs.sinty-recovery }}
+        path: _deps/sinty-recovery
+        persist-credentials: false
+
+
+    - name: Checkout initramfs
+      uses: actions/checkout@v4
+      with:
+        repository: singularityos-lab/sinty-initramfs
+        ref: ${{ steps.deps.outputs.sinty-initramfs }}
+        path: _deps/sinty-initramfs
+        persist-credentials: false
+
+
+    - name: Check the declared dependencies
+      env:
+        ATOMLOOPS: ${{ github.workspace }}/_deps/AtomLoops
+        SINTY_RECOVERY: ${{ github.workspace }}/_deps/sinty-recovery
+        SINTY_INITRAMFS: ${{ github.workspace }}/_deps/sinty-initramfs
+      shell: bash
+      run: ./scripts/check-build-deps.sh
+
+
+    - name: Set up Go
+      uses: actions/setup-go@v6
+      with:
+        go-version: '1.26.x'
+        cache: false
+
+
+    - name: Link the persistent Buildroot trees
+      shell: bash
+      run: |
+        mkdir -p "$CACHE/src" "$CACHE/build" "$CACHE/dl"
+        ln -sfn "$CACHE/build" "$BUILD_DIR"
+        ln -sfn "$CACHE/dl" buildroot-dl
+        stamp=$(cat scripts/prepare.sh buildroot-source-patches/*.patch | sha256sum | cut -d' ' -f1)
+        echo "BR_SRC_STAMP=$stamp" >> "$GITHUB_ENV"
+        if [ "$(cat "$CACHE/src/.source-stamp" 2>/dev/null)" != "$stamp" ]; then
+          rm -rf "$CACHE/src"
+          mkdir -p "$CACHE/src"
+        fi
+        [ -e "$CACHE/src/Makefile" ] && ln -sfn "$CACHE/src" buildroot-src || true
+        cp "$BUILD_DIR"/build/buildroot-config/auto.conf "$RUNNER_TEMP/cached-auto.conf" 2>/dev/null || : > "$RUNNER_TEMP/cached-auto.conf"
+        df -h "$CACHE"
+
+
+    - name: Prepare Buildroot
+      shell: bash
+      run: |
+        ./scripts/prepare.sh
+        if [ ! -L buildroot-src ]; then
+          rm -rf "$CACHE/src"
+          mv buildroot-src "$CACHE/src"
+          ln -sfn "$CACHE/src" buildroot-src
+        fi
+        echo "$BR_SRC_STAMP" > "$CACHE/src/.source-stamp"
+
+
+    - name: Rebuild the packages whose options changed
+      shell: bash
+      run: |
+        [ -s "$RUNNER_TEMP/cached-auto.conf" ] || exit 0
+        export LC_ALL=C
+        grep '^BR2_PACKAGE_' "$RUNNER_TEMP/cached-auto.conf" | sort > "$RUNNER_TEMP/old.cfg"
+        grep '^BR2_PACKAGE_' "$BUILD_DIR"/.config | sort > "$RUNNER_TEMP/new.cfg"
+        for o in $(comm -3 "$RUNNER_TEMP/old.cfg" "$RUNNER_TEMP/new.cfg" | sed 's/^\t//; s/^BR2_PACKAGE_//; s/=.*//' | sort -u); do
+          n=$(printf '%s' "$o" | tr 'A-Z_' 'a-z-')
+          while [ -n "$n" ]; do
+            if ls -d "$BUILD_DIR"/build/"$n"-* >/dev/null 2>&1; then
+              echo "options of $n changed ($o): rebuilding"
+              rm -rf "$BUILD_DIR"/build/"$n"-*
+              break
+            fi
+            case "$n" in *-*) n=${n%-*} ;; *) n= ;; esac
+          done
+        done
+
+
+    - name: Reset the target dir and reinstall into it from the build tree
+      shell: bash
+      run: |
+        rm -rf "$BUILD_DIR"/target
+        mkdir -p "$BUILD_DIR"/target
+        find "$BUILD_DIR"/build -name ".stamp_target_installed" -delete 2>/dev/null || true
+        find "$BUILD_DIR"/build -name ".stamp_images_installed" -delete 2>/dev/null || true
+
+
+    - name: Rebuild the packages built from this repo's own sources
+      shell: bash
+      run: |
+        for p in $(grep -l 'SITE_METHOD = local' package/*/*.mk | xargs -n1 dirname | xargs -n1 basename) linux-pam; do
+          rm -rf "$BUILD_DIR"/build/${p}-* 2>/dev/null || true
+        done
+        rm -f "$BUILD_DIR"/host/*/sysroot/usr/lib/libsystemd.so* \
+              "$BUILD_DIR"/host/*/sysroot/usr/lib/pkgconfig/libsystemd.pc 2>/dev/null || true
+        rm -rf "$BUILD_DIR"/host/*/sysroot/usr/include/systemd 2>/dev/null || true
+
+
+    - name: Rebuild the packages changed by the Buildroot source patches
+      shell: bash
+      run: |
+        rec="$BUILD_DIR"/build/.source-patch-hashes
+        mkdir -p "$BUILD_DIR"/build
+        touch "$rec"
+        for p in $(sed -n 's|^diff --git a/package/\([^/]*\)/.*|\1|p' buildroot-source-patches/*.patch | sort -u); do
+          h=$(grep -l "^diff --git a/package/$p/" buildroot-source-patches/*.patch | xargs cat | sha256sum | cut -c1-16)
+          if ! grep -qx "$p $h" "$rec"; then
+            echo "patch for $p changed: rebuilding it"
+            rm -rf "$BUILD_DIR"/build/"$p"-*
+            sed -i "/^$p /d" "$rec"
+            echo "$p $h" >> "$rec"
+          fi
+        done
+
+
+    - name: Rebuild the kernel when its patches or config changed
+      shell: bash
+      run: |
+        rec="$BUILD_DIR"/build/.kernel-hash
+        h=$( { grep '^BR2_LINUX_KERNEL' "$BUILD_DIR"/.config; cat buildroot-config/kernel.config buildroot-config/kernel-*.fragment board/mts/linux-mts.fragment board/mts/linux-patches/*.patch; } | sha256sum | cut -c1-16)
+        if [ "$(cat "$rec" 2>/dev/null)" != "$h" ]; then
+          echo "kernel patches or config changed: rebuilding the kernel and its modules"
+          rm -rf "$BUILD_DIR"/build/linux-[0-9]* "$BUILD_DIR"/build/nvidia-open-modules-* "$BUILD_DIR"/build/sinty-compute-* "$BUILD_DIR"/build/sinty-scheduler-*
+          mkdir -p "$BUILD_DIR"/build
+          echo "$h" > "$rec"
+        fi
+
+
+    - name: Restore cached packages
+      continue-on-error: true
+      shell: bash
+      run: python3 scripts/pkg-cache.py restore --work "$RUNNER_TEMP" --base-url "https://github.com/${{ github.repository }}/releases/download/pkg-cache"
+
+
+    - name: Compile
+      env:
+        ATOM_BUILD: rc
+      shell: bash
+      run: |
+        set -o pipefail
+        ./scripts/compile.sh 2>&1 | tee build.log && exit 0
+        stale=$(sed -n 's|.*\*\*\* \[package/pkg-generic.mk:[0-9]*: .*/build/build/\([^/]*\)/\.stamp_.*|\1|p' build.log | tail -n 1)
+        [ -n "$stale" ] && [ -d "$BUILD_DIR/build/$stale" ] || exit 1
+        echo "rebuilding $stale from scratch after a failure in the cached tree"
+        rm -rf "$BUILD_DIR/build/$stale"
+        ./scripts/compile.sh 2>&1 | tee build.log
+
+
+    - name: Save new packages to the cache
+      continue-on-error: true
+      env:
+        GH_TOKEN: ${{ github.token }}
+        REPO: ${{ github.repository }}
+      shell: bash
+      run: |
+        api="https://api.github.com/repos/$REPO/releases/tags/pkg-cache"
+        rel=$(curl -fsS -H "Authorization: Bearer $GH_TOKEN" "$api")
+        id=$(printf '%s' "$rel" | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')
+        have=$(printf '%s' "$rel" | python3 -c 'import json,sys; print(",".join(a["name"] for a in json.load(sys.stdin)["assets"]))')
+        out="$RUNNER_TEMP/pkg-cache"
+        rm -rf "$out"
+        python3 scripts/pkg-cache.py save --work "$RUNNER_TEMP" --skip "$have" --out "$out"
+        for f in "$out"/*.tar.zst; do
+          [ -e "$f" ] || continue
+          curl -fsS -o /dev/null -H "Authorization: Bearer $GH_TOKEN" -H "Content-Type: application/zstd" \
+            --data-binary @"$f" "https://uploads.github.com/repos/$REPO/releases/$id/assets?name=$(basename "$f")"
+          mkdir -p "$CACHE/pkg-cache" && cp -f "$f" "$CACHE/pkg-cache/" 2>/dev/null || true
+          echo "uploaded $(basename "$f")"
+        done
+        rm -rf "$out"
+
+
+    - name: Capture the web engines built from source
+      id: engines
+      shell: bash
+      run: |
+        rm -rf prebuilt
+        built=0
+        if ls -d "$BUILD_DIR"/build/webkitgtk-[0-9]*/.stamp_target_installed >/dev/null 2>&1; then
+          ./scripts/capture-webkit-prebuilt.sh prebuilt
+          built=1
+        fi
+        if ls -d "$BUILD_DIR"/build/fotone-[0-9a-f]*/.stamp_target_installed >/dev/null 2>&1; then
+          ./scripts/capture-fotone-prebuilt.sh prebuilt
+          built=1
+        fi
+        echo "built=$built" >> "$GITHUB_OUTPUT"
+
+
+    - name: Upload the captured web engines
+      if: steps.engines.outputs.built == '1'
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+      with:
+        overwrite: true
+        name: web-engines-${{ inputs.stage }}
+        path: prebuilt/*.tar.*
+        retention-days: 14
+        compression-level: 0
+        if-no-files-found: error
+
+
+    - name: Package the unsigned stage
+      env:
+        ATOMLOOPS: ${{ github.workspace }}/_deps/AtomLoops
+        SINTY_RECOVERY: ${{ github.workspace }}/_deps/sinty-recovery
+        SINTY_INITRAMFS: ${{ github.workspace }}/_deps/sinty-initramfs
+        ATOM_BUILD: rc
+        ATOM_UNSIGNED: 1
+      shell: bash
+      run: |
+        set -o pipefail
+        ./scripts/package.sh 2>&1 | tee package.log
+
+
+    - name: Upload the unsigned stage
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+      with:
+        overwrite: true
+        name: ${{ inputs.stage }}
+        path: |
+          artifacts/unsigned.sha256
+          artifacts/release-version.txt
+          artifacts/boot*.efi
+          artifacts/rootfs.erofs
+          artifacts/rootfs.hash
+          artifacts/verity-output.txt
+          artifacts/kernelcache.efi
+          artifacts/kernelcache-live.efi
+          artifacts/kernelcache-portable.efi
+          artifacts/kernelcache-recovery.efi
+        retention-days: 7
+        compression-level: 0
+        if-no-files-found: error
+
+
+    - name: Upload build log
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        overwrite: true
+        name: build-log-${{ inputs.stage }}
+        path: |
+          build.log
+          package.log
+        retention-days: 3
+        if-no-files-found: ignore
