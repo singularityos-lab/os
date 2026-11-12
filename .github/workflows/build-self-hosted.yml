@@ -1,5 +1,5 @@
-name: Singularity Build (self-hosted)
-run-name: Singularity Build ${{ inputs.arch || 'x86_64' }}${{ inputs.anywhere && ' (moved)' || '' }}
+name: Sinty OS release
+run-name: Sinty OS ${{ inputs.arch || 'x86_64' }}${{ inputs.anywhere && ' (moved)' || '' }}
 
 on:
   push:
@@ -9,7 +9,7 @@ on:
       arch:
         description: Target architecture
         type: choice
-        options: [x86_64, aarch64]
+        options: [x86_64, aarch64, both]
         default: x86_64
       anywhere:
         description: Run on any build runner instead of the one that keeps this architecture's cache
@@ -20,292 +20,318 @@ permissions:
   contents: read
 
 jobs:
+  plan:
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.event.head_commit.message, 'build(self-hosted)')
+    runs-on: ubuntu-24.04
+    outputs:
+      arches: ${{ steps.plan.outputs.arches }}
+    steps:
+      - name: Pick the architectures
+        id: plan
+        env:
+          ARCH: ${{ inputs.arch || 'x86_64' }}
+        run: |
+          case "$ARCH" in
+            both) echo 'arches=["x86_64","aarch64"]' ;;
+            x86_64|aarch64) echo "arches=[\"$ARCH\"]" ;;
+            *) echo "unknown architecture $ARCH"; exit 1 ;;
+          esac >> "$GITHUB_OUTPUT"
+
   route:
-    if: (github.event_name == 'workflow_dispatch' && !inputs.anywhere) || (github.event_name == 'push' && startsWith(github.event.head_commit.message, 'build(self-hosted)'))
+    needs: plan
+    if: ${{ !inputs.anywhere }}
     runs-on: ubuntu-24.04
     timeout-minutes: 330
     permissions:
       actions: write
+    strategy:
+      matrix:
+        arch: ${{ fromJSON(needs.plan.outputs.arches) }}
     steps:
       - name: Move the build when its home runner does not take it
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           RUN: ${{ github.run_id }}
-          ARCH: ${{ inputs.arch || 'x86_64' }}
+          ARCH: ${{ matrix.arch }}
+          WANT: ${{ inputs.arch || 'x86_64' }}
           REF: ${{ github.ref_name }}
         run: |
           waited=0
           for i in $(seq 1 600); do
-            state=$(gh api "repos/$REPO/actions/runs/$RUN/jobs" --jq '.jobs[] | select(.name == "build") | .status + " " + (.runner_name // "")')
+            state=$(gh api "repos/$REPO/actions/runs/$RUN/jobs" --jq ".jobs[] | select(.name == \"build $ARCH\") | .status + \" \" + (.runner_name // \"\")")
             case "$state" in
               "") ;;
               queued*) ;;
               *) echo "build started: $state"; exit 0 ;;
             esac
-            busy=$(gh api "repos/$REPO/actions/workflows/build-self-hosted.yml/runs?status=in_progress" --jq "[.workflow_runs[] | select(.id != $RUN) | select(.display_title | startswith(\"Singularity Build $ARCH\"))] | length")
+            busy=0
+            for r in $(gh api "repos/$REPO/actions/workflows/build-self-hosted.yml/runs?status=in_progress" --jq ".workflow_runs[] | select(.id != $RUN) | .id"); do
+              n=$(gh api "repos/$REPO/actions/runs/$r/jobs" --jq "[.jobs[] | select(.status == \"in_progress\") | select(.name | startswith(\"build $ARCH\"))] | length")
+              busy=$((busy + n))
+            done
             if [ "$busy" = 0 ]; then waited=$((waited + 30)); else waited=0; fi
             if [ "$waited" -ge 300 ]; then
-              echo "the home runner for $ARCH has not taken the build in 5 minutes, moving it"
-              gh workflow run build-self-hosted.yml -R "$REPO" --ref "$REF" -f arch="$ARCH" -f anywhere=true
+              echo "the home runner for $ARCH has not taken the build in 5 minutes, moving the release"
+              gh workflow run build-self-hosted.yml -R "$REPO" --ref "$REF" -f arch="$WANT" -f anywhere=true
               gh run cancel "$RUN" -R "$REPO"
               exit 0
             fi
             sleep 30
           done
 
-  build:
-    if: github.event_name == 'workflow_dispatch' || startsWith(github.event.head_commit.message, 'build(self-hosted)')
+  build-x86_64:
+    name: build x86_64
+    needs: plan
+    if: contains(needs.plan.outputs.arches, '"x86_64"')
+    continue-on-error: true
     concurrency:
-      group: build-self-hosted-${{ inputs.arch || 'x86_64' }}
+      group: build-self-hosted-x86_64
       cancel-in-progress: false
-    runs-on: [self-hosted, sinty-build, "${{ inputs.anywhere && (inputs.arch || 'x86_64') || format('home-{0}', inputs.arch || 'x86_64') }}"]
+    runs-on: [self-hosted, sinty-build, "${{ inputs.anywhere && 'x86_64' || 'home-x86_64' }}"]
     timeout-minutes: 1440
     permissions:
       contents: write
-    env:
-      ARCH: ${{ inputs.arch || 'x86_64' }}
-      CACHE: ${{ (inputs.arch || 'x86_64') == 'x86_64' && '/home/runner/cache' || format('/home/runner/cache-{0}', inputs.arch) }}
-      BUILD_DIR: ${{ (inputs.arch || 'x86_64') == 'x86_64' && 'buildroot-build' || format('buildroot-build-{0}', inputs.arch) }}
-
+    outputs:
+      ok: ${{ steps.done.outputs.ok }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
           persist-credentials: false
-
-      - name: Read the declared dependencies
-        id: deps
-        run: |
-          for k in ATOMLOOPS SINTY_RECOVERY SINTY_INITRAMFS; do
-            v=$(sed -n "s/^$k=//p" build-deps)
-            printf '%s\n' "$v" | grep -Eq '^[0-9a-f]{40}$' || { echo "build-deps does not declare $k"; exit 1; }
-            echo "$(echo "$k" | tr 'A-Z_' 'a-z-')=$v" >> "$GITHUB_OUTPUT"
-          done
-
-      - name: Checkout Atom Loops
-        uses: actions/checkout@v4
+      - name: Build
+        uses: ./.github/actions/build-image
         with:
-          repository: mirkobrombin/AtomLoops
-          ref: ${{ steps.deps.outputs.atomloops }}
-          path: _deps/AtomLoops
-          persist-credentials: false
+          arch: x86_64
+          stage: unsigned-${{ github.sha }}
+      - name: Hand the stage to the signing step
+        id: done
+        run: echo "ok=1" >> "$GITHUB_OUTPUT"
 
-      - name: Checkout recovery
-        uses: actions/checkout@v4
-        with:
-          repository: singularityos-lab/sinty-recovery
-          ref: ${{ steps.deps.outputs.sinty-recovery }}
-          path: _deps/sinty-recovery
-          persist-credentials: false
-
-      - name: Checkout initramfs
-        uses: actions/checkout@v4
-        with:
-          repository: singularityos-lab/sinty-initramfs
-          ref: ${{ steps.deps.outputs.sinty-initramfs }}
-          path: _deps/sinty-initramfs
-          persist-credentials: false
-
-      - name: Check the declared dependencies
-        env:
-          ATOMLOOPS: ${{ github.workspace }}/_deps/AtomLoops
-          SINTY_RECOVERY: ${{ github.workspace }}/_deps/sinty-recovery
-          SINTY_INITRAMFS: ${{ github.workspace }}/_deps/sinty-initramfs
-        run: ./scripts/check-build-deps.sh
-
-      - name: Set up Go
-        uses: actions/setup-go@v6
-        with:
-          go-version: '1.26.x'
-          cache: false
-
-      - name: Link the persistent Buildroot trees
-        run: |
-          mkdir -p "$CACHE/src" "$CACHE/build" "$CACHE/dl"
-          ln -sfn "$CACHE/build" "$BUILD_DIR"
-          ln -sfn "$CACHE/dl" buildroot-dl
-          stamp=$(cat scripts/prepare.sh buildroot-source-patches/*.patch | sha256sum | cut -d' ' -f1)
-          echo "BR_SRC_STAMP=$stamp" >> "$GITHUB_ENV"
-          if [ "$(cat "$CACHE/src/.source-stamp" 2>/dev/null)" != "$stamp" ]; then
-            rm -rf "$CACHE/src"
-            mkdir -p "$CACHE/src"
-          fi
-          [ -e "$CACHE/src/Makefile" ] && ln -sfn "$CACHE/src" buildroot-src || true
-          cp "$BUILD_DIR"/build/buildroot-config/auto.conf "$RUNNER_TEMP/cached-auto.conf" 2>/dev/null || : > "$RUNNER_TEMP/cached-auto.conf"
-          df -h "$CACHE"
-
-      - name: Prepare Buildroot
-        run: |
-          ./scripts/prepare.sh
-          if [ ! -L buildroot-src ]; then
-            rm -rf "$CACHE/src"
-            mv buildroot-src "$CACHE/src"
-            ln -sfn "$CACHE/src" buildroot-src
-          fi
-          echo "$BR_SRC_STAMP" > "$CACHE/src/.source-stamp"
-
-      - name: Rebuild the packages whose options changed
-        run: |
-          [ -s "$RUNNER_TEMP/cached-auto.conf" ] || exit 0
-          export LC_ALL=C
-          grep '^BR2_PACKAGE_' "$RUNNER_TEMP/cached-auto.conf" | sort > "$RUNNER_TEMP/old.cfg"
-          grep '^BR2_PACKAGE_' "$BUILD_DIR"/.config | sort > "$RUNNER_TEMP/new.cfg"
-          for o in $(comm -3 "$RUNNER_TEMP/old.cfg" "$RUNNER_TEMP/new.cfg" | sed 's/^\t//; s/^BR2_PACKAGE_//; s/=.*//' | sort -u); do
-            n=$(printf '%s' "$o" | tr 'A-Z_' 'a-z-')
-            while [ -n "$n" ]; do
-              if ls -d "$BUILD_DIR"/build/"$n"-* >/dev/null 2>&1; then
-                echo "options of $n changed ($o): rebuilding"
-                rm -rf "$BUILD_DIR"/build/"$n"-*
-                break
-              fi
-              case "$n" in *-*) n=${n%-*} ;; *) n= ;; esac
-            done
-          done
-
-      - name: Reset the target dir and reinstall into it from the build tree
-        run: |
-          rm -rf "$BUILD_DIR"/target
-          mkdir -p "$BUILD_DIR"/target
-          find "$BUILD_DIR"/build -name ".stamp_target_installed" -delete 2>/dev/null || true
-          find "$BUILD_DIR"/build -name ".stamp_images_installed" -delete 2>/dev/null || true
-
-      - name: Rebuild the packages built from this repo's own sources
-        run: |
-          for p in $(grep -l 'SITE_METHOD = local' package/*/*.mk | xargs -n1 dirname | xargs -n1 basename) linux-pam; do
-            rm -rf "$BUILD_DIR"/build/${p}-* 2>/dev/null || true
-          done
-          rm -f "$BUILD_DIR"/host/*/sysroot/usr/lib/libsystemd.so* \
-                "$BUILD_DIR"/host/*/sysroot/usr/lib/pkgconfig/libsystemd.pc 2>/dev/null || true
-          rm -rf "$BUILD_DIR"/host/*/sysroot/usr/include/systemd 2>/dev/null || true
-
-      - name: Rebuild the packages changed by the Buildroot source patches
-        run: |
-          rec="$BUILD_DIR"/build/.source-patch-hashes
-          mkdir -p "$BUILD_DIR"/build
-          touch "$rec"
-          for p in $(sed -n 's|^diff --git a/package/\([^/]*\)/.*|\1|p' buildroot-source-patches/*.patch | sort -u); do
-            h=$(grep -l "^diff --git a/package/$p/" buildroot-source-patches/*.patch | xargs cat | sha256sum | cut -c1-16)
-            if ! grep -qx "$p $h" "$rec"; then
-              echo "patch for $p changed: rebuilding it"
-              rm -rf "$BUILD_DIR"/build/"$p"-*
-              sed -i "/^$p /d" "$rec"
-              echo "$p $h" >> "$rec"
-            fi
-          done
-
-      - name: Rebuild the kernel when its patches or config changed
-        run: |
-          rec="$BUILD_DIR"/build/.kernel-hash
-          h=$( { grep '^BR2_LINUX_KERNEL' "$BUILD_DIR"/.config; cat buildroot-config/kernel.config buildroot-config/kernel-*.fragment board/mts/linux-mts.fragment board/mts/linux-patches/*.patch; } | sha256sum | cut -c1-16)
-          if [ "$(cat "$rec" 2>/dev/null)" != "$h" ]; then
-            echo "kernel patches or config changed: rebuilding the kernel and its modules"
-            rm -rf "$BUILD_DIR"/build/linux-[0-9]* "$BUILD_DIR"/build/nvidia-open-modules-* "$BUILD_DIR"/build/sinty-compute-* "$BUILD_DIR"/build/sinty-scheduler-*
-            mkdir -p "$BUILD_DIR"/build
-            echo "$h" > "$rec"
-          fi
-
-      - name: Restore cached packages
-        continue-on-error: true
-        run: python3 scripts/pkg-cache.py restore --work "$RUNNER_TEMP" --base-url "https://github.com/${{ github.repository }}/releases/download/pkg-cache"
-
-      - name: Compile
-        env:
-          ATOM_BUILD: rc
-        run: |
-          set -o pipefail
-          ./scripts/compile.sh 2>&1 | tee build.log && exit 0
-          stale=$(sed -n 's|.*\*\*\* \[package/pkg-generic.mk:[0-9]*: .*/build/build/\([^/]*\)/\.stamp_.*|\1|p' build.log | tail -n 1)
-          [ -n "$stale" ] && [ -d "$BUILD_DIR/build/$stale" ] || exit 1
-          echo "rebuilding $stale from scratch after a failure in the cached tree"
-          rm -rf "$BUILD_DIR/build/$stale"
-          ./scripts/compile.sh 2>&1 | tee build.log
-
-      - name: Save new packages to the cache
-        continue-on-error: true
+  lost-x86_64:
+    name: check the x86_64 runner
+    needs: [plan, build-x86_64]
+    if: always() && contains(needs.plan.outputs.arches, '"x86_64"') && needs.build-x86_64.outputs.ok != '1'
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: read
+    outputs:
+      lost: ${{ steps.check.outputs.lost }}
+    steps:
+      - name: Tell a lost runner from a failed build
+        id: check
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
+          RUN: ${{ github.run_id }}
         run: |
-          api="https://api.github.com/repos/$REPO/releases/tags/pkg-cache"
-          rel=$(curl -fsS -H "Authorization: Bearer $GH_TOKEN" "$api")
-          id=$(printf '%s' "$rel" | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')
-          have=$(printf '%s' "$rel" | python3 -c 'import json,sys; print(",".join(a["name"] for a in json.load(sys.stdin)["assets"]))')
-          out="$RUNNER_TEMP/pkg-cache"
-          rm -rf "$out"
-          python3 scripts/pkg-cache.py save --work "$RUNNER_TEMP" --skip "$have" --out "$out"
-          for f in "$out"/*.tar.zst; do
-            [ -e "$f" ] || continue
-            curl -fsS -o /dev/null -H "Authorization: Bearer $GH_TOKEN" -H "Content-Type: application/zstd" \
-              --data-binary @"$f" "https://uploads.github.com/repos/$REPO/releases/$id/assets?name=$(basename "$f")"
-            mkdir -p "$CACHE/pkg-cache" && cp -f "$f" "$CACHE/pkg-cache/" 2>/dev/null || true
-            echo "uploaded $(basename "$f")"
-          done
-          rm -rf "$out"
-
-      - name: Capture the web engines built from source
-        id: engines
-        run: |
-          rm -rf prebuilt
-          built=0
-          if ls -d "$BUILD_DIR"/build/webkitgtk-[0-9]*/.stamp_target_installed >/dev/null 2>&1; then
-            ./scripts/capture-webkit-prebuilt.sh prebuilt
-            built=1
+          job=$(gh api "repos/$REPO/actions/runs/$RUN/jobs" --jq '[.jobs[] | select(.name == "build x86_64")] | last')
+          concl=$(jq -r '.conclusion // ""' <<<"$job")
+          failed=$(jq '[.steps[]? | select(.conclusion == "failure")] | length' <<<"$job")
+          echo "build x86_64 ended as '$concl' with $failed failed steps"
+          if [ "$concl" = failure ] && [ "$failed" = 0 ]; then
+            echo "the runner went away, building on another one"
+            echo "lost=1" >> "$GITHUB_OUTPUT"
           fi
-          if ls -d "$BUILD_DIR"/build/fotone-[0-9a-f]*/.stamp_target_installed >/dev/null 2>&1; then
-            ./scripts/capture-fotone-prebuilt.sh prebuilt
-            built=1
-          fi
-          echo "built=$built" >> "$GITHUB_OUTPUT"
 
-      - name: Upload the captured web engines
-        if: steps.engines.outputs.built == '1'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+  moved-x86_64:
+    name: build x86_64 (moved)
+    needs: [plan, build-x86_64, lost-x86_64]
+    if: always() && needs.lost-x86_64.outputs.lost == '1'
+    concurrency:
+      group: build-self-hosted-x86_64
+      cancel-in-progress: false
+    runs-on: [self-hosted, sinty-build, x86_64]
+    timeout-minutes: 1440
+    permissions:
+      contents: write
+    outputs:
+      ok: ${{ steps.done.outputs.ok }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
         with:
-          name: web-engines-${{ env.ARCH }}-${{ github.sha }}
-          path: prebuilt/*.tar.*
-          retention-days: 14
-          compression-level: 0
-          if-no-files-found: error
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Build
+        uses: ./.github/actions/build-image
+        with:
+          arch: x86_64
+          stage: unsigned-${{ github.sha }}-moved
+      - name: Hand the stage to the signing step
+        id: done
+        run: echo "ok=1" >> "$GITHUB_OUTPUT"
 
-      - name: Package the unsigned stage
+  sign-x86_64:
+    name: sign x86_64
+    needs: [build-x86_64, moved-x86_64]
+    if: always() && github.ref == 'refs/heads/main' && (needs.build-x86_64.outputs.ok == '1' || needs.moved-x86_64.outputs.ok == '1')
+    permissions:
+      contents: read
+      actions: read
+    uses: ./.github/workflows/release-sign.yml
+    with:
+      arch: x86_64
+      sha: ${{ github.sha }}
+      stage: ${{ needs.build-x86_64.outputs.ok == '1' && format('unsigned-{0}', github.sha) || format('unsigned-{0}-moved', github.sha) }}
+    secrets: inherit
+
+  publish-x86_64:
+    name: publish x86_64
+    needs: sign-x86_64
+    if: always() && needs.sign-x86_64.result == 'success'
+    permissions:
+      contents: read
+      actions: read
+    uses: ./.github/workflows/publish-feed.yml
+    with:
+      arch: x86_64
+      sha: ${{ github.sha }}
+      signed: ${{ needs.sign-x86_64.outputs.signed }}
+    secrets: inherit
+
+  released-x86_64:
+    name: x86_64 released
+    needs: [plan, build-x86_64, moved-x86_64, sign-x86_64, publish-x86_64]
+    if: always() && contains(needs.plan.outputs.arches, '"x86_64"')
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Report the outcome of the x86_64 chain
         env:
-          ATOMLOOPS: ${{ github.workspace }}/_deps/AtomLoops
-          SINTY_RECOVERY: ${{ github.workspace }}/_deps/sinty-recovery
-          SINTY_INITRAMFS: ${{ github.workspace }}/_deps/sinty-initramfs
-          ATOM_BUILD: rc
-          ATOM_UNSIGNED: 1
+          BUILT: ${{ needs.build-x86_64.outputs.ok == '1' || needs.moved-x86_64.outputs.ok == '1' }}
+          SIGN: ${{ needs.sign-x86_64.result }}
+          PUBLISH: ${{ needs.publish-x86_64.result }}
         run: |
-          set -o pipefail
-          ./scripts/package.sh 2>&1 | tee package.log
+          [ "$BUILT" = true ] || { echo "x86_64 did not build"; exit 1; }
+          [ "$SIGN" = success ] || { echo "x86_64 built but the signing step ended as $SIGN"; exit 1; }
+          [ "$PUBLISH" = success ] || { echo "x86_64 signed but publishing ended as $PUBLISH"; exit 1; }
+          echo "x86_64 is on canary"
 
-      - name: Upload the unsigned stage
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+  build-aarch64:
+    name: build aarch64
+    needs: plan
+    if: contains(needs.plan.outputs.arches, '"aarch64"')
+    continue-on-error: true
+    concurrency:
+      group: build-self-hosted-aarch64
+      cancel-in-progress: false
+    runs-on: [self-hosted, sinty-build, "${{ inputs.anywhere && 'aarch64' || 'home-aarch64' }}"]
+    timeout-minutes: 1440
+    permissions:
+      contents: write
+    outputs:
+      ok: ${{ steps.done.outputs.ok }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
         with:
-          name: ${{ env.ARCH == 'x86_64' && 'unsigned' || format('unsigned-{0}', env.ARCH) }}-${{ github.sha }}
-          path: |
-            artifacts/unsigned.sha256
-            artifacts/release-version.txt
-            artifacts/boot*.efi
-            artifacts/rootfs.erofs
-            artifacts/rootfs.hash
-            artifacts/verity-output.txt
-            artifacts/kernelcache.efi
-            artifacts/kernelcache-live.efi
-            artifacts/kernelcache-portable.efi
-            artifacts/kernelcache-recovery.efi
-          retention-days: 7
-          compression-level: 0
-          if-no-files-found: error
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Build
+        uses: ./.github/actions/build-image
+        with:
+          arch: aarch64
+          stage: unsigned-aarch64-${{ github.sha }}
+      - name: Hand the stage to the signing step
+        id: done
+        run: echo "ok=1" >> "$GITHUB_OUTPUT"
 
-      - name: Upload build log
-        if: always()
-        uses: actions/upload-artifact@v4
+  lost-aarch64:
+    name: check the aarch64 runner
+    needs: [plan, build-aarch64]
+    if: always() && contains(needs.plan.outputs.arches, '"aarch64"') && needs.build-aarch64.outputs.ok != '1'
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: read
+    outputs:
+      lost: ${{ steps.check.outputs.lost }}
+    steps:
+      - name: Tell a lost runner from a failed build
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN: ${{ github.run_id }}
+        run: |
+          job=$(gh api "repos/$REPO/actions/runs/$RUN/jobs" --jq '[.jobs[] | select(.name == "build aarch64")] | last')
+          concl=$(jq -r '.conclusion // ""' <<<"$job")
+          failed=$(jq '[.steps[]? | select(.conclusion == "failure")] | length' <<<"$job")
+          echo "build aarch64 ended as '$concl' with $failed failed steps"
+          if [ "$concl" = failure ] && [ "$failed" = 0 ]; then
+            echo "the runner went away, building on another one"
+            echo "lost=1" >> "$GITHUB_OUTPUT"
+          fi
+
+  moved-aarch64:
+    name: build aarch64 (moved)
+    needs: [plan, build-aarch64, lost-aarch64]
+    if: always() && needs.lost-aarch64.outputs.lost == '1'
+    concurrency:
+      group: build-self-hosted-aarch64
+      cancel-in-progress: false
+    runs-on: [self-hosted, sinty-build, aarch64]
+    timeout-minutes: 1440
+    permissions:
+      contents: write
+    outputs:
+      ok: ${{ steps.done.outputs.ok }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
         with:
-          name: build-log-${{ env.ARCH }}-${{ github.sha }}
-          path: |
-            build.log
-            package.log
-          retention-days: 3
-          if-no-files-found: ignore
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Build
+        uses: ./.github/actions/build-image
+        with:
+          arch: aarch64
+          stage: unsigned-aarch64-${{ github.sha }}-moved
+      - name: Hand the stage to the signing step
+        id: done
+        run: echo "ok=1" >> "$GITHUB_OUTPUT"
+
+  sign-aarch64:
+    name: sign aarch64
+    needs: [build-aarch64, moved-aarch64]
+    if: always() && github.ref == 'refs/heads/main' && (needs.build-aarch64.outputs.ok == '1' || needs.moved-aarch64.outputs.ok == '1')
+    permissions:
+      contents: read
+      actions: read
+    uses: ./.github/workflows/release-sign.yml
+    with:
+      arch: aarch64
+      sha: ${{ github.sha }}
+      stage: ${{ needs.build-aarch64.outputs.ok == '1' && format('unsigned-aarch64-{0}', github.sha) || format('unsigned-aarch64-{0}-moved', github.sha) }}
+    secrets: inherit
+
+  publish-aarch64:
+    name: publish aarch64
+    needs: sign-aarch64
+    if: always() && needs.sign-aarch64.result == 'success'
+    permissions:
+      contents: read
+      actions: read
+    uses: ./.github/workflows/publish-feed.yml
+    with:
+      arch: aarch64
+      sha: ${{ github.sha }}
+      signed: ${{ needs.sign-aarch64.outputs.signed }}
+    secrets: inherit
+
+  released-aarch64:
+    name: aarch64 released
+    needs: [plan, build-aarch64, moved-aarch64, sign-aarch64, publish-aarch64]
+    if: always() && contains(needs.plan.outputs.arches, '"aarch64"')
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Report the outcome of the aarch64 chain
+        env:
+          BUILT: ${{ needs.build-aarch64.outputs.ok == '1' || needs.moved-aarch64.outputs.ok == '1' }}
+          SIGN: ${{ needs.sign-aarch64.result }}
+          PUBLISH: ${{ needs.publish-aarch64.result }}
+        run: |
+          [ "$BUILT" = true ] || { echo "aarch64 did not build"; exit 1; }
+          [ "$SIGN" = success ] || { echo "aarch64 built but the signing step ended as $SIGN"; exit 1; }
+          [ "$PUBLISH" = success ] || { echo "aarch64 signed but publishing ended as $PUBLISH"; exit 1; }
+          echo "aarch64 is on canary"

@@ -1,49 +1,66 @@
 name: Publish to the update feed
 
 on:
-  workflow_run:
-    workflows: ["Sign a release"]
-    types: [completed]
+  workflow_call:
+    inputs:
+      arch:
+        type: string
+        required: true
+      sha:
+        type: string
+        required: true
+      signed:
+        type: string
+        required: true
   workflow_dispatch:
     inputs:
       sign_run:
-        description: Id of a successful Sign a release run
+        description: Id of the run that signed the release
         required: true
 
 permissions:
   contents: read
   actions: read
 
-concurrency:
-  group: publish-feed-${{ (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion != 'success') && format('idle-{0}', github.run_id) || 'feed' }}
-  cancel-in-progress: false
-
 jobs:
   publish:
-    if: >-
-      github.event_name == 'workflow_dispatch' || (
-      github.event.workflow_run.conclusion == 'success' &&
-      github.event.workflow_run.event != 'pull_request')
     runs-on: ubuntu-24.04
     environment: release
     timeout-minutes: 240
+    concurrency:
+      group: publish-feed-feed
+      cancel-in-progress: false
     env:
-      SIGN_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.sign_run || github.event.workflow_run.id }}
+      SIGN_RUN: ${{ inputs.sign_run || github.run_id }}
       FEED_REPO: singularityos-lab/sinty-updates
     steps:
       - name: Resolve the signed release
         id: sign
         env:
           GH_TOKEN: ${{ github.token }}
+          MANUAL: ${{ inputs.sign_run }}
+          CALL_SIGNED: ${{ inputs.signed }}
+          CALL_SHA: ${{ inputs.sha }}
+          CALL_ARCH: ${{ inputs.arch }}
         run: |
           set -euo pipefail
           printf '%s\n' "$SIGN_RUN" | grep -Eq '^[0-9]+$' || { echo "sign run must be a number"; exit 1; }
-          info=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SIGN_RUN" --jq '[.path, .conclusion] | @tsv')
-          [ "$info" = "$(printf '.github/workflows/release-sign.yml\tsuccess')" ] || { echo "run $SIGN_RUN is not a successful Sign a release run"; exit 1; }
-          name=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SIGN_RUN/artifacts" --jq '[.artifacts[] | select(.name | test("^signed(-aarch64)?-[0-9a-f]{40}$")) | .name] | first // ""')
-          [ -n "$name" ] || { echo "run $SIGN_RUN kept no signed release"; exit 1; }
-          sha=${name##*-}
-          case "$name" in signed-aarch64-*) arch=aarch64 ;; *) arch=x86_64 ;; esac
+          if [ -n "$MANUAL" ]; then
+            path=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SIGN_RUN" --jq .path)
+            case "$path" in
+              .github/workflows/release-sign.yml|.github/workflows/build-self-hosted.yml) ;;
+              *) echo "run $SIGN_RUN is not a signing run"; exit 1 ;;
+            esac
+            name=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SIGN_RUN/artifacts" --jq '[.artifacts[] | select(.expired | not) | select(.name | test("^signed(-aarch64)?-[0-9a-f]{40}$")) | .name] | first // ""')
+            [ -n "$name" ] || { echo "run $SIGN_RUN kept no signed release"; exit 1; }
+            sha=${name##*-}
+            case "$name" in signed-aarch64-*) arch=aarch64 ;; *) arch=x86_64 ;; esac
+          else
+            name=$CALL_SIGNED
+            sha=$CALL_SHA
+            arch=$CALL_ARCH
+          fi
+          printf '%s\n' "$sha" | grep -Eq '^[0-9a-f]{40}$' || { echo "no commit for the signed release"; exit 1; }
           {
             echo "SIGNED=$name"
             echo "ARCH=$arch"
