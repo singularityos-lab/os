@@ -23,7 +23,6 @@ CPAK_EXTRA_DOWNLOADS = \
 	https://github.com/rootless-containers/slirp4netns/releases/download/$(CPAK_SLIRP_VERSION)/slirp4netns-aarch64
 
 define CPAK_GO_PREPARE
-	sed -i 's/^go 1\.26\.[0-9]*$$/go 1.26/' $(@D)/go.mod
 	cd $(@D) && env -u GOFLAGS GOPROXY=https://proxy.golang.org,direct GOTOOLCHAIN=local $(HOST_DIR)/bin/go mod vendor
 	mkdir -p $(@D)/.build/ui-adapters
 	$(TARGET_CC) $(TARGET_CFLAGS) -O2 -Wall -Wextra $(@D)/ui/adapters/gtk/main.c \
