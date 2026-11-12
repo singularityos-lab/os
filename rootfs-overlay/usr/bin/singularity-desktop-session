@@ -47,7 +47,7 @@ if [ -d /run/sinty ]; then
         echo "type=${XDG_SESSION_TYPE:-wayland}"
         echo "display=${WAYLAND_DISPLAY:-wayland-0}"
     } > "$_SINTY_SESSION" 2>/dev/null || true
-    trap 'rm -f "$_SINTY_SESSION" 2>/dev/null' EXIT INT TERM
+    trap 'rm -f "$_SINTY_SESSION" 2>/dev/null' EXIT
 fi
 
 case "${DBUS_SESSION_BUS_ADDRESS:-}" in
@@ -109,7 +109,8 @@ if [ -f "$_SPID" ]; then
     fi
 fi
 echo $$ > "$_SPID"
-trap "rm -f $_SPID" EXIT
+trap 'rm -f "$_SPID" ${_SINTY_SESSION:+"$_SINTY_SESSION"} 2>/dev/null' EXIT
+trap 'exit 143' INT TERM
 
 pkill -TERM -x singularity-desktop 2>/dev/null || true
 pkill -x singularity-polkit-agent 2>/dev/null || true
