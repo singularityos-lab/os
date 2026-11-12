@@ -12,8 +12,8 @@ USH_LICENSE_FILES = LICENSE
 USH_LDFLAGS = -s -w -X github.com/singularityos-lab/ush/internal/config.AppVersion=nightly
 
 define USH_BUILD_CMDS
-	cd $(@D) && CGO_ENABLED=0 $(HOST_DIR)/bin/go build -buildvcs=false -ldflags '$(USH_LDFLAGS)' -o ush ./cmd/ush
-	cd $(@D) && CGO_ENABLED=0 $(HOST_DIR)/bin/go build -buildvcs=false -ldflags '$(USH_LDFLAGS)' -o ush-broker ./cmd/ush-broker
+	cd $(@D) && CGO_ENABLED=0 GOOS=linux GOARCH=$(GO_GOARCH) $(HOST_DIR)/bin/go build -buildvcs=false -ldflags '$(USH_LDFLAGS)' -o ush ./cmd/ush
+	cd $(@D) && CGO_ENABLED=0 GOOS=linux GOARCH=$(GO_GOARCH) $(HOST_DIR)/bin/go build -buildvcs=false -ldflags '$(USH_LDFLAGS)' -o ush-broker ./cmd/ush-broker
 	$(TARGET_CC) -shared -fPIC -O2 -o $(@D)/ush-chown-shim.so $(@D)/internal/preload/csrc/ush-chown-shim.c
 endef
 

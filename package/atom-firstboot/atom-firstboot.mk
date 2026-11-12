@@ -5,7 +5,7 @@ ATOM_FIRSTBOOT_LICENSE = GPL-3.0-or-later
 ATOM_FIRSTBOOT_DEPENDENCIES = host-go
 
 define ATOM_FIRSTBOOT_BUILD_CMDS
-	cd $(@D) && CGO_ENABLED=0 $(HOST_DIR)/bin/go build -buildvcs=false -ldflags '-s -w' -o atom-firstboot .
+	cd $(@D) && CGO_ENABLED=0 GOOS=linux GOARCH=$(GO_GOARCH) $(HOST_DIR)/bin/go build -buildvcs=false -ldflags '-s -w' -o atom-firstboot .
 endef
 
 define ATOM_FIRSTBOOT_INSTALL_TARGET_CMDS
