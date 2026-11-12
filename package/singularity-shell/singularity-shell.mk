@@ -6,7 +6,7 @@
 
 # Local dev builds from buildroot-build/local.mk _OVERRIDE_SRCDIR (build dir -custom),
 # which supersedes this github SITE. Keep the pin for RC/CI (no override present).
-SINGULARITY_SHELL_VERSION = fcd7f972307a3375306bf326acb84208f543d869
+SINGULARITY_SHELL_VERSION = 2fa2cfde51f649801588428e5fca87afedd70930
 SINGULARITY_SHELL_SITE = $(call github,singularityos-lab,singularity-shell,$(SINGULARITY_SHELL_VERSION))
 SINGULARITY_SHELL_LICENSE = GPL-3.0+
 SINGULARITY_SHELL_LICENSE_FILES = LICENSE
