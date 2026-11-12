@@ -115,6 +115,7 @@ health)
 	healthy
 	;;
 rolledback)
+	printf '%s\n' "$ATOM_TO" > "$state/failed"
 	[ -f "$state/restarted" ] || exit 0
 	while IFS= read -r unit; do
 		log "restart $unit on $ATOM_FROM"
@@ -123,7 +124,15 @@ rolledback)
 	;;
 committed)
 	printf '%s %s\n' "$ATOM_TO" "$ATOM_APPLY_CLASS" > "$state/applied"
+	rm -f "$state/failed"
 	log "now on $ATOM_TO"
+	if [ "$ATOM_APPLY_CLASS" = relogin ]; then
+		log "restart singularity-compositor.service for the next login"
+		(
+			sleep 1
+			systemctl restart singularity-compositor.service
+		) </dev/null >/dev/null 2>&1 &
+	fi
 	;;
 esac
 exit 0

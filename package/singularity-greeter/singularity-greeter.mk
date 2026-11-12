@@ -6,7 +6,7 @@
 
 # SITE=local: build from the local desktop subproject so local UI changes (PIN label,
 # recovery flow) reach the image. Release builds use the pinned repository version.
-SINGULARITY_GREETER_VERSION = 5de9120339f553f03e7b9d3709a88e1baba215c0
+SINGULARITY_GREETER_VERSION = 0910299215db80277c0b199fbd8299b18875789c
 SINGULARITY_GREETER_SITE = $(call github,singularityos-lab,singularity-greeter,$(SINGULARITY_GREETER_VERSION))
 SINGULARITY_GREETER_LICENSE = GPL-3.0+
 SINGULARITY_GREETER_LICENSE_FILES = LICENSE
