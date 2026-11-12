@@ -226,14 +226,28 @@ jobs:
           (cd AtomLoops && go build -o "$RUNNER_TEMP/atom-sign" ./cmd/atom-sign)
           gh release download "$LIVE_FROM" -R "$FEED_REPO" -D "$prev" --clobber \
             -p rootfs.erofs -p rootfs.hash -p kernelcache.efi -p kernelcache.efi.sig
-          if sudo env PREV_VERSION="$LIVE_FROM" NEW_VERSION="$VERSION" APPLY_CLASS="$APPLY_CLASS" KERNEL_RELEASE="$KERNEL_RELEASE" \
-              ATOM_SIGN="$RUNNER_TEMP/atom-sign" SIGNING_KEY="$keys/signing.key" SIGNING_CERT="$keys/signing-cert.json" \
-              bash os/scripts/live-vm-test.sh "$prev" rel "$work"; then
-            { echo; echo "Live apply over $LIVE_FROM passed in a VM."; } >> "$GITHUB_STEP_SUMMARY"
+          ok=1
+          sudo env PREV_VERSION="$LIVE_FROM" NEW_VERSION="$VERSION" APPLY_CLASS="$APPLY_CLASS" KERNEL_RELEASE="$KERNEL_RELEASE" \
+            ATOM_SIGN="$RUNNER_TEMP/atom-sign" SIGNING_KEY="$keys/signing.key" SIGNING_CERT="$keys/signing-cert.json" \
+            bash os/scripts/live-vm-test.sh "$prev" rel "$work" || ok=
+          mkdir -p live-shots
+          sudo cp "$work"/shots/*.png "$work"/result.txt live-shots/ 2>/dev/null || true
+          sudo chown -R "$(id -u)" live-shots
+          if [ -n "$ok" ]; then
+            { echo; echo "Live apply ($APPLY_CLASS) over $LIVE_FROM passed in a VM."; } >> "$GITHUB_STEP_SUMMARY"
           else
-            sudo tail -n 40 "$work/serial.log" 2>/dev/null || true
+            sudo sh -c "tail -n 40 '$work'/serial-*.log" 2>/dev/null || true
             drop "failed in the VM"
           fi
+
+      - name: Keep the live apply screenshots
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: live-apply-${{ env.VERSION }}
+          path: live-shots
+          if-no-files-found: ignore
+          retention-days: 30
 
       - name: Carry the firmware bundles over
         run: |

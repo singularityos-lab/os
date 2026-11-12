@@ -1,5 +1,5 @@
 #!/bin/sh
-exec >> /var/log/live-vm-test.txt 2>&1
+exec >> /var/live-vm-test.txt 2>&1
 sock=/run/updated.sock
 q() { curl -s --max-time "${3:-30}" --unix-socket $sock -X "$1" "http://localhost$2"; }
 field() { sed -n "s/.*\"$1\":\"\([^\"]*\)\".*/\1/p"; }
