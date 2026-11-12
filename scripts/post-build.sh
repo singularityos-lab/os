@@ -22,6 +22,7 @@ for _d in bin sbin; do
     fi
 done
 [ -e "$TARGET_DIR/usr/sbin/arping" ] || ln -s ../bin/arping "$TARGET_DIR/usr/sbin/arping"
+mkdir -p "$TARGET_DIR/usr/lib/atomloops/live"
 ln -sfn ../var/lib/singularity/timezone "$TARGET_DIR/etc/timezone"
 
 

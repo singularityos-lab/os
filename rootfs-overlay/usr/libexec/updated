@@ -4,6 +4,8 @@ case " $(cat /proc/cmdline 2>/dev/null) " in
 	*" sing.portable=1 "*) exit 0 ;;
 esac
 
+live_pcr=15
+
 case "$1" in
 check|poll|serve)
 	cmd=$1
@@ -12,9 +14,14 @@ check|poll|serve)
 	aarch64) arch=/aarch64 ;;
 	*) arch= ;;
 	esac
+	[ "$cmd" = serve ] && set -- --live-pcr "$live_pcr" "$@"
 	exec /usr/libexec/updated.real "$cmd" \
 		--channels "stable=https://updates.sinty.dev/stable$arch,canary=https://updates.sinty.dev/canary$arch" \
 		--channel-file /var/lib/sinty/update-channel "$@"
+	;;
+apply-live)
+	shift
+	exec /usr/libexec/updated.real apply-live --live-pcr "$live_pcr" "$@"
 	;;
 esac
 

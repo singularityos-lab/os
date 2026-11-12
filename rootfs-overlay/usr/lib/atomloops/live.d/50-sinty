@@ -1,0 +1,129 @@
+#!/bin/sh
+
+phase=$1
+old=${ATOM_OLD_ROOT:-}
+state=/run/sinty/live
+mkdir -p "$state"
+
+log() {
+	printf '%s %s\n' "$phase" "$*" >> "$state/log"
+	logger -t sinty-live "$phase: $*" 2>/dev/null || :
+}
+
+kept() {
+	case "$1" in
+	updated.service | updated-check.service | dbus.service | sealedlogd.service | sinty-keyd.service | \
+		singularity-boot-splash.service | singularity-compositor.service | greetd.service)
+		return 0
+		;;
+	esac
+	return 1
+}
+
+changed_files() {
+	for maps in /proc/[0-9]*/maps; do
+		awk -v o="$old/" 'NF == 6 && index($6, o) == 1 { print $6 }' "$maps" 2>/dev/null
+	done | sort -u | while IFS= read -r f; do
+		cmp -s "$f" "${f#"$old"}" 2>/dev/null || printf '%s\n' "$f"
+	done
+}
+
+stale_pids() {
+	[ -s "$state/changed" ] || return 0
+	for maps in /proc/[0-9]*/maps; do
+		pid=${maps#/proc/}
+		pid=${pid%/maps}
+		[ "$pid" = 1 ] || [ "$pid" = "$$" ] && continue
+		awk 'NR == FNR { c[$0]; next } NF == 6 && ($6 in c) { found = 1; exit } END { exit !found }' \
+			"$state/changed" "$maps" 2>/dev/null && printf '%s\n' "$pid"
+	done
+}
+
+unit_index() {
+	for u in /etc/systemd/system/*.service /usr/lib/systemd/system/*.service; do
+		[ -f "$u" ] || continue
+		exe=$(sed -n 's/^ExecStart=[-@+!:]*\([^ ]*\).*/\1/p' "$u" | head -n 1)
+		[ -n "$exe" ] && printf '%s %s\n' "$exe" "${u##*/}"
+	done
+}
+
+unit_of() {
+	pid=$1
+	exe=$(readlink "/proc/$pid/exe" 2>/dev/null)
+	exe=${exe% (deleted)}
+	exe=${exe#"$old"}
+	set -- "$exe" "${exe%.real}"
+	for arg in $(tr '\0' '\n' < "/proc/$pid/cmdline" 2>/dev/null | head -n 2); do
+		set -- "$@" "${arg#"$old"}"
+	done
+	for key in "$@"; do
+		[ -n "$key" ] || continue
+		unit=$(awk -v k="$key" '$1 == k { print $2; exit }' "$state/units")
+		[ -n "$unit" ] && { printf '%s\n' "$unit"; return 0; }
+	done
+	return 1
+}
+
+restart_units() {
+	: > "$state/restarted"
+	unit_index > "$state/units"
+	for pid in $(stale_pids); do
+		unit=$(unit_of "$pid") || continue
+		kept "$unit" && continue
+		grep -qx "$unit" "$state/restarted" && continue
+		printf '%s\n' "$unit" >> "$state/restarted"
+	done
+	while IFS= read -r unit; do
+		log "restart $unit"
+		systemctl restart "$unit" >/dev/null 2>&1 || log "restart $unit failed"
+	done < "$state/restarted"
+}
+
+healthy() {
+	[ -f "$state/restarted" ] || return 0
+	while IFS= read -r unit; do
+		tries=0
+		while :; do
+			case $(systemctl status "$unit" 2>/dev/null) in
+			active*) break ;;
+			failed*)
+				log "$unit failed after the switch"
+				return 1
+				;;
+			esac
+			tries=$((tries + 1))
+			[ "$tries" -lt 50 ] || {
+				log "$unit did not come back"
+				return 1
+			}
+			sleep 0.2
+		done
+	done < "$state/restarted"
+	return 0
+}
+
+case "$phase" in
+switched)
+	[ -n "$old" ] || exit 1
+	: > "$state/log"
+	log "$ATOM_FROM to $ATOM_TO ($ATOM_APPLY_CLASS)"
+	changed_files > "$state/changed"
+	log "$(wc -l < "$state/changed") mapped files changed"
+	restart_units
+	;;
+health)
+	healthy
+	;;
+rolledback)
+	[ -f "$state/restarted" ] || exit 0
+	while IFS= read -r unit; do
+		log "restart $unit on $ATOM_FROM"
+		systemctl restart "$unit" >/dev/null 2>&1 || log "restart $unit failed"
+	done < "$state/restarted"
+	;;
+committed)
+	printf '%s %s\n' "$ATOM_TO" "$ATOM_APPLY_CLASS" > "$state/applied"
+	log "now on $ATOM_TO"
+	;;
+esac
+exit 0

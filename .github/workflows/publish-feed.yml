@@ -148,6 +148,43 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.SINTY_UPDATES_TOKEN }}
 
+      - name: Decide how the release applies
+        env:
+          GH_TOKEN: ${{ secrets.SINTY_UPDATES_TOKEN }}
+        run: |
+          set -euo pipefail
+          sudo apt-get install -y -qq erofs-utils zstd >/dev/null
+          root="$RUNNER_TEMP/root"
+          sudo fsck.erofs --extract="$root" rel/rootfs.erofs >/dev/null
+          kernel=$(ls "$root/usr/lib/modules")
+          [ "$(printf '%s\n' "$kernel" | wc -l)" = 1 ] || { echo "the image has more than one kernel: $kernel"; exit 1; }
+          sudo python3 os/scripts/live-stage.py list --table os/release/live-stages "$root" > rel/files.json
+          sudo rm -rf "$root"
+          zstd -q -19 -f rel/files.json -o rel/files.json.zst
+          prev=$(jq -r .version "feed/$CHANNEL/manifest.json" 2>/dev/null || true)
+          prevtag=$prev
+          [ "$ARCH" = aarch64 ] && prevtag=$prev-aarch64
+          decision='{"stage":3,"class":"","highest":[["","3","no previous release to compare with"]]}'
+          if [ -n "$prev" ] && gh release download "$prevtag" -R "$FEED_REPO" -p files.json.zst -D "$RUNNER_TEMP/prev" --clobber 2>/dev/null; then
+            zstd -q -d -f "$RUNNER_TEMP/prev/files.json.zst" -o "$RUNNER_TEMP/prev/files.json"
+            decision=$(python3 os/scripts/live-stage.py decide --table os/release/live-stages --old "$RUNNER_TEMP/prev/files.json" --new rel/files.json)
+          fi
+          class=$(printf '%s' "$decision" | jq -r .class)
+          {
+            echo "KERNEL_RELEASE=$kernel"
+            if [ -n "$class" ]; then
+              echo "APPLY_CLASS=$class"
+              echo "LIVE_FROM=$prev"
+            fi
+          } >> "$GITHUB_ENV"
+          {
+            echo "### How $VERSION applies over ${prev:-nothing}"
+            echo
+            printf '%s' "$decision" | jq -r '"Stage \(.stage) \(if .class == "" then "(reboot)" else "(" + .class + ")" end)"'
+            echo
+            printf '%s' "$decision" | jq -r '.highest[] | "- `\(.[0])`: \(.[2])"'
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Carry the firmware bundles over
         run: |
           set -euo pipefail
@@ -218,7 +255,7 @@ jobs:
           cd rel
           s=${SHA:0:7}
           mv verity-output.txt "verity-output-$s.txt"
-          files="rootfs.erofs rootfs.hash kernelcache.efi kernelcache.efi.sig kernelcache-recovery.efi kernelcache-recovery.efi.sig"
+          files="rootfs.erofs rootfs.hash kernelcache.efi kernelcache.efi.sig kernelcache-recovery.efi kernelcache-recovery.efi.sig files.json.zst"
           files="$files firmware-active-amd.img firmware-active-amd.hash firmware-active-nvidia.img firmware-active-nvidia.hash verity-output-$s.txt"
           for f in kernelcache.*.efi kernelcache.*.efi.sig sinty-board-firmware.tar.xz sinty-os-$VERSION.img.xz sinty-os-$VERSION.img.xz.sha256 sinty-os-portable-$VERSION.img.xz sinty-os-portable-$VERSION.img.xz.sha256; do
             [ -f "$f" ] && files="$files $f"
