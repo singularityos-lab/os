@@ -9,7 +9,8 @@ SINTY_MEDIA_SITE = $(call github,singularityos-lab,sinty-media,$(SINTY_MEDIA_VER
 SINTY_MEDIA_LICENSE = GPL-3.0
 SINTY_MEDIA_LICENSE_FILES = LICENSE
 SINTY_MEDIA_DEPENDENCIES = host-pkgconf gstreamer1 gst1-plugins-base gst1-plugins-good \
-	libglib2 pipewire pango libgudev libdrm graphene libpng jpeg \
+	libglib2 pipewire pango libgudev libdrm graphene libpng jpeg libogg zlib wayland \
+	$(if $(BR2_PACKAGE_HAS_LIBGBM),libgbm) \
 	$(if $(BR2_PACKAGE_HAS_LIBEGL),libegl) $(if $(BR2_PACKAGE_HAS_LIBGL),libgl) \
 	$(if $(BR2_PACKAGE_XLIB_LIBX11),xlib_libX11 xlib_libXext xlib_libXi xlib_libXv) \
 	$(if $(BR2_PACKAGE_GST1_PLUGINS_BAD),gst1-plugins-bad) \
