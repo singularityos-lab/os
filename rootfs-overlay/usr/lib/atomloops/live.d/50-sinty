@@ -136,10 +136,14 @@ committed)
 	log "now on $ATOM_TO"
 	if [ "$ATOM_APPLY_CLASS" = relogin ]; then
 		log "restart singularity-compositor.service for the next login"
-		(
+		for try in 1 2 3; do
+			if out=$(systemctl restart singularity-compositor.service 2>&1); then
+				log "singularity-compositor.service restarted"
+				break
+			fi
+			log "restart singularity-compositor.service failed: $out"
 			sleep 1
-			systemctl restart singularity-compositor.service
-		) </dev/null >/dev/null 2>&1 &
+		done
 	fi
 	;;
 esac
