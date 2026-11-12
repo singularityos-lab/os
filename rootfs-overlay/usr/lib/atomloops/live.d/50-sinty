@@ -80,25 +80,33 @@ restart_units() {
 }
 
 healthy() {
-	[ -f "$state/restarted" ] || return 0
-	while IFS= read -r unit; do
-		tries=0
-		while :; do
+	[ -s "$state/restarted" ] || return 0
+	rounds=0
+	streak=0
+	while [ "$streak" -lt 15 ]; do
+		all=1
+		while IFS= read -r unit; do
 			case $(systemctl status "$unit" 2>/dev/null) in
-			active*) break ;;
-			failed*)
-				log "$unit failed after the switch"
+			active*) ;;
+			failed* | inactive*)
+				log "$unit stopped after the switch"
 				return 1
 				;;
+			*) all=0 ;;
 			esac
-			tries=$((tries + 1))
-			[ "$tries" -lt 50 ] || {
-				log "$unit did not come back"
-				return 1
-			}
-			sleep 0.2
-		done
-	done < "$state/restarted"
+		done < "$state/restarted"
+		if [ "$all" = 1 ]; then
+			streak=$((streak + 1))
+		else
+			streak=0
+		fi
+		rounds=$((rounds + 1))
+		[ "$rounds" -lt 100 ] || {
+			log "services did not settle after the switch"
+			return 1
+		}
+		sleep 0.2
+	done
 	return 0
 }
 
@@ -112,7 +120,7 @@ switched)
 	restart_units
 	;;
 health)
-	healthy
+	healthy || exit 1
 	;;
 rolledback)
 	printf '%s\n' "$ATOM_TO" > "$state/failed"
