@@ -1,0 +1,14 @@
+[Unit]
+Description=Keep the kernel and compositor logs of the last boots on disk
+DefaultDependencies=no
+After=sealedlogd.service
+Before=singularity-compositor.service
+
+[Service]
+Type=simple
+ExecStart=/usr/libexec/sinty-logkeep
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

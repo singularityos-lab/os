@@ -1,0 +1,47 @@
+#!/bin/sh
+dir=/var/log/keep
+keep=5
+cap=33554432
+mark=/run/sinty-logkeep.rotated
+install -d -m 0750 -g singularity-session "$dir" || exit 1
+umask 027
+kernel=$dir/kernel.0.log
+labwc=$dir/labwc.0.log
+from=0
+if [ ! -e "$mark" ]; then
+	i=$((keep - 1))
+	while [ "$i" -gt 0 ]; do
+		p=$((i - 1))
+		for name in kernel labwc; do
+			[ -f "$dir/$name.$p.log" ] && mv -f "$dir/$name.$p.log" "$dir/$name.$i.log"
+		done
+		i=$p
+	done
+	: > "$kernel"
+	: > "$labwc"
+	: > "$mark"
+	from=+1
+fi
+touch "$kernel" "$labwc"
+chgrp singularity-session "$kernel" "$labwc"
+size() { stat -c %s "$1" 2>/dev/null || echo 0; }
+kpid=
+lpid=
+stop() {
+	kill $kpid $lpid $(jobs -p) 2>/dev/null
+	sync "$kernel" "$labwc"
+	exit 0
+}
+trap stop INT TERM
+while :; do
+	if [ -z "$kpid" ] || ! kill -0 "$kpid" 2>/dev/null; then
+		left=$((cap - $(size "$kernel")))
+		[ "$left" -gt 0 ] && { head -c "$left" < /dev/kmsg >> "$kernel" & kpid=$!; }
+	fi
+	if [ -z "$lpid" ] || ! kill -0 "$lpid" 2>/dev/null; then
+		left=$((cap - $(size "$labwc")))
+		[ "$left" -gt 0 ] && { tail --pid=$$ -n "$from" -F /run/singularity/labwc.log 2>/dev/null | head -c "$left" >> "$labwc" & lpid=$!; from=0; }
+	fi
+	sleep 2
+	sync "$kernel" "$labwc"
+done
