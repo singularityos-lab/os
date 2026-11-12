@@ -143,6 +143,7 @@ while true; do
     _t0=$SECONDS
     "$BIN/singularity-desktop" >> "$_LOG" 2>&1
     _EC=$?
+    export SINGULARITY_SHELL_RESTARTED=1
     _dt=$((SECONDS - _t0))
     if [ $_EC -eq 79 ]; then
         echo "[$(date)] singularity-desktop reloading for a live update" >> "$_LOG"
