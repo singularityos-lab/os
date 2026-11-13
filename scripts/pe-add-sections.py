@@ -7,6 +7,39 @@ def align(v, a):
     return (v + a - 1) // a * a
 
 
+def grow_headers(data, coff, opt, table, nsec, at, delta):
+    if delta <= 0:
+        return
+    data[at:at] = b"\0" * delta
+    sections = []
+    for i in range(nsec):
+        e = table + i * 40
+        vsize, va, rawsize, rawptr = struct.unpack_from("<IIII", data, e + 8)
+        if rawsize and rawptr >= at:
+            rawptr += delta
+            struct.pack_into("<I", data, e + 20, rawptr)
+        sections.append((va, max(vsize, rawsize), rawptr))
+    symtab, = struct.unpack_from("<I", data, coff + 8)
+    if symtab >= at:
+        struct.pack_into("<I", data, coff + 8, symtab + delta)
+    ndirs, = struct.unpack_from("<I", data, opt + 108)
+    if ndirs > 4:
+        cert, cert_size = struct.unpack_from("<II", data, opt + 112 + 4 * 8)
+        if cert_size and cert >= at:
+            struct.pack_into("<I", data, opt + 112 + 4 * 8, cert + delta)
+    if ndirs > 6:
+        rva, size = struct.unpack_from("<II", data, opt + 112 + 6 * 8)
+        for va, span, rawptr in sections:
+            if size and va <= rva < va + span:
+                off = rawptr + rva - va
+                for k in range(size // 28):
+                    p = off + k * 28 + 24
+                    ptr, = struct.unpack_from("<I", data, p)
+                    if ptr >= at:
+                        struct.pack_into("<I", data, p, ptr + delta)
+                break
+
+
 def main():
     if len(sys.argv) < 4 or (len(sys.argv) - 2) % 2:
         sys.exit("usage: pe-add-sections.py IMAGE NAME FILE [NAME FILE ...]")
@@ -29,15 +62,23 @@ def main():
 
     end_va = 0
     first_raw = len(data)
+    first_va = 1 << 32
     for i in range(nsec):
         e = table + i * 40
         vsize, va, rawsize, rawptr = struct.unpack_from("<IIII", data, e + 8)
         end_va = max(end_va, va + max(vsize, rawsize))
+        first_va = min(first_va, va)
         if rawsize:
             first_raw = min(first_raw, rawptr)
 
-    if table + (nsec + len(pairs)) * 40 > min(size_headers, first_raw):
-        sys.exit(f"{path}: no room in the section table for {len(pairs)} more sections")
+    needed = table + (nsec + len(pairs)) * 40
+    if needed > min(size_headers, first_raw):
+        grown = align(needed, file_align)
+        if grown > first_va:
+            sys.exit(f"{path}: no room in the section table for {len(pairs)} more sections")
+        grow_headers(data, coff, opt, table, nsec, first_raw, grown - first_raw)
+        size_headers = grown
+        struct.pack_into("<I", data, opt + 60, size_headers)
 
     data.extend(b"\0" * (align(len(data), file_align) - len(data)))
     for name, src in pairs:
