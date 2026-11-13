@@ -4,7 +4,7 @@
 #
 ################################################################################
 
-FOTONE_VERSION = 61f92500fcea009ad12291f38c98d2790adc4561
+FOTONE_VERSION = ac5a6f1a6238fb198333ff8765f5c217f37ed7a0
 FOTONE_SITE = $(call github,singularityos-lab,fotone,$(FOTONE_VERSION))
 FOTONE_LICENSE = LGPL-2.1+, BSD-2-Clause
 FOTONE_LICENSE_FILES = LICENSE
@@ -16,9 +16,11 @@ FOTONE_DEPENDENCIES = webkitgtk host-gperf host-python3 host-ruby host-unifdef h
 	libpng libsecret libsoup3 libtasn1 libxkbcommon libxml2 libxslt sqlite wayland wayland-protocols \
 	webp woff2 $(if $(BR2_PACKAGE_SINTY_MEDIA),sinty-media)
 
+FOTONE_GLIBC = $(firstword $(subst -, ,$(GLIBC_VERSION)))
+
 FOTONE_ZIG_OPTS = \
 	-Doptimize=ReleaseSafe \
-	-Dtarget=$(call qstrip,$(BR2_ARCH))-linux-gnu \
+	-Dtarget=$(call qstrip,$(BR2_ARCH))-linux-gnu$(if $(FOTONE_GLIBC),.$(FOTONE_GLIBC)) \
 	-Dcpu=baseline \
 	-Dsysroot=$(STAGING_DIR) \
 	-Dtriple=$(GNU_TARGET_NAME) \
@@ -33,8 +35,8 @@ FOTONE_STAGE = $(@D)/upstream/build/stage/usr/local
 define FOTONE_BUILD_CMDS
 	mkdir -p $(@D)/upstream/src
 	cp $(FOTONE_DL_DIR)/wpewebkit-$(FOTONE_ENGINE_VERSION).tar.xz $(@D)/upstream/src/
-	cd $(@D) && $(TARGET_MAKE_ENV) PKG_CONFIG=$(PKG_CONFIG_HOST_BINARY) zig build engine $(FOTONE_ZIG_OPTS)
-	cd $(@D) && $(TARGET_MAKE_ENV) PKG_CONFIG=$(PKG_CONFIG_HOST_BINARY) zig build install $(FOTONE_ZIG_OPTS) --prefix $(@D)/out
+	cd $(@D) && $(TARGET_MAKE_ENV) PKG_CONFIG=$(PKG_CONFIG_HOST_BINARY) env -u GIT_DIR zig build engine $(FOTONE_ZIG_OPTS)
+	cd $(@D) && $(TARGET_MAKE_ENV) PKG_CONFIG=$(PKG_CONFIG_HOST_BINARY) env -u GIT_DIR zig build install $(FOTONE_ZIG_OPTS) --prefix $(@D)/out
 endef
 
 define FOTONE_INSTALL_TARGET_CMDS
