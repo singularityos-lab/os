@@ -4,7 +4,7 @@
 #
 ################################################################################
 
-LABWC_VERSION = 4a9c4ebf17b31574d61908e1ea39104f364d98ff
+LABWC_VERSION = acf5bf789556a3c37145a69e4beb204dc1b5650d
 LABWC_SITE = $(call github,singularityos-lab,labwc,$(LABWC_VERSION))
 LABWC_LICENSE = GPL-2.0
 LABWC_LICENSE_FILES = LICENSE
@@ -41,7 +41,7 @@ define LABWC_EXTRACT_SCENEFX
 		$(call suitable-extractor,$(LABWC_SCENEFX_VERSION).tar.gz) \
 			$(LABWC_DL_DIR)/$(LABWC_SCENEFX_VERSION).tar.gz | \
 			$(TAR) --strip-components=1 -C $(@D)/subprojects/scenefx $(TAR_OPTIONS) - && \
-		for p in scenefx-liquid.patch scenefx-software-sync.patch; do \
+		for p in $$(sed -n 's/^diff_files *= *//p' $(@D)/subprojects/scenefx.wrap | tr ',' ' '); do \
 			patch -d $(@D)/subprojects/scenefx -p1 < $(@D)/subprojects/packagefiles/$$p || exit 1; \
 		done; \
 	fi
