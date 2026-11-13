@@ -4,7 +4,7 @@
 #
 ################################################################################
 
-FOTONE_VERSION = ac5a6f1a6238fb198333ff8765f5c217f37ed7a0
+FOTONE_VERSION = 91e113f909f5a71adab2e972c02e5870fb664562
 FOTONE_SITE = $(call github,singularityos-lab,fotone,$(FOTONE_VERSION))
 FOTONE_LICENSE = LGPL-2.1+, BSD-2-Clause
 FOTONE_LICENSE_FILES = LICENSE
@@ -28,6 +28,7 @@ FOTONE_ZIG_OPTS = \
 	-Djobs=$(PARALLEL_JOBS) \
 	-Dgtk3=false \
 	-Dengine-cmake=-DUSE_LIBHYPHEN=OFF \
+	'-Dengine-cmake=-DCMAKE_CXX_STANDARD_LIBRARIES=-lstdc++ -lm' \
 	--search-prefix $(STAGING_DIR)/usr
 
 FOTONE_STAGE = $(@D)/upstream/build/stage/usr/local
