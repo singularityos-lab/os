@@ -1,0 +1,19 @@
+Close the arm64 implementation class outside the base64 block
+
+simdutf 7.7.1 closes the arm64 implementation class inside
+SIMDUTF_FEATURE_BASE64, so builds without base64, such as the one VTE
+uses, fail to compile on aarch64. The other targets already close it
+after the block.
+
+--- a/subprojects/simdutf/src/simdutf/arm64/implementation.h
++++ b/subprojects/simdutf/src/simdutf/arm64/implementation.h
+@@ -284,8 +284,8 @@
+                    char character) const noexcept;
+   const char16_t *find(const char16_t *start, const char16_t *end,
+                        char16_t character) const noexcept;
+-};
+ #endif // SIMDUTF_FEATURE_BASE64
++};
+ 
+ } // namespace arm64
+ } // namespace simdutf
