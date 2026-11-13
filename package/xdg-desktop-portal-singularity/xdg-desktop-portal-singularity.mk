@@ -32,4 +32,10 @@ define XDG_DESKTOP_PORTAL_SINGULARITY_INSTALL_TARGET_CMDS
 		$(HOST_DIR)/bin/meson install -C $(@D)/buildroot-build --no-rebuild --skip-subprojects --destdir $(TARGET_DIR)
 endef
 
+XDG_DESKTOP_PORTAL_SINGULARITY_DEPENDENCIES += host-zig
+XDG_DESKTOP_PORTAL_SINGULARITY_CONF_OPTS += \
+	-Dlibsingularity:zig=$(HOST_DIR)/bin/zig \
+	-Dlibsingularity:zig-target=$(call qstrip,$(BR2_ARCH))-linux-gnu \
+	-Dlibsingularity:zig-cpu=baseline
+
 $(eval $(meson-package))

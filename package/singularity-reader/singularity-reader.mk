@@ -26,4 +26,10 @@ define SINGULARITY_READER_INSTALL_TARGET_CMDS
 		$(HOST_DIR)/bin/meson install -C $(@D)/buildroot-build --no-rebuild --skip-subprojects --destdir $(TARGET_DIR)
 endef
 
+SINGULARITY_READER_DEPENDENCIES += host-zig
+SINGULARITY_READER_CONF_OPTS += \
+	-Dlibsingularity:zig=$(HOST_DIR)/bin/zig \
+	-Dlibsingularity:zig-target=$(call qstrip,$(BR2_ARCH))-linux-gnu \
+	-Dlibsingularity:zig-cpu=baseline
+
 $(eval $(meson-package))

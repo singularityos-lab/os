@@ -30,4 +30,10 @@ define SINGULARITY_VECTOR_PDF_ENGINE
 endef
 SINGULARITY_VECTOR_POST_EXTRACT_HOOKS += SINGULARITY_VECTOR_PDF_ENGINE
 
+SINGULARITY_VECTOR_DEPENDENCIES += host-zig
+SINGULARITY_VECTOR_CONF_OPTS += \
+	-Dlibsingularity:zig=$(HOST_DIR)/bin/zig \
+	-Dlibsingularity:zig-target=$(call qstrip,$(BR2_ARCH))-linux-gnu \
+	-Dlibsingularity:zig-cpu=baseline
+
 $(eval $(meson-package))
