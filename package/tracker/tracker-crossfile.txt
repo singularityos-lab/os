@@ -1,3 +1,3 @@
 [properties]
 sqlite3_has_fts5 = 'true'
-needs_exe_wrapper = false
+strftime_year_modifier = '%4Y'
