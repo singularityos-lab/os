@@ -210,6 +210,31 @@ jobs:
                 buildroot-build/host/*/sysroot/usr/lib/pkgconfig/libsystemd.pc 2>/dev/null || true
           rm -rf buildroot-build/host/*/sysroot/usr/include/systemd 2>/dev/null || true
 
+      - name: Rebuild the external packages whose recipe changed
+        run: |
+          rec=buildroot-build/build/.recipe-hashes
+          mkdir -p buildroot-build/build
+          seed=false
+          [ -e "$rec" ] || { seed=true; touch "$rec"; }
+          pkgs=$(grep -L 'SITE_METHOD = local' package/*/*.mk | xargs -n1 dirname | xargs -n1 basename | sort -u)
+          for p in $pkgs; do
+            h=$(find package/$p -type f | sort | xargs cat | sha256sum | cut -c1-16)
+            grep -qx "$p $h" "$rec" && continue
+            if [ "$seed" = false ]; then
+              echo "recipe of $p changed: rebuilding it"
+              for d in buildroot-build/build/"$p"-*; do
+                [ -e "$d" ] || continue
+                other=false
+                for q in $pkgs; do
+                  case "$q" in "$p"-*) case "$d" in buildroot-build/build/"$q"-*) other=true ;; esac ;; esac
+                done
+                [ "$other" = true ] || rm -rf "$d"
+              done
+            fi
+            sed -i "/^$p /d" "$rec"
+            echo "$p $h" >> "$rec"
+          done
+
       - name: Rebuild the packages changed by the Buildroot source patches
         run: |
           rec=buildroot-build/build/.source-patch-hashes

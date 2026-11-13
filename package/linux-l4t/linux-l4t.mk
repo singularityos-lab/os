@@ -50,6 +50,7 @@ endef
 
 define LINUX_L4T_RELAX_WERROR
 	find $(addprefix $(LINUX_L4T_SRC)/,nvidia-oot nvgpu hwpm nvdisplay nvethernetrm) \
+		-not -path '*conftest*' \
 		\( -name 'Makefile*' -o -name '*.mk' -o -name Kbuild \) \
 		-exec sed -i -E 's/-Werror([=-][A-Za-z0-9_=-]+)?//g' {} +
 	sed -i 's/-Wno-strict-prototypes"/-Wno-strict-prototypes -fshort-wchar -fpermissive"/' \
