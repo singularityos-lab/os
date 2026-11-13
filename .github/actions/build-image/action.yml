@@ -256,11 +256,13 @@ runs:
       run: |
         rm -rf prebuilt
         built=0
-        if ls -d "$BUILD_DIR"/build/webkitgtk-[0-9]*/.stamp_target_installed >/dev/null 2>&1; then
+        if ls -d "$BUILD_DIR"/build/webkitgtk-[0-9]*/.stamp_target_installed >/dev/null 2>&1 \
+           && [ -s "$(ls -d "$BUILD_DIR"/build/webkitgtk-[0-9]* | head -1)/.files-list-staging.txt" ]; then
           ./scripts/capture-webkit-prebuilt.sh prebuilt
           built=1
         fi
-        if ls -d "$BUILD_DIR"/build/fotone-[0-9a-f]*/.stamp_target_installed >/dev/null 2>&1; then
+        if ls -d "$BUILD_DIR"/build/fotone-[0-9a-f]*/.stamp_target_installed >/dev/null 2>&1 \
+           && [ -s "$(ls -d "$BUILD_DIR"/build/fotone-[0-9a-f]* | head -1)/.files-list.txt" ]; then
           ./scripts/capture-fotone-prebuilt.sh prebuilt
           built=1
         fi
