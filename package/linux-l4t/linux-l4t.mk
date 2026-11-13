@@ -8,7 +8,7 @@ LINUX_L4T_VERSION = 36.4.4
 LINUX_L4T_SOURCE = public_sources.tbz2
 LINUX_L4T_SITE = https://developer.download.nvidia.com/embedded/L4T/r36_Release_v4.4/sources
 LINUX_L4T_LICENSE = GPL-2.0, MIT, BSD-3-Clause
-LINUX_L4T_DEPENDENCIES = linux host-kmod host-openssl host-bison host-flex host-bc
+LINUX_L4T_DEPENDENCIES = linux host-kmod host-openssl host-bison host-flex
 LINUX_L4T_FAMILY = l4t
 
 LINUX_L4T_SRC = $(@D)/Linux_for_Tegra/source
