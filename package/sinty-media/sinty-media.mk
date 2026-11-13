@@ -16,12 +16,14 @@ SINTY_MEDIA_DEPENDENCIES = host-pkgconf gstreamer1 gst1-plugins-base gst1-plugin
 	$(if $(BR2_PACKAGE_GST1_PLUGINS_BAD),gst1-plugins-bad) \
 	$(if $(BR2_PACKAGE_GST1_PLUGINS_UGLY),gst1-plugins-ugly)
 
+SINTY_MEDIA_GLIBC = $(firstword $(subst -, ,$(GLIBC_VERSION)))
+
 SINTY_MEDIA_PLUGINS = adder,app,audioconvert,audiomixer,audiorate,audioresample,audiotestsrc,basedebug,compositor,coreelements,coretracers,dsd,encoding,gio,opengl,overlaycomposition,pango,pbtypes,pipewire,playback,rawparse,sintymedia,subparse,tcp,typefindfunctions,video4linux2,videoconvertscale,videocrop,videorate,videotestsrc,volume,ximagesink,xvimagesink
 SINTY_MEDIA_LIBS = gstreamer gstbase gsttag gstaudio gstapp gstallocators gstcontroller gstnet gstriff gstrtp gstsdp gstrtsp gstfft gstgl gstvideo gstpbutils gstwebrtc
 
 define SINTY_MEDIA_BUILD_CMDS
 	cd $(@D) && $(TARGET_MAKE_ENV) PKG_CONFIG=$(PKG_CONFIG_HOST_BINARY) zig build -Doptimize=ReleaseSafe \
-		-Dtarget=$(call qstrip,$(BR2_ARCH))-linux-gnu \
+		-Dtarget=$(call qstrip,$(BR2_ARCH))-linux-gnu$(if $(SINTY_MEDIA_GLIBC),.$(SINTY_MEDIA_GLIBC)) \
 		-Dcpu=baseline \
 		-Dflat-libdir=true \
 		-Dplugins=$(SINTY_MEDIA_PLUGINS) \
