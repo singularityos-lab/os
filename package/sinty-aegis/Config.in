@@ -1,0 +1,10 @@
+config BR2_PACKAGE_SINTY_AEGIS
+	bool "sinty-aegis"
+	depends on BR2_PACKAGE_HOST_GO_TARGET_ARCH_SUPPORTS
+	help
+	  The public alert and emergency call service of SintyOS:
+	  official alerts and earthquakes for the place the computer
+	  is in, and the emergency numbers of the country, on
+	  dev.sinty.Aegis1.
+
+	  https://github.com/singularityos-lab/sinty-aegis
