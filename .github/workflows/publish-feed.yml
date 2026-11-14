@@ -15,6 +15,12 @@ on:
       min_stage:
         type: number
         default: 0
+      version:
+        type: string
+        default: ''
+      build:
+        type: string
+        default: ''
   workflow_dispatch:
     inputs:
       sign_run:
@@ -84,9 +90,12 @@ jobs:
 
       - name: Read the release
         id: rel
+        env:
+          CALL_VERSION: ${{ inputs.version }}
+          CALL_BUILD: ${{ inputs.build }}
         run: |
           set -euo pipefail
-          v=$(cat os/release/atom-version)
+          v=${CALL_VERSION:-$(cat os/release/atom-version)}
           printf '%s\n' "$v" | grep -Eq '^[0-9]+$' || { echo "atom-version is not a number"; exit 1; }
           atom=$(sed -n 's/^ATOMLOOPS=//p' os/build-deps)
           printf '%s\n' "$atom" | grep -Eq '^[0-9a-f]{40}$' || { echo "build-deps does not declare ATOMLOOPS"; exit 1; }
@@ -102,7 +111,7 @@ jobs:
             echo "TAG=$tag"
             echo "CHANNEL=$channel"
             echo "PRODUCT_VERSION=$(cat os/release/product-version)"
-            echo "PRODUCT_BUILD=$(cat os/release/product-build)"
+            echo "PRODUCT_BUILD=${CALL_BUILD:-$(cat os/release/product-build)}"
             echo "RECOVERY_VERSION=$(cat os/release/recovery-version)"
           } >> "$GITHUB_ENV"
           echo "atomloops=$atom" >> "$GITHUB_OUTPUT"

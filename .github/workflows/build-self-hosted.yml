@@ -25,6 +25,8 @@ jobs:
     runs-on: ubuntu-24.04
     outputs:
       arches: ${{ steps.plan.outputs.arches }}
+      version: ${{ steps.number.outputs.version }}
+      build: ${{ steps.number.outputs.build }}
     steps:
       - name: Pick the architectures
         id: plan
@@ -36,6 +38,27 @@ jobs:
             x86_64|aarch64) echo "arches=[\"$ARCH\"]" ;;
             *) echo "unknown architecture $ARCH"; exit 1 ;;
           esac >> "$GITHUB_OUTPUT"
+
+      - name: Number the release after the last published one
+        id: number
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FEED_REPO: singularityos-lab/sinty-updates
+        run: |
+          set -euo pipefail
+          read_file() { gh api "repos/$GITHUB_REPOSITORY/contents/release/$1?ref=$GITHUB_SHA" -q .content | base64 -d | tr -d '[:space:]'; }
+          committed=$(read_file atom-version)
+          pb=$(read_file product-build)
+          printf '%s\n' "$committed" | grep -Eq '^[0-9]+$' || { echo "atom-version is not a number"; exit 1; }
+          prefix=$(printf '%s' "$pb" | sed -E 's/[0-9]+$//')
+          pbn=${pb#"$prefix"}
+          last=$(gh api --paginate "repos/$FEED_REPO/tags" -q '.[].name' | sed -nE 's/^v([0-9]+)(-aarch64)?$/\1/p' | sort -n | tail -n 1)
+          v=$committed
+          if [ -n "$last" ] && [ "$last" -ge "$v" ]; then v=$((last + 1)); fi
+          build=$(printf '%s%03d' "$prefix" $((10#$pbn + v - committed)))
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          echo "build=$build" >> "$GITHUB_OUTPUT"
+          echo "Release v$v ($build), last published v${last:-none}, committed v$committed ($pb)"
 
   route:
     needs: plan
@@ -104,6 +127,8 @@ jobs:
         with:
           arch: x86_64
           stage: unsigned-${{ github.sha }}
+          version: ${{ needs.plan.outputs.version }}
+          build: ${{ needs.plan.outputs.build }}
       - name: Hand the stage to the signing step
         id: done
         run: echo "ok=1" >> "$GITHUB_OUTPUT"
@@ -136,7 +161,7 @@ jobs:
 
   moved-x86_64:
     name: build x86_64 (moved)
-    needs: lost-x86_64
+    needs: [plan, lost-x86_64]
     if: always() && needs.lost-x86_64.outputs.lost == '1'
     concurrency:
       group: build-self-hosted-x86_64
@@ -158,6 +183,8 @@ jobs:
         with:
           arch: x86_64
           stage: unsigned-${{ github.sha }}-moved
+          version: ${{ needs.plan.outputs.version }}
+          build: ${{ needs.plan.outputs.build }}
       - name: Hand the stage to the signing step
         id: done
         run: echo "ok=1" >> "$GITHUB_OUTPUT"
@@ -178,7 +205,7 @@ jobs:
 
   publish-x86_64:
     name: publish x86_64
-    needs: sign-x86_64
+    needs: [plan, sign-x86_64]
     if: always() && needs.sign-x86_64.result == 'success'
     permissions:
       contents: read
@@ -188,6 +215,8 @@ jobs:
       arch: x86_64
       sha: ${{ github.sha }}
       signed: ${{ needs.sign-x86_64.outputs.signed }}
+      version: ${{ needs.plan.outputs.version }}
+      build: ${{ needs.plan.outputs.build }}
     secrets: inherit
 
   released-x86_64:
@@ -232,6 +261,8 @@ jobs:
         with:
           arch: aarch64
           stage: unsigned-aarch64-${{ github.sha }}
+          version: ${{ needs.plan.outputs.version }}
+          build: ${{ needs.plan.outputs.build }}
       - name: Hand the stage to the signing step
         id: done
         run: echo "ok=1" >> "$GITHUB_OUTPUT"
@@ -264,7 +295,7 @@ jobs:
 
   moved-aarch64:
     name: build aarch64 (moved)
-    needs: lost-aarch64
+    needs: [plan, lost-aarch64]
     if: always() && needs.lost-aarch64.outputs.lost == '1'
     concurrency:
       group: build-self-hosted-aarch64
@@ -286,6 +317,8 @@ jobs:
         with:
           arch: aarch64
           stage: unsigned-aarch64-${{ github.sha }}-moved
+          version: ${{ needs.plan.outputs.version }}
+          build: ${{ needs.plan.outputs.build }}
       - name: Hand the stage to the signing step
         id: done
         run: echo "ok=1" >> "$GITHUB_OUTPUT"
@@ -306,7 +339,7 @@ jobs:
 
   publish-aarch64:
     name: publish aarch64
-    needs: sign-aarch64
+    needs: [plan, sign-aarch64]
     if: always() && needs.sign-aarch64.result == 'success'
     permissions:
       contents: read
@@ -316,6 +349,8 @@ jobs:
       arch: aarch64
       sha: ${{ github.sha }}
       signed: ${{ needs.sign-aarch64.outputs.signed }}
+      version: ${{ needs.plan.outputs.version }}
+      build: ${{ needs.plan.outputs.build }}
     secrets: inherit
 
   released-aarch64:

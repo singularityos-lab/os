@@ -8,10 +8,28 @@ inputs:
   stage:
     description: Name of the unsigned stage artifact
     required: true
+  version:
+    description: Release number to build, overriding release/atom-version
+    default: ''
+  build:
+    description: Product build to stamp, overriding release/product-build
+    default: ''
 
 runs:
   using: composite
   steps:
+    - name: Stamp the release number
+      if: inputs.version != ''
+      shell: bash
+      env:
+        VERSION: ${{ inputs.version }}
+        BUILD: ${{ inputs.build }}
+      run: |
+        printf '%s\n' "$VERSION" | grep -Eq '^[0-9]+$' || { echo "version is not a number"; exit 1; }
+        echo "$VERSION" > release/atom-version
+        [ -z "$BUILD" ] || echo "$BUILD" > release/product-build
+        echo "Building v$VERSION (${BUILD:-$(cat release/product-build)})"
+
     - name: Select the persistent trees
       shell: bash
       env:
