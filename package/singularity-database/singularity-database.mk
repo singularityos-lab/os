@@ -4,7 +4,7 @@
 #
 ################################################################################
 
-SINGULARITY_DATABASE_VERSION = 2a75e43fbea7d7f88a14d86daea513010fcec3be
+SINGULARITY_DATABASE_VERSION = 016999aaacbbe5ff1ad1b2ccb75d22112dc4b79f
 SINGULARITY_DATABASE_SITE = $(call github,singularityos-lab,singularity-database,$(SINGULARITY_DATABASE_VERSION))
 SINGULARITY_DATABASE_LICENSE = GPL-3.0+
 SINGULARITY_DATABASE_LICENSE_FILES = LICENSE

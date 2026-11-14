@@ -6,7 +6,7 @@
 
 # Local dev builds from buildroot-build/local.mk _OVERRIDE_SRCDIR (build dir -custom),
 # which supersedes this github SITE. Keep the pin for RC/CI (no override present).
-LIBSINGULARITY_VERSION = 20289108f65c3c31e38a5141588c76bcddd2be2b
+LIBSINGULARITY_VERSION = dce411568ed3404e2bed2fd7f5ca2b0cc5bd0992
 LIBSINGULARITY_SITE = $(call github,singularityos-lab,libsingularity,$(LIBSINGULARITY_VERSION))
 
 define LIBSINGULARITY_ENSURE_SOURCE
@@ -33,6 +33,7 @@ LIBSINGULARITY_DEPENDENCIES = \
 	cups \
 	lcms2 \
 	enchant \
+	libepoxy \
 	gstreamer1 \
 	gst1-plugins-base
 
