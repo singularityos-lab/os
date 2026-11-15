@@ -324,10 +324,8 @@ runs:
           artifacts/rootfs.erofs
           artifacts/rootfs.hash
           artifacts/verity-output.txt
-          artifacts/kernelcache.efi
-          artifacts/kernelcache-live.efi
-          artifacts/kernelcache-portable.efi
-          artifacts/kernelcache-recovery.efi
+          artifacts/kernelcache*.efi
+          artifacts/sinty-board-firmware.tar.xz
         retention-days: 7
         compression-level: 0
         if-no-files-found: error
