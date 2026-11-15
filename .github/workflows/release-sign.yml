@@ -174,12 +174,13 @@ jobs:
           if [ "$ARCH" = aarch64 ]; then
             cp /usr/share/AAVMF/AAVMF_VARS.fd vars.fd
             rounds=180
-            timeout 1800 qemu-system-aarch64 -machine virt -cpu max -m 4096 -smp 4 \
+            timeout 1800 qemu-system-aarch64 -machine virt -cpu max,pauth-impdef=on -m 4096 -smp 4 \
               -drive if=pflash,format=raw,readonly=on,file=/usr/share/AAVMF/AAVMF_CODE.fd \
               -drive if=pflash,format=raw,file=vars.fd \
               -drive file=disk.img,if=none,id=usb0,format=raw \
               -device qemu-xhci -device usb-kbd -device usb-storage,drive=usb0,bootindex=0 \
-              -device virtio-gpu-pci -display none -serial file:serial.log -no-reboot &
+              -device virtio-gpu-pci -display none -serial file:serial.log -no-reboot \
+              -qmp unix:qmp.sock,server=on,wait=off &
           else
             accel=tcg
             [ -w /dev/kvm ] && accel=kvm
@@ -199,13 +200,32 @@ jobs:
               debugfs -R "cat /$f" logs.ext4 2>/dev/null
             done > boot.log
           }
+          shot() {
+            [ -S qmp.sock ] || return 0
+            python3 - "$PWD/$1" <<'PY' || true
+          import json, socket, sys
+          s = socket.socket(socket.AF_UNIX)
+          s.settimeout(20)
+          s.connect("qmp.sock")
+          f = s.makefile("rw")
+          f.readline()
+          for cmd in ({"execute": "qmp_capabilities"}, {"execute": "screendump", "arguments": {"filename": sys.argv[1]}}):
+              f.write(json.dumps(cmd) + "\n")
+              f.flush()
+              f.readline()
+          PY
+          }
+          n=0
           for _ in $(seq $rounds); do
             sleep 10
+            n=$((n + 1))
+            [ $((n % 30)) -eq 0 ] && shot "screen-$n.ppm"
             grep -qE "signature INVALID|Kernel panic" serial.log 2>/dev/null && break
             kill -0 $qemu 2>/dev/null || break
             logs
             grep -q "atom\[1\]: reached " boot.log && break
           done
+          shot screen-last.ppm
           kill $qemu 2>/dev/null || true
           wait $qemu 2>/dev/null || true
           logs
@@ -245,5 +265,6 @@ jobs:
             sign.log
             serial.log
             boot.log
+            screen-*.ppm
           retention-days: 5
           if-no-files-found: ignore
