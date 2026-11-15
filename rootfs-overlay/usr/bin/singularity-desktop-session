@@ -25,6 +25,10 @@ export GDK_BACKEND=wayland
 if [ -z "$GSK_RENDERER" ]; then
     export GSK_RENDERER=cairo
 fi
+if [ "$LIBGL_ALWAYS_SOFTWARE" = 1 ] || ! ls /dev/dri/renderD* >/dev/null 2>&1; then
+    unset MESA_LOADER_DRIVER_OVERRIDE
+    export LIBGL_ALWAYS_SOFTWARE=1 GALLIUM_DRIVER=llvmpipe WEBKIT_DISABLE_DMABUF_RENDERER=1
+fi
 export GTK_USE_PORTAL=1
 export QT_QPA_PLATFORMTHEME=xdgdesktopportal
 export XDG_CURRENT_DESKTOP=Singularity
@@ -63,7 +67,7 @@ esac
 # before the shell ever launches. timeout caps them so best-effort stays best-effort.
 timeout 3 dbus-update-activation-environment --systemd \
     DISPLAY WAYLAND_DISPLAY XDG_SESSION_TYPE XDG_CURRENT_DESKTOP \
-    XDG_RUNTIME_DIR DBUS_SESSION_BUS_ADDRESS GDK_BACKEND GSK_RENDERER \
+    XDG_RUNTIME_DIR DBUS_SESSION_BUS_ADDRESS GDK_BACKEND GSK_RENDERER LIBGL_ALWAYS_SOFTWARE GALLIUM_DRIVER WEBKIT_DISABLE_DMABUF_RENDERER \
     GTK_USE_PORTAL QT_QPA_PLATFORMTHEME \
     GSETTINGS_SCHEMA_DIR XDG_DATA_DIRS GI_TYPELIB_PATH PATH LD_LIBRARY_PATH \
     2>/dev/null || true
