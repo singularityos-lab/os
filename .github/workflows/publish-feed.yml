@@ -271,6 +271,7 @@ jobs:
           set -euo pipefail
           live=feed/$CHANNEL/manifest.json
           [ -f "$live" ] || live=feed/stable${CHANNEL#canary}/manifest.json
+          [ -f "$live" ] || live=feed/canary/manifest.json
           [ -f "$live" ] || { echo "no live manifest on $CHANNEL to take the firmware bundles from"; exit 1; }
           for name in amd nvidia; do
             b=$(jq -c --arg n "$name" '.firmware_bundles[] | select(.name == $n)' "$live")
