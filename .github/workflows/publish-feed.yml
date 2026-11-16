@@ -174,7 +174,7 @@ jobs:
           sudo apt-get install -y -qq erofs-utils zstd >/dev/null
           root="$RUNNER_TEMP/root"
           sudo fsck.erofs --extract="$root" rel/rootfs.erofs >/dev/null
-          kernel=$(ls "$root/usr/lib/modules")
+          kernel=$(ls "$root/usr/lib/modules" | grep -v -- "-tegra$")
           [ "$(printf '%s\n' "$kernel" | wc -l)" = 1 ] || { echo "the image has more than one kernel: $kernel"; exit 1; }
           sudo python3 os/scripts/live-stage.py list --table os/release/live-stages "$root" > rel/files.json
           sudo rm -rf "$root"
