@@ -115,7 +115,7 @@ echo "[recovery] building the static atom-recovery binary"
 # resolves to an empty proxy list here ("GOPROXY list is not the empty string, but contains
 # no entries"). The dependencies are public modules, so the default proxy fetches them; an
 # already-populated module cache still short-circuits the download.
-( cd "$SINTY_RECOVERY" && CGO_ENABLED=0 GOFLAGS= \
+( cd "$SINTY_RECOVERY" && CGO_ENABLED=0 GOOS=linux GOARCH="${GO_ARCH}" GOFLAGS= \
 	GOPROXY="${RECOVERY_GOPROXY:-https://proxy.golang.org,direct}" \
 	"${RECOVERY_GO:-go}" build -ldflags='-s -w' \
 	-o "$WORK/sbin/atom-recovery" ./cmd/atom-recovery )

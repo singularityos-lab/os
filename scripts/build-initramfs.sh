@@ -71,6 +71,8 @@ resolve_libs() {
 
 [ -n "${SINTY_INIT_BIN:-}" ] && [ -x "$SINTY_INIT_BIN" ] || { echo "build-initramfs: SINTY_INIT_BIN is not set" >&2; exit 1; }
 cp "$SINTY_INIT_BIN" "$WORK/init"
+machine=$(od -An -tx1 -j18 -N2 "$WORK/init" | tr -d ' \n')
+[ "$machine" = "${ELF_MACHINE:?}" ] || { echo "build-initramfs: init is built for ELF machine $machine, not $ARCH" >&2; exit 1; }
 chmod 0755 "$WORK/init"
 copy_bin sinty-sh bin
 ln -sf sinty-sh "$WORK/bin/sh"

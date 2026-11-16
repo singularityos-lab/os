@@ -164,7 +164,7 @@ fi
 export FW_ROOT_PUB
 if [ -z "${SINTY_INIT_BIN:-}" ] || [ ! -x "${SINTY_INIT_BIN}" ]; then
     ( cd "${SINTY_INITRAMFS:?set SINTY_INITRAMFS to a sinty-initramfs checkout}" \
-        && CGO_ENABLED=0 "${ATOMLOOPS_GO:-go}" build -trimpath -ldflags '-s -w' \
+        && CGO_ENABLED=0 GOOS=linux GOARCH="${GO_ARCH}" "${ATOMLOOPS_GO:-go}" build -trimpath -ldflags '-s -w' \
             -o "${REPO_DIR}/artifacts/sinty-initramfs" ./cmd/sinty-initramfs )
     SINTY_INIT_BIN="${REPO_DIR}/artifacts/sinty-initramfs"
 fi

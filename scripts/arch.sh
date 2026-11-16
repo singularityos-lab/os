@@ -4,6 +4,8 @@ case "$ARCH" in
         BUILD_DIR="${BUILD_DIR:-buildroot-build}"
         EFI_ARCH=x64
         KERNEL_IMAGE=bzImage
+        GO_ARCH=amd64
+        ELF_MACHINE=3e00
         CROSS_PREFIX=x86_64-buildroot-linux-gnu-
         EROFS_FEATURES="-E ztailpacking"
         ESP_MB=256
@@ -12,6 +14,8 @@ case "$ARCH" in
         BUILD_DIR="${BUILD_DIR:-buildroot-build-aarch64}"
         EFI_ARCH=aa64
         KERNEL_IMAGE=Image
+        GO_ARCH=arm64
+        ELF_MACHINE=b700
         CROSS_PREFIX=aarch64-buildroot-linux-gnu-
         EROFS_FEATURES=""
         ESP_MB=512
@@ -23,7 +27,7 @@ case "$ARCH" in
 esac
 LOADER_NAME="boot${EFI_ARCH}.efi"
 LOADER_ESP_NAME="BOOT$(printf '%s' "$EFI_ARCH" | tr a-z A-Z).EFI"
-export ARCH BUILD_DIR EFI_ARCH LOADER_NAME LOADER_ESP_NAME EROFS_FEATURES ESP_MB
+export ARCH BUILD_DIR GO_ARCH ELF_MACHINE EFI_ARCH LOADER_NAME LOADER_ESP_NAME EROFS_FEATURES ESP_MB
 
 STUB_DEB_VERSION="257.13-1~deb13u1"
 STUB_DEB_SHA256_arm64="0e4529d9a72b35c31f34151ef8a0df20f322cfef679f4f5439394e60505b91a2"
