@@ -31,6 +31,14 @@ on:
         type: choice
         options: ['0', '1', '2', '3']
         default: '0'
+      version:
+        description: Release number the build was planned as
+        type: string
+        default: ''
+      build:
+        description: Product build the release was planned as
+        type: string
+        default: ''
 
 permissions:
   contents: read
