@@ -4,7 +4,7 @@
 #
 ################################################################################
 
-SINGULARITY_SCANNER_VERSION = ac868d3382ecda641168a42b400719d81a54c511
+SINGULARITY_SCANNER_VERSION = 807a3c6335c62c21e87a79e992e581f7aad37edd
 SINGULARITY_SCANNER_SITE = $(call github,singularityos-lab,singularity-scanner,$(SINGULARITY_SCANNER_VERSION))
 SINGULARITY_SCANNER_LICENSE = GPL-3.0+
 SINGULARITY_SCANNER_LICENSE_FILES = LICENSE

@@ -4,7 +4,7 @@
 #
 ################################################################################
 
-SINGULARITY_TOUR_VERSION = aa3d01148b6da858355de88b7f8b8e3d23d220e9
+SINGULARITY_TOUR_VERSION = c9eb8d77f5c1384d5694722abb439a24b48ac008
 SINGULARITY_TOUR_SITE = $(call github,singularityos-lab,singularity-tour,$(SINGULARITY_TOUR_VERSION))
 SINGULARITY_TOUR_LICENSE = GPL-3.0+
 SINGULARITY_TOUR_LICENSE_FILES = LICENSE

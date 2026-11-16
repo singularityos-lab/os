@@ -4,7 +4,7 @@
 #
 ################################################################################
 
-SINGULARITY_QRCODES_VERSION = 644cec6dfd2f39f785d2bc1049a07f6c298e32a7
+SINGULARITY_QRCODES_VERSION = ae5c63c5bc4ad6b6a9d2e430e66b765c92e904de
 SINGULARITY_QRCODES_SITE = $(call github,singularityos-lab,singularity-qrcodes,$(SINGULARITY_QRCODES_VERSION))
 SINGULARITY_QRCODES_LICENSE = GPL-3.0+
 SINGULARITY_QRCODES_LICENSE_FILES = LICENSE

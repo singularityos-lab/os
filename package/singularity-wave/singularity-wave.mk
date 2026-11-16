@@ -4,7 +4,7 @@
 #
 ################################################################################
 
-SINGULARITY_WAVE_VERSION = 6ca13dda63887be20e073a10ee8418c23ae7089c
+SINGULARITY_WAVE_VERSION = cf3feb7aa9f76986581ed1f993e6b0da6cb091d3
 SINGULARITY_WAVE_SITE = $(call github,singularityos-lab,singularity-wave,$(SINGULARITY_WAVE_VERSION))
 SINGULARITY_WAVE_LICENSE = GPL-3.0+
 SINGULARITY_WAVE_LICENSE_FILES = LICENSE

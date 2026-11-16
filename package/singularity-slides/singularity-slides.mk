@@ -4,7 +4,7 @@
 #
 ################################################################################
 
-SINGULARITY_SLIDES_VERSION = 3c07a1247e78bd5c1218f6f0b15f349c59537931
+SINGULARITY_SLIDES_VERSION = 53927af54ed4905036fd20453fa8cbf0ce590a76
 SINGULARITY_SLIDES_SITE = $(call github,singularityos-lab,singularity-slides,$(SINGULARITY_SLIDES_VERSION))
 SINGULARITY_SLIDES_LICENSE = GPL-3.0+
 SINGULARITY_SLIDES_LICENSE_FILES = LICENSE

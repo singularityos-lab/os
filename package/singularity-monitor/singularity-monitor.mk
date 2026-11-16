@@ -4,7 +4,7 @@
 #
 ################################################################################
 
-SINGULARITY_MONITOR_VERSION = ec83e7e173d21d42a3ee5fd76c86e2c95ba1eea8
+SINGULARITY_MONITOR_VERSION = f97c2e7d63f211b570a96f990cf60dc26665e980
 SINGULARITY_MONITOR_SITE = $(call github,singularityos-lab,singularity-monitor,$(SINGULARITY_MONITOR_VERSION))
 SINGULARITY_MONITOR_LICENSE = GPL-3.0+
 SINGULARITY_MONITOR_LICENSE_FILES = LICENSE
