@@ -4,7 +4,7 @@
 #
 ################################################################################
 
-SINGULARITY_FILES_VERSION = a0002168106bcafd9f598237a937995567d343f0
+SINGULARITY_FILES_VERSION = 688fdbc6fdcdadb3e9792fcac44d98b65cf915f9
 SINGULARITY_FILES_SITE = $(call github,singularityos-lab,singularity-files,$(SINGULARITY_FILES_VERSION))
 SINGULARITY_FILES_LICENSE = GPL-3.0+
 SINGULARITY_FILES_LICENSE_FILES = LICENSE
