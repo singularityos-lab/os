@@ -4,7 +4,7 @@
 #
 ################################################################################
 
-SINGULARITY_DISKS_VERSION = 9dae4c8680813d8fe9ecc37190d67b8447af16bf
+SINGULARITY_DISKS_VERSION = 77d58c1cad7494649b1f94335abd22226be2f93f
 SINGULARITY_DISKS_SITE = $(call github,singularityos-lab,singularity-disks,$(SINGULARITY_DISKS_VERSION))
 SINGULARITY_DISKS_LICENSE = GPL-3.0+
 SINGULARITY_DISKS_LICENSE_FILES = LICENSE
