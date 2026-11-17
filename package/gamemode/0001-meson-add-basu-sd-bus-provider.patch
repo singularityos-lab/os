@@ -1,0 +1,71 @@
+diff -ru a/daemon/gamemode-context.c b/daemon/gamemode-context.c
+--- a/daemon/gamemode-context.c
++++ b/daemon/gamemode-context.c
+@@ -49,7 +49,12 @@
+ #include <stdatomic.h>
+ #include <stdlib.h>
+ #include <sys/time.h>
++#ifdef USE_BASU
++#define sd_notify(unset, state) 0
++#define sd_notifyf(unset, ...) 0
++#else
+ #include <systemd/sd-daemon.h> /* TODO: Move usage to gamemode-dbus.c */
++#endif
+ #include <unistd.h>
+ 
+ /**
+diff -ru a/daemon/gamemode-dbus.c b/daemon/gamemode-dbus.c
+--- a/daemon/gamemode-dbus.c
++++ b/daemon/gamemode-dbus.c
+@@ -39,6 +39,10 @@
+ #ifdef USE_ELOGIND
+ #include <elogind/sd-bus.h>
+ #include <elogind/sd-daemon.h>
++#elif defined(USE_BASU)
++#include <basu/sd-bus.h>
++#define sd_notify(unset, state) 0
++#define sd_notifyf(unset, ...) 0
+ #else
+ #include <systemd/sd-bus.h>
+ #include <systemd/sd-daemon.h>
+diff -ru a/daemon/gamemoded.c b/daemon/gamemoded.c
+--- a/daemon/gamemoded.c
++++ b/daemon/gamemoded.c
+@@ -61,7 +61,12 @@
+ #include <getopt.h>
+ #include <signal.h>
+ #include <sys/stat.h>
++#ifdef USE_BASU
++#define sd_notify(unset, state) 0
++#define sd_notifyf(unset, ...) 0
++#else
+ #include <systemd/sd-daemon.h> /* TODO: Move usage to gamemode-dbus.c */
++#endif
+ #include <unistd.h>
+ 
+ #define USAGE_TEXT                                                                                 \
+diff -ru a/meson.build b/meson.build
+--- a/meson.build
++++ b/meson.build
+@@ -91,6 +91,9 @@
+ elif sd_bus_provider == 'elogind'
+     sd_bus_args += ['-DUSE_ELOGIND']
+     sd_bus_dep = dependency('libelogind')
++elif sd_bus_provider == 'basu'
++    sd_bus_args += ['-DUSE_BASU']
++    sd_bus_dep = dependency('basu')
+ endif
+ 
+ # For the client, libdbus is used
+diff -ru a/meson_options.txt b/meson_options.txt
+--- a/meson_options.txt
++++ b/meson_options.txt
+@@ -3,7 +3,7 @@
+ option('with-pam-limits-dir', type: 'string', description: 'Explicitly set the PAM limits.d directory', value: '/etc/security/limits.d')
+ 
+ # sd-bus provider
+-option('with-sd-bus-provider', type: 'combo', choices: ['systemd', 'elogind', 'no-daemon'], value: 'systemd')
++option('with-sd-bus-provider', type: 'combo', choices: ['systemd', 'elogind', 'basu', 'no-daemon'], value: 'systemd')
+ 
+ # systemd specific
+ option('with-systemd-user-unit', type: 'boolean', description: 'Install systemd user unit', value: 'true')
