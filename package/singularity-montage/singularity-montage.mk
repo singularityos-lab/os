@@ -4,7 +4,7 @@
 #
 ################################################################################
 
-SINGULARITY_MONTAGE_VERSION = 7e2f00e8494ed923f6bcaa3b14c676843e05dbe1
+SINGULARITY_MONTAGE_VERSION = 0cfe51f66cd10d3093327fcf9db2750a22a06239
 SINGULARITY_MONTAGE_SITE = $(call github,singularityos-lab,singularity-montage,$(SINGULARITY_MONTAGE_VERSION))
 SINGULARITY_MONTAGE_LICENSE = GPL-3.0+
 SINGULARITY_MONTAGE_LICENSE_FILES = LICENSE
