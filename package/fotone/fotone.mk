@@ -4,7 +4,7 @@
 #
 ################################################################################
 
-FOTONE_VERSION = 8479a217346a6df7202e529e952d0a5c60f0c09d
+FOTONE_VERSION = d3760bf7dfc489757fc111e72312f407944174d7
 FOTONE_SITE = $(call github,singularityos-lab,fotone,$(FOTONE_VERSION))
 FOTONE_LICENSE = LGPL-2.1+, BSD-2-Clause
 FOTONE_LICENSE_FILES = LICENSE
