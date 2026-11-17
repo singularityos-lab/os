@@ -4,7 +4,7 @@
 #
 ################################################################################
 
-SINGULARITY_VIDEOS_VERSION = a444525e4d7fb4cd3cfb32e2a8c5e17f34d620d8
+SINGULARITY_VIDEOS_VERSION = 376048c5701fe15c3f245f4bdae8218390b45834
 SINGULARITY_VIDEOS_SITE = $(call github,singularityos-lab,singularity-videos,$(SINGULARITY_VIDEOS_VERSION))
 SINGULARITY_VIDEOS_LICENSE = GPL-3.0+
 SINGULARITY_VIDEOS_LICENSE_FILES = LICENSE
