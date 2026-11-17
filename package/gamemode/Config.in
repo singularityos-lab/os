@@ -1,0 +1,11 @@
+config BR2_PACKAGE_GAMEMODE
+	bool "gamemode"
+	depends on BR2_USE_MMU
+	select BR2_PACKAGE_BASU
+	select BR2_PACKAGE_DBUS
+	select BR2_PACKAGE_INIH
+	help
+	  Feral Interactive GameMode: a daemon games ask to apply
+	  performance tweaks while they run.
+
+	  https://github.com/FeralInteractive/gamemode

@@ -4,7 +4,7 @@
 #
 ################################################################################
 
-SINGULARITY_PHOTOS_VERSION = 07eea47fe7a22a8a609e7b2bd0a55074c8c4fc6a
+SINGULARITY_PHOTOS_VERSION = 399ba43439ef2d739ded844f13e0657bd037acf1
 SINGULARITY_PHOTOS_SITE = $(call github,singularityos-lab,singularity-photos,$(SINGULARITY_PHOTOS_VERSION))
 SINGULARITY_PHOTOS_LICENSE = GPL-3.0+
 SINGULARITY_PHOTOS_LICENSE_FILES = LICENSE
