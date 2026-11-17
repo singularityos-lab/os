@@ -3,7 +3,7 @@ ATOM_RECOVERY_SITE = $(call github,singularityos-lab,sinty-recovery,$(ATOM_RECOV
 ATOM_RECOVERY_LICENSE = GPL-3.0-only
 ATOM_RECOVERY_LICENSE_FILES = LICENSE
 ATOM_RECOVERY_GOMOD = github.com/singularityos-lab/sinty-recovery
-ATOM_RECOVERY_BUILD_TARGETS = cmd/atom-recovery
+ATOM_RECOVERY_BUILD_TARGETS = cmd/atom-recovery cmd/sinty-pind
 
 define ATOM_RECOVERY_GO_VENDOR
 	cd $(@D) && env -u GOFLAGS GOPROXY=https://proxy.golang.org,direct GOTOOLCHAIN=local $(HOST_DIR)/bin/go mod vendor
@@ -12,6 +12,7 @@ ATOM_RECOVERY_PRE_BUILD_HOOKS += ATOM_RECOVERY_GO_VENDOR
 
 define ATOM_RECOVERY_INSTALL_TARGET_CMDS
 	$(INSTALL) -D -m 0755 $(@D)/bin/atom-recovery $(TARGET_DIR)/usr/bin/atom-recovery
+	$(INSTALL) -D -m 0755 $(@D)/bin/sinty-pind $(TARGET_DIR)/usr/libexec/sinty-pind
 	$(INSTALL) -D -m 0755 $(ATOM_RECOVERY_PKGDIR)/sinty-policy-setup $(TARGET_DIR)/usr/libexec/sinty-policy-setup
 endef
 
