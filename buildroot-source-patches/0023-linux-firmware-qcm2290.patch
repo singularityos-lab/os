@@ -1,0 +1,51 @@
+From: Sinty OS <dev@sinty.dev>
+Subject: [PATCH] package/linux-firmware: add Qualcomm QCM2290/QRB2210 firmware
+
+Firmware for the Adreno 702 GPU, the ADSP and modem DSPs, the Venus
+codec, WCN3990 WiFi and WCN3988 Bluetooth of the QCM2290/QRB2210
+platform, at the paths its upstream device trees request.
+---
+diff --git a/package/linux-firmware/Config.in b/package/linux-firmware/Config.in
+--- a/package/linux-firmware/Config.in
++++ b/package/linux-firmware/Config.in
+@@ -69,6 +69,13 @@
+ 	help
+ 	  Firmware files for Qualcomm Adreno GPU firmware
+ 
++config BR2_PACKAGE_LINUX_FIRMWARE_QCOM_QCM2290
++	bool "Qualcomm QCM2290/QRB2210 platform"
++	help
++	  Firmware files for the Qualcomm QCM2290/QRB2210 platform:
++	  Adreno 702 GPU, ADSP and modem DSPs, Venus video codec,
++	  WCN3990 WiFi and WCN3988 Bluetooth.
++
+ config BR2_PACKAGE_LINUX_FIRMWARE_MFC_V8
+ 	bool "Samsung MFC video encoder/decoder v8 firmware"
+ 	help
+diff --git a/package/linux-firmware/linux-firmware.mk b/package/linux-firmware/linux-firmware.mk
+--- a/package/linux-firmware/linux-firmware.mk
++++ b/package/linux-firmware/linux-firmware.mk
+@@ -55,6 +55,23 @@
+ LINUX_FIRMWARE_ALL_LICENSE_FILES += LICENSE.qcom qcom/NOTICE.txt
+ endif
+ 
++ifeq ($(BR2_PACKAGE_LINUX_FIRMWARE_QCOM_QCM2290),y)
++LINUX_FIRMWARE_FILES += \
++	qcom/a702_sqe.fw \
++	qcom/venus-6.0/venus.mbn \
++	ath10k/WCN3990/hw1.0/board-2.bin \
++	ath10k/WCN3990/hw1.0/qcm2290/firmware-5.bin \
++	ath10k/WCN3990/hw1.0/qcm2290/wlanmdsp.mbn \
++	qca/apbtfw11.tlv \
++	qca/apnv11.bin
++LINUX_FIRMWARE_DIRS += qcom/qcm2290
++LINUX_FIRMWARE_ALL_LICENSE_FILES += \
++	LICENSE.qcom \
++	qcom/NOTICE.txt \
++	LICENSE.QualcommAtheros_ath10k \
++	ath10k/WCN3990/hw1.0/notice.txt_wlanmdsp
++endif
++
+ ifeq ($(BR2_PACKAGE_LINUX_FIRMWARE_MFC_V8),y)
+ LINUX_FIRMWARE_FILES += \
+ 	s5p-mfc.fw \
