@@ -4,7 +4,7 @@
 #
 ################################################################################
 
-SINGULARITY_RADIO_VERSION = dbdf0903617d45fdc3e6bbc70077eae72ef1eb5f
+SINGULARITY_RADIO_VERSION = ba043a750d4df8b2f1c9d23b273ac64e21b513f5
 SINGULARITY_RADIO_SITE = $(call github,singularityos-lab,singularity-radio,$(SINGULARITY_RADIO_VERSION))
 SINGULARITY_RADIO_LICENSE = GPL-3.0+
 SINGULARITY_RADIO_LICENSE_FILES = LICENSE
