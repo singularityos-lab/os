@@ -1,0 +1,29 @@
+#!/bin/sh
+set -e
+PATCHELF=${PATCHELF:-patchelf}
+root=$1/usr/local
+[ -d "$root/lib" ] || { echo "fotone-fixup: $root/lib is missing" >&2; exit 1; }
+
+for l in "$root"/lib/*; do
+	[ -L "$l" ] || continue
+	[ "$(readlink "$l")" = "$(basename "$l")" ] && rm -f "$l"
+done
+
+is_elf() {
+	[ -f "$1" ] && [ ! -L "$1" ] && [ "$(head -c 4 "$1" | od -An -c | tr -d ' ')" = "177ELF" ]
+}
+
+runpath() {
+	dir=$1
+	path=$2
+	[ -d "$dir" ] || return 0
+	for f in "$dir"/*; do
+		is_elf "$f" || continue
+		"$PATCHELF" --print-needed "$f" >/dev/null 2>&1 || continue
+		"$PATCHELF" --set-rpath "$path" "$f"
+	done
+}
+
+for d in lib lib/fotone-proxy lib/wpe-webkit-2.0/injected-bundle libexec libexec/wpe-webkit-2.0 bin; do
+	runpath "$root/$d" /usr/local/lib
+done

@@ -47,6 +47,9 @@ done < "$LIST"
 for l in usr/lib/libwebkitgtk-6.0.so.4 usr/lib/libjavascriptcoregtk-6.0.so.1; do
 	[ -L "$WORK/$TOP/$l" ] || { echo "ERROR: $l is not the proxy link"; exit 1; }
 done
+while IFS= read -r l; do
+	[ "$(readlink "$l")" = "$(basename "$l")" ] && { echo "ERROR: $l links to itself"; exit 1; }
+done < <(find "$WORK/$TOP" -type l)
 echo "[capture] fotone $VERSION ($ARCH): $n files"
 
 mkdir -p "$OUT_DIR"

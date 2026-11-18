@@ -2,6 +2,9 @@ config BR2_PACKAGE_FOTONE_PREBUILT
 	bool "fotone (prebuilt)"
 	depends on BR2_x86_64 || BR2_aarch64
 	depends on BR2_PACKAGE_WEBKITGTK_PREBUILT
+	select BR2_PACKAGE_DAV1D
+	select BR2_PACKAGE_LIBJXL
+	select BR2_PACKAGE_HOST_PATCHELF
 	help
 	  Fotone web engine: WPE WebKit with the Sinty patches and the
 	  WebKitGTK compatible libraries that apps load in its place.

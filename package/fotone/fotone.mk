@@ -10,7 +10,7 @@ FOTONE_LICENSE = LGPL-2.1+, BSD-2-Clause
 FOTONE_LICENSE_FILES = LICENSE
 FOTONE_ENGINE_VERSION = 2.54.2
 FOTONE_EXTRA_DOWNLOADS = https://wpewebkit.org/releases/wpewebkit-$(FOTONE_ENGINE_VERSION).tar.xz
-FOTONE_DEPENDENCIES = webkitgtk host-gperf host-python3 host-ruby host-unifdef host-pkgconf \
+FOTONE_DEPENDENCIES = webkitgtk host-patchelf dav1d host-gperf host-python3 host-ruby host-unifdef host-pkgconf \
 	at-spi2-core enchant expat fontconfig freetype gnutls gstreamer1 gst1-plugins-base gst1-plugins-bad \
 	harfbuzz icu jpeg lcms2 libavif libdrm libepoxy libgbm libgcrypt libglib2 libgtk4 libinput libjxl \
 	libpng libsecret libsoup3 libtasn1 libxkbcommon libxml2 libxslt sqlite wayland wayland-protocols \
@@ -62,6 +62,7 @@ define FOTONE_INSTALL_TARGET_CMDS
 	rm -f $(TARGET_DIR)/usr/lib/libwebkitgtk-6.0.so.4* $(TARGET_DIR)/usr/lib/libjavascriptcoregtk-6.0.so.1*
 	ln -sf ../local/lib/fotone-proxy/libwebkitgtk-6.0.so.4 $(TARGET_DIR)/usr/lib/libwebkitgtk-6.0.so.4
 	ln -sf ../local/lib/fotone-proxy/libjavascriptcoregtk-6.0.so.1 $(TARGET_DIR)/usr/lib/libjavascriptcoregtk-6.0.so.1
+	PATCHELF=$(HOST_DIR)/bin/patchelf $(FOTONE_PKGDIR)/fotone-fixup $(TARGET_DIR)
 endef
 
 $(eval $(generic-package))
