@@ -61,12 +61,17 @@ sscommon_mark_greeter_ready() {
 
 sscommon_softrender_backstop() {
     _hwgpu=0
+    _nvegl=0
     for _c in /sys/class/drm/card[0-9]*/device/uevent; do
         [ -e "$_c" ] || continue
         case "$(sed -n 's/^DRIVER=//p' "$_c")" in
-            i915|xe|amdgpu|radeon|nouveau|nova*|msm|panfrost|panthor|v3d|lima|etnaviv|tegra) _hwgpu=1 ;;
+            nvidia*|tegra*) _hwgpu=1 _nvegl=1 ;;
+            i915|xe|amdgpu|radeon|nouveau|nova*|msm*|panfrost|panthor|v3d|lima|etnaviv) _hwgpu=1 ;;
         esac
     done
+    if [ "$_nvegl" = 0 ] && [ -e /usr/share/glvnd/egl_vendor.d/50_mesa.json ]; then
+        export __EGL_VENDOR_LIBRARY_FILENAMES=/usr/share/glvnd/egl_vendor.d/50_mesa.json
+    fi
     if [ "$_hwgpu" = 0 ]; then
         export GSK_RENDERER=cairo WLR_RENDERER=pixman WLR_RENDERER_ALLOW_SOFTWARE=1
         export LIBGL_ALWAYS_SOFTWARE=1 GALLIUM_DRIVER=llvmpipe MESA_LOADER_DRIVER_OVERRIDE=kms_swrast WLR_DRM_NO_ATOMIC=1 WLR_NO_HARDWARE_CURSORS=1
