@@ -4,7 +4,7 @@
 #
 ################################################################################
 
-SINTY_RECOVERY_UI_VERSION = 925e85ff6538a8f8f9d41c91b763aa62fce8d0f2
+SINTY_RECOVERY_UI_VERSION = f91756465c8163fc04ca9e8d978f452687b35d42
 SINTY_RECOVERY_UI_SITE = https://github.com/singularityos-lab/sinty-recovery.git
 SINTY_RECOVERY_UI_SITE_METHOD = git
 SINTY_RECOVERY_UI_GIT_SUBMODULES = YES
