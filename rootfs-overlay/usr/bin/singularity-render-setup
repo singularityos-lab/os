@@ -1,6 +1,8 @@
 #!/bin/sh
 hwdrv() {
     case "$1" in
+        # DEVICE-FIX(msm): on the UNO Q the GPU driver is msm_dpu; without msm* it is treated as absent, software render is forced and labwc crashes
+        # DEVICE-FIX(nvidia): Jetson and NVIDIA bind as tegra*/nvidia*; without them a working GPU falls back to software render
         i915|xe|amdgpu|radeon|nouveau|nova*|msm*|panfrost|panthor|v3d|lima|etnaviv|tegra*|nvidia*) return 0 ;;
     esac
     return 1

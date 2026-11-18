@@ -66,9 +66,11 @@ sscommon_softrender_backstop() {
         [ -e "$_c" ] || continue
         case "$(sed -n 's/^DRIVER=//p' "$_c")" in
             nvidia*|tegra*) _hwgpu=1 _nvegl=1 ;;
+            # DEVICE-FIX(msm): on the UNO Q the GPU driver is msm_dpu; without msm* the session forces software render
             i915|xe|amdgpu|radeon|nouveau|nova*|msm*|panfrost|panthor|v3d|lima|etnaviv) _hwgpu=1 ;;
         esac
     done
+    # DEVICE-FIX(arm64): aarch64 images ship the NVIDIA L4T EGL vendor for Jetson; without pinning Mesa, other arm GPUs pick it and labwc fails to render
     if [ "$_nvegl" = 0 ] && [ -e /usr/share/glvnd/egl_vendor.d/50_mesa.json ]; then
         export __EGL_VENDOR_LIBRARY_FILENAMES=/usr/share/glvnd/egl_vendor.d/50_mesa.json
     fi
