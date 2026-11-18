@@ -218,8 +218,9 @@ if [ "$_FW_MODE" != "none" ] && [ -n "$_FW_SRC" ] && [ -d "$_FW_SRC" ]; then
         # obscure SoC/modem blobs a laptop desktop never loads.
         rm -rf "$_FW_DST"/netronome "$_FW_DST"/mellanox "$_FW_DST"/qed "$_FW_DST"/bnx2x \
                "$_FW_DST"/liquidio "$_FW_DST"/cxgb4 "$_FW_DST"/dpaa2 "$_FW_DST"/br-firmware.tar \
-               "$_FW_DST"/qcom "$_FW_DST"/ti-connectivity "$_FW_DST"/ueagle-atm \
+               "$_FW_DST"/ti-connectivity "$_FW_DST"/ueagle-atm \
                "$_FW_DST"/dsp56k "$_FW_DST"/matrox "$_FW_DST"/ositech 2>/dev/null || true
+        grep -q '^BR2_aarch64=y' "${BR2_CONFIG}" 2>/dev/null || rm -rf "$_FW_DST"/qcom
     fi
     rm -rf "$_FW_DST/.git" "$_FW_DST/check_whence.py" "$_FW_DST"/*.rst 2>/dev/null || true
 fi
