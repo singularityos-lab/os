@@ -4,7 +4,7 @@
 # NOT a systemd-user unit (Sinty has no systemd --user); this package installs
 # only the binaries.
 ################################################################################
-USH_VERSION = 5ee6a9ad6f7c516a1a2a39d3ac042506dd3f5161
+USH_VERSION = e2a3c6ff2a9913cfbd3ea72a06b9adfed88f3352
 USH_SITE = $(call github,singularityos-lab,ush,$(USH_VERSION))
 USH_LICENSE = GPL-3.0-or-later
 USH_LICENSE_FILES = LICENSE
@@ -27,7 +27,7 @@ define USH_INSTALL_TARGET_CMDS
 	# needs no download. Built with the just-compiled ush (native binary, runs on
 	# the build host) via its --bake-tools path; ToolsDir() finds it read-only at
 	# SystemToolsDir at runtime. Needs network at build time.
-	cd $(@D) && CGO_ENABLED=0 $(HOST_DIR)/bin/go run -buildvcs=false ./cmd/ush --bake-tools $(TARGET_DIR)/usr/share/ush/tools
+	cd $(@D) && CGO_ENABLED=0 $(HOST_DIR)/bin/go run -buildvcs=false ./cmd/ush --bake-tools $(TARGET_DIR)/usr/share/ush/tools --arch $(GO_GOARCH)
 endef
 
 $(eval $(golang-package))
