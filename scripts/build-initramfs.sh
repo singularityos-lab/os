@@ -128,6 +128,17 @@ for KDIR in "$TARGET_DIR"/lib/modules/*/; do
 	done
 done
 
+# DEVICE-FIX(msm): the msm GPU driver is built into the kernel and requests the Adreno microcode and zap shader while the initramfs is still the root; without them in the initramfs the GPU never starts and the whole desktop renders on the CPU
+for KDIR in "$TARGET_DIR"/lib/modules/*/; do
+	grep -qs 'drivers/gpu/drm/msm/msm.ko' "$KDIR/modules.builtin" || continue
+	FWROOT="$TARGET_DIR/usr/lib/firmware"
+	( cd "$FWROOT" 2>/dev/null && find qcom -maxdepth 2 \( -name 'a[0-9]*_sqe.fw' -o -name 'a[0-9]*_gmu.bin' -o -name 'a[0-9]*_pfp.fw' -o -name 'a[0-9]*_pm4.fw' -o -name 'a[0-9]*_zap.mbn' -o -name 'a[0-9]*_zap.mdt' -o -name 'a[0-9]*_zap.b[0-9]*' \) ) | while read -r fw; do
+		mkdir -p "$WORK/lib/firmware/$(dirname "$fw")"
+		cp -L "$FWROOT/$fw" "$WORK/lib/firmware/$fw"
+	done
+	break
+done
+
 resolve_libs
 
 # The glibc loader searches /lib64, /usr/lib and /usr/lib64; mirror the closure.
