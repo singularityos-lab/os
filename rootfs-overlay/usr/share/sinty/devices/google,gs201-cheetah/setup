@@ -47,7 +47,7 @@ aoc() {
 	[ -e /run/sinty/aoc-firmware-loaded ] && { log "AoC already started this boot"; return 1; }
 	grep -q okay /proc/device-tree/trusty/status 2>/dev/null || { log "Trusty is off in this DTB"; return 1; }
 	fw=
-	for d in /usr/lib/firmware/updates /usr/lib/firmware; do
+	for d in /var/lib/sinty/firmware /usr/lib/firmware/updates /usr/lib/firmware; do
 		[ -e "$d/aoc.bin" ] && fw=$d/aoc.bin && break
 	done
 	[ -n "$fw" ] || { log "no aoc.bin: the gs201-cheetah firmware bundle is not installed"; return 1; }
@@ -74,5 +74,7 @@ aoc() {
 	finished aoc
 }
 
+# DEVICE-FIX(gs201): Google's Wi-Fi, Bluetooth, AoC and amplifier firmware is not ours to ship; it comes from the phone's own vendor partition
+/usr/libexec/sinty-vendor-firmware || log "vendor firmware not installed"
 wifi
 aoc
