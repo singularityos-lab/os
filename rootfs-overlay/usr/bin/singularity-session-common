@@ -135,7 +135,7 @@ sscommon_drm_devices() {
     }
     _connected() {
         for _s in /sys/class/drm/"$1"-*/status; do
-            if [ "$(cat "$_s" 2>/dev/null)" = connected ]; then return 0; fi
+            case "$(cat "$_s" 2>/dev/null)" in connected|unknown) return 0 ;; esac
         done
         return 1
     }
