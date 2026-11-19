@@ -1,0 +1,41 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Fri, 23 Oct 2026 10:46:40 -0647
+Subject: [PATCH] dt-bindings: soc: samsung: Add Tensor G4 PERIC0 sysreg
+
+Describe the Tensor G4 PERIC0 system-register window used by USI mode
+selection, with the existing syscon fallback and required interface
+clock. The pinned GPL board maps this window at 0x10821000 with size
+0x1000, and USI6 uses offset 0x14. These are the same addresses used by
+the prototype.
+
+No additional window, register operation or board enablement is added.
+Keep the separate HSI2 identity and existing controller layouts
+independent of this binding change.
+
+Link: https://android.googlesource.com/kernel/devices/google/zumapro/+/8831630eee2ad095b85ed452944e6353940966a5/dts/zumapro-usi.dtsi
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ .../devicetree/bindings/soc/samsung/samsung,exynos-sysreg.yaml  | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/Documentation/devicetree/bindings/soc/samsung/samsung,exynos-sysreg.yaml b/Documentation/devicetree/bindings/soc/samsung/samsung,exynos-sysreg.yaml
+index 32ac75ff5..43602bfbd 100644
+--- a/Documentation/devicetree/bindings/soc/samsung/samsung,exynos-sysreg.yaml
++++ b/Documentation/devicetree/bindings/soc/samsung/samsung,exynos-sysreg.yaml
+@@ -28,6 +28,7 @@ properties:
+               - google,gs201-peric1-sysreg
+               - google,gs201-vgpio2ap-sysreg
+               - google,zuma-ufs-sysreg
++              - google,zumapro-peric0-sysreg
+               - samsung,exynos2200-cmgp-sysreg
+               - samsung,exynos2200-peric0-sysreg
+               - samsung,exynos2200-peric1-sysreg
+@@ -110,6 +111,7 @@ allOf:
+               - google,gs201-hsi2-sysreg
+               - google,gs201-peric0-sysreg
+               - google,gs201-peric1-sysreg
++              - google,zumapro-peric0-sysreg
+               - samsung,exynos850-cmgp-sysreg
+               - samsung,exynos850-peri-sysreg
+               - samsung,exynos850-sysreg

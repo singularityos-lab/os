@@ -1,0 +1,67 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Tue, 27 Oct 2026 05:14:55 -0647
+Subject: [PATCH] nfc: stop polling before taking the device down on an rfkill
+ block
+
+nfc_rfkill_set_block() calls nfc_dev_down(), which refuses a device that
+is polling or has an active target with -EBUSY, and the return value is
+ignored. Userspace such as neard keeps a poll loop running whenever the
+adapter is powered, so blocking NFC through rfkill left the radio on and
+polling.
+
+Deactivate the active target and stop polling first, then take the
+device down. This stays in the rfkill path rather than in
+nfc_dev_down(): when userspace asks for DEV_DOWN itself, the -EBUSY
+tells it to stop its own poll first, while an rfkill block has no one
+to tell.
+
+After a stop from here, genl_data.poll_req_portid still names the
+process that started the poll. Its later STOP_POLL returns -EINVAL at
+the !dev->polling check and its next START_POLL sets the id again, so
+nothing breaks.
+
+On a Pixel 9a (ST54L on nxp-nci, 7.3.0-rc6-omamobile-tegu-s2mpg15-m1,
+net/nfc/core.c as in this patch) with neard polling, `rfkill block nfc`
+left the controller interrupting about 14 times a second; with this
+change the interrupts stop and nfctool reports the device unpowered.
+
+Fixes: be055b2f89b5 ("NFC: RFKILL support")
+Cc: stable@vger.kernel.org
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ net/nfc/core.c | 15 +++++++++++++++
+ 1 file changed, 15 insertions(+)
+
+diff --git a/net/nfc/core.c b/net/nfc/core.c
+index f52166929..56a3cf684 100644
+--- a/net/nfc/core.c
++++ b/net/nfc/core.c
+@@ -170,12 +170,27 @@ int nfc_dev_down(struct nfc_dev *dev)
+ static int nfc_rfkill_set_block(void *data, bool blocked)
+ {
+ 	struct nfc_dev *dev = data;
++	struct nfc_target *target;
++	u32 target_idx;
+ 
+ 	pr_debug("%s blocked %d", dev_name(&dev->dev), blocked);
+ 
+ 	if (!blocked)
+ 		return 0;
+ 
++	/*
++	 * nfc_dev_down() refuses a device that polls or has an active
++	 * target, so a block during discovery left the radio on: stop both
++	 * first.
++	 */
++	device_lock(&dev->dev);
++	target = dev->active_target;
++	target_idx = target ? target->idx : 0;
++	device_unlock(&dev->dev);
++	if (target)
++		nfc_deactivate_target(dev, target_idx, NFC_TARGET_MODE_IDLE);
++	nfc_stop_poll(dev);
++
+ 	nfc_dev_down(dev);
+ 
+ 	return 0;

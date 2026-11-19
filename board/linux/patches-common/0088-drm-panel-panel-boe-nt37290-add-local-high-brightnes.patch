@@ -1,0 +1,314 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Adrian Schupp <as@satware.com>
+Date: Sat, 31 Oct 2026 20:59:34 +0100
+Subject: [PATCH] drm/panel: panel-boe-nt37290: add local high brightness mode
+
+Google's local_hbm_mode attribute, as in the s6e3hc4 driver: the
+fingerprint sensor lights a bright circle through sysfs, with a hard
+timeout and the allow_lhbm module gate. The calibration tables are
+already loaded at cold init; switching uses the vendor sequence
+(page-0 LHBM DBV at 4x the normal level, FPS gamma, 0x85/0x86).
+
+remove() ends a lit circle before devres tears down the LHBM
+attributes and the off timer.
+
+Signed-off-by: Adrian Schupp <as@satware.com>
+Assisted-by: LLM opencode
+---
+ drivers/gpu/drm/panel/panel-boe-nt37290.c | 209 +++++++++++++++++++++-
+ 1 file changed, 208 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/gpu/drm/panel/panel-boe-nt37290.c b/drivers/gpu/drm/panel/panel-boe-nt37290.c
+index 1ecb77506..22af9652d 100644
+--- a/drivers/gpu/drm/panel/panel-boe-nt37290.c
++++ b/drivers/gpu/drm/panel/panel-boe-nt37290.c
+@@ -52,6 +52,14 @@
+ #define NT37290_MAX_BRIGHTNESS		3584
+ #define NT37290_DEFAULT_BRIGHTNESS	1023
+ 
++/* Google's LOCAL_HBM_MAX_TIMEOUT_MS */
++#define NT37290_LHBM_TIMEOUT_MS		3000
++
++static bool allow_lhbm;
++module_param(allow_lhbm, bool, 0644);
++MODULE_PARM_DESC(allow_lhbm,
++		 "Allow local high brightness mode for the fingerprint sensor");
++
+ #define NT37290_DDIC_ID_REG		0xac
+ 
+ /* Frame-rate control (2Fh): mode in bits 7:4, OSC2 FCON in bits 2:0. */
+@@ -70,10 +78,15 @@ struct nt37290 {
+ 	 * interleaving and guards the panel state below.
+ 	 */
+ 	struct mutex lock;
++	struct delayed_work lhbm_off_work;
++	unsigned int lhbm_timeout_ms;
++	/* last brightness written to the panel (the LHBM boost builds on it) */
++	u16 dbv;
+ 	/* out of reset and awake: commands reach the panel */
+ 	bool prepared;
+ 	bool display_off;
+ 	bool pixel_off;
++	bool lhbm;
+ };
+ 
+ static const struct regulator_bulk_data nt37290_supplies[] = {
+@@ -104,6 +117,9 @@ static inline struct nt37290 *to_nt37290(struct drm_panel *panel)
+ 	return container_of(panel, struct nt37290, panel);
+ }
+ 
++static int nt37290_set_lhbm(struct nt37290 *ctx, bool on);
++static void nt37290_lhbm_stop(struct nt37290 *ctx);
++
+ #define nt37290_page(ctx, page) \
+ 	mipi_dsi_dcs_write_seq_multi(ctx, 0xf0, 0x55, 0xaa, 0x52, 0x08, (page))
+ 
+@@ -328,6 +344,7 @@ static int nt37290_disable(struct drm_panel *panel)
+ 	struct mipi_dsi_multi_context dsi_ctx = { .dsi = ctx->dsi };
+ 
+ 	guard(mutex)(&ctx->lock);
++	nt37290_lhbm_stop(ctx);
+ 	mipi_dsi_dcs_set_display_off_multi(&dsi_ctx);
+ 	if (!dsi_ctx.accum_err)
+ 		ctx->display_off = true;
+@@ -341,6 +358,7 @@ static int nt37290_unprepare(struct drm_panel *panel)
+ 	struct mipi_dsi_multi_context dsi_ctx = { .dsi = ctx->dsi };
+ 
+ 	guard(mutex)(&ctx->lock);
++	nt37290_lhbm_stop(ctx);
+ 	mipi_dsi_dcs_enter_sleep_mode_multi(&dsi_ctx);
+ 	mipi_dsi_msleep(&dsi_ctx, 10);
+ 	mipi_dsi_dcs_nop_multi(&dsi_ctx);
+@@ -425,6 +443,174 @@ static const struct drm_panel_funcs nt37290_panel_funcs = {
+ 	.set_refresh_rate = nt37290_set_refresh_rate,
+ };
+ 
++/*
++ * Local high brightness mode: the calibration tables were loaded at cold
++ * init (the LHBM on setting of Google's driver, circle centre x=720,
++ * y=2361 in panel pixels). Switching runs through the vendor sequence:
++ * the LHBM DBV (4x the last normal level) goes to the page-0 registers,
++ * then the FPS gamma timing, FPS mode, and the 0x85 LHBM on command.
++ * Off is the mirror image. Called with ctx->lock held, on a lit panel.
++ */
++static int nt37290_set_lhbm(struct nt37290 *ctx, bool on)
++{
++	struct mipi_dsi_multi_context dsi_ctx = { .dsi = ctx->dsi };
++
++	if (on) {
++		/*
++		 * LHBM DBV value write: 4x the last normal level, into
++		 * the page-0 registers. The bytes are runtime values, so
++		 * the sequence goes through the buffer write, not the
++		 * constant-only write_seq_multi.
++		 */
++		u16 level = ctx->dbv * 4;
++		u8 val1 = level >> 8;
++		u8 val2 = level & 0xff;
++		u8 dbv_payload[] = { 0xdf, val1, val2, val1, val2,
++				     val1, val2 };
++
++		nt37290_page(&dsi_ctx, 0x00);
++		mipi_dsi_dcs_write_seq_multi(&dsi_ctx, 0x6f, 0x4c);
++		mipi_dsi_dcs_write_buffer_multi(&dsi_ctx, dbv_payload,
++						ARRAY_SIZE(dbv_payload));
++		/* FPS gamma timing, enter FPS mode */
++		mipi_dsi_dcs_write_seq_multi(&dsi_ctx, 0x2f, 0x02);
++		mipi_dsi_dcs_write_seq_multi(&dsi_ctx, 0x87, 0x01);
++		/* LHBM on */
++		mipi_dsi_dcs_write_seq_multi(&dsi_ctx, 0x85);
++	} else {
++		/* LHBM off */
++		mipi_dsi_dcs_write_seq_multi(&dsi_ctx, 0x86);
++		/* exit FPS mode, normal gamma timing */
++		mipi_dsi_dcs_write_seq_multi(&dsi_ctx, 0x87, 0x00);
++		mipi_dsi_dcs_write_seq_multi(&dsi_ctx, 0x2f, 0x00);
++	}
++	if (!dsi_ctx.accum_err)
++		ctx->lhbm = on;
++
++	return dsi_ctx.accum_err;
++}
++
++/*
++ * Turn LHBM off before the panel blanks, dims to 0 or sleeps. Called with
++ * ctx->lock held. If the off command fails the state is dropped anyway:
++ * display off, pixel off and sleep all end the circle.
++ */
++static void nt37290_lhbm_stop(struct nt37290 *ctx)
++{
++	if (!ctx->lhbm)
++		return;
++	cancel_delayed_work(&ctx->lhbm_off_work);
++	if (ctx->prepared)
++		nt37290_set_lhbm(ctx, false);
++	ctx->lhbm = false;
++	if (ctx->bl)
++		sysfs_notify(&ctx->bl->dev.kobj, NULL, "local_hbm_mode");
++}
++
++static void nt37290_lhbm_off_work(struct work_struct *work)
++{
++	struct nt37290 *ctx = container_of(to_delayed_work(work),
++					   struct nt37290, lhbm_off_work);
++
++	guard(mutex)(&ctx->lock);
++	if (ctx->lhbm) {
++		dev_info(&ctx->dsi->dev, "local HBM timed out\n");
++		nt37290_lhbm_stop(ctx);
++	}
++}
++
++static ssize_t local_hbm_mode_show(struct device *dev,
++				   struct device_attribute *attr, char *buf)
++{
++	struct nt37290 *ctx = bl_get_data(to_backlight_device(dev));
++
++	return sysfs_emit(buf, "%d\n", ctx->lhbm);
++}
++
++static ssize_t local_hbm_mode_store(struct device *dev,
++				    struct device_attribute *attr,
++				    const char *buf, size_t count)
++{
++	struct backlight_device *bl = to_backlight_device(dev);
++	struct nt37290 *ctx = bl_get_data(bl);
++	bool on;
++	int ret;
++
++	ret = kstrtobool(buf, &on);
++	if (ret)
++		return ret;
++	if (on && !allow_lhbm)
++		return -EPERM;
++
++	guard(mutex)(&ctx->lock);
++	if (!on) {
++		nt37290_lhbm_stop(ctx);
++		return count;
++	}
++	/* as Google's driver: only on a lit panel */
++	if (!ctx->prepared || ctx->display_off || ctx->pixel_off ||
++	    backlight_is_blank(bl) || !backlight_get_brightness(bl))
++		return -EPERM;
++	if (ctx->lhbm) {
++		/* re-enabling restarts the timeout */
++		mod_delayed_work(system_wq, &ctx->lhbm_off_work,
++				 msecs_to_jiffies(ctx->lhbm_timeout_ms));
++		return count;
++	}
++
++	ret = nt37290_set_lhbm(ctx, true);
++	if (ret)
++		return ret;
++	queue_delayed_work(system_wq, &ctx->lhbm_off_work,
++			   msecs_to_jiffies(ctx->lhbm_timeout_ms));
++	dev_dbg(dev, "local HBM on\n");
++
++	return count;
++}
++static DEVICE_ATTR_RW(local_hbm_mode);
++
++static ssize_t local_hbm_max_timeout_show(struct device *dev,
++					  struct device_attribute *attr,
++					  char *buf)
++{
++	struct nt37290 *ctx = bl_get_data(to_backlight_device(dev));
++
++	return sysfs_emit(buf, "%u\n", ctx->lhbm_timeout_ms);
++}
++
++static ssize_t local_hbm_max_timeout_store(struct device *dev,
++					   struct device_attribute *attr,
++					   const char *buf, size_t count)
++{
++	struct backlight_device *bl = to_backlight_device(dev);
++	struct nt37290 *ctx = bl_get_data(bl);
++	unsigned int ms;
++	int ret;
++
++	ret = kstrtouint(buf, 0, &ms);
++	if (ret)
++		return ret;
++	/* never unbounded: the circle is far above normal brightness */
++	if (!ms || ms > NT37290_LHBM_TIMEOUT_MS)
++		return -EINVAL;
++
++	guard(mutex)(&ctx->lock);
++	ctx->lhbm_timeout_ms = ms;
++
++	return count;
++}
++static DEVICE_ATTR_RW(local_hbm_max_timeout);
++
++static struct attribute *nt37290_bl_attrs[] = {
++	&dev_attr_local_hbm_mode.attr,
++	&dev_attr_local_hbm_max_timeout.attr,
++	NULL
++};
++
++static const struct attribute_group nt37290_bl_group = {
++	.attrs = nt37290_bl_attrs,
++};
++
+ /*
+  * Brightness 0 turns all pixels off (0x22) instead of writing DBV 0, as
+  * the template driver does; the next non-zero level turns them back on
+@@ -438,6 +624,7 @@ static int nt37290_bl_update_locked(struct backlight_device *bl)
+ 	struct nt37290 *ctx = bl_get_data(bl);
+ 	struct mipi_dsi_multi_context dsi_ctx = { .dsi = ctx->dsi };
+ 	u16 brightness = backlight_get_brightness(bl);
++	int ret;
+ 
+ 	/*
+ 	 * In reset or asleep: keep the new state, enable() applies it
+@@ -446,6 +633,9 @@ static int nt37290_bl_update_locked(struct backlight_device *bl)
+ 	if (!ctx->prepared)
+ 		return 0;
+ 
++	if (backlight_is_blank(bl) || !brightness)
++		nt37290_lhbm_stop(ctx);
++
+ 	if (backlight_is_blank(bl)) {
+ 		if (!ctx->display_off) {
+ 			mipi_dsi_dcs_set_display_off_multi(&dsi_ctx);
+@@ -480,7 +670,11 @@ static int nt37290_bl_update_locked(struct backlight_device *bl)
+ 	}
+ 
+ 	/* DBV, most significant byte first */
+-	return mipi_dsi_dcs_set_display_brightness_large(ctx->dsi, brightness);
++	ret = mipi_dsi_dcs_set_display_brightness_large(ctx->dsi, brightness);
++	if (!ret)
++		ctx->dbv = brightness;
++
++	return ret;
+ }
+ 
+ static int nt37290_bl_update_status(struct backlight_device *bl)
+@@ -585,6 +779,15 @@ static int nt37290_probe(struct mipi_dsi_device *dsi)
+ 				     "failed to register backlight\n");
+ 	ctx->bl = bl;
+ 	ctx->panel.backlight = bl;
++	/* after the backlight, so the timer is cancelled before it goes away */
++	ctx->lhbm_timeout_ms = NT37290_LHBM_TIMEOUT_MS;
++	ret = devm_delayed_work_autocancel(dev, &ctx->lhbm_off_work,
++					   nt37290_lhbm_off_work);
++	if (ret)
++		return ret;
++	ret = devm_device_add_group(&bl->dev, &nt37290_bl_group);
++	if (ret)
++		return ret;
+ 
+ 	drm_panel_add(&ctx->panel);
+ 
+@@ -610,6 +813,10 @@ static void nt37290_remove(struct mipi_dsi_device *dsi)
+ 	struct nt37290 *ctx = mipi_dsi_get_drvdata(dsi);
+ 	int ret;
+ 
++	/* End a lit circle before devres tears down the LHBM attributes. */
++	scoped_guard(mutex, &ctx->lock)
++		nt37290_lhbm_stop(ctx);
++
+ 	ret = mipi_dsi_detach(dsi);
+ 	if (ret < 0)
+ 		dev_err(&dsi->dev, "failed to detach from DSI host: %d\n", ret);

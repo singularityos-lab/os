@@ -1,0 +1,294 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Sat, 31 Oct 2026 09:30:49 -0643
+Subject: [PATCH] clk: samsung: exynos-clkout: add Tensor G4's NFC clock pad
+
+The Pixel 9a's NFC controller (an ST54L) asks the SoC for its reference
+clock on a clock request line, which the PMU follows only once EXTPAD_EN,
+bit 16 of PMU register 0x3e84, is set; Google's st21nfc driver sets it
+from its devicetree (pmu_clk_pad = <0x3e84>, st,extpad_control_en).
+Without it the controller does not ACK its I2C address.
+
+Provide that bit as clock 0 of the google,zumapro-pmu node, beside the
+GS101 and GS201 pads. The pads' register, enable bit and source field
+move from constants into per-variant descriptors, since this pad has a
+different register and bit and no source field we know of; the GS101
+pads keep their bring-up polarity parameter, which does not apply here.
+A PMU node that names no clkout0 gets its pads as root clocks, since
+this register's source is not described.
+
+The register and bit were proven on the Pixel 9a with an earlier
+provider inside the PMU driver (7.3.0-rc6-omamobile-tegu-s2mpg15-m1,
+the NFC node's clocks = <&pmu_system_controller 0>): nxp-nci's probe
+enabled the clock and the controller answered CORE_RESET and polled,
+with nothing else touching the pad. This driver's version has only been
+compiled so far.
+
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ drivers/clk/samsung/clk-exynos-clkout.c | 142 ++++++++++++++++++------
+ 1 file changed, 107 insertions(+), 35 deletions(-)
+
+diff --git a/drivers/clk/samsung/clk-exynos-clkout.c b/drivers/clk/samsung/clk-exynos-clkout.c
+index 5239033b4..cd3d09151 100644
+--- a/drivers/clk/samsung/clk-exynos-clkout.c
++++ b/drivers/clk/samsung/clk-exynos-clkout.c
+@@ -36,15 +36,35 @@
+  * Bit 0 drives the clock onto the pad, bits 13:8 select the source; source 0
+  * is the TCXO.
+  */
+-#define GS101_CLKOUT_NR_CLKS		2
+ #define GS101_PAD_CTRL_CLKOUT(n)	(0x3e80 + 4 * (n))
+ #define GS101_CLKOUT_SEL_MASK		GENMASK(13, 8)
+ #define GS101_CLKOUT_EN			BIT(0)
+ 
++/*
++ * Tensor G4 (zumapro) feeds the NFC controller's reference clock from a PMU
++ * pad as well. With EXTPAD_EN set the PMU follows the controller's clock
++ * request line and drives the clock onto the pad, which is how Google's
++ * st21nfc driver runs it (pmu_clk_pad = <0x3e84>, st,extpad_control_en);
++ * without it the Pixel 9a's ST54L does not ACK its I2C address. Nothing
++ * else about this register is known, so its source field is left alone.
++ */
++#define ZUMAPRO_PAD_CTRL_NFC_CLK	0x3e84
++#define ZUMAPRO_CLKOUT_EXTPAD_EN	BIT(16)
++
++#define EXYNOS_CLKOUT_MAX_PADS		2
++
++/* A pad's register, the bit that puts the clock on it and the source field. */
++struct exynos_clkout_pad_desc {
++	unsigned int reg;
++	u32 en;
++	u32 sel_mask;
++};
++
+ struct exynos_clkout_pad {
+ 	struct clk_hw hw;
+ 	struct regmap *regmap;
+-	unsigned int reg;
++	const struct exynos_clkout_pad_desc *desc;
++	bool en_bringup;
+ };
+ 
+ #define to_exynos_clkout_pad(_hw) container_of(_hw, struct exynos_clkout_pad, hw)
+@@ -65,9 +85,15 @@ static void exynos_clkout_pad_trace(struct exynos_clkout_pad *pad,
+ 	unsigned int val = 0;
+ 	int ret;
+ 
+-	ret = regmap_read(pad->regmap, pad->reg, &val);
++	ret = regmap_read(pad->regmap, pad->desc->reg, &val);
+ 	pr_debug("%s: %s, PAD_CTRL 0x%x = 0x%08x (%d)\n",
+-		 clk_hw_get_name(&pad->hw), what, pad->reg, val, ret);
++		 clk_hw_get_name(&pad->hw), what, pad->desc->reg, val, ret);
++}
++
++/* Only the GS101 pads' bit 0 is still being settled by bring-up. */
++static bool exynos_clkout_pad_active_low(struct exynos_clkout_pad *pad)
++{
++	return pad->en_bringup && gs101_pad_en_active_low;
+ }
+ 
+ struct exynos_clkout {
+@@ -77,13 +103,15 @@ struct exynos_clkout {
+ 	void __iomem *reg;
+ 	struct device_node *np;
+ 	u32 pmu_debug_save;
+-	struct exynos_clkout_pad pads[GS101_CLKOUT_NR_CLKS];
++	struct exynos_clkout_pad pads[EXYNOS_CLKOUT_MAX_PADS];
+ 	struct clk_hw_onecell_data data;
+ };
+ 
+ struct exynos_clkout_variant {
+ 	u32 mux_mask;
+-	bool pad_ctrl;
++	const struct exynos_clkout_pad_desc *pads;
++	unsigned int nr_pads;
++	bool pad_en_bringup;
+ };
+ 
+ static const struct exynos_clkout_variant exynos_clkout_exynos4 = {
+@@ -94,8 +122,38 @@ static const struct exynos_clkout_variant exynos_clkout_exynos5 = {
+ 	.mux_mask	= EXYNOS5_CLKOUT_MUX_MASK,
+ };
+ 
++static const struct exynos_clkout_pad_desc exynos_clkout_gs101_pads[] = {
++	{
++		.reg		= GS101_PAD_CTRL_CLKOUT(0),
++		.en		= GS101_CLKOUT_EN,
++		.sel_mask	= GS101_CLKOUT_SEL_MASK,
++	}, {
++		.reg		= GS101_PAD_CTRL_CLKOUT(1),
++		.en		= GS101_CLKOUT_EN,
++		.sel_mask	= GS101_CLKOUT_SEL_MASK,
++	},
++};
++
++static_assert(ARRAY_SIZE(exynos_clkout_gs101_pads) <= EXYNOS_CLKOUT_MAX_PADS);
++
+ static const struct exynos_clkout_variant exynos_clkout_gs101 = {
+-	.pad_ctrl	= true,
++	.pads		= exynos_clkout_gs101_pads,
++	.nr_pads	= ARRAY_SIZE(exynos_clkout_gs101_pads),
++	.pad_en_bringup	= true,
++};
++
++static const struct exynos_clkout_pad_desc exynos_clkout_zumapro_pads[] = {
++	{
++		.reg		= ZUMAPRO_PAD_CTRL_NFC_CLK,
++		.en		= ZUMAPRO_CLKOUT_EXTPAD_EN,
++	},
++};
++
++static_assert(ARRAY_SIZE(exynos_clkout_zumapro_pads) <= EXYNOS_CLKOUT_MAX_PADS);
++
++static const struct exynos_clkout_variant exynos_clkout_zumapro = {
++	.pads		= exynos_clkout_zumapro_pads,
++	.nr_pads	= ARRAY_SIZE(exynos_clkout_zumapro_pads),
+ };
+ 
+ static const struct of_device_id exynos_clkout_ids[] = {
+@@ -105,6 +163,9 @@ static const struct of_device_id exynos_clkout_ids[] = {
+ 	}, {
+ 		.compatible = "google,gs201-pmu",
+ 		.data = &exynos_clkout_gs101,
++	}, {
++		.compatible = "google,zumapro-pmu",
++		.data = &exynos_clkout_zumapro,
+ 	}, {
+ 		.compatible = "samsung,exynos3250-pmu",
+ 		.data = &exynos_clkout_exynos4,
+@@ -164,12 +225,13 @@ static int exynos_clkout_match_parent_dev(struct device *dev,
+ static int exynos_clkout_pad_enable(struct clk_hw *hw)
+ {
+ 	struct exynos_clkout_pad *pad = to_exynos_clkout_pad(hw);
++	const struct exynos_clkout_pad_desc *desc = pad->desc;
+ 	int ret;
+ 
+-	/* Select the TCXO and drive it onto the pad. */
+-	ret = regmap_update_bits(pad->regmap, pad->reg,
+-				 GS101_CLKOUT_SEL_MASK | GS101_CLKOUT_EN,
+-				 gs101_pad_en_active_low ? 0 : GS101_CLKOUT_EN);
++	/* Select the TCXO (where the pad has a source field) and drive it. */
++	ret = regmap_update_bits(pad->regmap, desc->reg,
++				 desc->sel_mask | desc->en,
++				 exynos_clkout_pad_active_low(pad) ? 0 : desc->en);
+ 	exynos_clkout_pad_trace(pad, "enable");
+ 
+ 	return ret;
+@@ -179,8 +241,8 @@ static void exynos_clkout_pad_disable(struct clk_hw *hw)
+ {
+ 	struct exynos_clkout_pad *pad = to_exynos_clkout_pad(hw);
+ 
+-	regmap_update_bits(pad->regmap, pad->reg, GS101_CLKOUT_EN,
+-			   gs101_pad_en_active_low ? GS101_CLKOUT_EN : 0);
++	regmap_update_bits(pad->regmap, pad->desc->reg, pad->desc->en,
++			   exynos_clkout_pad_active_low(pad) ? pad->desc->en : 0);
+ 	exynos_clkout_pad_trace(pad, "disable");
+ }
+ 
+@@ -189,10 +251,10 @@ static int exynos_clkout_pad_is_enabled(struct clk_hw *hw)
+ 	struct exynos_clkout_pad *pad = to_exynos_clkout_pad(hw);
+ 	unsigned int val;
+ 
+-	if (regmap_read(pad->regmap, pad->reg, &val))
++	if (regmap_read(pad->regmap, pad->desc->reg, &val))
+ 		return 0;
+ 
+-	return !!(val & GS101_CLKOUT_EN) != gs101_pad_en_active_low;
++	return !!(val & pad->desc->en) != exynos_clkout_pad_active_low(pad);
+ }
+ 
+ static const struct clk_ops exynos_clkout_pad_ops = {
+@@ -202,17 +264,19 @@ static const struct clk_ops exynos_clkout_pad_ops = {
+ };
+ 
+ /*
+- * GS101/GS201: one gate per pad, parented to mux input 0 (the TCXO, named
+- * "clkout0" in the PMU node). The pads may be in use by devices that Linux
+- * does not describe, so leave them as the bootloader left them until a
+- * consumer asks for them.
++ * GS101/GS201 and Tensor G4: one gate per pad, parented to mux input 0 (the
++ * TCXO, named "clkout0" in the PMU node) where the PMU node names it; a pad
++ * whose source the node does not describe is a root clock. The pads may be
++ * in use by devices that Linux does not describe, so leave them as the
++ * bootloader left them until a consumer asks for them.
+  */
+ static int exynos_clkout_pad_probe(struct platform_device *pdev,
+-				   struct exynos_clkout *clkout)
++				   struct exynos_clkout *clkout,
++				   const struct exynos_clkout_variant *variant)
+ {
+ 	struct device *dev = &pdev->dev;
+ 	struct clk_init_data init = {};
+-	const char *parent_name;
++	const char *parent_name = NULL;
+ 	struct regmap *regmap;
+ 	struct clk *parent;
+ 	int ret, i;
+@@ -222,26 +286,35 @@ static int exynos_clkout_pad_probe(struct platform_device *pdev,
+ 		return dev_err_probe(dev, PTR_ERR(regmap),
+ 				     "failed to get PMU regmap\n");
+ 
+-	parent = of_clk_get_by_name(clkout->np, "clkout0");
+-	if (IS_ERR(parent))
+-		return dev_err_probe(dev, PTR_ERR(parent),
+-				     "failed to get TCXO clock\n");
+-	parent_name = __clk_get_name(parent);
++	/*
++	 * Only a PMU node that names "clkout0" has a parent: without
++	 * clock-names at all of_clk_get_by_name() returns -EINVAL, not
++	 * -ENOENT, so look for the name first.
++	 */
++	parent = NULL;
++	if (of_property_match_string(clkout->np, "clock-names", "clkout0") >= 0) {
++		parent = of_clk_get_by_name(clkout->np, "clkout0");
++		if (IS_ERR(parent))
++			return dev_err_probe(dev, PTR_ERR(parent),
++					     "failed to get TCXO clock\n");
++		parent_name = __clk_get_name(parent);
++	}
+ 
+-	clkout->data.num = GS101_CLKOUT_NR_CLKS;
+-	for (i = 0; i < GS101_CLKOUT_NR_CLKS; i++) {
++	clkout->data.num = variant->nr_pads;
++	for (i = 0; i < variant->nr_pads; i++) {
+ 		struct exynos_clkout_pad *pad = &clkout->pads[i];
+ 		char name[] = "pmu-clkoutX";
+ 
+ 		snprintf(name, sizeof(name), "pmu-clkout%d", i);
+ 		init.name = name;
+ 		init.ops = &exynos_clkout_pad_ops;
+-		init.parent_names = &parent_name;
+-		init.num_parents = 1;
++		init.parent_names = parent ? &parent_name : NULL;
++		init.num_parents = parent ? 1 : 0;
+ 		init.flags = CLK_IGNORE_UNUSED;
+ 
+ 		pad->regmap = regmap;
+-		pad->reg = GS101_PAD_CTRL_CLKOUT(i);
++		pad->desc = &variant->pads[i];
++		pad->en_bringup = variant->pad_en_bringup;
+ 		pad->hw.init = &init;
+ 
+ 		ret = devm_clk_hw_register(dev, &pad->hw);
+@@ -272,8 +345,7 @@ static int exynos_clkout_probe(struct platform_device *pdev)
+ 
+ 	clkout = devm_kzalloc(&pdev->dev,
+ 			      struct_size(clkout, data.hws,
+-					  variant->pad_ctrl ? GS101_CLKOUT_NR_CLKS :
+-							      EXYNOS_CLKOUT_NR_CLKS),
++					  variant->nr_pads ?: EXYNOS_CLKOUT_NR_CLKS),
+ 			      GFP_KERNEL);
+ 	if (!clkout)
+ 		return -ENOMEM;
+@@ -289,8 +361,8 @@ static int exynos_clkout_probe(struct platform_device *pdev)
+ 
+ 	platform_set_drvdata(pdev, clkout);
+ 
+-	if (variant->pad_ctrl)
+-		return exynos_clkout_pad_probe(pdev, clkout);
++	if (variant->nr_pads)
++		return exynos_clkout_pad_probe(pdev, clkout, variant);
+ 
+ 	spin_lock_init(&clkout->slock);
+ 

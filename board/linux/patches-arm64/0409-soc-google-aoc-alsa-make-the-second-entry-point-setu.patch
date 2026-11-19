@@ -1,0 +1,48 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Mon, 12 Oct 2026 16:56:53 -0400
+Subject: [PATCH] soc: google: aoc: alsa: make the second entry point setup
+ optional
+
+The android14 gs-6.1 driver follows CMD_AUDIO_OUTPUT_EP_SETUP with
+CMD_AUDIO_OUTPUT_EP_SETUP2 (buffer and period size) at playback
+prepare; the gs-5.10 driver of the same branch sends only the first.
+On gs201 the AoC accepts both commands but then never reads the
+playback ring. Add ep_setup2 (default on, as before) so that bring-up
+can compare the two sequences with the running firmware.
+
+Assisted-by: LLM
+Signed-off-by: Derek Ross <derekross@gmail.com>
+---
+ drivers/soc/google/aoc/alsa/aoc_alsa_hw.c | 11 +++++++++++
+ 1 file changed, 11 insertions(+)
+
+diff --git a/drivers/soc/google/aoc/alsa/aoc_alsa_hw.c b/drivers/soc/google/aoc/alsa/aoc_alsa_hw.c
+index fde758904..82097dfd1 100644
+--- a/drivers/soc/google/aoc/alsa/aoc_alsa_hw.c
++++ b/drivers/soc/google/aoc/alsa/aoc_alsa_hw.c
+@@ -1737,6 +1737,15 @@ int aoc_voip_set_params(struct aoc_alsa_stream *alsa_stream)
+ }
+ #endif
+ 
++/*
++ * Bring-up: the entry point's second setup command (buffer and period size)
++ * is new in the android14 gs-6.1 driver; the gs-5.10 driver sends only the
++ * first. ep_setup2=0 skips it, to compare the two with this firmware.
++ */
++static bool ep_setup2 = true;
++module_param(ep_setup2, bool, 0644);
++MODULE_PARM_DESC(ep_setup2, "Send CMD_AUDIO_OUTPUT_EP_SETUP2 at PCM prepare (bring-up)");
++
+ static int aoc_audio_playback_set_params(struct aoc_alsa_stream *alsa_stream,
+ 					 uint32_t channels, uint32_t samplerate,
+ 					 uint32_t bps, bool pcm_float_fmt,
+@@ -1816,6 +1825,8 @@ static int aoc_audio_playback_set_params(struct aoc_alsa_stream *alsa_stream,
+ 	}
+ 
+ #if !IS_ENABLED(CONFIG_SOC_GS101)
++	if (!ep_setup2)
++		goto exit;
+ 	err = aoc_audio_playback_set_params2(alsa_stream, cmd.mode);
+ 	if (err < 0)
+ 		pr_err("ERR:%d in playback set parameters2\n", err);

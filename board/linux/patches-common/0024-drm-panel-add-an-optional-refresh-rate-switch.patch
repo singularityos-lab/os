@@ -1,0 +1,85 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Mon, 12 Oct 2026 13:08:54 -0400
+Subject: [PATCH] drm/panel: add an optional refresh rate switch
+
+DSI command-mode panels pace the frames with their TE signal, so a
+display controller can move such a panel between refresh rates of the
+same resolution while it runs: the panel takes the new rate at its next
+frame, and the host only adjusts its own timers. drm_panel has no way to
+ask for that; the panel never learns the mode.
+
+Add an optional set_refresh_rate() callback and
+drm_panel_set_refresh_rate(), which returns -EOPNOTSUPP for panels
+without it.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ drivers/gpu/drm/drm_panel.c | 20 ++++++++++++++++++++
+ include/drm/drm_panel.h     | 15 +++++++++++++++
+ 2 files changed, 35 insertions(+)
+
+diff --git a/drivers/gpu/drm/drm_panel.c b/drivers/gpu/drm/drm_panel.c
+index f8f6082e6..d556823a9 100644
+--- a/drivers/gpu/drm/drm_panel.c
++++ b/drivers/gpu/drm/drm_panel.c
+@@ -370,6 +370,26 @@ int drm_panel_get_modes(struct drm_panel *panel,
+ }
+ EXPORT_SYMBOL(drm_panel_get_modes);
+ 
++/**
++ * drm_panel_set_refresh_rate - switch a running panel's refresh rate
++ * @panel: DRM panel
++ * @hz: new refresh rate, in Hz
++ *
++ * Asks an enabled panel to change its refresh rate, keeping the resolution
++ * and without a power cycle (see &drm_panel_funcs.set_refresh_rate).
++ *
++ * Return: 0 on success, -EOPNOTSUPP if the panel can't switch its rate, or
++ * another negative error code from the panel driver.
++ */
++int drm_panel_set_refresh_rate(struct drm_panel *panel, unsigned int hz)
++{
++	if (!panel || !panel->funcs || !panel->funcs->set_refresh_rate)
++		return -EOPNOTSUPP;
++
++	return panel->funcs->set_refresh_rate(panel, hz);
++}
++EXPORT_SYMBOL(drm_panel_set_refresh_rate);
++
+ static void __drm_panel_free(struct kref *kref)
+ {
+ 	struct drm_panel *panel = container_of(kref, struct drm_panel, refcount);
+diff --git a/include/drm/drm_panel.h b/include/drm/drm_panel.h
+index b87323443..86b289d30 100644
+--- a/include/drm/drm_panel.h
++++ b/include/drm/drm_panel.h
+@@ -138,6 +138,20 @@ struct drm_panel_funcs {
+ 	int (*get_timings)(struct drm_panel *panel, unsigned int num_timings,
+ 			   struct display_timing *timings);
+ 
++	/**
++	 * @set_refresh_rate:
++	 *
++	 * Switch an enabled panel to another refresh rate of the same
++	 * resolution without power cycling it, for display controllers that
++	 * can change the rate seamlessly (for example DSI command mode, where
++	 * the panel paces the frames with its TE signal). The panel takes
++	 * the new rate at its next frame. The caller is responsible for the
++	 * host side of the switch.
++	 *
++	 * This function is optional.
++	 */
++	int (*set_refresh_rate)(struct drm_panel *panel, unsigned int hz);
++
+ 	/**
+ 	 * @debugfs_init:
+ 	 *
+@@ -334,6 +348,7 @@ void drm_panel_enable(struct drm_panel *panel);
+ void drm_panel_disable(struct drm_panel *panel);
+ 
+ int drm_panel_get_modes(struct drm_panel *panel, struct drm_connector *connector);
++int drm_panel_set_refresh_rate(struct drm_panel *panel, unsigned int hz);
+ 
+ #if defined(CONFIG_OF) && defined(CONFIG_DRM_PANEL)
+ struct drm_panel *of_drm_find_panel(const struct device_node *np);

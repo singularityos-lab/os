@@ -1,0 +1,78 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Chris Gray <chrisgray70@gmail.com>
+Date: Sat, 24 Oct 2026 00:14:46 -0500
+Subject: [PATCH] arm64: dts: exynos: google: gs201-lynx: enable UFS
+
+Enable the UFS host and PHY. lynx's VCC is on gpp0-1 and left on by
+the bootloader, as on cheetah, and there is no gs201 GPIO driver yet, so
+describe it as an always-on fixed regulator. Add omamobile.ufs-probe so
+the initramfs reports the disks it finds.
+
+Tested on a Pixel 7a from slot B: the link comes up at HS-G4 on two
+lanes, as on stock, and the four LUNs and their 55 partitions appear
+with no UFS errors.
+
+Assisted-by: LLM
+Signed-off-by: Chris Gray <chrisgray70@gmail.com>
+---
+ .../boot/dts/exynos/google/gs201-lynx.dts     | 29 ++++++++++++++++---
+ 1 file changed, 25 insertions(+), 4 deletions(-)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/gs201-lynx.dts b/arch/arm64/boot/dts/exynos/google/gs201-lynx.dts
+index 73c0ab686..b02f97f8a 100644
+--- a/arch/arm64/boot/dts/exynos/google/gs201-lynx.dts
++++ b/arch/arm64/boot/dts/exynos/google/gs201-lynx.dts
+@@ -2,9 +2,9 @@
+ /*
+  * Google Pixel 7a (lynx) - M1 bring-up board file.
+  *
+- * First light: USB (NCM + ACM), the cluster watchdogs from gs201.dtsi,
+- * and a simple-framebuffer on the buffer ABL leaves DPP0 scanning out.
+- * UFS, the panel driver, touch and the GPU stay disabled.
++ * USB (NCM + ACM), the cluster watchdogs from gs201.dtsi, a
++ * simple-framebuffer on the buffer ABL leaves DPP0 scanning out, and UFS.
++ * The panel driver, touch and the GPU stay disabled.
+  */
+ 
+ /dts-v1/;
+@@ -33,7 +33,7 @@ B0_IPOP {
+ 
+ 	chosen {
+ 		/* ABL requires bootargs to exist; it appends its own after these. */
+-		bootargs = "console=tty0 fbcon=font:TER16x32 panic=10 clk_ignore_unused pd_ignore_unused rdinit=/init";
++		bootargs = "console=tty0 fbcon=font:TER16x32 panic=10 clk_ignore_unused pd_ignore_unused rdinit=/init omamobile.ufs-probe";
+ 		#address-cells = <2>;
+ 		#size-cells = <1>;
+ 		ranges;
+@@ -55,6 +55,18 @@ framebuffer0: framebuffer@fac00000 {
+ 		};
+ 	};
+ 
++	/*
++	 * UFS VCC. Stock drives it from GPIO gpp0-1 (boot-on), as on
++	 * cheetah; there is no gs201 GPIO driver yet, so describe it as
++	 * always on, as the bootloader leaves it.
++	 */
++	ufs_0_fixed_vcc_reg: regulator-ufs-vcc {
++		compatible = "regulator-fixed";
++		regulator-name = "ufs-vcc";
++		regulator-always-on;
++		regulator-boot-on;
++	};
++
+ 	/*
+ 	 * ABL adds sec_dram, sec_pt and pkvm_guest_firmware to this tree
+ 	 * itself. Stock's tui, mfc_fw and famodel are pools the kernel
+@@ -89,3 +101,12 @@ &usbdrd31_phy {
+ &usb_dwc3 {
+ 	status = "okay";
+ };
++
++&ufs_0 {
++	vcc-supply = <&ufs_0_fixed_vcc_reg>;
++	status = "okay";
++};
++
++&ufs_0_phy {
++	status = "okay";
++};

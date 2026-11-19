@@ -1,0 +1,92 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Lef <me@lefteros.com>
+Date: Sat, 7 Nov 2026 06:58:24 +0200
+Subject: [PATCH] arm64: dts: exynos: google: zuma-husky: add the ST54L NFC
+ controller, disabled
+
+An nfc@8 child of hsi2c_0 (the haptics' bus), status "disabled", so a
+normal boot is unchanged. The ST54L speaks plain NCI over I2C, so it takes
+the same compatible as the 9a and the zumapro-tegu node: st,st54l with
+nxp,nxp-nci-i2c as the fallback, for the nxp-nci driver. Pins are from the
+stock device tree: interrupt gpa7-6, enable (the chip's RST_N) gph1-6,
+power-idle gph1-3, with stock's two pin groups (power-down state only,
+no pin function). The enable line is the same pin the zumapro-tegu node
+uses.
+
+The stock node also has a PMU clock pad (CLKOUT1) as the reference clock.
+This commit has no clocks property, so the pad stays as the bootloader
+leaves it. The power-idle line has no nxp-nci property; only its pin
+group is kept. The eSE half of the chip is not described.
+
+I tried it on my Pixel 8 Pro: a test kernel (7.3-rc6,
+...-ge98a7a38a3ef) with the node switched on by an overlay, and the pad
+clock from the follow-up patches either present or left out. nxp-nci
+binds the ST54L and registers nfc0 either way. Without the clock the
+NCI power-on works (the chip answers), but a sticker tag held at the
+phone was not found in one 25 s run. With the clock a bus card (ISO-DEP,
+no NDEF data on it) and the sticker tag (Type 2, one NDEF record) were
+both found, and neard published both as tags. The no-clock result is a
+single run, and I cannot read the PMU pad register from userspace, so I
+do not know whether the bootloader leaves the pad partly set up. The
+clock is in the follow-up patches. Not tested: the eSE, or s2idle with
+the driver bound.
+
+Signed-off-by: Lef <me@lefteros.com>
+---
+ .../boot/dts/exynos/google/zuma-husky.dts     | 36 +++++++++++++++++++
+ 1 file changed, 36 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/zuma-husky.dts b/arch/arm64/boot/dts/exynos/google/zuma-husky.dts
+index 478a57697..68b784336 100644
+--- a/arch/arm64/boot/dts/exynos/google/zuma-husky.dts
++++ b/arch/arm64/boot/dts/exynos/google/zuma-husky.dts
+@@ -571,6 +571,20 @@ bluetooth {
+  */
+ &pinctrl_hsi1 {
+ 	status = "okay";
++
++	nfc_en: nfc-en-pins {
++		samsung,pins = "gph1-6";
++		samsung,pin-pud = <GS101_PIN_PULL_NONE>;
++		samsung,pin-con-pdn = <GS101_PIN_PDN_PREV>;
++		samsung,pin-pud-pdn = <GS101_PIN_PULL_NONE>;
++	};
++
++	nfc_pidle: nfc-pidle-pins {
++		samsung,pins = "gph1-3";
++		samsung,pin-pud = <GS101_PIN_PULL_DOWN>;
++		samsung,pin-con-pdn = <GS101_PIN_PDN_PREV>;
++		samsung,pin-pud-pdn = <GS101_PIN_PULL_DOWN>;
++	};
+ };
+ 
+ &usi0 {
+@@ -594,6 +608,28 @@ haptics: haptic-driver@43 {
+ 		cirrus,lra-redc-micro-ohms = <13000000>;
+ 		cirrus,vpbr-threshold-microvolt = <3008000>;
+ 	};
++
++	/*
++	 * The ST54L NFC controller at 0x08 on this bus: plain NCI over I2C,
++	 * nxp-nci's transport, as on the 9a and the zumapro-tegu node. Pins
++	 * from the stock DT: interrupt gpa7-6, enable (the chip's RST_N)
++	 * gph1-6, power-idle gph1-3. The pin groups are stock's and set only
++	 * the power-down state (and the power-idle pull-down), no pin
++	 * function. The chip's reference clock (stock: PMU pad CLKOUT1) has no
++	 * provider on zuma yet, so there is no clocks property and the pad
++	 * stays as the bootloader left it. The eSE half of the chip (spi_12,
++	 * reset gph1-5) is not described. Disabled: nothing binds to it until
++	 * a bring-up overlay enables it.
++	 */
++	nfc: nfc@8 {
++		compatible = "st,st54l", "nxp,nxp-nci-i2c";
++		reg = <0x08>;
++		interrupts-extended = <&gpa7 6 IRQ_TYPE_LEVEL_HIGH>;
++		enable-gpios = <&gph1 6 GPIO_ACTIVE_HIGH>;
++		pinctrl-0 = <&nfc_en &nfc_pidle>;
++		pinctrl-names = "default";
++		status = "disabled";
++	};
+ };
+ 
+ /*

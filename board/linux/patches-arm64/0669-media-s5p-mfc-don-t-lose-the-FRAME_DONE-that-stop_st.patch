@@ -1,0 +1,48 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?=C3=81ngel=20Ren=C3=A9?=
+ <17342133+angelrenefm@users.noreply.github.com>
+Date: Sat, 14 Nov 2026 12:33:54 +0100
+Subject: [PATCH] media: s5p-mfc: don't lose the FRAME_DONE that stop_streaming
+ waits for
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+When a queue is stopped while the context's frame is being decoded,
+stop_streaming() sets MFCINST_ABORT and waits for FRAME_DONE. The
+interrupt handler of that frame wakes the context up, releases the
+hardware and calls try_run, which picks the same context again because
+its work bit is still set. try_run clears the context's interrupt flags
+before finding nothing to run in MFCINST_ABORT, so the waiter finds no
+FRAME_DONE and the STREAMOFF stalls for the full two second timeout,
+logging "Interrupt (ctx->int_type:0, command:13) timed out".
+
+Clear the work bit together with setting MFCINST_ABORT. On the Pixel 7
+every seek in GStreamer took two seconds and logged that timeout; with
+this, three runs of two seeks each logged none and resumed at once.
+
+Assisted-by: LLM
+Signed-off-by: Ángel René <17342133+angelrenefm@users.noreply.github.com>
+---
+ drivers/media/platform/samsung/s5p-mfc/s5p_mfc_dec.c | 8 ++++++++
+ 1 file changed, 8 insertions(+)
+
+diff --git a/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_dec.c b/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_dec.c
+index e151b5a39..3d10dcccf 100644
+--- a/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_dec.c
++++ b/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_dec.c
+@@ -1125,6 +1125,14 @@ static void s5p_mfc_stop_streaming(struct vb2_queue *q)
+ 		ctx->state ==  MFCINST_RUNNING) &&
+ 		dev->curr_ctx == ctx->num && dev->hw_lock) {
+ 		ctx->state = MFCINST_ABORT;
++		/*
++		 * Take the context off the run queue. Otherwise the interrupt
++		 * handler of the frame being decoded picks it again in
++		 * try_run, which clears the context's interrupt flags before
++		 * finding nothing to run in MFCINST_ABORT, and the wait below
++		 * misses that FRAME_DONE and times out.
++		 */
++		clear_work_bit(ctx);
+ 		spin_unlock_irqrestore(&dev->irqlock, flags);
+ 		s5p_mfc_wait_for_done_ctx(ctx,
+ 					S5P_MFC_R2H_CMD_FRAME_DONE_RET, 0);

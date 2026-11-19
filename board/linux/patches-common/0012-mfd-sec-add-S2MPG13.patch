@@ -1,0 +1,375 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Mon, 12 Oct 2026 13:26:26 -0400
+Subject: [PATCH] mfd: sec: add S2MPG13
+
+Add the gs201 sub-PMIC, for its LDOs. Register addresses, the ACPM bus
+(speedy channel 1) and the LDO layout are those of Google's GPL S2MPG13
+driver.
+
+Only what the regulators need: the common block is read-only, the PM
+block can only be written in its LDO control registers, and its interrupt
+status registers (clear on read) are never read. So nothing here can
+change a buck converter or lose an interrupt.
+
+No interrupt is wired up yet (stock routes it to gpa0-1), so let an ACPM
+PMIC have neither an interrupt nor a meter regmap, and skip the IRQ wake
+handling in suspend and resume when a PMIC has no interrupt.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ drivers/mfd/sec-acpm.c              |  90 +++++++++++++++++++--
+ drivers/mfd/sec-common.c            |  16 ++++
+ drivers/mfd/sec-irq.c               |   3 +
+ include/linux/mfd/samsung/core.h    |   1 +
+ include/linux/mfd/samsung/s2mpg13.h | 120 ++++++++++++++++++++++++++++
+ 5 files changed, 223 insertions(+), 7 deletions(-)
+ create mode 100644 include/linux/mfd/samsung/s2mpg13.h
+
+diff --git a/drivers/mfd/sec-acpm.c b/drivers/mfd/sec-acpm.c
+index 7970a7251..c32745314 100644
+--- a/drivers/mfd/sec-acpm.c
++++ b/drivers/mfd/sec-acpm.c
+@@ -15,6 +15,7 @@
+ #include <linux/mfd/samsung/s2mpg10.h>
+ #include <linux/mfd/samsung/s2mpg11.h>
+ #include <linux/mfd/samsung/s2mpg12.h>
++#include <linux/mfd/samsung/s2mpg13.h>
+ #include <linux/module.h>
+ #include <linux/of.h>
+ #include <linux/platform_device.h>
+@@ -36,6 +37,9 @@ struct sec_pmic_acpm_platform_data {
+ 	const struct regmap_config *regmap_cfg_pmic;
+ 	const struct regmap_config *regmap_cfg_rtc;
+ 	const struct regmap_config *regmap_cfg_meter;
++
++	/* No interrupt line is wired up for this PMIC (yet). */
++	bool no_irq;
+ };
+ 
+ static const struct regmap_range s2mpg10_common_registers[] = {
+@@ -464,6 +468,62 @@ static const struct regmap_config s2mpg12_regmap_config_meter = {
+ 	.cache_type = REGCACHE_NONE,
+ };
+ 
++/*
++ * S2MPG13 (gs201 sub-PMIC): only its LDOs so far. The common block is read
++ * only. In the PM block only the LDO control registers can be written, and
++ * the interrupt status registers (clear on read) are never read, so nothing
++ * here can touch a buck converter or lose an interrupt. No caching.
++ */
++static const struct regmap_range s2mpg13_common_registers[] = {
++	regmap_reg_range(S2MPG13_COMMON_VGPIO0, S2MPG13_COMMON_IBIM2),
++};
++
++static const struct regmap_access_table s2mpg13_common_rd_table = {
++	.yes_ranges = s2mpg13_common_registers,
++	.n_yes_ranges = ARRAY_SIZE(s2mpg13_common_registers),
++};
++
++static const struct regmap_access_table s2mpg13_common_wr_table = { };
++
++static const struct regmap_config s2mpg13_regmap_config_common = {
++	.name = "common",
++	.reg_bits = ACPM_ADDR_BITS,
++	.val_bits = 8,
++	.max_register = S2MPG13_COMMON_IBIM2,
++	.wr_table = &s2mpg13_common_wr_table,
++	.rd_table = &s2mpg13_common_rd_table,
++	.cache_type = REGCACHE_NONE,
++};
++
++static const struct regmap_range s2mpg13_pmic_rd_registers[] = {
++	regmap_reg_range(S2MPG13_PMIC_INT1M, S2MPG13_PMIC_INT4M),
++	regmap_reg_range(S2MPG13_PMIC_L1S_CTRL, S2MPG13_PMIC_LDO_CTRL2),
++};
++
++static const struct regmap_range s2mpg13_pmic_wr_registers[] = {
++	regmap_reg_range(S2MPG13_PMIC_L1S_CTRL, S2MPG13_PMIC_LDO_CTRL2),
++};
++
++static const struct regmap_access_table s2mpg13_pmic_rd_table = {
++	.yes_ranges = s2mpg13_pmic_rd_registers,
++	.n_yes_ranges = ARRAY_SIZE(s2mpg13_pmic_rd_registers),
++};
++
++static const struct regmap_access_table s2mpg13_pmic_wr_table = {
++	.yes_ranges = s2mpg13_pmic_wr_registers,
++	.n_yes_ranges = ARRAY_SIZE(s2mpg13_pmic_wr_registers),
++};
++
++static const struct regmap_config s2mpg13_regmap_config_pmic = {
++	.name = "pmic",
++	.reg_bits = ACPM_ADDR_BITS,
++	.val_bits = 8,
++	.max_register = S2MPG13_PMIC_LDO_CTRL2,
++	.wr_table = &s2mpg13_pmic_wr_table,
++	.rd_table = &s2mpg13_pmic_rd_table,
++	.cache_type = REGCACHE_NONE,
++};
++
+ struct sec_pmic_acpm_shared_bus_context {
+ 	struct acpm_handle *acpm;
+ 	unsigned int acpm_chan_id;
+@@ -590,9 +650,13 @@ static int sec_pmic_acpm_probe(struct platform_device *pdev)
+ 	if (IS_ERR(acpm))
+ 		return dev_err_probe(dev, PTR_ERR(acpm), "failed to get acpm\n");
+ 
+-	irq = platform_get_irq(pdev, 0);
+-	if (irq < 0)
+-		return irq;
++	if (pdata->no_irq) {
++		irq = 0;
++	} else {
++		irq = platform_get_irq(pdev, 0);
++		if (irq < 0)
++			return irq;
++	}
+ 
+ 	shared_ctx = devm_kzalloc(dev, sizeof(*shared_ctx), GFP_KERNEL);
+ 	if (!shared_ctx)
+@@ -619,10 +683,12 @@ static int sec_pmic_acpm_probe(struct platform_device *pdev)
+ 			return PTR_ERR(regmap);
+ 	}
+ 
+-	regmap = sec_pmic_acpm_regmap_init(dev, shared_ctx, SEC_PMIC_ACPM_ACCESSTYPE_METER,
+-					   pdata->regmap_cfg_meter, true);
+-	if (IS_ERR(regmap))
+-		return PTR_ERR(regmap);
++	if (pdata->regmap_cfg_meter) {
++		regmap = sec_pmic_acpm_regmap_init(dev, shared_ctx, SEC_PMIC_ACPM_ACCESSTYPE_METER,
++						   pdata->regmap_cfg_meter, true);
++		if (IS_ERR(regmap))
++			return PTR_ERR(regmap);
++	}
+ 
+ 	ret = sec_pmic_probe(dev, pdata->device_type, irq, regmap_pmic, NULL);
+ 	if (ret)
+@@ -668,10 +734,20 @@ static const struct sec_pmic_acpm_platform_data s2mpg12_data = {
+ 	.regmap_cfg_meter = &s2mpg12_regmap_config_meter,
+ };
+ 
++static const struct sec_pmic_acpm_platform_data s2mpg13_data = {
++	.device_type = S2MPG13,
++	.acpm_chan_id = 2,
++	.speedy_channel = 1,
++	.regmap_cfg_common = &s2mpg13_regmap_config_common,
++	.regmap_cfg_pmic = &s2mpg13_regmap_config_pmic,
++	.no_irq = true,
++};
++
+ static const struct of_device_id sec_pmic_acpm_of_match[] = {
+ 	{ .compatible = "samsung,s2mpg10-pmic", .data = &s2mpg10_data, },
+ 	{ .compatible = "samsung,s2mpg11-pmic", .data = &s2mpg11_data, },
+ 	{ .compatible = "samsung,s2mpg12-pmic", .data = &s2mpg12_data, },
++	{ .compatible = "samsung,s2mpg13-pmic", .data = &s2mpg13_data, },
+ 	{ },
+ };
+ MODULE_DEVICE_TABLE(of, sec_pmic_acpm_of_match);
+diff --git a/drivers/mfd/sec-common.c b/drivers/mfd/sec-common.c
+index 023aadadb..81046f981 100644
+--- a/drivers/mfd/sec-common.c
++++ b/drivers/mfd/sec-common.c
+@@ -65,6 +65,11 @@ static const struct mfd_cell s2mpg12_devs[] = {
+ 	MFD_CELL_RES("s2mpg12-rtc", s2mpg12_rtc_resources),
+ };
+ 
++/* Only the LDOs so far: no interrupt, no RTC, no GPIOs on this PMIC yet. */
++static const struct mfd_cell s2mpg13_devs[] = {
++	MFD_CELL_NAME("s2mpg13-regulator"),
++};
++
+ static const struct resource s2mps11_rtc_resources[] = {
+ 	DEFINE_RES_IRQ_NAMED(S2MPS11_IRQ_RTCA0, "alarm"),
+ };
+@@ -135,6 +140,7 @@ static void sec_pmic_dump_rev(struct sec_pmic_dev *sec_pmic)
+ 	case S2MPG10:
+ 	case S2MPG11:
+ 	case S2MPG12:
++	case S2MPG13:
+ 		/* For s2mpg1x, the revision is in a different regmap */
+ 		return;
+ 	case S2MU005:
+@@ -261,6 +267,10 @@ int sec_pmic_probe(struct device *dev, int device_type, unsigned int irq,
+ 		sec_devs = s2mpg12_devs;
+ 		num_sec_devs = ARRAY_SIZE(s2mpg12_devs);
+ 		break;
++	case S2MPG13:
++		sec_devs = s2mpg13_devs;
++		num_sec_devs = ARRAY_SIZE(s2mpg13_devs);
++		break;
+ 	case S2MPS11X:
+ 		sec_devs = s2mps11_devs;
+ 		num_sec_devs = ARRAY_SIZE(s2mps11_devs);
+@@ -338,6 +348,9 @@ static int sec_pmic_suspend(struct device *dev)
+ {
+ 	struct sec_pmic_dev *sec_pmic = dev_get_drvdata(dev);
+ 
++	if (!sec_pmic->irq)
++		return 0;
++
+ 	if (device_may_wakeup(dev))
+ 		enable_irq_wake(sec_pmic->irq);
+ 	/*
+@@ -358,6 +371,9 @@ static int sec_pmic_resume(struct device *dev)
+ {
+ 	struct sec_pmic_dev *sec_pmic = dev_get_drvdata(dev);
+ 
++	if (!sec_pmic->irq)
++		return 0;
++
+ 	if (device_may_wakeup(dev))
+ 		disable_irq_wake(sec_pmic->irq);
+ 	enable_irq(sec_pmic->irq);
+diff --git a/drivers/mfd/sec-irq.c b/drivers/mfd/sec-irq.c
+index 8e7325d02..a957444a8 100644
+--- a/drivers/mfd/sec-irq.c
++++ b/drivers/mfd/sec-irq.c
+@@ -613,6 +613,9 @@ struct regmap_irq_chip_data *sec_irq_init(struct sec_pmic_dev *sec_pmic)
+ 		return sec_irq_init_s2mpg1x(sec_pmic);
+ 	case S2MPG12:
+ 		return sec_irq_init_s2mpg12(sec_pmic);
++	case S2MPG13:
++		/* No interrupt line described for it yet: LDOs only. */
++		return NULL;
+ 	case S2MPS11X:
+ 		sec_irq_chip = &s2mps11_irq_chip;
+ 		break;
+diff --git a/include/linux/mfd/samsung/core.h b/include/linux/mfd/samsung/core.h
+index e4db230e3..c6acebd73 100644
+--- a/include/linux/mfd/samsung/core.h
++++ b/include/linux/mfd/samsung/core.h
+@@ -42,6 +42,7 @@ enum sec_device_type {
+ 	S2MPG10,
+ 	S2MPG11,
+ 	S2MPG12,
++	S2MPG13,
+ 	S2MPS11X,
+ 	S2MPS13X,
+ 	S2MPS14X,
+diff --git a/include/linux/mfd/samsung/s2mpg13.h b/include/linux/mfd/samsung/s2mpg13.h
+new file mode 100644
+index 000000000..8ca5b4a9e
+--- /dev/null
++++ b/include/linux/mfd/samsung/s2mpg13.h
+@@ -0,0 +1,120 @@
++/* SPDX-License-Identifier: GPL-2.0+ */
++/*
++ * Copyright 2015 Samsung Electronics
++ *
++ * Registers of the Samsung S2MPG13 PMIC, the sub-PMIC used with Google's
++ * gs201 SoC. Only what the LDO regulators need so far.
++ */
++
++#ifndef __LINUX_MFD_S2MPG13_H
++#define __LINUX_MFD_S2MPG13_H
++
++#include <linux/bits.h>
++
++/* Common registers (type 0x000) */
++enum s2mpg13_common_reg {
++	S2MPG13_COMMON_VGPIO0,
++	S2MPG13_COMMON_VGPIO1,
++	S2MPG13_COMMON_VGPIO2,
++	S2MPG13_COMMON_VGPIO3,
++	S2MPG13_COMMON_I3C_DAA,
++	S2MPG13_COMMON_IBI0,
++	S2MPG13_COMMON_IBI1,
++	S2MPG13_COMMON_IBI2,
++	S2MPG13_COMMON_IBI3,
++	S2MPG13_COMMON_CHIPID = 0x0b,
++	S2MPG13_COMMON_I3C_CFG1,
++	S2MPG13_COMMON_I3C_CFG2,
++	S2MPG13_COMMON_I3C_STA,
++	S2MPG13_COMMON_IBIM1,
++	S2MPG13_COMMON_IBIM2,
++};
++
++/* PMIC (PM) registers (type 0x100) */
++enum s2mpg13_pmic_reg {
++	S2MPG13_PMIC_INT1,
++	S2MPG13_PMIC_INT2,
++	S2MPG13_PMIC_INT3,
++	S2MPG13_PMIC_INT4,
++	S2MPG13_PMIC_INT1M,
++	S2MPG13_PMIC_INT2M,
++	S2MPG13_PMIC_INT3M,
++	S2MPG13_PMIC_INT4M,
++	S2MPG13_PMIC_L1S_CTRL = 0x2c,
++	S2MPG13_PMIC_L2S_CTRL,
++	S2MPG13_PMIC_L3S_CTRL,
++	S2MPG13_PMIC_L4S_CTRL,
++	S2MPG13_PMIC_L5S_CTRL,
++	S2MPG13_PMIC_L6S_CTRL,
++	S2MPG13_PMIC_L7S_CTRL,
++	S2MPG13_PMIC_L8S_CTRL,
++	S2MPG13_PMIC_L9S_CTRL,
++	S2MPG13_PMIC_L10S_CTRL,
++	S2MPG13_PMIC_L11S_CTRL,
++	S2MPG13_PMIC_L12S_CTRL,
++	S2MPG13_PMIC_L13S_CTRL,
++	S2MPG13_PMIC_L14S_CTRL,
++	S2MPG13_PMIC_L15S_CTRL,
++	S2MPG13_PMIC_L16S_CTRL,
++	S2MPG13_PMIC_L17S_CTRL,
++	S2MPG13_PMIC_L18S_CTRL,
++	S2MPG13_PMIC_L19S_CTRL,
++	S2MPG13_PMIC_L20S_CTRL,
++	S2MPG13_PMIC_L21S_CTRL,
++	S2MPG13_PMIC_L22S_CTRL,
++	S2MPG13_PMIC_L23S_CTRL,
++	S2MPG13_PMIC_L24S_CTRL,
++	S2MPG13_PMIC_L25S_CTRL,
++	S2MPG13_PMIC_L26S_CTRL,
++	S2MPG13_PMIC_L27S_CTRL,
++	S2MPG13_PMIC_L28S_CTRL,
++	S2MPG13_PMIC_LDO_CTRL1,
++	S2MPG13_PMIC_LDO_CTRL2,
++};
++
++/* LDO regulators */
++enum s2mpg13_regulators {
++	S2MPG13_LDO1,
++	S2MPG13_LDO2,
++	S2MPG13_LDO3,
++	S2MPG13_LDO4,
++	S2MPG13_LDO5,
++	S2MPG13_LDO6,
++	S2MPG13_LDO7,
++	S2MPG13_LDO8,
++	S2MPG13_LDO9,
++	S2MPG13_LDO10,
++	S2MPG13_LDO11,
++	S2MPG13_LDO12,
++	S2MPG13_LDO13,
++	S2MPG13_LDO14,
++	S2MPG13_LDO15,
++	S2MPG13_LDO16,
++	S2MPG13_LDO17,
++	S2MPG13_LDO18,
++	S2MPG13_LDO19,
++	S2MPG13_LDO20,
++	S2MPG13_LDO21,
++	S2MPG13_LDO22,
++	S2MPG13_LDO23,
++	S2MPG13_LDO24,
++	S2MPG13_LDO25,
++	S2MPG13_LDO26,
++	S2MPG13_LDO27,
++	S2MPG13_LDO28,
++	S2MPG13_REGULATOR_MAX,
++};
++
++/* LDO voltage groups: minimum and step, in uV */
++#define S2MPG13_LDO_MIN_G4		300000
++#define S2MPG13_LDO_STEP_G4		12500
++#define S2MPG13_LDO_MIN_G5		725000
++#define S2MPG13_LDO_STEP_G5		12500
++#define S2MPG13_LDO_MIN_G6		700000
++#define S2MPG13_LDO_STEP_G6		25000
++#define S2MPG13_LDO_MIN_G7		1800000
++#define S2MPG13_LDO_STEP_G7		25000
++
++#define S2MPG13_LDO_ENABLE_TIME		128	/* us */
++
++#endif /* __LINUX_MFD_S2MPG13_H */

@@ -1,0 +1,69 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Sat, 31 Oct 2026 11:20:19 -0643
+Subject: [PATCH] soc: google: aoc: Clear the heaps on zumapro before the first
+ start
+
+Android creates the AoC's sensor, playback and capture heaps with its
+physical-heap constructors, which clear them at probe. This port lays
+the heaps out without creating them, so on zumapro clear the three
+together (they're contiguous at the top of the carve-out) before the
+firmware is first authenticated.
+
+On the Pixel 9a this is part of the composition that runs,
+7.3.0-rc6-omamobile-tegu-s2mpg15-m1-g991042e2eff3-dirty, where the
+same clearing is behind a bring-up parameter that every start since
+2026-10-25 has set. On its own it didn't fix the firmware's startup
+fault (that was the DVFS query); it is kept so the firmware sees the
+memory Android gives it.
+
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ drivers/soc/google/aoc/aoc.c | 14 ++++++++++++++
+ drivers/soc/google/aoc/aoc.h |  1 +
+ 2 files changed, 15 insertions(+)
+
+diff --git a/drivers/soc/google/aoc/aoc.c b/drivers/soc/google/aoc/aoc.c
+index 6e8ae5144..366bdca83 100644
+--- a/drivers/soc/google/aoc/aoc.c
++++ b/drivers/soc/google/aoc/aoc.c
+@@ -1248,6 +1248,7 @@ static const struct aoc_soc_data gs201_aoc_data = {
+ static const struct aoc_soc_data zumapro_aoc_data = {
+ 	.ordered_sensor_supplies = true,
+ 	.firmware_managed_mmu = true,
++	.zero_heaps = true,
+ 	.chipid_main_reg = 0,
+ 	.chipid_main_shift = 0,
+ 	.pcu_base = 0x1400000,
+@@ -2545,6 +2546,19 @@ bool aoc_create_dma_buf_heaps(struct aoc_prvdata *prvdata)
+ 	base -= CAPTURE_HEAP_SIZE;
+ 	prvdata->audio_capture_heap_base = base;
+ 
++	/*
++	 * Android's heap constructors clear the three heaps at probe; on
++	 * zumapro do the same before the firmware is ever authenticated.
++	 */
++	if (prvdata->soc->zero_heaps) {
++		memset_io((void __iomem *)prvdata->dram_virt +
++			  (base - prvdata->dram_resource.start), 0,
++			  CAPTURE_HEAP_SIZE + PLAYBACK_HEAP_SIZE +
++			  SENSOR_DIRECT_HEAP_SIZE);
++		/* Before any later authentication and start */
++		dma_wmb();
++	}
++
+ 	return true;
+ }
+ 
+diff --git a/drivers/soc/google/aoc/aoc.h b/drivers/soc/google/aoc/aoc.h
+index 47359799f..f7468bea0 100644
+--- a/drivers/soc/google/aoc/aoc.h
++++ b/drivers/soc/google/aoc/aoc.h
+@@ -102,6 +102,7 @@ struct aoc_soc_data {
+ 	bool firmware_managed_mmu;
+ 	bool merge_subrevision_into_type;
+ 	bool force_vnom_default;
++	bool zero_heaps;
+ 	u32 chipid_main_reg;
+ 	u32 chipid_main_shift;
+ 	u32 pcu_base;

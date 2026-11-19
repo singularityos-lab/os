@@ -1,0 +1,37 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Alejandro Garcia <skipper.pelygro@gmail.com>
+Date: Sat, 31 Oct 2026 14:07:18 -0700
+Subject: [PATCH] arm64: dts: exynos: google: gs201-panther: wait 1 us after
+ the touch chip select
+
+Stock waits 1 us from asserting the FT3658's chip select to the first
+clock: cs-clock-delay = <1> in the touch node's controller-data, in
+Google's gs201-panther-touch.dtsi and in the Pixel 7's live device tree.
+Upstream spells it spi-cs-setup-delay-ns, which the SPI core applies
+after it drives a GPIO chip select, as this one is.
+
+Tested on a Pixel 7 from slot B (7.3.0-rc6), together with the previous
+patch: the touch node has spi-cs-setup-delay-ns = 1000 in the live
+device tree, and the controller probes (chip id 0x56, firmware 0x16)
+and reports touches across the panel with no CRC errors.
+
+Suggested-by: Derek Ross <derekross@gmail.com>
+Assisted-by: Claude Opus 5.5
+Signed-off-by: Alejandro Garcia <skipper.pelygro@gmail.com>
+---
+ arch/arm64/boot/dts/exynos/google/gs201-panther.dts | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/gs201-panther.dts b/arch/arm64/boot/dts/exynos/google/gs201-panther.dts
+index b55b87138..8763b7b5b 100644
+--- a/arch/arm64/boot/dts/exynos/google/gs201-panther.dts
++++ b/arch/arm64/boot/dts/exynos/google/gs201-panther.dts
+@@ -249,6 +249,8 @@ touchscreen@0 {
+ 		compatible = "focaltech,ft3658";
+ 		reg = <0>;
+ 		spi-max-frequency = <10000000>;
++		/* Stock's cs-clock-delay = <1>: 1 us from chip select to the clock */
++		spi-cs-setup-delay-ns = <1000>;
+ 		interrupt-parent = <&gpa7>;
+ 		interrupts = <0 IRQ_TYPE_EDGE_FALLING>;
+ 		reset-gpios = <&gpp23 2 GPIO_ACTIVE_LOW>;

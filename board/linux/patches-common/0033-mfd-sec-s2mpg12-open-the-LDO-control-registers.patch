@@ -1,0 +1,171 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: boozedog <code@booze.dog>
+Date: Thu, 22 Oct 2026 21:34:56 -0400
+Subject: [PATCH] mfd: sec: s2mpg12: open the LDO control registers
+
+The PM regmap could write the interrupt masks only. Add L1M_CTRL
+through LDO_CTRL2 (0x2b-0x49), and register the s2mpg12-regulator
+cell. Buck control (0x17-0x2a) and SW_RESET stay outside the window.
+
+Register addresses are from Google's GPL s2mpg12-regulator.c.
+
+Signed-off-by: boozedog <code@booze.dog>
+---
+ drivers/mfd/sec-acpm.c              | 14 +++--
+ drivers/mfd/sec-common.c            |  6 ++-
+ include/linux/mfd/samsung/s2mpg12.h | 84 +++++++++++++++++++++++++++++
+ 3 files changed, 100 insertions(+), 4 deletions(-)
+
+diff --git a/drivers/mfd/sec-acpm.c b/drivers/mfd/sec-acpm.c
+index 0b850433e..4650dd8bc 100644
+--- a/drivers/mfd/sec-acpm.c
++++ b/drivers/mfd/sec-acpm.c
+@@ -372,9 +372,11 @@ static const struct regmap_config s2mpg11_regmap_config_meter = {
+ };
+ 
+ /*
+- * S2MPG12 (gs201 main PMIC): only what the RTC and the interrupt controller
+- * need. Writes are limited to the interrupt masks and the RTC, so that
+- * nothing here can change a rail. No caching: every access goes to the PMIC.
++ * S2MPG12 (gs201 main PMIC): the RTC, the interrupt masks, and the LDO
++ * control block. The common block can write only its IBI masks. The PM
++ * block can write INT1M-INT5M and L1M_CTRL through LDO_CTRL2. Buck
++ * control and SW_RESET stay outside that window. No caching: every
++ * access goes to the PMIC.
+  */
+ static const struct regmap_range s2mpg12_common_registers[] = {
+ 	regmap_reg_range(0x00, 0x10), /* VGPIO, I3C, IBI, CHIPID, IBI masks */
+@@ -405,8 +407,14 @@ static const struct regmap_config s2mpg12_regmap_config_common = {
+ 	.cache_type = REGCACHE_NONE,
+ };
+ 
++/*
++ * Interrupt masks, plus the LDO control block (L1M_CTRL through LDO_CTRL2).
++ * Buck control (0x17-0x2a), LDO_CTRL3, and SW_RESET stay outside this
++ * window. A rail with no DT constraints is never asked to change.
++ */
+ static const struct regmap_range s2mpg12_pmic_wr_registers[] = {
+ 	regmap_reg_range(S2MPG12_PMIC_INT1M, S2MPG12_PMIC_INT5M),
++	regmap_reg_range(S2MPG12_PMIC_L1M_CTRL, S2MPG12_PMIC_LDO_CTRL2),
+ };
+ 
+ static const struct regmap_range s2mpg12_pmic_precious_registers[] = {
+diff --git a/drivers/mfd/sec-common.c b/drivers/mfd/sec-common.c
+index 94a01f362..8dc5ecae6 100644
+--- a/drivers/mfd/sec-common.c
++++ b/drivers/mfd/sec-common.c
+@@ -60,9 +60,13 @@ static const struct resource s2mpg12_rtc_resources[] = {
+ 	DEFINE_RES_IRQ_NAMED(S2MPG12_IRQ_RTCA0, "alarm"),
+ };
+ 
+-/* Only the RTC so far: the rails stay as the bootloader set them. */
++/*
++ * RTC, and the LDOs. The regmap write window is the LDO control block.
++ * Rails with no DT constraints are registered and then left alone.
++ */
+ static const struct mfd_cell s2mpg12_devs[] = {
+ 	MFD_CELL_RES("s2mpg12-rtc", s2mpg12_rtc_resources),
++	MFD_CELL_NAME("s2mpg12-regulator"),
+ };
+ 
+ /* Only the LDOs and GPIOs so far: no interrupt, no RTC on this PMIC yet. */
+diff --git a/include/linux/mfd/samsung/s2mpg12.h b/include/linux/mfd/samsung/s2mpg12.h
+index e2b71c1ee..b4606773b 100644
+--- a/include/linux/mfd/samsung/s2mpg12.h
++++ b/include/linux/mfd/samsung/s2mpg12.h
+@@ -53,6 +53,41 @@ enum s2mpg12_pmic_reg {
+ 	S2MPG12_PMIC_BUCHG,
+ 	S2MPG12_PMIC_RTCBUF,
+ 	S2MPG12_PMIC_CTRL1,
++	/*
++	 * LDO control registers, from Google's s2mpg12-register.h. Buck
++	 * control is 0x17-0x2a and is not listed: nothing here can write it.
++	 * L3M_CTRL2 (0x2e) sits in the hole between L3M and L4M and is unused.
++	 */
++	S2MPG12_PMIC_L1M_CTRL = 0x2b,
++	S2MPG12_PMIC_L2M_CTRL = 0x2c,
++	S2MPG12_PMIC_L3M_CTRL = 0x2d,
++	S2MPG12_PMIC_L4M_CTRL = 0x2f,
++	S2MPG12_PMIC_L5M_CTRL = 0x30,
++	S2MPG12_PMIC_L6M_CTRL = 0x31,
++	S2MPG12_PMIC_L7M_CTRL = 0x32,
++	S2MPG12_PMIC_L8M_CTRL = 0x33,
++	S2MPG12_PMIC_L9M_CTRL = 0x34,
++	S2MPG12_PMIC_L10M_CTRL = 0x35,
++	S2MPG12_PMIC_L11M_CTRL1 = 0x36,
++	S2MPG12_PMIC_L12M_CTRL1 = 0x37,
++	S2MPG12_PMIC_L13M_CTRL1 = 0x38,
++	S2MPG12_PMIC_L14M_CTRL = 0x39,
++	S2MPG12_PMIC_L15M_CTRL1 = 0x3a,
++	S2MPG12_PMIC_L16M_CTRL = 0x3b,
++	S2MPG12_PMIC_L17M_CTRL = 0x3c,
++	S2MPG12_PMIC_L18M_CTRL = 0x3d,
++	S2MPG12_PMIC_L19M_CTRL = 0x3e,
++	S2MPG12_PMIC_L20M_CTRL = 0x3f,
++	S2MPG12_PMIC_L21M_CTRL = 0x40,
++	S2MPG12_PMIC_L22M_CTRL = 0x41,
++	S2MPG12_PMIC_L23M_CTRL = 0x42,
++	S2MPG12_PMIC_L24M_CTRL = 0x43,
++	S2MPG12_PMIC_L25M_CTRL = 0x44,
++	S2MPG12_PMIC_L26M_CTRL = 0x45,
++	S2MPG12_PMIC_L27M_CTRL = 0x46,
++	S2MPG12_PMIC_L28M_CTRL = 0x47,
++	S2MPG12_PMIC_LDO_CTRL1 = 0x48,
++	S2MPG12_PMIC_LDO_CTRL2 = 0x49,
+ 	S2MPG12_PMIC_SW_RESET = 0xec,
+ };
+ 
+@@ -82,4 +117,53 @@ enum s2mpg12_meter_reg {
+  */
+ #define S2MPG12_VGPIO2AP_INTC0_IPEND	0x290
+ 
++/* LDO regulators. Bucks are intentionally absent. */
++enum s2mpg12_regulators {
++	S2MPG12_LDO1,
++	S2MPG12_LDO2,
++	S2MPG12_LDO3,
++	S2MPG12_LDO4,
++	S2MPG12_LDO5,
++	S2MPG12_LDO6,
++	S2MPG12_LDO7,
++	S2MPG12_LDO8,
++	S2MPG12_LDO9,
++	S2MPG12_LDO10,
++	S2MPG12_LDO11,
++	S2MPG12_LDO12,
++	S2MPG12_LDO13,
++	S2MPG12_LDO14,
++	S2MPG12_LDO15,
++	S2MPG12_LDO16,
++	S2MPG12_LDO17,
++	S2MPG12_LDO18,
++	S2MPG12_LDO19,
++	S2MPG12_LDO20,
++	S2MPG12_LDO21,
++	S2MPG12_LDO22,
++	S2MPG12_LDO23,
++	S2MPG12_LDO24,
++	S2MPG12_LDO25,
++	S2MPG12_LDO26,
++	S2MPG12_LDO27,
++	S2MPG12_LDO28,
++	S2MPG12_REGULATOR_MAX,
++};
++
++/*
++ * LDO voltage groups from Google's s2mpg12-register.h, in uV.
++ * Group 2 is 300 mV / 12.5 mV, group 3 is 725 mV / 12.5 mV,
++ * group 4 is 700 mV / 25 mV (LDO25M), group 5 is 1.8 V / 25 mV (LDO26M).
++ */
++#define S2MPG12_LDO_MIN_G2		300000
++#define S2MPG12_LDO_STEP_G2		12500
++#define S2MPG12_LDO_MIN_G3		725000
++#define S2MPG12_LDO_STEP_G3		12500
++#define S2MPG12_LDO_MIN_G4		700000
++#define S2MPG12_LDO_STEP_G4		25000
++#define S2MPG12_LDO_MIN_G5		1800000
++#define S2MPG12_LDO_STEP_G5		25000
++
++#define S2MPG12_LDO_ENABLE_TIME		128	/* us */
++
+ #endif /* __LINUX_MFD_S2MPG12_H */

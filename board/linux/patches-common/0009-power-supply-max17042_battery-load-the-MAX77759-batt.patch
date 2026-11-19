@@ -1,0 +1,462 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Sun, 11 Oct 2026 23:42:48 -0400
+Subject: [PATCH] power: supply: max17042_battery: load the MAX77759 battery
+ model on POR
+
+When the MAX77759 gauge reports a power-on reset and the device tree
+carries a battery model, load it the way the ModelGauge m5 procedure
+asks for: wait for data ready, write, verify and lock the
+characterization table, write the model registers, start the load with
+Config2.LdMdl, wait for it to finish and check FullCapRep against
+FullCapNom, then clear POR.
+
+The model may change TaskPeriod, which scales every capacity reading,
+so read it again after the load.
+
+If the load fails, POR stays set so the next probe retries, and the
+battery keeps reporting from the gauge's default model.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ drivers/power/supply/max17042_battery.c | 389 +++++++++++++++++++++++-
+ 1 file changed, 388 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/power/supply/max17042_battery.c b/drivers/power/supply/max17042_battery.c
+index 505a68c26..50b735c4f 100644
+--- a/drivers/power/supply/max17042_battery.c
++++ b/drivers/power/supply/max17042_battery.c
+@@ -73,12 +73,64 @@
+ #define MAX17055_REFRESH_POLL_US		10000
+ #define MAX17055_REFRESH_TIMEOUT_US	1000000
+ 
++#define MAX77759_FG_CONFIG2_LDMDL	BIT(5)
++#define MAX77759_FG_MODEL_LOCKED	0xffff
++#define MAX77759_FG_CGAIN_DEFAULT	0x0400
++#define MAX77759_FG_CV_HALFTIME		0x0600
++#define MAX77759_FG_LDMDL_POLL_US	50000
++#define MAX77759_FG_LDMDL_TIMEOUT_US	1000000
++#define MAX77759_FG_LOAD_RETRIES	3
++
++/*
++ * Register values that come with a MAX77759 ("M5") battery model, in the
++ * order of the "maxim,fg-params" property.
++ */
++struct max77759_fg_params {
++	u16 iavg_empty;
++	u16 relax_cfg;
++	u16 learn_cfg;
++	u16 config;
++	u16 config2;
++	u16 full_soc_thr;
++	u16 full_cap_rep;
++	u16 design_cap;
++	u16 dpacc;
++	u16 dqacc;
++	u16 full_cap_nom;
++	u16 v_empty;
++	u16 qrtable00;
++	u16 qrtable10;
++	u16 qrtable20;
++	u16 qrtable30;
++	u16 rcomp0;
++	u16 tempco;
++	u16 ichg_term;
++	u16 tgain;
++	u16 toff;
++	u16 curve;
++	u16 misc_cfg;
++	u16 at_rate;
++	u16 convg_cfg;
++	u16 filter_cfg;
++	u16 task_period;
++	u16 cgain;
++};
++
++struct max77759_fg_model {
++	u16 table[MAX17042_CHARACTERIZATION_DATA_SIZE];
++	union {
++		struct max77759_fg_params params;
++		u16 words[sizeof(struct max77759_fg_params) / sizeof(u16)];
++	};
++};
++
+ struct max17042_chip {
+ 	struct device *dev;
+ 	struct regmap *regmap;
+ 	struct power_supply *battery;
+ 	enum max170xx_chip_type chip_type;
+ 	struct max17042_config_data *config_data;
++	struct max77759_fg_model *m5_model;
+ 	struct delayed_work work;
+ 	int    irq;
+ 	int    task_period;
+@@ -1177,12 +1229,298 @@ static irqreturn_t max17042_thread_handler(int id, void *dev)
+ 	return IRQ_HANDLED;
+ }
+ 
++static int max77759_fg_write_verify(struct regmap *map, unsigned int reg,
++				    unsigned int value)
++{
++	unsigned int read_value;
++	int ret;
++
++	ret = regmap_write(map, reg, value);
++	if (ret)
++		return ret;
++
++	ret = regmap_read(map, reg, &read_value);
++	if (ret)
++		return ret;
++
++	return read_value == value ? 0 : -EIO;
++}
++
++static int max77759_fg_lock_model(struct regmap *map, bool lock)
++{
++	int ret;
++
++	ret = regmap_write(map, MAX17042_MLOCKReg1, lock ? MODEL_LOCK1 : MODEL_UNLOCK1);
++	if (ret)
++		return ret;
++
++	return regmap_write(map, MAX17042_MLOCKReg2, lock ? MODEL_LOCK2 : MODEL_UNLOCK2);
++}
++
++static int max77759_fg_check_table(struct regmap *map, const u16 *expected)
++{
++	unsigned int val;
++	int i, ret;
++
++	for (i = 0; i < MAX17042_CHARACTERIZATION_DATA_SIZE; i++) {
++		ret = regmap_read(map, MAX17042_MODELChrTbl + i, &val);
++		if (ret)
++			return ret;
++		if (val != (expected ? expected[i] : MAX77759_FG_MODEL_LOCKED))
++			return -EIO;
++	}
++
++	return 0;
++}
++
++/* Write the characterization table, verify it, and lock it again. */
++static int max77759_fg_load_table(struct max17042_chip *chip)
++{
++	const u16 *table = chip->m5_model->table;
++	struct regmap *map = chip->regmap;
++	int retries = MAX77759_FG_LOAD_RETRIES;
++	int i, ret, lock_ret;
++
++	do {
++		ret = max77759_fg_lock_model(map, false);
++		for (i = 0; !ret && i < MAX17042_CHARACTERIZATION_DATA_SIZE; i++)
++			ret = regmap_write(map, MAX17042_MODELChrTbl + i, table[i]);
++		if (!ret)
++			ret = max77759_fg_check_table(map, table);
++	} while (ret && --retries);
++
++	/* A locked table reads back as all ones. */
++	retries = MAX77759_FG_LOAD_RETRIES;
++	do {
++		lock_ret = max77759_fg_lock_model(map, true);
++		if (!lock_ret)
++			lock_ret = max77759_fg_check_table(map, NULL);
++	} while (lock_ret && --retries);
++
++	if (ret)
++		dev_err(chip->dev, "cannot write the model table: %d\n", ret);
++	if (lock_ret)
++		dev_err(chip->dev, "cannot lock the model table: %d\n", lock_ret);
++
++	return ret ?: lock_ret;
++}
++
++struct max77759_fg_reg_write {
++	u8 reg;
++	bool verify;
++	size_t offset;
++};
++
++#define M5_REG(_reg, _verify, _field) \
++	{ _reg, _verify, offsetof(struct max77759_fg_params, _field) }
++
++/* Order and read-back checks as in the ModelGauge m5 load procedure. */
++static const struct max77759_fg_reg_write max77759_fg_config_regs[] = {
++	M5_REG(MAX17042_LearnCFG,	true,	learn_cfg),
++	M5_REG(MAX17042_CONFIG,		false,	config),
++	M5_REG(MAX17055_Config2,	false,	config2),
++	M5_REG(MAX17047_FullSOCThr,	false,	full_soc_thr),
++	M5_REG(MAX17042_FullCAP0,	true,	full_cap_rep),
++	M5_REG(MAX17042_DesignCap,	true,	design_cap),
++	M5_REG(MAX17042_dPacc,		true,	dpacc),
++	M5_REG(MAX17042_dQacc,		true,	dqacc),
++	M5_REG(MAX17042_FullCAPNom,	true,	full_cap_nom),
++	M5_REG(MAX17047_V_empty,	false,	v_empty),
++	M5_REG(MAX17047_QRTbl00,	true,	qrtable00),
++	M5_REG(MAX17047_QRTbl10,	true,	qrtable10),
++	M5_REG(MAX17047_QRTbl20,	true,	qrtable20),
++	M5_REG(MAX17047_QRTbl30,	true,	qrtable30),
++	M5_REG(MAX17042_RCOMP0,		true,	rcomp0),
++	M5_REG(MAX17042_TempCo,		true,	tempco),
++	M5_REG(MAX17042_TaskPeriod,	false,	task_period),
++	M5_REG(MAX17042_ICHGTerm,	false,	ichg_term),
++	M5_REG(MAX17042_TGAIN,		false,	tgain),
++	M5_REG(MAX17042_TOFF,		false,	toff),
++	M5_REG(MAX17042_MiscCFG,	false,	misc_cfg),
++};
++
++static int max77759_fg_write_reg(struct regmap *map, const struct max77759_fg_params *p,
++				 const struct max77759_fg_reg_write *w)
++{
++	u16 value = *(const u16 *)((const u8 *)p + w->offset);
++
++	if (w->verify)
++		return max77759_fg_write_verify(map, w->reg, value);
++
++	return regmap_write(map, w->reg, value);
++}
++
++static int max77759_fg_write_params(struct max17042_chip *chip)
++{
++	const struct max77759_fg_params *p = &chip->m5_model->params;
++	struct regmap *map = chip->regmap;
++	unsigned int vfsoc;
++	int i, ret, lock_ret;
++
++	ret = max77759_fg_write_verify(map, MAX17042_RepCap, 0);
++	if (!ret)
++		ret = max77759_fg_write_verify(map, MAX17042_RelaxCFG, p->relax_cfg);
++	if (ret)
++		return ret;
++
++	/* VFSOC0Enable doubles as the unlock for the extra configuration. */
++	ret = max77759_fg_write_verify(map, MAX17042_VFSOC0Enable, VFSOC0_UNLOCK);
++	if (!ret)
++		ret = regmap_read(map, MAX17042_VFSOC, &vfsoc);
++	if (!ret)
++		ret = max77759_fg_write_verify(map, MAX17042_VFSOC0, vfsoc);
++
++	for (i = 0; !ret && i < ARRAY_SIZE(max77759_fg_config_regs); i++)
++		ret = max77759_fg_write_reg(map, p, &max77759_fg_config_regs[i]);
++
++	if (!ret)
++		ret = max77759_fg_write_verify(map, MAX17042_VFSOC0Enable, VFSOC0_UNLOCK);
++	if (!ret)
++		ret = regmap_write(map, MAX17042_AtRate, p->at_rate);
++	if (!ret)
++		ret = max77759_fg_write_verify(map, MAX17055_CVMixCap,
++					       p->full_cap_nom * 75 / 100);
++	if (!ret)
++		ret = max77759_fg_write_verify(map, MAX17055_CVHalfTime,
++					       MAX77759_FG_CV_HALFTIME);
++	if (!ret)
++		ret = regmap_write(map, MAX17055_ConvgCfg, p->convg_cfg);
++
++	lock_ret = max77759_fg_write_verify(map, MAX17042_VFSOC0Enable, VFSOC0_LOCK);
++	if (ret || lock_ret)
++		return ret ?: lock_ret;
++
++	/* Not part of the model proper. */
++	ret = regmap_write(map, MAX17055_Curve, p->curve);
++	if (!ret)
++		ret = regmap_write(map, MAX17042_FilterCFG, p->filter_cfg);
++	if (!ret)
++		ret = regmap_write(map, MAX17042_CGAIN, p->cgain);
++
++	return ret;
++}
++
++static int max77759_fg_load_params(struct max17042_chip *chip)
++{
++	struct regmap *map = chip->regmap;
++	unsigned int val;
++	int ret;
++
++	ret = max77759_fg_write_params(chip);
++	if (ret) {
++		dev_err(chip->dev, "cannot write the model parameters: %d\n", ret);
++		return ret;
++	}
++
++	ret = regmap_set_bits(map, MAX17055_Config2, MAX77759_FG_CONFIG2_LDMDL);
++	if (ret)
++		return ret;
++
++	/* The gauge clears LdMdl when done, usually within 400 ms. */
++	ret = regmap_read_poll_timeout(map, MAX17055_Config2, val,
++				       !(val & MAX77759_FG_CONFIG2_LDMDL),
++				       MAX77759_FG_LDMDL_POLL_US,
++				       MAX77759_FG_LDMDL_TIMEOUT_US);
++	if (!ret)
++		ret = regmap_read_poll_timeout(map, MAX17042_RepCap, val, val,
++					       MAX77759_FG_LDMDL_POLL_US,
++					       MAX77759_FG_LDMDL_TIMEOUT_US);
++	if (ret)
++		dev_err(chip->dev, "model load did not complete: %d\n", ret);
++
++	return ret;
++}
++
++/*
++ * The gauge recalculates FullCapRep from the model. If it drifts from
++ * FullCapNom by more than the model itself does (plus 1% of the design
++ * capacity), the load did not take.
++ */
++static bool max77759_fg_caps_ok(struct max17042_chip *chip)
++{
++	const struct max77759_fg_params *p = &chip->m5_model->params;
++	unsigned int rep, nom;
++	int threshold;
++
++	if (regmap_read(chip->regmap, MAX17042_FullCAP0, &rep) ||
++	    regmap_read(chip->regmap, MAX17042_FullCAPNom, &nom))
++		return false;
++
++	threshold = abs(p->full_cap_nom - p->full_cap_rep) + p->design_cap / 100;
++
++	dev_dbg(chip->dev, "FullCapNom %#x FullCapRep %#x (threshold %d)\n",
++		nom, rep, threshold);
++
++	return abs((int)nom - (int)rep) <= threshold;
++}
++
++static int max77759_fg_init_chip(struct max17042_chip *chip)
++{
++	struct regmap *map = chip->regmap;
++	unsigned int val;
++	int ret, i;
++
++	ret = regmap_read_poll_timeout(map, MAX17042_FSTAT, val,
++				       !(val & MAX17055_FSTAT_DNR_BIT),
++				       MAX17055_DNR_POLL_US,
++				       MAX17055_DNR_TIMEOUT_US);
++	if (ret)
++		return ret;
++
++	ret = regmap_read(map, MAX17055_Config2, &val);
++	if (ret)
++		return ret;
++	if (val & MAX77759_FG_CONFIG2_LDMDL)
++		return -EBUSY;
++
++	ret = max77759_fg_load_table(chip);
++	if (ret)
++		return ret;
++
++	msleep(500);
++
++	for (i = 0; i < MAX77759_FG_LOAD_RETRIES; i++) {
++		ret = max77759_fg_load_params(chip);
++		if (ret)
++			return ret;
++		if (max77759_fg_caps_ok(chip))
++			break;
++	}
++	if (i == MAX77759_FG_LOAD_RETRIES)
++		dev_warn(chip->dev, "FullCapRep differs from FullCapNom after the model load\n");
++
++	ret = regmap_read(map, MAX17042_TaskPeriod, &val);
++	if (ret)
++		return ret;
++	chip->task_period = val;
++
++	ret = regmap_clear_bits(map, MAX17042_STATUS, STATUS_POR_BIT);
++	if (ret)
++		return ret;
++
++	dev_info(chip->dev, "battery model loaded (DesignCap %#x, TaskPeriod %#x)\n",
++		 chip->m5_model->params.design_cap, val);
++
++	return 0;
++}
++
+ static void max17042_init_worker(struct work_struct *work)
+ {
+ 	struct max17042_chip *chip = container_of(to_delayed_work(work),
+ 				struct max17042_chip, work);
+ 	int ret = 0;
+ 
++	if (chip->m5_model) {
++		/*
++		 * On failure, keep POR set so that the next probe retries, and
++		 * keep reporting from the gauge's default model.
++		 */
++		ret = max77759_fg_init_chip(chip);
++		if (ret)
++			dev_err(chip->dev, "battery model load failed: %d\n", ret);
++		goto done;
++	}
++
+ 	/* Initialize registers according to values from config_data */
+ 	if (chip->enable_por_init && chip->config_data)
+ 		ret = max17042_init_chip(chip);
+@@ -1199,11 +1537,60 @@ static void max17042_init_worker(struct work_struct *work)
+ 		return;
+ 	}
+ 
++done:
+ 	WRITE_ONCE(chip->init_complete, true);
+ 	power_supply_changed(chip->battery);
+ }
+ 
+ #ifdef CONFIG_OF
++static int max77759_fg_parse_model(struct max17042_chip *chip)
++{
++	struct device_node *np = chip->dev->of_node;
++	struct max77759_fg_model *model;
++	int count, ret;
++
++	if (chip->chip_type != MAXIM_DEVICE_TYPE_MAX77759 ||
++	    !of_property_present(np, "maxim,fg-model"))
++		return 0;
++
++	model = devm_kzalloc(chip->dev, sizeof(*model), GFP_KERNEL);
++	if (!model)
++		return -ENOMEM;
++
++	count = of_property_count_u16_elems(np, "maxim,fg-model");
++	if (count != ARRAY_SIZE(model->table))
++		return dev_err_probe(chip->dev, -EINVAL,
++				     "maxim,fg-model needs %zu values\n",
++				     ARRAY_SIZE(model->table));
++
++	ret = of_property_read_u16_array(np, "maxim,fg-model", model->table,
++					 ARRAY_SIZE(model->table));
++	if (ret)
++		return dev_err_probe(chip->dev, ret, "invalid maxim,fg-model\n");
++
++	/* CGain is optional and comes last. */
++	model->params.cgain = MAX77759_FG_CGAIN_DEFAULT;
++	count = of_property_count_u16_elems(np, "maxim,fg-params");
++	if (count != ARRAY_SIZE(model->words) &&
++	    count != ARRAY_SIZE(model->words) - 1)
++		return dev_err_probe(chip->dev, -EINVAL,
++				     "maxim,fg-params needs %zu or %zu values\n",
++				     ARRAY_SIZE(model->words) - 1,
++				     ARRAY_SIZE(model->words));
++
++	ret = of_property_read_u16_array(np, "maxim,fg-params", model->words, count);
++	if (ret)
++		return dev_err_probe(chip->dev, ret, "invalid maxim,fg-params\n");
++
++	if (!model->params.design_cap || !model->params.task_period)
++		return dev_err_probe(chip->dev, -EINVAL,
++				     "maxim,fg-params: zero DesignCap or TaskPeriod\n");
++
++	chip->m5_model = model;
++
++	return 0;
++}
++
+ static int max17042_parse_dt(struct max17042_chip *chip)
+ {
+ 	struct device_node *np = chip->dev->of_node;
+@@ -1235,7 +1622,7 @@ static int max17042_parse_dt(struct max17042_chip *chip)
+ 	else
+ 		chip->vmax = prop;
+ 
+-	return 0;
++	return max77759_fg_parse_model(chip);
+ }
+ #endif
+ 

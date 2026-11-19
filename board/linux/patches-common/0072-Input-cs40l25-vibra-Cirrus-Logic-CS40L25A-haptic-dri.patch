@@ -1,0 +1,873 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: saiththerobo <the.tom.sharp@gmail.com>
+Date: Wed, 28 Oct 2026 08:05:36 +0000
+Subject: [PATCH] Input: cs40l25-vibra - Cirrus Logic CS40L25A haptic driver
+
+The CS40L25A in the Pixel 6 Pro boots into a ROM basic mode. This
+driver resets it, hands it over from basic mode, applies the B0 errata
+and the board's boost (with its short test), loads the RAM firmware and
+the default wavetable through cs_dsp and exposes force feedback
+(FF_RUMBLE) through ff-memless: the strength sets the firmware's trigger
+gain, a start plays the continuous effect (index 0) through the trigger
+mailbox and a stop writes ENDPLAYBACK. The sequence follows Cirrus
+Logic's GPL cs40l2x driver in Google's Pixel 6 kernels.
+
+On raven the firmware idles at HALO_STATE 201 with global enable
+dropped, not the 203 cs40l2x expects, and plays from there. Themes ask
+for 7-12 ms button clicks, shorter than the actuator takes to build up,
+so a stop is held back to min_on_ms (30 ms); the strength maps onto -8
+to -18 dB (atten_strongest tunes the top). Tested on raven: probes at
+boot from the DT, feedbackd drives it, and key presses tick.
+
+The boost's peak current and voltage come from the DT; the debugfs
+registers file stays out of the DSP's memories and core registers
+(precious), which cs_dsp and the driver still read directly.
+
+Not yet: the IRQ, hibernation, the braking configuration, calibration
+and the codec path.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Signed-off-by: saiththerobo <the.tom.sharp@gmail.com>
+---
+ drivers/input/misc/Kconfig         |  14 +
+ drivers/input/misc/Makefile        |   1 +
+ drivers/input/misc/cs40l25-vibra.c | 793 +++++++++++++++++++++++++++++
+ 3 files changed, 808 insertions(+)
+ create mode 100644 drivers/input/misc/cs40l25-vibra.c
+
+diff --git a/drivers/input/misc/Kconfig b/drivers/input/misc/Kconfig
+index 40b261c83..bd600ad38 100644
+--- a/drivers/input/misc/Kconfig
++++ b/drivers/input/misc/Kconfig
+@@ -173,6 +173,20 @@ config INPUT_CS40L26_VIBRA
+ 	  To compile this driver as a module, choose M here: the
+ 	  module will be called cs40l26-vibra.
+ 
++config INPUT_CS40L25_VIBRA
++	tristate "Cirrus Logic CS40L25A haptic driver"
++	depends on I2C
++	select REGMAP_I2C
++	select FW_CS_DSP
++	select INPUT_FF_MEMLESS
++	help
++	  Say Y here to enable force feedback (FF_RUMBLE) on the Cirrus Logic
++	  CS40L25A boosted haptic driver, as in the Pixel 6 Pro. Needs the
++	  RAM firmware cs40l25a_clab.wmfw and the wavetable cs40l20.bin.
++
++	  To compile this driver as a module, choose M here: the module will
++	  be called cs40l25-vibra.
++
+ config INPUT_CS40L50_VIBRA
+ 	tristate "CS40L50 Haptic Driver support"
+ 	depends on MFD_CS40L50_CORE
+diff --git a/drivers/input/misc/Makefile b/drivers/input/misc/Makefile
+index 6b60235d4..2e0f581e3 100644
+--- a/drivers/input/misc/Makefile
++++ b/drivers/input/misc/Makefile
+@@ -32,6 +32,7 @@ obj-$(CONFIG_INPUT_CMA3000_I2C)		+= cma3000_d0x_i2c.o
+ obj-$(CONFIG_INPUT_COBALT_BTNS)		+= cobalt_btns.o
+ obj-$(CONFIG_INPUT_CPCAP_PWRBUTTON)	+= cpcap-pwrbutton.o
+ obj-$(CONFIG_INPUT_CS40L26_VIBRA)	+= cs40l26-vibra.o
++obj-$(CONFIG_INPUT_CS40L25_VIBRA)	+= cs40l25-vibra.o
+ obj-$(CONFIG_INPUT_CS40L50_VIBRA)	+= cs40l50-vibra.o
+ obj-$(CONFIG_INPUT_DA7280_HAPTICS)	+= da7280.o
+ obj-$(CONFIG_INPUT_DA9052_ONKEY)	+= da9052_onkey.o
+diff --git a/drivers/input/misc/cs40l25-vibra.c b/drivers/input/misc/cs40l25-vibra.c
+new file mode 100644
+index 000000000..31c4b4ba9
+--- /dev/null
++++ b/drivers/input/misc/cs40l25-vibra.c
+@@ -0,0 +1,793 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * Cirrus Logic CS40L25A boosted haptic driver, minimal force-feedback support
++ *
++ * The CS40L25A is a Halo Core DSP with a boosted class-D amplifier for linear
++ * resonant actuators. It boots into a ROM "basic mode"; this driver resets
++ * it, hands it over from basic mode, applies the B0 errata and the board's
++ * boost, loads the RAM firmware (cs40l25a_clab.wmfw) and the wavetable
++ * (cs40l20.bin) through cs_dsp and plays vibration through the firmware's
++ * trigger mailbox, driven by the memoryless force-feedback layer (FF_RUMBLE):
++ * the strength sets the firmware's trigger gain, a start plays the
++ * continuous effect (index 0) and a stop ends it (ENDPLAYBACK).
++ *
++ * The sequence and register layout follow Cirrus Logic's GPL driver for this
++ * part as shipped in Google's Pixel 6 kernels (google-modules/amplifiers,
++ * cs40l25/cs40l2x.c; Copyright (C) 2018-2020 Cirrus Logic, Inc.), on which
++ * the errata, IRQ mask and boost tables here are based. Only the CS40L25A
++ * B1 is supported. Not supported yet: the IRQ (amplifier errors are left
++ * masked), hibernation, the closed-loop braking configuration
++ * (cs40l25a_clab.bin), calibration and the codec path. The boost's peak
++ * current and voltage come from the device tree; its inductor and capacitor
++ * terms are stock raven's.
++ */
++
++#include <linux/bitfield.h>
++#include <linux/delay.h>
++#include <linux/firmware.h>
++#include <linux/firmware/cirrus/cs_dsp.h>
++#include <linux/firmware/cirrus/wmfw.h>
++#include <linux/gpio/consumer.h>
++#include <linux/i2c.h>
++#include <linux/input.h>
++#include <linux/iopoll.h>
++#include <linux/module.h>
++#include <linux/regmap.h>
++
++#define CS40L25_DEVID			0x00000000
++#define CS40L25_REVID			0x00000004
++#define CS40L25_TEST_KEY_CTL		0x00000040
++#define CS40L25_OTP_FIRST		0x00000400
++#define CS40L25_OTP_LAST		0x0000051c
++#define CS40L25_PWR_CTRL1		0x00002014
++#define CS40L25_PWR_CTRL2		0x00002018
++#define CS40L25_LRCK_PAD_CONTROL	0x00002418
++#define CS40L25_SDIN_PAD_CONTROL	0x00002420
++#define CS40L25_PWRMGT_CTL		0x00002900
++#define CS40L25_WAKESRC_CTL		0x00002904
++#define CS40L25_BSTCVRT_VCTRL1		0x00003800
++#define CS40L25_BSTCVRT_VCTRL2		0x00003804
++#define CS40L25_BSTCVRT_PEAK_CUR	0x00003808
++#define CS40L25_BSTCVRT_COEFF		0x00003810
++#define CS40L25_BSTCVRT_SLOPE_LBST	0x00003814
++#define CS40L25_BSTCVRT_OVERVOLT_CTRL	0x00003830
++#define CS40L25_DAC_PCM1_SRC		0x00004c00
++#define CS40L25_DSP1RX1_INPUT		0x00004c40
++#define CS40L25_DSP1RX2_INPUT		0x00004c44
++#define CS40L25_DSP1RX3_INPUT		0x00004c48
++#define CS40L25_DSP1RX4_INPUT		0x00004c4c
++#define CS40L25_IRQ1_STATUS1		0x00010010
++#define CS40L25_PLL_LOOP_PARAM		0x00003008
++#define CS40L25_PLL_MISC_CTRL		0x00003014
++#define CS40L25_TEST_LBST		0x0000391c
++#define CS40L25_SPKMON_RESYNC		0x00004100
++#define CS40L25_OTP_TRIM_12		0x00004170
++#define CS40L25_TEMP_RESYNC		0x00004310
++#define CS40L25_OTP_TRIM_13		0x00004360
++#define CS40L25_VPVBST_FS_SEL		0x00004400
++#define CS40L25_AMP_DIG_VOL_CTRL	0x00006000
++#define CS40L25_IRQ1_STATUS3		0x00010018
++#define CS40L25_IRQ1_STATUS4		0x0001001c
++#define CS40L25_IRQ2_MASK1		0x00010910
++#define CS40L25_IRQ2_MASK2		0x00010914
++#define CS40L25_XMEM_PACKED_0		0x02000000
++#define CS40L25_SYS_INFO_ID		0x025e0000
++#define CS40L25_XMEM_UNPACKED24_0	0x02800000
++#define CS40L25_XM_FW_ID		(CS40L25_XMEM_UNPACKED24_0 + 12)
++#define CS40L25_BASIC_HALO_HEARTBEAT	0x02800158
++#define CS40L25_BASIC_STATEMACHINE	0x0280015c
++#define CS40L25_BASIC_AMP_STATUS	0x0280018c
++#define CS40L25_BASIC_SHUTDOWNREQUEST	0x02800190
++#define CS40L25_CORE_BASE		0x02b80000
++#define CS40L25_DSP1_RX1_RATE		0x02b80080
++#define CS40L25_DSP1_TX1_RATE		0x02b80280
++#define CS40L25_DSP1_SCRATCH1		0x02b805c0
++#define CS40L25_DSP1_XM_ACCEL_PL0_PRI	0x02bc2020
++#define CS40L25_DSP1_YM_ACCEL_PL0_PRI	0x02bc20e0
++#define CS40L25_YMEM_PACKED_0		0x02c00000
++#define CS40L25_YMEM_UNPACKED24_0	0x03400000
++#define CS40L25_PMEM_0			0x03800000
++#define CS40L25_LAST_REG		0x03807ffc
++
++#define CS40L25_DEVID_L25A		0x40a25a
++#define CS40L25_REVID_B1		0xb1
++#define CS40L25_OTP_BOOT_DONE		BIT(1)
++#define CS40L25_OTP_BOOT_ERR		BIT(31)
++#define CS40L25_BASIC_BOOT_DONE		BIT(0)
++#define CS40L25_BASIC_ERRORS		(BIT(1) | BIT(2) | BIT(3) | BIT(4))
++#define CS40L25_BASIC_SHUTDOWN		4
++#define CS40L25_MEM_RDY			BIT(1)
++#define CS40L25_GLOBAL_EN		BIT(0)
++#define CS40L25_BST_CTL_SEL_MASK	GENMASK(1, 0)
++#define CS40L25_BST_CTL_SEL_CP_VAL	0
++#define CS40L25_BST_CTL_SEL_CLASSH	1
++#define CS40L25_BST_SHORT_ERR		BIT(8)
++#define CS40L25_FW_ID_CLAB		0x1400cb
++#define CS40L25_HALO_STATE_RUN		203
++
++static const struct reg_sequence cs40l25_basic_mode_revert[] = {
++	{ CS40L25_PWR_CTRL1,		0x00000000 },
++	{ CS40L25_PWR_CTRL2,		0x00003321 },
++	{ CS40L25_LRCK_PAD_CONTROL,	0x00000007 },
++	{ CS40L25_SDIN_PAD_CONTROL,	0x00000007 },
++	{ CS40L25_AMP_DIG_VOL_CTRL,	0x00008000 },
++	{ CS40L25_IRQ2_MASK1,		0xffffffff },
++	{ CS40L25_IRQ2_MASK2,		0xffffffff },
++};
++
++static const struct reg_sequence cs40l25_rev_b0_errata[] = {
++	{ CS40L25_PLL_LOOP_PARAM,	0x000c1837 },
++	{ CS40L25_PLL_MISC_CTRL,	0x03008e0e },
++	{ CS40L25_TEST_KEY_CTL,		0x00000055 },
++	{ CS40L25_TEST_KEY_CTL,		0x000000aa },
++	{ CS40L25_TEST_LBST,		0x004dc080 },
++	{ CS40L25_OTP_TRIM_12,		0x002f0065 },
++	{ CS40L25_OTP_TRIM_13,		0x00002b4f },
++	{ CS40L25_SPKMON_RESYNC,	0x00000000 },
++	{ CS40L25_TEMP_RESYNC,		0x00000000 },
++	{ CS40L25_TEST_KEY_CTL,		0x000000cc },
++	{ CS40L25_TEST_KEY_CTL,		0x00000033 },
++	{ CS40L25_VPVBST_FS_SEL,	0x00000000 },
++};
++
++/* the accelerator priorities, and every RX and TX rate slot at 1 */
++static const struct reg_sequence cs40l25_dsp_errata[] = {
++	{ CS40L25_DSP1_XM_ACCEL_PL0_PRI,	0 },
++	{ CS40L25_DSP1_YM_ACCEL_PL0_PRI,	0 },
++	{ CS40L25_DSP1_RX1_RATE + 0x00,	1 },
++	{ CS40L25_DSP1_RX1_RATE + 0x08,	1 },
++	{ CS40L25_DSP1_RX1_RATE + 0x10,	1 },
++	{ CS40L25_DSP1_RX1_RATE + 0x18,	1 },
++	{ CS40L25_DSP1_RX1_RATE + 0x20,	1 },
++	{ CS40L25_DSP1_RX1_RATE + 0x28,	1 },
++	{ CS40L25_DSP1_RX1_RATE + 0x30,	1 },
++	{ CS40L25_DSP1_RX1_RATE + 0x38,	1 },
++	{ CS40L25_DSP1_TX1_RATE + 0x00,	1 },
++	{ CS40L25_DSP1_TX1_RATE + 0x08,	1 },
++	{ CS40L25_DSP1_TX1_RATE + 0x10,	1 },
++	{ CS40L25_DSP1_TX1_RATE + 0x18,	1 },
++	{ CS40L25_DSP1_TX1_RATE + 0x20,	1 },
++	{ CS40L25_DSP1_TX1_RATE + 0x28,	1 },
++	{ CS40L25_DSP1_TX1_RATE + 0x30,	1 },
++	{ CS40L25_DSP1_TX1_RATE + 0x38,	1 },
++};
++
++/*
++ * Stock's boost (gs101-raviole-audio.dtsi: 1000 nH, 4 uF, 4500 mA peak,
++ * 7.5 V, OVP 12 V) through cs40l2x_boost_config()'s tables: LBST 0, the
++ * capacitor in range 0, so K1 0x24, K2 0x24, slope 0x75; OVP
++ * ((12000 - 9000) / 125) * 2 = 0x30, enabled (bit 8). The peak current and
++ * the voltage are the board's (cs40l25_boost_from_dt()), encoded as cs40l2x
++ * does: peak (mA - 1600) / 50 + 0x10, 4500 mA = 0x4a; voltage
++ * (mV - 2550) / 50 + 1, 7.5 V = 0x64.
++ */
++#define CS40L25_BST_IPK_MIN_UA		1600000
++#define CS40L25_BST_IPK_MAX_UA		4500000
++#define CS40L25_BST_UV_MIN		2550000
++#define CS40L25_BST_UV_MAX		11000000
++#define CS40L25_BST_STEP		50000
++
++static const struct reg_sequence cs40l25_boost[] = {
++	{ CS40L25_BSTCVRT_COEFF,	0x00002424 },
++	{ CS40L25_BSTCVRT_SLOPE_LBST,	0x00007500 },
++	{ CS40L25_BSTCVRT_OVERVOLT_CTRL, 0x00000130 },
++};
++
++/* cs40l2x_pcm_routing[]: the DAC from the DSP, the DSP's inputs */
++static const struct reg_sequence cs40l25_pcm_routing[] = {
++	{ CS40L25_DAC_PCM1_SRC,		0x32 },
++	{ CS40L25_DSP1RX1_INPUT,	0x08 },
++	{ CS40L25_DSP1RX2_INPUT,	0x18 },
++	{ CS40L25_DSP1RX3_INPUT,	0x19 },
++	{ CS40L25_DSP1RX4_INPUT,	0x28 },
++};
++
++/* cs40l2x_irq2_masks[], all hardware errors left masked: no IRQ line here */
++static const u32 cs40l25_irq2_masks[] = { 0xffffffff, 0xffffffff, 0xffff87ff, 0xfeffffff };
++
++static const struct cs_dsp_region cs40l25_dsp_regions[] = {
++	{ .type = WMFW_HALO_PM_PACKED, .base = CS40L25_PMEM_0 },
++	{ .type = WMFW_HALO_XM_PACKED, .base = CS40L25_XMEM_PACKED_0 },
++	{ .type = WMFW_HALO_YM_PACKED, .base = CS40L25_YMEM_PACKED_0 },
++	{ .type = WMFW_ADSP2_XM, .base = CS40L25_XMEM_UNPACKED24_0 },
++	{ .type = WMFW_ADSP2_YM, .base = CS40L25_YMEM_UNPACKED24_0 },
++};
++
++#define CS40L25_FW			"cs40l25a_clab.wmfw"
++#define CS40L25_WT			"cs40l20.bin"
++#define CS40L25_MBOX_TRIGGERINDEX	0x00013020
++#define CS40L25_INDEX_VIBE		0
++#define CS40L25_HALO_STATE_IDLE		201
++#define CS40L25_GAIN_TRIG		GENMASK(13, 4)
++#define CS40L25_ATTEN_WEAKEST		144	/* -18 dB, in 0.125 dB steps */
++
++static unsigned int atten_strongest = 64;	/* -8 dB */
++module_param(atten_strongest, uint, 0644);
++MODULE_PARM_DESC(atten_strongest,
++		 "attenuation at full strength, in 0.125 dB steps (default 64, -8 dB; at least 0)");
++
++/*
++ * The actuator needs a few milliseconds to build up, and themes ask for
++ * button clicks of 7-12 ms: a stop earlier than this after the start is
++ * held back, so a short effect is a felt tick rather than nothing.
++ */
++static unsigned int min_on_ms = 30;
++module_param(min_on_ms, uint, 0644);
++MODULE_PARM_DESC(min_on_ms, "shortest vibration in ms (default 30)");
++
++struct cs40l25 {
++	struct device *dev;
++	struct regmap *regmap;
++	struct gpio_desc *reset;
++	struct cs_dsp dsp;
++	struct input_dev *input;
++	struct work_struct play_work;
++	struct delayed_work stop_work;	/* a stop held back to min_on_ms */
++	unsigned long started;		/* jiffies at the last start */
++	spinlock_t level_lock;		/* level, set from the ff-memless callback */
++	unsigned int level;
++	struct mutex lock;		/* playing and the mailbox */
++	bool playing;
++	struct cs_dsp_coeff_ctl *gain_ctl;
++	struct cs_dsp_coeff_ctl *end_ctl;
++	u32 bst_ipk_ua;
++	u32 bst_uv;
++};
++
++static bool cs40l25_writeable(struct device *dev, unsigned int reg)
++{
++	return reg < CS40L25_OTP_FIRST || reg > CS40L25_OTP_LAST;
++}
++
++static bool cs40l25_readable(struct device *dev, unsigned int reg)
++{
++	return true;
++}
++
++/*
++ * From the DSP's packed XMEM up: its memories (packed and unpacked) and core
++ * registers. cs_dsp and this driver read them directly, but the debugfs
++ * "registers" file must not walk them over I2C while the firmware runs
++ * (reading a CS35L41's whole register file during playback stopped its DSP
++ * algorithm on the Pixel 7 Pro).
++ */
++static bool cs40l25_precious(struct device *dev, unsigned int reg)
++{
++	return reg >= CS40L25_XMEM_PACKED_0;
++}
++
++/* everything but the OTP block, which this driver never writes */
++static const struct regmap_config cs40l25_regmap = {
++	.reg_bits = 32,
++	.val_bits = 32,
++	.reg_stride = 4,
++	.reg_format_endian = REGMAP_ENDIAN_BIG,
++	.val_format_endian = REGMAP_ENDIAN_BIG,
++	.max_register = CS40L25_LAST_REG,
++	.readable_reg = cs40l25_readable,
++	.writeable_reg = cs40l25_writeable,
++	.volatile_reg = cs40l25_readable,
++	.precious_reg = cs40l25_precious,
++	.cache_type = REGCACHE_NONE,
++};
++
++static int cs40l25_heartbeat_moves(struct cs40l25 *cs40l25, bool *moves)
++{
++	unsigned int hb0, hb1;
++	int ret;
++
++	ret = regmap_read(cs40l25->regmap, CS40L25_BASIC_HALO_HEARTBEAT, &hb0);
++	if (ret)
++		return ret;
++	msleep(20);
++	ret = regmap_read(cs40l25->regmap, CS40L25_BASIC_HALO_HEARTBEAT, &hb1);
++	*moves = hb1 != hb0;
++	return ret;
++}
++
++/* cs40l2x_basic_mode_exit(), then the revert and the B0 errata */
++static int cs40l25_handover(struct cs40l25 *cs40l25)
++{
++	struct regmap *regmap = cs40l25->regmap;
++	struct device *dev = cs40l25->dev;
++	unsigned int val;
++	bool moves;
++	int ret, i;
++
++	for (i = 0; i < 10; i++) {
++		ret = regmap_read(regmap, CS40L25_BASIC_AMP_STATUS, &val);
++		if (ret)
++			return ret;
++		if (val & CS40L25_BASIC_BOOT_DONE)
++			break;
++		usleep_range(5000, 5100);
++	}
++	if (!(val & CS40L25_BASIC_BOOT_DONE))
++		return dev_err_probe(dev, -ETIME, "basic mode not booted: 0x%08x\n", val);
++	ret = cs40l25_heartbeat_moves(cs40l25, &moves);
++	if (ret)
++		return ret;
++	if (!moves)
++		return dev_err_probe(dev, -ETIME, "basic-mode heartbeat not moving\n");
++
++	ret = regmap_write(regmap, CS40L25_BASIC_SHUTDOWNREQUEST, 1);
++	if (ret)
++		return ret;
++	for (i = 0; i < 10; i++) {
++		usleep_range(1000, 1100);
++		ret = regmap_read(regmap, CS40L25_BASIC_SHUTDOWNREQUEST, &val);
++		if (ret)
++			return ret;
++		if (!val)
++			break;
++	}
++	if (val)
++		return dev_err_probe(dev, -ETIME, "no basic-mode shutdown acknowledge\n");
++	ret = regmap_read(regmap, CS40L25_BASIC_STATEMACHINE, &val);
++	if (ret)
++		return ret;
++	if (val != CS40L25_BASIC_SHUTDOWN)
++		return dev_err_probe(dev, -EBUSY, "basic-mode state 0x%02x\n", val);
++	ret = regmap_read(regmap, CS40L25_BASIC_AMP_STATUS, &val);
++	if (ret)
++		return ret;
++	if (val & CS40L25_BASIC_ERRORS)
++		return dev_err_probe(dev, -EIO, "basic-mode error flags 0x%02lx\n",
++				     val & CS40L25_BASIC_ERRORS);
++
++	return regmap_multi_reg_write(regmap, cs40l25_basic_mode_revert,
++				      ARRAY_SIZE(cs40l25_basic_mode_revert)) ?:
++	       regmap_multi_reg_write(regmap, cs40l25_rev_b0_errata,
++				      ARRAY_SIZE(cs40l25_rev_b0_errata));
++}
++
++/* The board's boost limits, with the binding's defaults (cs40l2x's). */
++static int cs40l25_boost_from_dt(struct cs40l25 *cs40l25)
++{
++	struct device *dev = cs40l25->dev;
++
++	cs40l25->bst_ipk_ua = CS40L25_BST_IPK_MAX_UA;
++	cs40l25->bst_uv = CS40L25_BST_UV_MAX;
++	device_property_read_u32(dev, "cirrus,boost-peak-microamp", &cs40l25->bst_ipk_ua);
++	device_property_read_u32(dev, "cirrus,boost-ctl-microvolt", &cs40l25->bst_uv);
++	if (cs40l25->bst_ipk_ua < CS40L25_BST_IPK_MIN_UA ||
++	    cs40l25->bst_ipk_ua > CS40L25_BST_IPK_MAX_UA ||
++	    cs40l25->bst_ipk_ua % CS40L25_BST_STEP)
++		return dev_err_probe(dev, -EINVAL, "boost peak %u uA out of range\n",
++				     cs40l25->bst_ipk_ua);
++	if (cs40l25->bst_uv < CS40L25_BST_UV_MIN || cs40l25->bst_uv > CS40L25_BST_UV_MAX ||
++	    cs40l25->bst_uv % CS40L25_BST_STEP)
++		return dev_err_probe(dev, -EINVAL, "boost voltage %u uV out of range\n",
++				     cs40l25->bst_uv);
++	return 0;
++}
++
++/*
++ * cs40l2x_init() on a B1 without an IRQ line: the boost, its short test
++ * (the boost on at a fixed voltage for 10 ms, then the short-error flag),
++ * the PCM routing and the wake sources (I2C SDA and GPIO1, SDA polarity).
++ */
++static int cs40l25_init(struct cs40l25 *cs40l25)
++{
++	struct regmap *regmap = cs40l25->regmap;
++	unsigned int ipk, vbst, val;
++	int ret;
++
++	ipk = (cs40l25->bst_ipk_ua - CS40L25_BST_IPK_MIN_UA) / CS40L25_BST_STEP + 0x10;
++	vbst = (cs40l25->bst_uv - CS40L25_BST_UV_MIN) / CS40L25_BST_STEP + 1;
++	ret = regmap_multi_reg_write(regmap, cs40l25_boost, ARRAY_SIZE(cs40l25_boost)) ?:
++	      regmap_write(regmap, CS40L25_BSTCVRT_PEAK_CUR, ipk) ?:
++	      regmap_write(regmap, CS40L25_BSTCVRT_VCTRL1, vbst) ?:
++	      regmap_update_bits(regmap, CS40L25_BSTCVRT_VCTRL2, CS40L25_BST_CTL_SEL_MASK,
++				 CS40L25_BST_CTL_SEL_CP_VAL) ?:
++	      regmap_update_bits(regmap, CS40L25_PWR_CTRL1, CS40L25_GLOBAL_EN,
++				 CS40L25_GLOBAL_EN);
++	if (ret)
++		return ret;
++	usleep_range(10000, 10100);
++	ret = regmap_read(regmap, CS40L25_IRQ1_STATUS1, &val) ?:
++	      regmap_update_bits(regmap, CS40L25_PWR_CTRL1, CS40L25_GLOBAL_EN, 0) ?:
++	      regmap_update_bits(regmap, CS40L25_BSTCVRT_VCTRL2, CS40L25_BST_CTL_SEL_MASK,
++				 CS40L25_BST_CTL_SEL_CLASSH);
++	if (ret)
++		return ret;
++	if (val & CS40L25_BST_SHORT_ERR)
++		return dev_err_probe(cs40l25->dev, -EIO, "boost short: status1 0x%08x\n", val);
++
++	return regmap_multi_reg_write(regmap, cs40l25_pcm_routing,
++				      ARRAY_SIZE(cs40l25_pcm_routing)) ?:
++	       regmap_write(regmap, CS40L25_WAKESRC_CTL, 0x98);
++}
++
++/* the register of a firmware control (XM, unpacked 24-bit words) */
++static unsigned int cs40l25_ctl_reg(struct cs_dsp_coeff_ctl *ctl)
++{
++	return CS40L25_XMEM_UNPACKED24_0 + (ctl->alg_region.base + ctl->offset) * 4;
++}
++
++/* under the pwr_lock */
++static int cs40l25_ctl_write(struct cs40l25 *cs40l25, const char *name, const u32 *val,
++			     unsigned int n, bool optional)
++{
++	struct cs_dsp_coeff_ctl *ctl;
++	__be32 buf[8];
++	unsigned int i;
++	int ret;
++
++	ctl = cs_dsp_get_ctl(&cs40l25->dsp, name, WMFW_ADSP2_XM, CS40L25_FW_ID_CLAB);
++	if (!ctl)
++		return optional ? 0 : dev_err_probe(cs40l25->dev, -ENOENT, "no %s control\n", name);
++	for (i = 0; i < n; i++)
++		buf[i] = cpu_to_be32(val[i]);
++	ret = cs_dsp_coeff_write_ctrl(ctl, 0, buf, n * sizeof(buf[0]));
++	return ret < 0 ? ret : 0;	/* 1 is "changed" */
++}
++
++/*
++ * cs40l2x_dsp_pre_config() without an IRQ line (an empty power-on
++ * sequence, GPIO1 for button detection, GPIO1 off outside suspend, the
++ * speaker free in standby, events off, the IRQ2 mask sequence, each mask as
++ * two words, then valid), then cs40l2x_dsp_start()'s DSP errata, memory
++ * ready and global enable.
++ */
++static int cs40l25_pre_run(struct cs_dsp *dsp)
++{
++	struct cs40l25 *cs40l25 = container_of(dsp, struct cs40l25, dsp);
++	static const u32 one = 1, zero, wseq_term = 0x00ffffff;
++	u32 seq[8];
++	int ret, i;
++
++	for (i = 0; i < ARRAY_SIZE(cs40l25_irq2_masks); i++) {
++		seq[2 * i] = (cs40l25_irq2_masks[i] & 0xff) << 16;
++		seq[2 * i + 1] = (cs40l25_irq2_masks[i] & 0xffffff00) >> 8;
++	}
++	ret = cs40l25_ctl_write(cs40l25, "POWERONSEQUENCE", &wseq_term, 1, false) ?:
++	      cs40l25_ctl_write(cs40l25, "GPIO_BUTTONDETECT", &one, 1, false) ?:
++	      cs40l25_ctl_write(cs40l25, "GPIO_POL", &zero, 1, true) ?:
++	      cs40l25_ctl_write(cs40l25, "GPIO_ENABLE", &zero, 1, false) ?:
++	      cs40l25_ctl_write(cs40l25, "SPK_FORCE_TST_1_AUTO", &zero, 1, true) ?:
++	      cs40l25_ctl_write(cs40l25, "EVENTCONTROL", &zero, 1, false) ?:
++	      cs40l25_ctl_write(cs40l25, "IRQMASKSEQUENCE", seq, ARRAY_SIZE(seq), false) ?:
++	      cs40l25_ctl_write(cs40l25, "IRQMASKSEQUENCE_VALID", &one, 1, false);
++	if (ret)
++		return ret;
++
++	return regmap_multi_reg_write(cs40l25->regmap, cs40l25_dsp_errata,
++				      ARRAY_SIZE(cs40l25_dsp_errata)) ?:
++	       regmap_update_bits(cs40l25->regmap, CS40L25_PWRMGT_CTL,
++				  CS40L25_MEM_RDY, CS40L25_MEM_RDY) ?:
++	       regmap_update_bits(cs40l25->regmap, CS40L25_PWR_CTRL1,
++				  CS40L25_GLOBAL_EN, CS40L25_GLOBAL_EN);
++}
++
++/*
++ * Under the pwr_lock: wait for the firmware to settle. Google's tables give
++ * 203; on raven this firmware idles at 201, with global enable dropped by
++ * the firmware itself, and plays from there.
++ */
++static int cs40l25_post_run(struct cs_dsp *dsp)
++{
++	struct cs40l25 *cs40l25 = container_of(dsp, struct cs40l25, dsp);
++	struct cs_dsp_coeff_ctl *ctl;
++	unsigned int state = 0;
++	__be32 w;
++	int ret, i;
++
++	ctl = cs_dsp_get_ctl(dsp, "HALO_STATE", WMFW_ADSP2_XM, CS40L25_FW_ID_CLAB);
++	if (!ctl)
++		return dev_err_probe(cs40l25->dev, -ENOENT, "no HALO_STATE control\n");
++	for (i = 0; i < 10; i++) {
++		usleep_range(10000, 10100);
++		ret = cs_dsp_coeff_read_ctrl(ctl, 0, &w, sizeof(w));
++		if (ret)
++			return ret;
++		state = be32_to_cpu(w);
++		if (state == CS40L25_HALO_STATE_RUN || state == CS40L25_HALO_STATE_IDLE)
++			break;
++	}
++	if (state != CS40L25_HALO_STATE_RUN && state != CS40L25_HALO_STATE_IDLE)
++		return dev_err_probe(cs40l25->dev, -ETIME, "HALO_STATE %u\n", state);
++
++	cs40l25->gain_ctl = cs_dsp_get_ctl(dsp, "GAIN_CONTROL", WMFW_ADSP2_XM,
++					   CS40L25_FW_ID_CLAB);
++	cs40l25->end_ctl = cs_dsp_get_ctl(dsp, "ENDPLAYBACK", WMFW_ADSP2_XM,
++					  CS40L25_FW_ID_CLAB);
++	if (!cs40l25->gain_ctl || !cs40l25->end_ctl)
++		return dev_err_probe(cs40l25->dev, -ENOENT, "no GAIN_CONTROL or ENDPLAYBACK\n");
++	return 0;
++}
++
++static const struct cs_dsp_client_ops cs40l25_client_ops = {
++	.pre_run = cs40l25_pre_run,
++	.post_run = cs40l25_post_run,
++};
++
++/* the trigger gain for a strength of 1..255, in 0.125 dB steps of attenuation */
++static unsigned int cs40l25_atten(unsigned int level)
++{
++	unsigned int strongest = min(atten_strongest, CS40L25_ATTEN_WEAKEST);
++
++	return strongest + (255 - level) * (CS40L25_ATTEN_WEAKEST - strongest) / 254;
++}
++
++static int cs40l25_start(struct cs40l25 *cs40l25, unsigned int level)
++{
++	__be32 w;
++	u32 val;
++	int ret;
++
++	mutex_lock(&cs40l25->dsp.pwr_lock);
++	ret = cs_dsp_coeff_read_ctrl(cs40l25->gain_ctl, 0, &w, sizeof(w));
++	if (!ret) {
++		val = be32_to_cpu(w) & ~CS40L25_GAIN_TRIG;
++		val |= FIELD_PREP(CS40L25_GAIN_TRIG, cs40l25_atten(level));
++		w = cpu_to_be32(val);
++		ret = cs_dsp_coeff_write_ctrl(cs40l25->gain_ctl, 0, &w, sizeof(w));
++	}
++	mutex_unlock(&cs40l25->dsp.pwr_lock);
++	if (ret < 0)
++		return ret;
++
++	return regmap_write(cs40l25->regmap, CS40L25_MBOX_TRIGGERINDEX, CS40L25_INDEX_VIBE);
++}
++
++static void cs40l25_stop(struct cs40l25 *cs40l25)
++{
++	/* cs40l2x_stop_playback(); a register write, so no pwr_lock needed */
++	regmap_write(cs40l25->regmap, cs40l25_ctl_reg(cs40l25->end_ctl), 1);
++}
++
++static void cs40l25_stop_work(struct work_struct *work)
++{
++	struct cs40l25 *cs40l25 = container_of(work, struct cs40l25, stop_work.work);
++
++	mutex_lock(&cs40l25->lock);
++	if (cs40l25->playing) {
++		cs40l25_stop(cs40l25);
++		cs40l25->playing = false;
++	}
++	mutex_unlock(&cs40l25->lock);
++}
++
++static void cs40l25_play_work(struct work_struct *work)
++{
++	struct cs40l25 *cs40l25 = container_of(work, struct cs40l25, play_work);
++	unsigned int level;
++
++	spin_lock_irq(&cs40l25->level_lock);
++	level = cs40l25->level;
++	spin_unlock_irq(&cs40l25->level_lock);
++
++	mutex_lock(&cs40l25->lock);
++	if (level) {
++		cancel_delayed_work(&cs40l25->stop_work);
++		dev_dbg(cs40l25->dev, "play, strength %u\n", level);
++		if (!cs40l25_start(cs40l25, level)) {
++			cs40l25->playing = true;
++			cs40l25->started = jiffies;
++		}
++	} else if (cs40l25->playing) {
++		unsigned long until = cs40l25->started + msecs_to_jiffies(min_on_ms);
++
++		dev_dbg(cs40l25->dev, "stop\n");
++		if (time_before(jiffies, until)) {
++			mod_delayed_work(system_wq, &cs40l25->stop_work, until - jiffies);
++		} else {
++			cs40l25_stop(cs40l25);
++			cs40l25->playing = false;
++		}
++	}
++	mutex_unlock(&cs40l25->lock);
++}
++
++/* ff-memless callback, atomic context */
++static int cs40l25_play_effect(struct input_dev *dev, void *data, struct ff_effect *effect)
++{
++	struct cs40l25 *cs40l25 = input_get_drvdata(dev);
++	unsigned int level = 0;
++	unsigned long flags;
++
++	if (effect->type == FF_RUMBLE)
++		level = max(effect->u.rumble.strong_magnitude,
++			    effect->u.rumble.weak_magnitude) >> 8;
++
++	spin_lock_irqsave(&cs40l25->level_lock, flags);
++	cs40l25->level = level;
++	spin_unlock_irqrestore(&cs40l25->level_lock, flags);
++
++	schedule_work(&cs40l25->play_work);
++	return 0;
++}
++
++static void cs40l25_close(struct input_dev *input)
++{
++	struct cs40l25 *cs40l25 = input_get_drvdata(input);
++
++	cancel_work_sync(&cs40l25->play_work);
++	cancel_delayed_work_sync(&cs40l25->stop_work);
++	mutex_lock(&cs40l25->lock);
++	if (cs40l25->playing) {
++		cs40l25_stop(cs40l25);
++		cs40l25->playing = false;
++	}
++	mutex_unlock(&cs40l25->lock);
++}
++
++static void cs40l25_dsp_remove(void *data)
++{
++	struct cs40l25 *cs40l25 = data;
++
++	cancel_work_sync(&cs40l25->play_work);
++	cancel_delayed_work_sync(&cs40l25->stop_work);
++	cs_dsp_stop(&cs40l25->dsp);
++	cs_dsp_power_down(&cs40l25->dsp);
++	cs_dsp_remove(&cs40l25->dsp);
++	/* back to basic mode, as at boot */
++	if (cs40l25->reset) {
++		gpiod_set_value_cansleep(cs40l25->reset, 1);
++		usleep_range(2000, 2100);
++		gpiod_set_value_cansleep(cs40l25->reset, 0);
++	}
++}
++
++static int cs40l25_dsp_init(struct cs40l25 *cs40l25)
++{
++	const struct firmware *wmfw, *wt;
++	struct device *dev = cs40l25->dev;
++	int ret;
++
++	cs40l25->dsp.num = 1;
++	cs40l25->dsp.type = WMFW_HALO;
++	cs40l25->dsp.dev = dev;
++	cs40l25->dsp.regmap = cs40l25->regmap;
++	cs40l25->dsp.base = CS40L25_CORE_BASE;
++	cs40l25->dsp.base_sysinfo = CS40L25_SYS_INFO_ID;
++	cs40l25->dsp.mem = cs40l25_dsp_regions;
++	cs40l25->dsp.num_mems = ARRAY_SIZE(cs40l25_dsp_regions);
++	cs40l25->dsp.client_ops = &cs40l25_client_ops;
++	/* the firmware's MPU access to every register window, as cs35l41-lib */
++	cs40l25->dsp.lock_regions = 0xffffffff;
++	ret = cs_dsp_halo_init(&cs40l25->dsp);
++	if (ret)
++		return ret;
++	ret = devm_add_action_or_reset(dev, cs40l25_dsp_remove, cs40l25);
++	if (ret)
++		return ret;
++
++	ret = request_firmware(&wmfw, CS40L25_FW, dev);
++	if (ret)
++		return dev_err_probe(dev, ret, "no %s\n", CS40L25_FW);
++	ret = request_firmware(&wt, CS40L25_WT, dev);
++	if (ret) {
++		release_firmware(wmfw);
++		return dev_err_probe(dev, ret, "no %s\n", CS40L25_WT);
++	}
++	ret = cs_dsp_power_up(&cs40l25->dsp, wmfw, CS40L25_FW, wt, CS40L25_WT, "cs40l25a");
++	release_firmware(wt);
++	release_firmware(wmfw);
++	if (ret)
++		return dev_err_probe(dev, ret, "firmware load\n");
++
++	return cs_dsp_run(&cs40l25->dsp);
++}
++
++static int cs40l25_input_init(struct cs40l25 *cs40l25, unsigned int devid, unsigned int revid)
++{
++	struct input_dev *input;
++	int ret;
++
++	input = devm_input_allocate_device(cs40l25->dev);
++	if (!input)
++		return -ENOMEM;
++
++	input->name = "cs40l25_vibra";
++	input->id.bustype = BUS_I2C;
++	input->id.product = devid & 0xffff;
++	input->id.version = revid;
++	input->close = cs40l25_close;
++	input_set_drvdata(input, cs40l25);
++	input_set_capability(input, EV_FF, FF_RUMBLE);
++
++	ret = input_ff_create_memless(input, NULL, cs40l25_play_effect);
++	if (ret)
++		return ret;
++	cs40l25->input = input;
++	return input_register_device(input);
++}
++
++static int cs40l25_probe(struct i2c_client *client)
++{
++	struct device *dev = &client->dev;
++	unsigned int devid, revid, st3, st4;
++	struct cs40l25 *cs40l25;
++	int ret;
++
++	cs40l25 = devm_kzalloc(dev, sizeof(*cs40l25), GFP_KERNEL);
++	if (!cs40l25)
++		return -ENOMEM;
++	cs40l25->dev = dev;
++	ret = cs40l25_boost_from_dt(cs40l25);
++	if (ret)
++		return ret;
++	spin_lock_init(&cs40l25->level_lock);
++	mutex_init(&cs40l25->lock);
++	INIT_WORK(&cs40l25->play_work, cs40l25_play_work);
++	INIT_DELAYED_WORK(&cs40l25->stop_work, cs40l25_stop_work);
++
++	cs40l25->regmap = devm_regmap_init_i2c(client, &cs40l25_regmap);
++	if (IS_ERR(cs40l25->regmap))
++		return dev_err_probe(dev, PTR_ERR(cs40l25->regmap), "regmap\n");
++
++	/*
++	 * A reset pulse, as cs40l2x's probe: asserted (the line is described
++	 * active low, as for the CS40L26), then released; the chip boots into
++	 * basic mode from its ROM.
++	 */
++	cs40l25->reset = devm_gpiod_get_optional(dev, "reset", GPIOD_OUT_HIGH);
++	if (IS_ERR(cs40l25->reset))
++		return dev_err_probe(dev, PTR_ERR(cs40l25->reset), "reset GPIO\n");
++	if (cs40l25->reset) {
++		usleep_range(2000, 2100);
++		gpiod_set_value_cansleep(cs40l25->reset, 0);
++		usleep_range(1000, 1100);
++	}
++
++	ret = regmap_read(cs40l25->regmap, CS40L25_DEVID, &devid) ?:
++	      regmap_read(cs40l25->regmap, CS40L25_REVID, &revid);
++	if (ret)
++		return dev_err_probe(dev, ret, "ID read\n");
++	if (devid != CS40L25_DEVID_L25A || revid != CS40L25_REVID_B1)
++		return dev_err_probe(dev, -ENODEV, "unsupported device 0x%06x revision 0x%02x\n",
++				     devid, revid);
++	ret = read_poll_timeout(regmap_read, ret, ret || (st4 & CS40L25_OTP_BOOT_DONE),
++				10000, 100000, false, cs40l25->regmap,
++				CS40L25_IRQ1_STATUS4, &st4) ?:
++	      regmap_read(cs40l25->regmap, CS40L25_IRQ1_STATUS3, &st3);
++	if (ret)
++		return dev_err_probe(dev, ret, "OTP boot\n");
++	if (st3 & CS40L25_OTP_BOOT_ERR)
++		return dev_err_probe(dev, -EIO, "OTP boot error\n");
++
++	ret = cs40l25_handover(cs40l25) ?: cs40l25_init(cs40l25);
++	if (ret)
++		return ret;
++	ret = cs40l25_dsp_init(cs40l25);
++	if (ret)
++		return dev_err_probe(dev, ret, "DSP start\n");
++
++	ret = cs40l25_input_init(cs40l25, devid, revid);
++	if (ret)
++		return dev_err_probe(dev, ret, "input device\n");
++
++	dev_info(dev, "CS40L25A revision %02X, firmware 0x%06x running\n", revid,
++		 CS40L25_FW_ID_CLAB);
++	return 0;
++}
++
++static const struct of_device_id cs40l25_of_match[] = {
++	{ .compatible = "cirrus,cs40l25a" },
++	{ }
++};
++MODULE_DEVICE_TABLE(of, cs40l25_of_match);
++
++static const struct i2c_device_id cs40l25_id[] = {
++	{ "cs40l25a" },
++	{ }
++};
++MODULE_DEVICE_TABLE(i2c, cs40l25_id);
++
++static struct i2c_driver cs40l25_driver = {
++	.driver = {
++		.name = "cs40l25-vibra",
++		.of_match_table = cs40l25_of_match,
++	},
++	.probe = cs40l25_probe,
++	.id_table = cs40l25_id,
++};
++module_i2c_driver(cs40l25_driver);
++
++MODULE_DESCRIPTION("Cirrus Logic CS40L25A haptic driver");
++MODULE_IMPORT_NS("FW_CS_DSP");
++MODULE_LICENSE("GPL");
++MODULE_FIRMWARE(CS40L25_FW);
++MODULE_FIRMWARE(CS40L25_WT);

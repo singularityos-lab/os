@@ -1,0 +1,45 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Sun, 11 Oct 2026 18:00:01 -0400
+Subject: [PATCH] arm64: dts: exynos: google: gs201: use CMU_HSI0 clocks for
+ USB
+
+Move the USB DRD PHY and the DWC3 controller from placeholder fixed
+clocks to their CMU_HSI0 gates. The PHY reference clock is 19.2 MHz,
+as before. Tested on a Pixel 7 Pro in gadget mode.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ arch/arm64/boot/dts/exynos/google/gs201.dtsi | 12 +++++++++---
+ 1 file changed, 9 insertions(+), 3 deletions(-)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/gs201.dtsi b/arch/arm64/boot/dts/exynos/google/gs201.dtsi
+index 38ab3c29e..f05690ea0 100644
+--- a/arch/arm64/boot/dts/exynos/google/gs201.dtsi
++++ b/arch/arm64/boot/dts/exynos/google/gs201.dtsi
+@@ -253,9 +253,11 @@ usbdrd31_phy: phy@11200000 {
+ 			      <0x11100000 0x800>,
+ 			      <0x110f0000 0x2800>;
+ 			reg-names = "phy", "pcs", "pma";
+-			/* placeholders until cmu_hsi0 exists */
+-			clocks = <&usb_ref_clk>, <&usb_ref_clk>, <&usb_ref_clk>,
+-				 <&usb_ref_clk>, <&usb_ref_clk>;
++			clocks = <&cmu_hsi0 CLK_GOUT_HSI0_USB31DRD_ACLK_PHYCTRL>,
++				 <&cmu_hsi0 CLK_GOUT_HSI0_USB31DRD_I_USB20_PHY_REFCLK_26>,
++				 <&cmu_hsi0 CLK_GOUT_HSI0_UASC_HSI0_CTRL_ACLK>,
++				 <&cmu_hsi0 CLK_GOUT_HSI0_UASC_HSI0_CTRL_PCLK>,
++				 <&cmu_hsi0 CLK_GOUT_HSI0_USB31DRD_I_USBDPPHY_SCL_APB_PCLK>;
+ 			clock-names = "phy", "ref", "ctrl_aclk", "ctrl_pclk",
+ 				      "scl_pclk";
+ 			samsung,pmu-syscon = <&pmu_system_controller>;
+@@ -267,6 +269,10 @@ usb_dwc3: usb@11210000 {
+ 			compatible = "snps,dwc3";
+ 			reg = <0x11210000 0x10000>;
+ 			interrupts = <GIC_SPI 379 IRQ_TYPE_LEVEL_HIGH>;
++			clocks = <&cmu_hsi0 CLK_GOUT_HSI0_USB31DRD_I_USB31DRD_REF_CLK_40>,
++				 <&cmu_hsi0 CLK_GOUT_HSI0_USB31DRD_BUS_CLK_EARLY>,
++				 <&cmu_hsi0 CLK_GOUT_HSI0_USB31DRD_I_USB31DRD_SUSPEND_CLK_26>;
++			clock-names = "ref", "bus_early", "suspend";
+ 			phys = <&usbdrd31_phy 0>;
+ 			phy-names = "usb2-phy";
+ 			dr_mode = "peripheral";

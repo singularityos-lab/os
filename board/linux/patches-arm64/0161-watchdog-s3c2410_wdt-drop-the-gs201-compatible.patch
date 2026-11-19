@@ -1,0 +1,29 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Fri, 23 Oct 2026 23:38:05 -0400
+Subject: [PATCH] watchdog: s3c2410_wdt: drop the gs201 compatible
+
+gs201's watchdogs now carry google,gs101-wdt as a fallback, as the
+binding documents, and that entry has the same variant data. This
+reverts commit 53f784cd91e6 ("watchdog: s3c2410_wdt: add Google gs201
+compatible").
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Signed-off-by: Derek Ross <derekross@gmail.com>
+---
+ drivers/watchdog/s3c2410_wdt.c | 2 --
+ 1 file changed, 2 deletions(-)
+
+diff --git a/drivers/watchdog/s3c2410_wdt.c b/drivers/watchdog/s3c2410_wdt.c
+index 288e6ff15..714eb0ed0 100644
+--- a/drivers/watchdog/s3c2410_wdt.c
++++ b/drivers/watchdog/s3c2410_wdt.c
+@@ -407,8 +407,6 @@ static const struct s3c2410_wdt_variant drv_data_exynosautov920_cl1 = {
+ static const struct of_device_id s3c2410_wdt_match[] = {
+ 	{ .compatible = "google,gs101-wdt",
+ 	  .data = &drv_data_gs101_cl0 },
+-	{ .compatible = "google,gs201-wdt",
+-	  .data = &drv_data_gs101_cl0 },
+ 	{ .compatible = "google,zuma-wdt",
+ 	  .data = &drv_data_zuma_cl0 },
+ 	{ .compatible = "samsung,s3c6410-wdt",

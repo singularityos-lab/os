@@ -1,0 +1,49 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Sat, 31 Oct 2026 21:40:53 -0647
+Subject: [PATCH] clk: samsung: zumapro: Keep the PERIC0 GPIO bus clock on
+
+The PERIC0 GPIO gate is writable and in manual mode (CLK_CON_GAT 0x20b8
+reads 0x100000: MANUAL set, automatic clock gating off). The Samsung
+pin controller enables its pclk around every register access and
+disables it afterwards, so each GPIO write on the block turns the gate
+on and off. Stock never does this: its device tree gives zumapro's pin
+controllers no clocks, so Google's pin controller never switches
+the GPIO bus clocks off.
+
+On the Pixel 9a the modem's AP2CP control lines are on this block and
+toggle on every PCIe link power cycle, about twice a second during a
+GNSS session. With the gate toggling, the SoC hung within 37 to 1083
+link cycles in every session, at varying points, with no kernel error
+and a watchdog reset. With the clock held on (a bring-up module taking
+a reference) two 600 s sessions ran 1325 and 1326 link cycles each with
+no hang, and the same result followed with this change in the kernel.
+
+Mark the gate critical so the clock framework keeps it enabled.
+
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ drivers/clk/samsung/clk-zumapro.c | 8 +++++++-
+ 1 file changed, 7 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/clk/samsung/clk-zumapro.c b/drivers/clk/samsung/clk-zumapro.c
+index 2db80e4f4..a2811b7fd 100644
+--- a/drivers/clk/samsung/clk-zumapro.c
++++ b/drivers/clk/samsung/clk-zumapro.c
+@@ -759,9 +759,15 @@ static const struct samsung_div_clock peric0_dividers[] __initconst = {
+ 	      "zumapro_mout_peric0_usi6_user", 0x1824, 0, 4, 0, CLK_DIVIDER_READ_ONLY),
+ };
+ 
++/*
++ * The GPIO block's bus clock stays on. The gate is in manual mode (no
++ * automatic clock gating on this CMU here), and the pin controller turns
++ * it off after every register access; with the modem's AP2CP lines on
++ * this block toggling twice a second, the SoC hung within minutes.
++ */
+ static const struct samsung_gate_clock peric0_gates[] __initconst = {
+ 	GATE(CLK_GOUT_GPIO_PERIC0, "zumapro_gpio_peric0", "zumapro_peric0_noc_user",
+-	     0x20b8, 21, CLK_IGNORE_UNUSED, 0),
++	     0x20b8, 21, CLK_IS_CRITICAL, 0),
+ };
+ 
+ static const struct samsung_gate_clock peric0_ro_gates[] __initconst = {

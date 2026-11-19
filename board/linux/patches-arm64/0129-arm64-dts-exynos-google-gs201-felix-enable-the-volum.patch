@@ -1,0 +1,69 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: boozedog <code@booze.dog>
+Date: Thu, 22 Oct 2026 15:28:07 -0400
+Subject: [PATCH] arm64: dts: exynos: google: gs201-felix: enable the volume
+ keys
+
+Volume down is gpa10-1 with a pull-up and volume up is gpa8-5 with
+no pull. Both are active-low and match the factory overlay and the
+Pixel 7 Pro keys. Each reported a press and a release on slot B.
+
+Signed-off-by: boozedog <code@booze.dog>
+---
+ .../boot/dts/exynos/google/gs201-felix.dts    | 32 +++++++++++++++++--
+ 1 file changed, 29 insertions(+), 3 deletions(-)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/gs201-felix.dts b/arch/arm64/boot/dts/exynos/google/gs201-felix.dts
+index 3dd715dac..734b3c94b 100644
+--- a/arch/arm64/boot/dts/exynos/google/gs201-felix.dts
++++ b/arch/arm64/boot/dts/exynos/google/gs201-felix.dts
+@@ -3,13 +3,15 @@
+  * Google Pixel Fold (felix).
+  *
+  * Same GS201 silicon as the Pixel 7 Pro. This board file brings up USB,
+- * the cover framebuffer the bootloader is already scanning, UFS, and the
+- * GPU. It does not describe either panel or either touch controller. The
+- * inner panel has no node that could drive it.
++ * the cover framebuffer the bootloader is already scanning, UFS, the
++ * GPU, and the volume keys. It does not describe either panel or
++ * either touch controller. The inner panel has no node that could
++ * drive it.
+  */
+ 
+ /dts-v1/;
+ 
++#include <dt-bindings/input/input.h>
+ #include "gs201.dtsi"
+ 
+ / {
+@@ -72,6 +74,30 @@ ufs_0_fixed_vcc_reg: regulator-ufs-vcc {
+ 		regulator-always-on;
+ 		regulator-boot-on;
+ 	};
++
++	/*
++	 * Volume down is gpa10-1 with a pull-up. Volume up is gpa8-5 with
++	 * no pull. Both are active-low.
++	 */
++	gpio-keys {
++		compatible = "gpio-keys";
++		pinctrl-names = "default";
++		pinctrl-0 = <&key_voldown>, <&key_volup>;
++
++		button-vol-down {
++			label = "KEY_VOLUMEDOWN";
++			linux,code = <KEY_VOLUMEDOWN>;
++			gpios = <&gpa10 1 GPIO_ACTIVE_LOW>;
++			wakeup-source;
++		};
++
++		button-vol-up {
++			label = "KEY_VOLUMEUP";
++			linux,code = <KEY_VOLUMEUP>;
++			gpios = <&gpa8 5 GPIO_ACTIVE_LOW>;
++			wakeup-source;
++		};
++	};
+ };
+ 
+ &usbdrd31_phy {

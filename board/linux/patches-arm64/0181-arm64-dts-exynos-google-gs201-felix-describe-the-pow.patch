@@ -1,0 +1,56 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: boozedog <code@booze.dog>
+Date: Fri, 23 Oct 2026 18:10:56 -0400
+Subject: [PATCH] arm64: dts: exynos: google: gs201-felix: describe the power
+ key
+
+The power key is gpa10-0, the S2MPG12 PWRONB line, active-low with
+a pull-up, the same pin as the Pixel 7 Pro. Stock dts/gs201-common.dtsi
+names this pin key_power (PMIC_PWRON_OD_L) and gives it a pull-up.
+The pin group already exists. logind ignores a short press
+(omamobile-device-felix 0.1.2, as on the Pixel 7 Pro), so describing
+the key does not power the phone off. The long press stays the PMIC
+reset.
+
+Signed-off-by: boozedog <code@booze.dog>
+---
+ arch/arm64/boot/dts/exynos/google/gs201-felix.dts | 15 ++++++++++++---
+ 1 file changed, 12 insertions(+), 3 deletions(-)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/gs201-felix.dts b/arch/arm64/boot/dts/exynos/google/gs201-felix.dts
+index 69a8ab115..191c6a33b 100644
+--- a/arch/arm64/boot/dts/exynos/google/gs201-felix.dts
++++ b/arch/arm64/boot/dts/exynos/google/gs201-felix.dts
+@@ -79,13 +79,15 @@ ufs_0_fixed_vcc_reg: regulator-ufs-vcc {
+ 
+ 	/*
+ 	 * Volume down is gpa10-1 with a pull-up. Volume up is gpa8-5 with
+-	 * no pull. The hinge hall is the factory hall_sensor on gpa2-3,
+-	 * active-low with no pull. All three are active-low.
++	 * no pull. Power is gpa10-0, the S2MPG12 PWRONB line, with a
++	 * pull-up. The hinge hall is the factory hall_sensor on gpa2-3,
++	 * active-low with no pull. All four are active-low. The PMIC's
++	 * own long-press reset is unaffected.
+ 	 */
+ 	gpio-keys {
+ 		compatible = "gpio-keys";
+ 		pinctrl-names = "default";
+-		pinctrl-0 = <&key_voldown>, <&key_volup>, <&hall_lid>;
++		pinctrl-0 = <&key_voldown>, <&key_volup>, <&key_power>, <&hall_lid>;
+ 
+ 		button-vol-down {
+ 			label = "KEY_VOLUMEDOWN";
+@@ -101,6 +103,13 @@ button-vol-up {
+ 			wakeup-source;
+ 		};
+ 
++		button-power {
++			label = "KEY_POWER";
++			linux,code = <KEY_POWER>;
++			gpios = <&gpa10 0 GPIO_ACTIVE_LOW>;
++			wakeup-source;
++		};
++
+ 		switch-lid {
+ 			label = "SW_LID";
+ 			linux,input-type = <EV_SW>;

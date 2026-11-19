@@ -1,0 +1,70 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Fri, 23 Oct 2026 23:37:51 -0400
+Subject: [PATCH] arm64: dts: exynos: google: gs201: use the gs101 fallbacks
+ for the PMU and watchdogs
+
+gs201's PMU, its interrupt generator and the cluster watchdogs are
+gs101's, and the bindings now document them with gs101 fallbacks. Use
+those, so the nodes validate and the drivers need no gs201 entries.
+
+The PMU also loses "syscon", as on gs101. Its registers are written
+through the EL3 monitor, and exynos-pmu registers that regmap with
+syscon at probe. With "syscon" in the node, a consumer that looked the
+PMU up first (the UFS and USB PHYs and the watchdogs use
+syscon_regmap_lookup_by_phandle()) would get a plain MMIO regmap
+whose writes the PMU ignores, and exynos-pmu's own registration would
+then fail. The watchdogs are the sharp case: ABL leaves them running,
+and if their PMU mask writes were ignored the phone would reset about a
+minute after boot. Without "syscon" an early consumer defers until
+exynos-pmu has probed. On the boots so far exynos-pmu came first (only
+its regmaps exist), so this removes an ordering dependency rather than
+fixing a seen failure.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Signed-off-by: Derek Ross <derekross@gmail.com>
+---
+ arch/arm64/boot/dts/exynos/google/gs201.dtsi | 9 +++++----
+ 1 file changed, 5 insertions(+), 4 deletions(-)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/gs201.dtsi b/arch/arm64/boot/dts/exynos/google/gs201.dtsi
+index 81504af41..5ccb5bd5d 100644
+--- a/arch/arm64/boot/dts/exynos/google/gs201.dtsi
++++ b/arch/arm64/boot/dts/exynos/google/gs201.dtsi
+@@ -934,7 +934,7 @@ mct: timer@10050000 {
+ 		 * them at probe unless tmr_atboot is set.
+ 		 */
+ 		watchdog_cl0: watchdog@10060000 {
+-			compatible = "google,gs201-wdt";
++			compatible = "google,gs201-wdt", "google,gs101-wdt";
+ 			reg = <0x10060000 0x100>;
+ 			clocks = <&cmu_misc CLK_GOUT_MISC_WDT_CLUSTER0_PCLK>,
+ 				 <&oscclk>;
+@@ -945,7 +945,7 @@ watchdog_cl0: watchdog@10060000 {
+ 		};
+ 
+ 		watchdog_cl1: watchdog@10070000 {
+-			compatible = "google,gs201-wdt";
++			compatible = "google,gs201-wdt", "google,gs101-wdt";
+ 			reg = <0x10070000 0x100>;
+ 			clocks = <&cmu_misc CLK_GOUT_MISC_WDT_CLUSTER1_PCLK>,
+ 				 <&oscclk>;
+@@ -974,7 +974,7 @@ sysreg_apm: syscon@18020000 {
+ 		};
+ 
+ 		pmu_system_controller: system-controller@18060000 {
+-			compatible = "google,gs201-pmu", "syscon";
++			compatible = "google,gs201-pmu", "google,gs101-pmu";
+ 			reg = <0x18060000 0x10000>;
+ 			google,pmu-intr-gen-syscon = <&pmu_intr_gen>;
+ 
+@@ -995,7 +995,8 @@ reboot-mode {
+ 		};
+ 
+ 		pmu_intr_gen: syscon@18070000 {
+-			compatible = "google,gs201-pmu-intr-gen", "syscon";
++			compatible = "google,gs201-pmu-intr-gen", "google,gs101-pmu-intr-gen",
++				     "syscon";
+ 			reg = <0x18070000 0x10000>;
+ 		};
+ 

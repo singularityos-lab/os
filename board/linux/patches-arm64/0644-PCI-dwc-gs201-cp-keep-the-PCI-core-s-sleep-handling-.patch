@@ -1,0 +1,85 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Hiroyuki Ikegami <ikegam@mixallow.net>
+Date: Mon, 9 Nov 2026 20:15:16 +0900
+Subject: [PATCH] PCI: dwc: gs201-cp: keep the PCI core's sleep handling off
+ the modem's root port
+
+The modem keeps its link down between transfers, and the root port's
+configuration space is unreachable while it is down. The first
+suspend-to-idle with the modem online (link down at the time) went:
+
+  pcieport 0001:00:00.0: Unable to change power state from D0 to D3hot, device inaccessible
+  pcieport 0001:00:00.0: Unable to change power state from D3cold to D0, device inaccessible
+  pcieport 0001:00:00.0: Data Link Layer Link Active not set in 100 msec
+
+The failed D3hot left the port marked D3cold, so resume waited for the
+link, which only comes back when the modem driver asks for it, and
+marked the modem disconnected. When the modem driver raised the link
+3 s later, every kernel config read of the modem returned 0xffff (a
+config read from user space still saw its vendor ID), and CPIF could not
+ring its doorbell again.
+
+Mark the root port PCI_DEV_FLAGS_NO_D3. It stays in D0, the PCI core
+skips its bus PM in suspend-to-idle (skip_bus_pm), and resume leaves
+the link to the modem driver, as at runtime.
+
+Only with sleep_guard (gs201), as the sleep callbacks: the Pixel 9a's
+root port is handled as before.
+
+Assisted-by: LLM
+Signed-off-by: Hiroyuki Ikegami <ikegam@mixallow.net>
+---
+ drivers/pci/controller/dwc/pcie-gs201-cp.c | 19 +++++++++++++++++--
+ 1 file changed, 17 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/pci/controller/dwc/pcie-gs201-cp.c b/drivers/pci/controller/dwc/pcie-gs201-cp.c
+index 3c32853be..de7923787 100644
+--- a/drivers/pci/controller/dwc/pcie-gs201-cp.c
++++ b/drivers/pci/controller/dwc/pcie-gs201-cp.c
+@@ -247,7 +247,8 @@ static const char * const cp_input_names[CP_NUM_INPUTS] = {
+  * @sysreg_optional: without samsung,sysreg the link runs without I/O
+  *	coherency
+  * @sleep_guard: system sleep with the modem up has been tried on this SoC
+- *	(gs201): the noirq sleep callbacks run; elsewhere they do nothing
++ *	(gs201): the noirq sleep callbacks run, and the root port is kept out
++ *	of the PCI core's D3 handling; elsewhere neither happens
+  */
+ struct gs201_pcie_cp_data {
+ 	bool zuma_ctrl;
+@@ -808,6 +809,7 @@ static void cp_root_win_restore(struct gs201_pcie_cp *cp)
+ 
+ static int cp_bus(struct gs201_pcie_cp *cp)
+ {
++	struct pci_dev *rp;
+ 	int ret;
+ 
+ 	if (!cp->link_up || !cp->atu_done)
+@@ -826,6 +828,18 @@ static int cp_bus(struct gs201_pcie_cp *cp)
+ 	ret = pci_host_probe(cp->bridge);
+ 	if (ret)
+ 		return ret;
++	/*
++	 * The link is down between transfers, and with it the root port's
++	 * configuration space. Its power state is the modem driver's call:
++	 * left to the PCI core, a system sleep with the link down marked the
++	 * root port D3cold, and resume then took the modem as disconnected,
++	 * since the link only comes back when the modem driver asks for it.
++	 * Only where system sleep with the modem up has been tried
++	 * (sleep_guard, gs201).
++	 */
++	if (cp->data->sleep_guard)
++		list_for_each_entry(rp, &cp->bridge->bus->devices, bus_list)
++			rp->dev_flags |= PCI_DEV_FLAGS_NO_D3;
+ 	pci_walk_bus(cp->bridge->bus, cp_bus_report, cp);
+ 	cp_root_win_save(cp);
+ 
+@@ -2313,7 +2327,8 @@ static void gs201_pcie_cp_remove(struct platform_device *pdev)
+  * sleep. It is a late abort, not a guard: the root port and the modem are
+  * children of this device, so the PM core has already run their
+  * suspend_noirq when this runs, and the PCI core has already handled
+- * them; the refusal makes the PM core resume them and the sleep fails. The PMU's isolation bit is
++ * them (harmlessly, with PCI_DEV_FLAGS_NO_D3 on the port, see cp_bus());
++ * the refusal makes the PM core resume them and the sleep fails. The PMU's isolation bit is
+  * only logged: a phone whose modem never started has never isolated the
+  * PHY, and must still sleep.
+  */

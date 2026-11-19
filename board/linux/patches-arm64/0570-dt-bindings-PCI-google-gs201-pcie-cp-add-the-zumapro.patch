@@ -1,0 +1,150 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Mon, 2 Nov 2026 13:18:57 -0647
+Subject: [PATCH] dt-bindings: PCI: google,gs201-pcie-cp: add the zumapro modem
+ link
+
+The Pixel 9a (zumapro, Tensor G4) connects the same Samsung S5300 modem
+through HSI1 GEN3A_0, a two-lane Gen3 DesignWare root complex. It has no
+I/A sequencer and no secure monitor translation: the host programs the
+outbound iATU itself. Its two-lane PHY has a driver of its own
+(google,zumapro-pcie-gen3x2-phy), so the controller keeps phys as on
+gs201 and describes no PHY registers.
+
+Add the compatible with three register windows, and make the
+shareability register optional for it: the link has run without I/O
+coherency so far, and stock's SYSREG_HSI1 hasn't been accessed from
+Linux yet. On zumapro the PHY stays out of isolation once released, as
+stock leaves it, so say so in the PMU property.
+
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ .../bindings/pci/google,gs201-pcie-cp.yaml    | 70 +++++++++++++++++--
+ 1 file changed, 64 insertions(+), 6 deletions(-)
+
+diff --git a/Documentation/devicetree/bindings/pci/google,gs201-pcie-cp.yaml b/Documentation/devicetree/bindings/pci/google,gs201-pcie-cp.yaml
+index 0b8ed61f0..005f1d454 100644
+--- a/Documentation/devicetree/bindings/pci/google,gs201-pcie-cp.yaml
++++ b/Documentation/devicetree/bindings/pci/google,gs201-pcie-cp.yaml
+@@ -4,7 +4,7 @@
+ $id: http://devicetree.org/schemas/pci/google,gs201-pcie-cp.yaml#
+ $schema: http://devicetree.org/meta-schemas/core.yaml#
+ 
+-title: Google gs201 PCIe GEN4A_0 (modem link)
++title: Google gs201 and zumapro PCIe modem link
+ 
+ maintainers:
+   - Derek Ross <derekross@gmail.com>
+@@ -17,21 +17,48 @@ description: |
+   at a fixed window. The modem's control lines are described in a "modem"
+   child node.
+ 
++  zumapro (Tensor G4, Pixel 9a) connects the same modem through PCIe GEN3A_0
++  in its HSI1 block, a two-lane Gen3 root complex. It has no I/A sequencer
++  and no secure monitor translation: the host programs its outbound address
++  translation itself, and its two-lane PHY has a driver of its own.
++
+ allOf:
+   - $ref: /schemas/pci/pci-host-bridge.yaml#
++  - if:
++      properties:
++        compatible:
++          const: google,gs201-pcie-cp
++    then:
++      properties:
++        reg:
++          minItems: 4
++        reg-names:
++          minItems: 4
++      required:
++        - samsung,sysreg
++    else:
++      properties:
++        reg:
++          maxItems: 3
++        reg-names:
++          maxItems: 3
+ 
+ properties:
+   compatible:
+-    const: google,gs201-pcie-cp
++    enum:
++      - google,gs201-pcie-cp
++      - google,zumapro-pcie-cp
+ 
+   reg:
++    minItems: 3
+     items:
+       - description: sub-controller (ELBI) registers
+       - description: DesignWare DBI registers
+       - description: endpoint configuration space window
+-      - description: I/A sequencer registers
++      - description: I/A sequencer registers (gs201)
+ 
+   reg-names:
++    minItems: 3
+     items:
+       - const: elbi
+       - const: dbi
+@@ -84,7 +111,8 @@ properties:
+           - description: offset of the PHY isolation control register
+     description:
+       PMU and the PHY isolation control register. The PHY driver releases
+-      isolation; this controller sets it again once the link is down.
++      isolation. On gs201 this controller sets it again once the link is
++      down; on zumapro the PHY stays out of isolation, as stock leaves it.
+ 
+   memory-region:
+     maxItems: 1
+@@ -99,7 +127,9 @@ properties:
+       - items:
+           - description: HSI1 system registers
+           - description: offset of the shareability control register
+-    description: SYSREG_HSI1 and its PCIe shareability (I/O coherency) register.
++    description:
++      SYSREG_HSI1 and its PCIe shareability (I/O coherency) register.
++      Optional on zumapro, whose link then runs without I/O coherency.
+ 
+   modem:
+     type: object
+@@ -164,7 +194,6 @@ required:
+   - phys
+   - reset-gpios
+   - samsung,pmu-syscon
+-  - samsung,sysreg
+ 
+ unevaluatedProperties: false
+ 
+@@ -215,3 +244,32 @@ examples:
+             cp2ap-phone-active-gpios = <&gpa8 4 GPIO_ACTIVE_HIGH>;
+         };
+     };
++  - |
++    #include <dt-bindings/gpio/gpio.h>
++    #include <dt-bindings/interrupt-controller/arm-gic.h>
++
++    pcie@12100000 {
++        compatible = "google,zumapro-pcie-cp";
++        #address-cells = <3>;
++        #size-cells = <2>;
++        device_type = "pci";
++        ranges = <0x82000000 0x0 0x14e00000 0x40000000 0x0 0xff0000>;
++        bus-range = <0x00 0xff>;
++        reg = <0x12100000 0x1400>, <0x12400000 0x381000>,
++              <0x40ffe000 0x2000>;
++        reg-names = "elbi", "dbi", "config";
++        interrupts = <GIC_SPI 414 IRQ_TYPE_LEVEL_HIGH>,
++                     <GIC_SPI 416 IRQ_TYPE_LEVEL_HIGH>,
++                     <GIC_SPI 417 IRQ_TYPE_LEVEL_HIGH>,
++                     <GIC_SPI 418 IRQ_TYPE_LEVEL_HIGH>,
++                     <GIC_SPI 419 IRQ_TYPE_LEVEL_HIGH>,
++                     <GIC_SPI 420 IRQ_TYPE_LEVEL_HIGH>;
++        interrupt-names = "ctrl", "msi0", "msi1", "msi2", "msi3", "msi4";
++        phys = <&pcie_0_phy>;
++        phy-names = "pcie";
++        memory-region = <&cp_msi_rmem>;
++        reset-gpios = <&gph0 0 GPIO_ACTIVE_LOW>;
++        samsung,pmu-syscon = <&pmu_system_controller 0x3ec4>;
++        num-lanes = <2>;
++        max-link-speed = <3>;
++    };

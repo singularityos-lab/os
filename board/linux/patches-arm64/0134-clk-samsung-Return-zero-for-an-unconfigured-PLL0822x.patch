@@ -1,0 +1,31 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Thu, 22 Oct 2026 16:19:56 -0700
+Subject: [PATCH] clk: samsung: Return zero for an unconfigured PLL0822x
+ divider
+
+An unconfigured PLL can report a zero pre-divider. Avoid dividing by
+zero when recalculating its rate and report an unavailable clock instead.
+The existing Tensor G4 bring-up source carries this guard, while the
+0516x/0517x/0518x PLL types themselves already exist in the public base.
+This does not program PLLs or establish power-management support.
+
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ drivers/clk/samsung/clk-pll.c | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/drivers/clk/samsung/clk-pll.c b/drivers/clk/samsung/clk-pll.c
+index e74552846..853a7343f 100644
+--- a/drivers/clk/samsung/clk-pll.c
++++ b/drivers/clk/samsung/clk-pll.c
+@@ -461,6 +461,9 @@ static unsigned long samsung_pll0822x_recalc_rate(struct clk_hw *hw,
+ 	pdiv = (pll_con3 >> PLL0822X_PDIV_SHIFT) & PLL0822X_PDIV_MASK;
+ 	sdiv = (pll_con3 >> PLL0822X_SDIV_SHIFT) & PLL0822X_SDIV_MASK;
+ 
++	if (!pdiv)
++		return 0;
++
+ 	fvco *= mdiv;
+ 	if (pll->type == pll_0516x)
+ 		fvco *= 2;

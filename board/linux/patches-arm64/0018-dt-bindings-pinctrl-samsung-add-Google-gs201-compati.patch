@@ -1,0 +1,51 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Sun, 11 Oct 2026 19:04:05 -0400
+Subject: [PATCH] dt-bindings: pinctrl: samsung: add Google gs201 compatibles
+
+Add google,gs201-pinctrl for the pin controllers of the Google gs201
+(Tensor G2) SoC, and google,gs201-wakeup-eint for its external wake-up
+interrupt controllers, which are programmed like the gs101 ones.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ .../bindings/pinctrl/samsung,pinctrl-wakeup-interrupt.yaml   | 5 +++++
+ .../devicetree/bindings/pinctrl/samsung,pinctrl.yaml         | 2 ++
+ 2 files changed, 7 insertions(+)
+
+diff --git a/Documentation/devicetree/bindings/pinctrl/samsung,pinctrl-wakeup-interrupt.yaml b/Documentation/devicetree/bindings/pinctrl/samsung,pinctrl-wakeup-interrupt.yaml
+index 802911e23..56cb0a742 100644
+--- a/Documentation/devicetree/bindings/pinctrl/samsung,pinctrl-wakeup-interrupt.yaml
++++ b/Documentation/devicetree/bindings/pinctrl/samsung,pinctrl-wakeup-interrupt.yaml
+@@ -55,6 +55,11 @@ properties:
+               - samsung,exynosautov9-wakeup-eint
+           - const: samsung,exynos850-wakeup-eint
+           - const: samsung,exynos7-wakeup-eint
++      - items:
++          - const: google,gs201-wakeup-eint
++          - const: google,gs101-wakeup-eint
++          - const: samsung,exynos850-wakeup-eint
++          - const: samsung,exynos7-wakeup-eint
+ 
+   interrupts:
+     description:
+diff --git a/Documentation/devicetree/bindings/pinctrl/samsung,pinctrl.yaml b/Documentation/devicetree/bindings/pinctrl/samsung,pinctrl.yaml
+index 1feb6a6fc..1a9633bef 100644
+--- a/Documentation/devicetree/bindings/pinctrl/samsung,pinctrl.yaml
++++ b/Documentation/devicetree/bindings/pinctrl/samsung,pinctrl.yaml
+@@ -38,6 +38,7 @@ properties:
+       - axis,artpec8-pinctrl
+       - axis,artpec9-pinctrl
+       - google,gs101-pinctrl
++      - google,gs201-pinctrl
+       - samsung,s3c64xx-pinctrl
+       - samsung,s5pv210-pinctrl
+       - samsung,exynos2200-pinctrl
+@@ -139,6 +140,7 @@ allOf:
+           contains:
+             enum:
+               - google,gs101-pinctrl
++              - google,gs201-pinctrl
+               - samsung,exynos8890-pinctrl
+     then:
+       required:

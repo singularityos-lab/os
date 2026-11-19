@@ -1,0 +1,34 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?=C3=81ngel=20Ren=C3=A9?=
+ <17342133+angelrenefm@users.noreply.github.com>
+Date: Sat, 14 Nov 2026 19:27:08 +0100
+Subject: [PATCH] media: s5p-mfc: fill field and num_planes in the encoder
+ TRY_FMT
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The encoder's VIDIOC_TRY_FMT for the OUTPUT queue leaves field and
+num_planes as the client passed them. GStreamer reports a driver bug for
+V4L2_FIELD_ANY, and a client cannot learn the plane count of a format
+before setting it.
+
+Assisted-by: LLM
+Signed-off-by: Ángel René <17342133+angelrenefm@users.noreply.github.com>
+---
+ drivers/media/platform/samsung/s5p-mfc/s5p_mfc_enc.c | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_enc.c b/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_enc.c
+index df9566779..57e846bd7 100644
+--- a/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_enc.c
++++ b/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_enc.c
+@@ -1468,6 +1468,8 @@ static int vidioc_try_fmt(struct file *file, void *priv, struct v4l2_format *f)
+ 		else
+ 			v4l_bound_align_image(&pix_fmt_mp->width, 8, 1920, 1, &pix_fmt_mp
+ 					->height, 4, 1080, 1, 0);
++		pix_fmt_mp->field = V4L2_FIELD_NONE;
++		pix_fmt_mp->num_planes = fmt->num_planes;
+ 	} else {
+ 		mfc_err("invalid buf type\n");
+ 		return -EINVAL;

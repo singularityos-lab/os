@@ -1,0 +1,174 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Mon, 12 Oct 2026 09:47:34 -0400
+Subject: [PATCH] arm64: dts: exynos: google: gs201-cheetah: describe the
+ speaker amplifiers
+
+Describe the two Cirrus Logic CS35L41 amplifiers on USI7 SPI: chip
+select 0 (gpp14-3) drives the top speaker, which is also the earpiece,
+chip select 1 (gpp22-1) the bottom loudspeaker. Interrupts on gpa6-3 and
+gpa8-6 (push-pull, active high, from the amplifiers' GPIO2), resets on
+gpp17-1 and gpp25-2, VA from S2MPG13 BUCKA and VP from VSYS, both
+described as fixed always-on rails until there is an S2MPG13 regulator
+driver.
+
+Boost inductor and capacitor are the stock values (1 uH, 30 uF). The
+boost peak current is 2.5 A, the value stock uses for speaker playback,
+rather than the 3.5 A stock DT default used for voice calls.
+
+The amplifiers' audio port is wired to the AoC, so these nodes give
+register access only. They stay disabled until a bring-up overlay
+enables them.
+
+Assisted-by: LLM
+Signed-off-by: Derek Ross <derekross@gmail.com>
+---
+ .../boot/dts/exynos/google/gs201-cheetah.dts  | 135 ++++++++++++++++++
+ 1 file changed, 135 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts b/arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts
+index dec6fa6de..81aa25ada 100644
+--- a/arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts
++++ b/arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts
+@@ -335,6 +335,141 @@ touchscreen@0 {
+ 	};
+ };
+ 
++/*
++ * Speaker amplifiers: two Cirrus Logic CS35L41 (revision B2) on PERIC0 USI7
++ * SPI, from Google's gs201-cheetah-audio.dtsi. Chip select 0 is the top
++ * speaker, which is also the earpiece; chip select 1 is the bottom
++ * loudspeaker. Their audio port (TDM) is wired to the AoC audio DSP, so
++ * without an AoC driver these nodes give register access only, no sound.
++ *
++ * The boost values are the stock ones, except the peak current: 2.5 A (stock
++ * speaker playback) instead of the stock DT default of 3.5 A (voice calls),
++ * until the bring-up gates in AUDIO-PLAN.md have passed. The inductor and
++ * capacitor values select the boost loop coefficients and must stay as they
++ * are. Everything stays disabled until a bring-up overlay enables it.
++ */
++/ {
++	/* S2MPG13 BUCKA ("SA"), always on; no S2MPG13 regulator driver yet. */
++	amp_va: regulator-amp-va {
++		compatible = "regulator-fixed";
++		regulator-name = "amp-va";
++		regulator-min-microvolt = <1800000>;
++		regulator-max-microvolt = <1800000>;
++		regulator-always-on;
++		regulator-boot-on;
++	};
++
++	/* The amplifiers' VP pins sit directly on VSYS (stock: V_SYS_DUMMY). */
++	amp_vp: regulator-amp-vp {
++		compatible = "regulator-fixed";
++		regulator-name = "amp-vp";
++		regulator-min-microvolt = <4200000>;
++		regulator-max-microvolt = <4200000>;
++		regulator-always-on;
++		regulator-boot-on;
++	};
++};
++
++&usi7 {
++	samsung,mode = <USI_MODE_SPI>;
++};
++
++&spi_7 {
++	pinctrl-0 = <&spi7_bus &spi7_miso &amp_top_cs &amp_bottom_cs>;
++	cs-gpios = <&gpp14 3 GPIO_ACTIVE_LOW>, <&gpp22 1 GPIO_ACTIVE_LOW>;
++	num-cs = <2>;
++
++	amp_top: amplifier@0 {
++		compatible = "cirrus,cs35l41";
++		reg = <0>;
++		#sound-dai-cells = <1>;
++		interrupts-extended = <&gpa6 3 IRQ_TYPE_LEVEL_HIGH>;
++		/* AMP1_RESET_L: the driver drives 1 to release reset */
++		reset-gpios = <&gpp17 1 GPIO_ACTIVE_HIGH>;
++		pinctrl-0 = <&amp_top_irq &amp_top_rst>;
++		pinctrl-names = "default";
++		VA-supply = <&amp_va>;
++		VP-supply = <&amp_vp>;
++		sound-name-prefix = "Top";
++		cirrus,subsystem-id = "cheetah";
++		cirrus,boost-type = <0>;
++		cirrus,boost-peak-milliamp = <2500>;
++		cirrus,boost-ind-nanohenry = <1000>;
++		cirrus,boost-cap-microfarad = <30>;
++		cirrus,asp-sdout-hiz = <3>;
++		/* GPIO2 = push-pull interrupt, active high */
++		cirrus,gpio2-src-select = <5>;
++		cirrus,gpio2-output-enable;
++		status = "disabled";
++	};
++
++	amp_bottom: amplifier@1 {
++		compatible = "cirrus,cs35l41";
++		reg = <1>;
++		#sound-dai-cells = <1>;
++		interrupts-extended = <&gpa8 6 IRQ_TYPE_LEVEL_HIGH>;
++		/* AMP2_RESET_L: the driver drives 1 to release reset */
++		reset-gpios = <&gpp25 2 GPIO_ACTIVE_HIGH>;
++		pinctrl-0 = <&amp_bottom_irq &amp_bottom_rst>;
++		pinctrl-names = "default";
++		VA-supply = <&amp_va>;
++		VP-supply = <&amp_vp>;
++		sound-name-prefix = "Bottom";
++		cirrus,subsystem-id = "cheetah";
++		cirrus,boost-type = <0>;
++		cirrus,boost-peak-milliamp = <2500>;
++		cirrus,boost-ind-nanohenry = <1000>;
++		cirrus,boost-cap-microfarad = <30>;
++		cirrus,asp-sdout-hiz = <3>;
++		cirrus,gpio2-src-select = <5>;
++		cirrus,gpio2-output-enable;
++		status = "disabled";
++	};
++};
++
++&pinctrl_far_alive {
++	amp_top_irq: amp-top-irq-pins {
++		samsung,pins = "gpa6-3";
++		samsung,pin-function = <GS101_PIN_FUNC_EINT>;
++		samsung,pin-pud = <GS101_PIN_PULL_NONE>;
++	};
++
++	amp_bottom_irq: amp-bottom-irq-pins {
++		samsung,pins = "gpa8-6";
++		samsung,pin-function = <GS101_PIN_FUNC_EINT>;
++		samsung,pin-pud = <GS101_PIN_PULL_NONE>;
++	};
++};
++
++&pinctrl_peric0 {
++	amp_top_cs: amp-top-cs-pins {
++		samsung,pins = "gpp14-3";
++		samsung,pin-function = <GS101_PIN_FUNC_OUTPUT>;
++		samsung,pin-pud = <GS101_PIN_PULL_NONE>;
++		samsung,pin-drv = <GS101_PIN_DRV_5_MA>;
++	};
++
++	amp_top_rst: amp-top-rst-pins {
++		samsung,pins = "gpp17-1";
++		samsung,pin-function = <GS101_PIN_FUNC_OUTPUT>;
++		samsung,pin-pud = <GS101_PIN_PULL_NONE>;
++	};
++};
++
++&pinctrl_peric1 {
++	amp_bottom_cs: amp-bottom-cs-pins {
++		samsung,pins = "gpp22-1";
++		samsung,pin-function = <GS101_PIN_FUNC_OUTPUT>;
++		samsung,pin-pud = <GS101_PIN_PULL_NONE>;
++	};
++
++	amp_bottom_rst: amp-bottom-rst-pins {
++		samsung,pins = "gpp25-2";
++		samsung,pin-function = <GS101_PIN_FUNC_OUTPUT>;
++		samsung,pin-pud = <GS101_PIN_PULL_NONE>;
++	};
++};
++
+ &usbdrd31_phy {
+ 	status = "okay";
+ };

@@ -1,0 +1,77 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: boozedog <code@booze.dog>
+Date: Thu, 22 Oct 2026 15:28:28 -0400
+Subject: [PATCH] arm64: dts: exynos: google: gs201-felix: enable the hinge
+ hall sensor
+
+The DRV5032 on gpa2-3 is the factory hall_sensor. It is an active-low
+lid switch with no pull, on the same gpio-keys node as the volume
+keys. gpa2 is an alive bank, so the pin group sets no sleep config.
+Closed reads as shut and open reads as open.
+
+Signed-off-by: boozedog <code@booze.dog>
+---
+ .../boot/dts/exynos/google/gs201-felix.dts    | 28 +++++++++++++++----
+ 1 file changed, 23 insertions(+), 5 deletions(-)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/gs201-felix.dts b/arch/arm64/boot/dts/exynos/google/gs201-felix.dts
+index 734b3c94b..2a504f243 100644
+--- a/arch/arm64/boot/dts/exynos/google/gs201-felix.dts
++++ b/arch/arm64/boot/dts/exynos/google/gs201-felix.dts
+@@ -4,9 +4,9 @@
+  *
+  * Same GS201 silicon as the Pixel 7 Pro. This board file brings up USB,
+  * the cover framebuffer the bootloader is already scanning, UFS, the
+- * GPU, and the volume keys. It does not describe either panel or
+- * either touch controller. The inner panel has no node that could
+- * drive it.
++ * GPU, the volume keys, and the hinge hall sensor. It does not
++ * describe either panel or either touch controller. The inner panel
++ * has no node that could drive it.
+  */
+ 
+ /dts-v1/;
+@@ -77,12 +77,13 @@ ufs_0_fixed_vcc_reg: regulator-ufs-vcc {
+ 
+ 	/*
+ 	 * Volume down is gpa10-1 with a pull-up. Volume up is gpa8-5 with
+-	 * no pull. Both are active-low.
++	 * no pull. The hinge hall is the factory hall_sensor on gpa2-3,
++	 * active-low with no pull. All three are active-low.
+ 	 */
+ 	gpio-keys {
+ 		compatible = "gpio-keys";
+ 		pinctrl-names = "default";
+-		pinctrl-0 = <&key_voldown>, <&key_volup>;
++		pinctrl-0 = <&key_voldown>, <&key_volup>, <&hall_lid>;
+ 
+ 		button-vol-down {
+ 			label = "KEY_VOLUMEDOWN";
+@@ -97,6 +98,15 @@ button-vol-up {
+ 			gpios = <&gpa8 5 GPIO_ACTIVE_LOW>;
+ 			wakeup-source;
+ 		};
++
++		switch-lid {
++			label = "SW_LID";
++			linux,input-type = <EV_SW>;
++			linux,code = <SW_LID>;
++			gpios = <&gpa2 3 GPIO_ACTIVE_LOW>;
++			linux,can-disable;
++			wakeup-source;
++		};
+ 	};
+ };
+ 
+@@ -121,3 +131,11 @@ &gpu {
+ 	/* No mali-supply: the G3D rails follow the PMU power domain and ACPM. */
+ 	status = "okay";
+ };
++
++&pinctrl_gpio_alive {
++	hall_lid: hall-lid-pins {
++		samsung,pins = "gpa2-3";
++		samsung,pin-function = <GS101_PIN_FUNC_EINT>;
++		samsung,pin-pud = <GS101_PIN_PULL_NONE>;
++	};
++};

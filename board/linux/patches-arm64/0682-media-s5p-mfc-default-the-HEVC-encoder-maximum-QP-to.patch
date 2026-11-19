@@ -1,0 +1,36 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?=C3=81ngel=20Ren=C3=A9?=
+ <17342133+angelrenefm@users.noreply.github.com>
+Date: Sat, 14 Nov 2026 19:26:54 +0100
+Subject: [PATCH] media: s5p-mfc: default the HEVC encoder maximum QP to 51
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+V4L2_CID_MPEG_VIDEO_HEVC_MAX_QP defaults to 0, and
+s5p_mfc_set_enc_params_hevc() writes the minimum and maximum QP as the
+QP bound. With the defaults every HEVC frame is coded at QP 0, whatever
+bitrate the client asks for, and the frame QP controls are clamped to
+[0, 0] until the client raises the maximum.
+
+Default it to 51, the top of the range, as the H.264 maximum QP.
+
+Assisted-by: LLM
+Signed-off-by: Ángel René <17342133+angelrenefm@users.noreply.github.com>
+---
+ drivers/media/platform/samsung/s5p-mfc/s5p_mfc_enc.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_enc.c b/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_enc.c
+index 3f8701e56..a82d22954 100644
+--- a/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_enc.c
++++ b/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_enc.c
+@@ -747,7 +747,7 @@ static struct mfc_control controls[] = {
+ 		.minimum = 0,
+ 		.maximum = 51,
+ 		.step = 1,
+-		.default_value = 0,
++		.default_value = 51,
+ 	},
+ 	{
+ 		.id = V4L2_CID_MPEG_VIDEO_HEVC_PROFILE,

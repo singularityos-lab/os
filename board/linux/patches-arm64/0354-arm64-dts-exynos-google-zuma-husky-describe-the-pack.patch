@@ -1,0 +1,60 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Lef <me@lefteros.com>
+Date: Sun, 1 Nov 2026 15:00:12 +0200
+Subject: [PATCH] arm64: dts: exynos: google: zuma-husky: describe the pack
+ EEPROM on hsi2c_9
+
+The Pixel 8 Pro's battery pack has an EEPROM on USI9 / hsi2c_9: stock
+has it as "at,24c08" at 0x50 on a 400 kHz bus. Its byte 0x17 is the
+battery ID that Google's driver matches against the fuel gauge models
+(0 the default model, 1 ATL, 2 COS, 3 LSN, 170 Google's dummy), and
+which pack the phone has is what decides the right model. The rest of
+the EEPROM holds the pack's part number, dates and history, so the node
+is read-only.
+
+Mainline's at24 driver wants "atmel,24c08", not stock's alias. The bus
+and USI9 stay disabled in the board file, like hsi2c_11; a bring-up
+overlay enables them. Nothing feeds the ID to the gauge yet.
+
+Tested on a Pixel 8 Pro (slot B, release 7.3.0-rc6-omamobile-push1-
+g7975b84a8017: Brett's c6 tree with #163 and the four commits of this
+series, as the branch husky-pack-eeprom-booted). A bring-up overlay
+enabled cmu_peric1, the sysreg, USI9 and hsi2c_9. The log shows
+
+  at24 0-0050: 1024 byte 24c08 EEPROM, read-only
+
+and a one-byte read of offset 0x17 returned 1, the ATL pack.
+
+Signed-off-by: Lef <me@lefteros.com>
+Assisted-by: LLM
+---
+ .../boot/dts/exynos/google/zuma-husky.dts     | 19 +++++++++++++++++++
+ 1 file changed, 19 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/zuma-husky.dts b/arch/arm64/boot/dts/exynos/google/zuma-husky.dts
+index 7a520b985..f9d30456a 100644
+--- a/arch/arm64/boot/dts/exynos/google/zuma-husky.dts
++++ b/arch/arm64/boot/dts/exynos/google/zuma-husky.dts
+@@ -311,3 +311,22 @@ gpio {
+ 		};
+ 	};
+ };
++
++/*
++ * The battery pack's EEPROM on USI9 / hsi2c_9 (stock: "at,24c08" at 0x50 on
++ * a 400 kHz bus, in the pack and powered by it). Byte 0x17 is the battery ID
++ * that Google's driver matches against the gauge models; the rest is the
++ * pack's part number, dates and history, so it is read-only here. The bus
++ * and USI9 stay disabled; a bring-up overlay enables them. Nothing reads the
++ * ID into the gauge yet.
++ */
++&hsi2c_9 {
++	clock-frequency = <400000>;
++
++	eeprom@50 {
++		compatible = "atmel,24c08";
++		reg = <0x50>;
++		pagesize = <16>;
++		read-only;
++	};
++};

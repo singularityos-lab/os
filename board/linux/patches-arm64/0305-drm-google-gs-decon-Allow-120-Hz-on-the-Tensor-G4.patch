@@ -1,0 +1,100 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Tue, 27 Oct 2026 12:03:06 -0647
+Subject: [PATCH] drm: google: gs-decon: Allow 120 Hz on the Tensor G4
+
+Offer the Pixel 9a's 120 Hz mode beside the bootloader's 60 Hz one,
+with TG4B/TG4C's timings (TG4A's porches differ; DECON only needs the
+active size and the totals).
+
+On gs201 the switch to 120 Hz raises the MIF and DISP floors first, and
+gs-decon only offers it when the board gives those clocks. The 9a's
+bootloader already leaves MIF at 2028 MHz and DISP at 400 MHz, above
+the 120 Hz floors, so on zumapro the floor clocks are optional
+(floors_optional): 120 Hz is offered without them, and they are still
+used when a board names them. Nothing in Linux keeps MIF and DISP above
+the floors on the 9a; it works because nothing lowers them yet, so the
+rates need a fresh look once ACPM DVFS or suspend changes them.
+
+Tested on the Pixel 9a with the tg4c timers from the previous commit:
+the desktop runs at 120 Hz (602 frames in 5 s, no underruns), drops to
+60 Hz with the panel asleep on DPMS off, and comes back at 120 Hz.
+
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ drivers/gpu/drm/google/gs-decon.c | 39 +++++++++++++++++--------------
+ 1 file changed, 22 insertions(+), 17 deletions(-)
+
+diff --git a/drivers/gpu/drm/google/gs-decon.c b/drivers/gpu/drm/google/gs-decon.c
+index a6ac9bca7..4d686e0e9 100644
+--- a/drivers/gpu/drm/google/gs-decon.c
++++ b/drivers/gpu/drm/google/gs-decon.c
+@@ -210,24 +210,26 @@ static const struct drm_display_mode gs_decon_modes[] = {
+ };
+ 
+ /*
+- * TG4B/TG4C 60 Hz timings from panel-gs-tg4b.c and panel-gs-tg4c.c.
+- * TG4A uses different porches; only the active size is consumed here.
+- * Keep the inherited 60 Hz configuration.
++ * TG4B/TG4C timings from panel-gs-tg4b.c and panel-gs-tg4c.c, at 60 Hz (the
++ * bootloader's) and 120 Hz. TG4A uses different porches; DECON only needs
++ * the active size and the totals.
+  */
++#define TEGU_DECON_MODE(hz) {						\
++	.clock = (1080 + 32 + 12 + 16) * (2424 + 12 + 4 + 15) * (hz) / 1000, \
++	.hdisplay = 1080,						\
++	.hsync_start = 1080 + 32,					\
++	.hsync_end = 1080 + 32 + 12,					\
++	.htotal = 1080 + 32 + 12 + 16,					\
++	.vdisplay = 2424,						\
++	.vsync_start = 2424 + 12,					\
++	.vsync_end = 2424 + 12 + 4,					\
++	.vtotal = 2424 + 12 + 4 + 15,					\
++	.type = DRM_MODE_TYPE_DRIVER,					\
++}
++
+ static const struct drm_display_mode tegu_decon_modes[] = {
+-	{
+-		.clock = (1080 + 32 + 12 + 16) * (2424 + 12 + 4 + 15) * 60 / 1000,
+-		.hdisplay = 1080,
+-		.hsync_start = 1080 + 32,
+-		.hsync_end = 1080 + 32 + 12,
+-		.htotal = 1080 + 32 + 12 + 16,
+-		.vdisplay = 2424,
+-		.vsync_start = 2424 + 12,
+-		.vsync_end = 2424 + 12 + 4,
+-		.vtotal = 2424 + 12 + 4 + 15,
+-		/* Physical size depends on the panel variant, not yet selected. */
+-		.type = DRM_MODE_TYPE_DRIVER,
+-	},
++	TEGU_DECON_MODE(60),
++	TEGU_DECON_MODE(120),
+ };
+ 
+ struct gs_decon_soc_data {
+@@ -239,6 +241,8 @@ struct gs_decon_soc_data {
+ 	bool separate_source_height;
+ 	bool padded_pitch;
+ 	bool start_hw_trigger;
++	/* the bootloader leaves MIF and DISP above the 120 Hz floors */
++	bool floors_optional;
+ };
+ 
+ static const struct gs_decon_soc_data gs201_decon_data = {
+@@ -258,6 +262,7 @@ static const struct gs_decon_soc_data zumapro_decon_data = {
+ 	.separate_source_height = true,
+ 	.padded_pitch = true,
+ 	.start_hw_trigger = true,
++	.floors_optional = true,
+ };
+ 
+ #define GS_DECON_BOOT_HZ		60
+@@ -1332,7 +1337,7 @@ static int gs_decon_get_dsim(struct gs_decon *dc)
+ 	}
+ 	dc->hz = hz;
+ 
+-	if (max_refresh >= 120 && dc->mif &&
++	if (max_refresh >= 120 && (dc->mif || dc->soc->floors_optional) &&
+ 	    gs_dsim_can_set_refresh_rate(dc->dsim, 120))
+ 		dc->max_hz = 120;
+ 	else if (max_refresh >= 120)

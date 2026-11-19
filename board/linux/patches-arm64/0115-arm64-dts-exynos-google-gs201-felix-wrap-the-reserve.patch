@@ -1,0 +1,28 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Sun, 18 Oct 2026 22:16:51 -0400
+Subject: [PATCH] arm64: dts: exynos: google: gs201-felix: wrap the
+ reserved-memory comment
+
+The inner-plane comment in reserved-memory ran to 102 columns, which
+checkpatch flags. Wrap it; no change to the generated DTB.
+---
+ arch/arm64/boot/dts/exynos/google/gs201-felix.dts | 5 ++++-
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/gs201-felix.dts b/arch/arm64/boot/dts/exynos/google/gs201-felix.dts
+index 16d60cdea..3faea3592 100644
+--- a/arch/arm64/boot/dts/exynos/google/gs201-felix.dts
++++ b/arch/arm64/boot/dts/exynos/google/gs201-felix.dts
+@@ -52,7 +52,10 @@ reserved-memory {
+ 		#size-cells = <1>;
+ 		ranges;
+ 
+-		/* The inner plane at 0xfac00000 is left unreserved. DECON0's trigger stays masked. */
++		/*
++		 * The inner plane at 0xfac00000 is left unreserved. DECON0's
++		 * trigger stays masked.
++		 */
+ 		cont_splash_mem: splash@fc000000 {
+ 			reg = <0x0 0xfc000000 (1080 * 2092 * 4)>;
+ 			no-map;

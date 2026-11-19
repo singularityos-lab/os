@@ -1,0 +1,81 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: DarekM <149845949+aninmucek@users.noreply.github.com>
+Date: Fri, 6 Nov 2026 07:19:59 +0000
+Subject: [PATCH] arm64: dts: exynos: google: zuma-akita: Enable UFS
+
+The Pixel 8a's UFS is wired as the Pixel 8 Pro's. Its live device tree
+has the host at 0x13200000 (SPI 466) with the same six register
+regions, the reset and reference-clock pins on gph5-1 and gph5-0
+(function 2), the UFS sysreg at 0x13020000 (IOCC 0x710), the PMU
+isolation at 0x3ec0, and VCC on a fixed regulator switched by gpp0-1,
+active high, as Google's zuma-ufs.dtsi describes it for every zuma
+board. ABL hands the device over with VCC off, so the driver has to
+turn it on.
+
+zuma.dtsi already describes the host, its PHY, the pins and the clock
+stand-ins. Add the VCC regulator and enable the host and its PHY, the
+same nodes zuma-husky.dts has.
+
+Tested on a Pixel 8a, with the initramfs's storage guard: the link
+comes up at HS-G4 on two lanes, rate series B, as on stock. The four
+LUNs and all 62 partitions appear with stock's names on stock's device
+nodes, a 64 MiB direct read runs at 1.5 GB/s, and the log has no UFS
+error, reset or I/O error.
+
+Link: https://android.googlesource.com/kernel/devices/google/zuma/+/refs/tags/android-16.0.0_r0.10/dts/zuma-ufs.dtsi
+Assisted-by: Claude Opus 5.5
+Signed-off-by: DarekM <149845949+aninmucek@users.noreply.github.com>
+---
+ .../boot/dts/exynos/google/zuma-akita.dts     | 25 +++++++++++++++++++
+ 1 file changed, 25 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/zuma-akita.dts b/arch/arm64/boot/dts/exynos/google/zuma-akita.dts
+index 381ad1e0e..bfa8b6f54 100644
+--- a/arch/arm64/boot/dts/exynos/google/zuma-akita.dts
++++ b/arch/arm64/boot/dts/exynos/google/zuma-akita.dts
+@@ -5,6 +5,7 @@
+ 
+ /dts-v1/;
+ 
++#include <dt-bindings/gpio/gpio.h>
+ #include "zuma.dtsi"
+ 
+ / {
+@@ -33,6 +34,17 @@ B1_IPOP {
+ 		};
+ 	};
+ 
++	/*
++	 * UFS VCC, switched by gpp0-1 as on stock, and as on the Pixel 8 Pro.
++	 * ABL hands over with it off, so the UFS driver must turn it on.
++	 */
++	ufs_0_fixed_vcc_reg: regulator-ufs-vcc {
++		compatible = "regulator-fixed";
++		regulator-name = "ufs-vcc";
++		gpio = <&gpp0 1 GPIO_ACTIVE_HIGH>;
++		enable-active-high;
++	};
++
+ 	chosen {
+ 		/*
+ 		 * ABL requires bootargs to exist; it appends its own after these.
+@@ -77,6 +89,19 @@ cont_splash_mem: splash@fac00000 {
+ 	};
+ };
+ 
++/*
++ * Behind the init's storage guard (only slot B's boot images and userdata
++ * writable), which runs before the disks appear.
++ */
++&ufs_0 {
++	vcc-supply = <&ufs_0_fixed_vcc_reg>;
++	status = "okay";
++};
++
++&ufs_0_phy {
++	status = "okay";
++};
++
+ &usb_dwc3 {
+ 	status = "okay";
+ };

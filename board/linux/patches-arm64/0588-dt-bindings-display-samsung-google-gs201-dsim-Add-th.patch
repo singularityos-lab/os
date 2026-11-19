@@ -1,0 +1,45 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Brett-Michael Green <brett@bmgvisualtech.com>
+Date: Mon, 9 Nov 2026 13:06:14 -0500
+Subject: [PATCH] dt-bindings: display: samsung: google,gs201-dsim: Add the
+ Tensor G3
+
+The Tensor G3 (zuma) DSIM0 has gs201's register layout for the command
+path: Google's cal_9865/regs-dsim.h, which its display driver builds for
+zuma, has cal_9845's offsets for every register gs-dsim-cmd uses, and on
+the Pixel 8 Pro they hold the bootloader's command-mode setup (version
+0x02090100). Add google,zuma-dsim next to google,zumapro-dsim, with
+google,gs201-dsim as the fallback of both.
+
+Assisted-by: LLM
+Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
+---
+ .../bindings/display/samsung/google,gs201-dsim.yaml       | 8 +++++---
+ 1 file changed, 5 insertions(+), 3 deletions(-)
+
+diff --git a/Documentation/devicetree/bindings/display/samsung/google,gs201-dsim.yaml b/Documentation/devicetree/bindings/display/samsung/google,gs201-dsim.yaml
+index e70bda177..db2f48a8c 100644
+--- a/Documentation/devicetree/bindings/display/samsung/google,gs201-dsim.yaml
++++ b/Documentation/devicetree/bindings/display/samsung/google,gs201-dsim.yaml
+@@ -14,8 +14,8 @@ description:
+   pipeline. It takes pixel data from a DECON and drives up to four data
+   lanes through a combined D-PHY/C-PHY, in video or command mode, with
+   DSC slice packing and TE-based command scheduling. Panels are described
+-  as child nodes. The Tensor G4 (zumapro) has the same DSIM, at the same
+-  register layout.
++  as child nodes. The Tensor G3 (zuma) and Tensor G4 (zumapro) have the
++  same DSIM, at the same register layout.
+ 
+ allOf:
+   - $ref: /schemas/display/dsi-controller.yaml#
+@@ -25,7 +25,9 @@ properties:
+     oneOf:
+       - const: google,gs201-dsim
+       - items:
+-          - const: google,zumapro-dsim
++          - enum:
++              - google,zuma-dsim
++              - google,zumapro-dsim
+           - const: google,gs201-dsim
+ 
+   reg:

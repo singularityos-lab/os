@@ -1,0 +1,72 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Mon, 12 Oct 2026 17:59:34 -0400
+Subject: [PATCH] ASoC: cs35l41: honour cirrus,dsp-no-hibernate
+
+Once the DSP has run, runtime suspend sends it the CSPL hibernate
+command and runtime resume wakes it with "out of hibernate", expecting
+the paused status back. With the stock protection firmware on the Pixel
+7 Pro (0x400a4 v0.45.0, driven over SPI with the PLL on the TDM bit
+clock) neither works: the pause at stream stop is never acknowledged
+("Failed to set mailbox cmd 1 (status 0)"), and at the next stream the
+wake fails ("Wake failed, re-enter hibernate: -42", then "CSPL Error
+Detected" and "Timed out waking device"), the PCM cannot be opened and
+only a reset of the amplifier brings the DSP back.
+
+When the firmware node has cirrus,dsp-no-hibernate, skip hibernation in
+runtime suspend and the wake in runtime resume, so the DSP keeps running
+between streams as the vendor driver does when hibernation is not
+enabled. Runtime PM itself is unchanged.
+
+Assisted-by: LLM
+Signed-off-by: Derek Ross <derekross@gmail.com>
+---
+ include/sound/cs35l41.h    | 1 +
+ sound/soc/codecs/cs35l41.c | 8 ++++++--
+ 2 files changed, 7 insertions(+), 2 deletions(-)
+
+diff --git a/include/sound/cs35l41.h b/include/sound/cs35l41.h
+index 7542cabfa..3895f4e07 100644
+--- a/include/sound/cs35l41.h
++++ b/include/sound/cs35l41.h
+@@ -814,6 +814,7 @@ struct cs35l41_hw_cfg {
+ 	struct cs35l41_gpio_cfg gpio1;
+ 	struct cs35l41_gpio_cfg gpio2;
+ 	unsigned int spk_pos;
++	bool dsp_no_hibernate;
+ 
+ 	enum cs35l41_boost_type bst_type;
+ };
+diff --git a/sound/soc/codecs/cs35l41.c b/sound/soc/codecs/cs35l41.c
+index b2a076706..ad55889c4 100644
+--- a/sound/soc/codecs/cs35l41.c
++++ b/sound/soc/codecs/cs35l41.c
+@@ -1032,6 +1032,8 @@ static int cs35l41_handle_pdata(struct device *dev, struct cs35l41_hw_cfg *hw_cf
+ 			hw_cfg->bst_type = val;
+ 	}
+ 
++	hw_cfg->dsp_no_hibernate = device_property_read_bool(dev, "cirrus,dsp-no-hibernate");
++
+ 	ret = device_property_read_u32(dev, "cirrus,boost-peak-milliamp", &val);
+ 	if (ret >= 0)
+ 		hw_cfg->bst_ipk = val;
+@@ -1401,7 +1403,8 @@ static int cs35l41_runtime_suspend(struct device *dev)
+ 
+ 	dev_dbg(cs35l41->dev, "Runtime suspend\n");
+ 
+-	if (!cs35l41->dsp.preloaded || !cs35l41->dsp.cs_dsp.running)
++	if (!cs35l41->dsp.preloaded || !cs35l41->dsp.cs_dsp.running ||
++	    cs35l41->hw_cfg.dsp_no_hibernate)
+ 		return 0;
+ 
+ 	wm_adsp_hibernate(&cs35l41->dsp, true);
+@@ -1420,7 +1423,8 @@ static int cs35l41_runtime_resume(struct device *dev)
+ 
+ 	dev_dbg(cs35l41->dev, "Runtime resume\n");
+ 
+-	if (!cs35l41->dsp.preloaded || !cs35l41->dsp.cs_dsp.running)
++	if (!cs35l41->dsp.preloaded || !cs35l41->dsp.cs_dsp.running ||
++	    cs35l41->hw_cfg.dsp_no_hibernate)
+ 		return 0;
+ 
+ 	regcache_cache_only(cs35l41->regmap, false);

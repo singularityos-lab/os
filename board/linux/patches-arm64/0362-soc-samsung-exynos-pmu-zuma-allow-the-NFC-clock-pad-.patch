@@ -1,0 +1,36 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Sat, 31 Oct 2026 09:30:49 -0643
+Subject: [PATCH] soc: samsung: exynos-pmu: zuma: allow the NFC clock pad
+ register
+
+Tensor G4's NFC controller takes its reference clock from a PMU pad,
+PAD_CTRL 0x3e84, which clk-exynos-clkout drives through this regmap.
+zuma's access tables admit only the registers in use, so add that one.
+
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ drivers/soc/samsung/gs101-pmu.c | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/drivers/soc/samsung/gs101-pmu.c b/drivers/soc/samsung/gs101-pmu.c
+index e357744d4..9ee77754d 100644
+--- a/drivers/soc/samsung/gs101-pmu.c
++++ b/drivers/soc/samsung/gs101-pmu.c
+@@ -342,6 +342,7 @@ const struct exynos_pmu_data gs101_pmu_data = {
+ #define ZUMA_CLUSTER1_NONCPU_OUT	0x1520
+ #define ZUMA_CLUSTER1_NONCPU_INT_EN	0x1544
+ #define ZUMA_HSI0_STATUS		0x2a84
++#define ZUMA_PAD_CTRL_NFC_CLK		0x3e84
+ #define ZUMA_PHY_CTRL_UFS		0x3ec0
+ 
+ static const struct regmap_range zuma_pmu_registers[] = {
+@@ -360,6 +361,8 @@ static const struct regmap_range zuma_pmu_registers[] = {
+ 	regmap_reg_range(ZUMA_PHY_CTRL_UFS, ZUMA_PHY_CTRL_UFS),
+ 	/* a hint TF-A reads, not a status register: see zuma_pmu_regmap_init() */
+ 	regmap_reg_range(ZUMA_PMU_INFORM0, ZUMA_PMU_INFORM0),
++	/* Tensor G4's NFC reference clock pad, a clock of clk-exynos-clkout */
++	regmap_reg_range(ZUMA_PAD_CTRL_NFC_CLK, ZUMA_PAD_CTRL_NFC_CLK),
+ };
+ 
+ static const struct regmap_range zuma_pmu_ro_registers[] = {

@@ -1,0 +1,39 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Mon, 12 Oct 2026 17:59:34 -0400
+Subject: [PATCH] arm64: dts: exynos: google: gs201-cheetah: keep the amplifier
+ DSPs out of hibernate
+
+The stock speaker protection firmware does not survive the CS35L41
+driver's hibernation: after the first stream stops, the DSPs never wake
+again and the speaker PCM fails to open. Mark both amplifiers with
+cirrus,dsp-no-hibernate.
+
+Assisted-by: LLM
+Signed-off-by: Derek Ross <derekross@gmail.com>
+---
+ arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts b/arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts
+index 81aa25ada..25be33dde 100644
+--- a/arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts
++++ b/arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts
+@@ -397,6 +397,8 @@ amp_top: amplifier@0 {
+ 		cirrus,boost-ind-nanohenry = <1000>;
+ 		cirrus,boost-cap-microfarad = <30>;
+ 		cirrus,asp-sdout-hiz = <3>;
++		/* the stock protection firmware does not survive hibernation */
++		cirrus,dsp-no-hibernate;
+ 		/* GPIO2 = push-pull interrupt, active high */
+ 		cirrus,gpio2-src-select = <5>;
+ 		cirrus,gpio2-output-enable;
+@@ -421,6 +423,8 @@ amp_bottom: amplifier@1 {
+ 		cirrus,boost-ind-nanohenry = <1000>;
+ 		cirrus,boost-cap-microfarad = <30>;
+ 		cirrus,asp-sdout-hiz = <3>;
++		/* the stock protection firmware does not survive hibernation */
++		cirrus,dsp-no-hibernate;
+ 		cirrus,gpio2-src-select = <5>;
+ 		cirrus,gpio2-output-enable;
+ 		status = "disabled";

@@ -1,0 +1,73 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Wed, 14 Oct 2026 21:05:25 -0400
+Subject: [PATCH] arm64: dts: exynos: google: gs201: add USI15 with its I2C bus
+
+Add the PERIC1 USI15 block with its HSI2C controller and bus pins
+(gpp24-0/1, function 2), as found in the stock device tree. On the
+Pixel 7 Pro it carries the rear flash LED driver. It stays disabled
+until a board enables it.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ .../boot/dts/exynos/google/gs201-pinctrl.dtsi |  7 +++++
+ arch/arm64/boot/dts/exynos/google/gs201.dtsi  | 28 +++++++++++++++++++
+ 2 files changed, 35 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/gs201-pinctrl.dtsi b/arch/arm64/boot/dts/exynos/google/gs201-pinctrl.dtsi
+index 82d3f5be0..32b3aabe2 100644
+--- a/arch/arm64/boot/dts/exynos/google/gs201-pinctrl.dtsi
++++ b/arch/arm64/boot/dts/exynos/google/gs201-pinctrl.dtsi
+@@ -477,6 +477,13 @@ hsi2c13_bus: hsi2c13-bus-pins {
+ 		samsung,pin-drv = <GS101_PIN_DRV_2_5_MA>;
+ 	};
+ 
++	hsi2c15_bus: hsi2c15-bus-pins {
++		samsung,pins = "gpp24-0", "gpp24-1";
++		samsung,pin-function = <GS101_PIN_FUNC_2>;
++		samsung,pin-pud = <GS101_PIN_PULL_NONE>;
++		samsung,pin-drv = <GS101_PIN_DRV_2_5_MA>;
++	};
++
+ 	ts_reset: ts-reset-pins {
+ 		samsung,pins = "gpp23-2";
+ 		samsung,pin-function = <GS101_PIN_FUNC_OUTPUT>;
+diff --git a/arch/arm64/boot/dts/exynos/google/gs201.dtsi b/arch/arm64/boot/dts/exynos/google/gs201.dtsi
+index 0f3e7647f..5d377e5b4 100644
+--- a/arch/arm64/boot/dts/exynos/google/gs201.dtsi
++++ b/arch/arm64/boot/dts/exynos/google/gs201.dtsi
+@@ -580,6 +580,34 @@ hsi2c_13: i2c@10d60000 {
+ 			};
+ 		};
+ 
++		usi15: usi@10da00c0 {
++			compatible = "google,gs201-usi", "samsung,exynos850-usi";
++			reg = <0x10da00c0 0x20>;
++			ranges;
++			#address-cells = <1>;
++			#size-cells = <1>;
++			clocks = <&cmu_peric1 CLK_GOUT_PERIC1_USI15_USI_PCLK>,
++				 <&cmu_peric1 CLK_GOUT_PERIC1_USI15_USI_IPCLK>;
++			clock-names = "pclk", "ipclk";
++			samsung,sysreg = <&sysreg_peric1 0x1018>;
++			status = "disabled";
++
++			hsi2c_15: i2c@10da0000 {
++				compatible = "google,gs201-hsi2c",
++					     "samsung,exynosautov9-hsi2c";
++				reg = <0x10da0000 0xc0>;
++				#address-cells = <1>;
++				#size-cells = <0>;
++				clocks = <&cmu_peric1 CLK_GOUT_PERIC1_USI15_USI_IPCLK>,
++					 <&cmu_peric1 CLK_GOUT_PERIC1_USI15_USI_PCLK>;
++				clock-names = "hsi2c", "hsi2c_pclk";
++				interrupts = <GIC_SPI 696 IRQ_TYPE_LEVEL_HIGH>;
++				pinctrl-0 = <&hsi2c15_bus>;
++				pinctrl-names = "default";
++				status = "disabled";
++			};
++		};
++
+ 		cmu_hsi0: clock-controller@11000000 {
+ 			compatible = "google,gs201-cmu-hsi0";
+ 			reg = <0x11000000 0x10000>;

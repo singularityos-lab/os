@@ -1,0 +1,269 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Brett-Michael Green <brett@bmgvisualtech.com>
+Date: Mon, 26 Oct 2026 09:37:42 -0400
+Subject: [PATCH] arm64: dts: exynos: google: zuma: add the PERIC0 and HSI2UFS
+ pin controllers
+
+Describe the two pin controllers UFS needs, with stock's banks: PERIC0
+(gpp0-gpp17), which holds the UFS supply's enable GPIO, and HSI2UFS
+(gph5), which holds the UFS reset and reference-clock pins, with stock's
+UFS pin groups. Their aliases keep Tensor G4's numbering, which the
+driver data follows.
+
+Stock's pin controllers take no clock: the bootloader leaves their bus
+clocks running. zuma has no clock driver yet, so a fixed clock stands
+in.
+
+The other pin controllers come later; nothing uses them yet.
+
+Tested on a Pixel 8 Pro: both controllers probe, the UFS pins come up
+in their UFS function, and the supply's GPIO switches the UFS device on.
+
+Assisted-by: LLM
+Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
+---
+ .../boot/dts/exynos/google/zuma-pinctrl.dtsi  | 162 ++++++++++++++++++
+ arch/arm64/boot/dts/exynos/google/zuma.dtsi   |  36 ++++
+ 2 files changed, 198 insertions(+)
+ create mode 100644 arch/arm64/boot/dts/exynos/google/zuma-pinctrl.dtsi
+
+diff --git a/arch/arm64/boot/dts/exynos/google/zuma-pinctrl.dtsi b/arch/arm64/boot/dts/exynos/google/zuma-pinctrl.dtsi
+new file mode 100644
+index 000000000..581cb8c8a
+--- /dev/null
++++ b/arch/arm64/boot/dts/exynos/google/zuma-pinctrl.dtsi
+@@ -0,0 +1,162 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * zuma (Tensor G3) pin banks and groups.
++ *
++ * Copyright 2020-2023 Google LLC
++ */
++
++#include "gs101-pinctrl.h"
++
++&pinctrl_peric0 {
++	gpp0: gpp0-gpio-bank {
++		gpio-controller;
++		#gpio-cells = <2>;
++		interrupt-controller;
++		#interrupt-cells = <2>;
++	};
++
++	gpp1: gpp1-gpio-bank {
++		gpio-controller;
++		#gpio-cells = <2>;
++		interrupt-controller;
++		#interrupt-cells = <2>;
++	};
++
++	gpp2: gpp2-gpio-bank {
++		gpio-controller;
++		#gpio-cells = <2>;
++		interrupt-controller;
++		#interrupt-cells = <2>;
++	};
++
++	gpp3: gpp3-gpio-bank {
++		gpio-controller;
++		#gpio-cells = <2>;
++		interrupt-controller;
++		#interrupt-cells = <2>;
++	};
++
++	gpp4: gpp4-gpio-bank {
++		gpio-controller;
++		#gpio-cells = <2>;
++		interrupt-controller;
++		#interrupt-cells = <2>;
++	};
++
++	gpp5: gpp5-gpio-bank {
++		gpio-controller;
++		#gpio-cells = <2>;
++		interrupt-controller;
++		#interrupt-cells = <2>;
++	};
++
++	gpp6: gpp6-gpio-bank {
++		gpio-controller;
++		#gpio-cells = <2>;
++		interrupt-controller;
++		#interrupt-cells = <2>;
++	};
++
++	gpp7: gpp7-gpio-bank {
++		gpio-controller;
++		#gpio-cells = <2>;
++		interrupt-controller;
++		#interrupt-cells = <2>;
++	};
++
++	gpp8: gpp8-gpio-bank {
++		gpio-controller;
++		#gpio-cells = <2>;
++		interrupt-controller;
++		#interrupt-cells = <2>;
++	};
++
++	gpp9: gpp9-gpio-bank {
++		gpio-controller;
++		#gpio-cells = <2>;
++		interrupt-controller;
++		#interrupt-cells = <2>;
++	};
++
++	gpp10: gpp10-gpio-bank {
++		gpio-controller;
++		#gpio-cells = <2>;
++		interrupt-controller;
++		#interrupt-cells = <2>;
++	};
++
++	gpp11: gpp11-gpio-bank {
++		gpio-controller;
++		#gpio-cells = <2>;
++		interrupt-controller;
++		#interrupt-cells = <2>;
++	};
++
++	gpp12: gpp12-gpio-bank {
++		gpio-controller;
++		#gpio-cells = <2>;
++		interrupt-controller;
++		#interrupt-cells = <2>;
++	};
++
++	gpp13: gpp13-gpio-bank {
++		gpio-controller;
++		#gpio-cells = <2>;
++		interrupt-controller;
++		#interrupt-cells = <2>;
++	};
++
++	gpp14: gpp14-gpio-bank {
++		gpio-controller;
++		#gpio-cells = <2>;
++		interrupt-controller;
++		#interrupt-cells = <2>;
++	};
++
++	gpp15: gpp15-gpio-bank {
++		gpio-controller;
++		#gpio-cells = <2>;
++		interrupt-controller;
++		#interrupt-cells = <2>;
++	};
++
++	gpp17: gpp17-gpio-bank {
++		gpio-controller;
++		#gpio-cells = <2>;
++		interrupt-controller;
++		#interrupt-cells = <2>;
++	};
++
++	gpp16: gpp16-gpio-bank {
++		gpio-controller;
++		#gpio-cells = <2>;
++		interrupt-controller;
++		#interrupt-cells = <2>;
++	};
++};
++
++&pinctrl_hsi2ufs {
++	gph5: gph5-gpio-bank {
++		gpio-controller;
++		#gpio-cells = <2>;
++		interrupt-controller;
++		#interrupt-cells = <2>;
++	};
++
++	ufs_rst_n: ufs-rst-n-pins {
++		samsung,pins = "gph5-1";
++		samsung,pin-function = <GS101_PIN_FUNC_2>;
++		samsung,pin-pud = <GS101_PIN_PULL_NONE>;
++		samsung,pin-con-pdn = <GS101_PIN_PDN_PREV>;
++		samsung,pin-pud-pdn = <GS101_PIN_PULL_NONE>;
++	};
++
++	ufs_refclk_out: ufs-refclk-out-pins {
++		samsung,pins = "gph5-0";
++		samsung,pin-function = <GS101_PIN_FUNC_2>;
++		samsung,pin-pud = <GS101_PIN_PULL_NONE>;
++		samsung,pin-con-pdn = <GS101_PIN_PDN_PREV>;
++		samsung,pin-pud-pdn = <GS101_PIN_PULL_NONE>;
++		samsung,pin-drv = <GS101_PIN_DRV_7_5_MA>;
++	};
++};
+diff --git a/arch/arm64/boot/dts/exynos/google/zuma.dtsi b/arch/arm64/boot/dts/exynos/google/zuma.dtsi
+index 046ffbd28..aefd3ec2c 100644
+--- a/arch/arm64/boot/dts/exynos/google/zuma.dtsi
++++ b/arch/arm64/boot/dts/exynos/google/zuma.dtsi
+@@ -19,6 +19,12 @@ / {
+ 	#size-cells = <1>;
+ 	interrupt-parent = <&gic>;
+ 
++	/* The pin controllers are numbered as in Tensor G4's driver data. */
++	aliases {
++		pinctrl10 = &pinctrl_hsi2ufs;
++		pinctrl11 = &pinctrl_peric0;
++	};
++
+ 	/*
+ 	 * Required by the Pixel bootloader (ABL). zuma's stock base DTB
+ 	 * carries the ECT location here rather than an empty node.
+@@ -221,6 +227,18 @@ clk_wdt_stub: clock-wdt-stub {
+ 		clock-output-names = "wdt_stub";
+ 	};
+ 
++	/*
++	 * Stand-in for the pin controllers' bus clocks (no clock driver yet).
++	 * Stock's pin controllers take no clock: ABL leaves them running. The
++	 * driver only enables it, so its rate is never used.
++	 */
++	clk_gpio_stub: clock-gpio-stub {
++		compatible = "fixed-clock";
++		#clock-cells = <0>;
++		clock-frequency = <0>;
++		clock-output-names = "gpio_stub";
++	};
++
+ 	soc: soc@0 {
+ 		compatible = "simple-bus";
+ 		#address-cells = <1>;
+@@ -262,6 +280,14 @@ gic: interrupt-controller@10400000 {
+ 			interrupts = <GIC_PPI 9 IRQ_TYPE_LEVEL_HIGH>;
+ 		};
+ 
++		pinctrl_peric0: pinctrl@10840000 {
++			compatible = "google,zuma-pinctrl";
++			reg = <0x10840000 0x1000>;
++			clocks = <&clk_gpio_stub>;
++			clock-names = "pclk";
++			interrupts = <GIC_SPI 634 IRQ_TYPE_LEVEL_HIGH>;
++		};
++
+ 		/*
+ 		 * USB control block: Exynos 2200's link registers, with the
+ 		 * eUSB2 PHY below as its high-speed PHY. The USB3/DP combo PHY
+@@ -310,6 +336,14 @@ usb_dwc3: usb@11210000 {
+ 			status = "disabled";
+ 		};
+ 
++		pinctrl_hsi2ufs: pinctrl@13060000 {
++			compatible = "google,zuma-pinctrl";
++			reg = <0x13060000 0x1000>;
++			clocks = <&clk_gpio_stub>;
++			clock-names = "pclk";
++			interrupts = <GIC_SPI 433 IRQ_TYPE_LEVEL_HIGH>;
++		};
++
+ 		/* Writes go through EL3 (SMC), as on gs101. */
+ 		pmu_system_controller: system-controller@15460000 {
+ 			compatible = "google,zuma-pmu";
+@@ -330,3 +364,5 @@ reboot-mode {
+ 		};
+ 	};
+ };
++
++#include "zuma-pinctrl.dtsi"

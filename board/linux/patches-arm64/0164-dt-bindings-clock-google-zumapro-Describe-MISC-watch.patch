@@ -1,0 +1,97 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Fri, 23 Oct 2026 01:01:02 -0700
+Subject: [PATCH] dt-bindings: clock: google,zumapro: Describe MISC watchdog
+ clocks
+
+Describe CMU_MISC and its oscillator/NoC inputs, and append IDs for its
+watchdog bus paths and the TOP branch. Preserve every existing clock ID.
+These descriptions do not enable a watchdog or power-domain operation.
+
+Full binding/example validation passes with the ARM64 build tools.
+
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ .../bindings/clock/google,zumapro-clock.yaml   | 18 +++++++++++++++---
+ include/dt-bindings/clock/google,zumapro.h     |  9 +++++++++
+ 2 files changed, 24 insertions(+), 3 deletions(-)
+
+diff --git a/Documentation/devicetree/bindings/clock/google,zumapro-clock.yaml b/Documentation/devicetree/bindings/clock/google,zumapro-clock.yaml
+index c61e60f00..b883f14e2 100644
+--- a/Documentation/devicetree/bindings/clock/google,zumapro-clock.yaml
++++ b/Documentation/devicetree/bindings/clock/google,zumapro-clock.yaml
+@@ -12,6 +12,7 @@ maintainers:
+ description: |
+   CMU_TOP supplies the NoC and UFS clock paths to CMU_HSI2 and the supply-GPIO
+   path in CMU_PERIC0. CMU_TOP also provides the HSI0 parent rate paths.
++  CMU_MISC supplies the firmware-owned watchdog bus clock paths.
+   The external oscillator supplies the PLL reference and oscillator mux
+   paths.
+   Clock identifiers are defined in dt-bindings/clock/google,zumapro.h.
+@@ -22,6 +23,7 @@ properties:
+       - google,zumapro-cmu-top
+       - google,zumapro-cmu-hsi2
+       - google,zumapro-cmu-peric0
++      - google,zumapro-cmu-misc
+ 
+   reg:
+     maxItems: 1
+@@ -78,13 +80,15 @@ allOf:
+   - if:
+       properties:
+         compatible:
+-          const: google,zumapro-cmu-peric0
++          enum:
++            - google,zumapro-cmu-peric0
++            - google,zumapro-cmu-misc
+     then:
+       properties:
+         clocks:
+           items:
+-            - description: PERIC0 oscillator clock
+-            - description: PERIC0 NoC clock from CMU_TOP
++            - description: Domain oscillator reference clock
++            - description: Domain NoC clock from CMU_TOP
+         clock-names:
+           items:
+             - const: oscclk
+@@ -114,6 +118,14 @@ examples:
+         clock-names = "oscclk", "bus", "ufs", "pcie";
+     };
+ 
++    clock-controller@10010000 {
++        compatible = "google,zumapro-cmu-misc";
++        reg = <0x10010000 0x8000>;
++        #clock-cells = <1>;
++        clocks = <&oscclk>, <&cmu_top CLK_DOUT_MISC_NOC>;
++        clock-names = "oscclk", "bus";
++    };
++
+     clock-controller@10800000 {
+         compatible = "google,zumapro-cmu-peric0";
+         reg = <0x10800000 0x8000>;
+diff --git a/include/dt-bindings/clock/google,zumapro.h b/include/dt-bindings/clock/google,zumapro.h
+index 2297641b6..38997c823 100644
+--- a/include/dt-bindings/clock/google,zumapro.h
++++ b/include/dt-bindings/clock/google,zumapro.h
+@@ -29,6 +29,9 @@
+ #define CLK_MOUT_HSI2_PCIE	23
+ #define CLK_GOUT_HSI2_PCIE	24
+ #define CLK_DOUT_HSI2_PCIE	25
++#define CLK_MOUT_MISC_NOC		26
++#define CLK_GOUT_MISC_NOC		27
++#define CLK_DOUT_MISC_NOC		28
+ 
+ /* CMU_HSI2. */
+ #define CLK_MOUT_HSI2_NOC_USER	1
+@@ -62,4 +65,10 @@
+ #define CLK_MOUT_PERIC0_NOC_USER	1
+ #define CLK_GOUT_GPIO_PERIC0	2
+ 
++/* CMU_MISC. */
++#define CLK_MOUT_MISC_NOC_USER	1
++#define CLK_DOUT_MISC_NOCP	2
++#define CLK_GOUT_WDT_CLUSTER0	3
++#define CLK_GOUT_WDT_CLUSTER1	4
++
+ #endif /* _DT_BINDINGS_CLOCK_GOOGLE_ZUMAPRO_H */

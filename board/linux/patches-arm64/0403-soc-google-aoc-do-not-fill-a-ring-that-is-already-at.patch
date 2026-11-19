@@ -1,0 +1,43 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Mon, 12 Oct 2026 16:39:43 -0400
+Subject: [PATCH] soc: google: aoc: do not fill a ring that is already at its
+ start
+
+aoc_ring_reset_write_pointer() moves a ring's write pointer back to the
+start by advancing it over the rest of the ring. When the pointer is
+already at the start (wp 0, as on a ring never written), that advances
+it by a whole ring: the ring then reads as full, and the first PCM write
+after prepare finds no room. On gs201 the AoC does not drain such a
+ring, so playback fails at once:
+
+  ERR: inconsistent write/read pointers, avail = 0, towrite = 15360
+  (audio_playback5 down ring: written 8388608, read 0)
+
+Leave the ring alone when the write pointer is already at the start.
+
+Assisted-by: LLM
+Signed-off-by: Derek Ross <derekross@gmail.com>
+---
+ drivers/soc/google/aoc/aoc_ipc_core.c | 8 ++++++++
+ 1 file changed, 8 insertions(+)
+
+diff --git a/drivers/soc/google/aoc/aoc_ipc_core.c b/drivers/soc/google/aoc/aoc_ipc_core.c
+index daf3423c3..bc506513e 100644
+--- a/drivers/soc/google/aoc/aoc_ipc_core.c
++++ b/drivers/soc/google/aoc/aoc_ipc_core.c
+@@ -593,6 +593,14 @@ bool aoc_ring_reset_write_pointer(aoc_service *service, aoc_direction dir)
+ 	wp = ioread32(&r->wp);
+ 	bytes_remaining = sz - wp;
+ 
++	/*
++	 * Already at the ring start (a ring never written, or one that ended
++	 * on a wrap): nothing to skip. Advancing by a whole ring here would
++	 * mark it full of stale data, and the first write would find no room.
++	 */
++	if (wp == 0)
++		return true;
++
+ 	if (bytes_remaining > 0)
+ 		_region_advance_tx(r, bytes_remaining);
+ 

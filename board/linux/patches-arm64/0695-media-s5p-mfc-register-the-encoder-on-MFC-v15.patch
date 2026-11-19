@@ -1,0 +1,45 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?=C3=81ngel=20Ren=C3=A9?=
+ <17342133+angelrenefm@users.noreply.github.com>
+Date: Sat, 14 Nov 2026 19:27:21 +0100
+Subject: [PATCH] media: s5p-mfc: register the encoder on MFC v15
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+With the previous commits the encoder works on the Pixel 7. Through
+GStreamer's v4l2h264enc, v4l2h265enc and v4l2vp8enc, 60 frame 1080p
+clips are complete in 18 runs out of 18, 90 frame 3840x2160 clips at
+20 Mbit/s too, and 1 and 4 Mbit/s asked are met. Through FFmpeg's
+*_v4l2m2m encoders at 4 Mbit/s, 720p, PSNR against the source is about
+43 dB for H.264, HEVC and VP8.
+
+Assisted-by: LLM
+Signed-off-by: Ángel René <17342133+angelrenefm@users.noreply.github.com>
+---
+ drivers/media/platform/samsung/s5p-mfc/s5p_mfc.c | 12 ------------
+ 1 file changed, 12 deletions(-)
+
+diff --git a/drivers/media/platform/samsung/s5p-mfc/s5p_mfc.c b/drivers/media/platform/samsung/s5p-mfc/s5p_mfc.c
+index 1a0b56454..b51e4e2d1 100644
+--- a/drivers/media/platform/samsung/s5p-mfc/s5p_mfc.c
++++ b/drivers/media/platform/samsung/s5p-mfc/s5p_mfc.c
+@@ -1475,18 +1475,6 @@ static int s5p_mfc_probe(struct platform_device *pdev)
+ 	v4l2_info(&dev->v4l2_dev,
+ 		  "decoder registered as /dev/video%d\n", dev->vfd_dec->num);
+ 
+-	/*
+-	 * The v15 encoder's registers differ from v12's (0xF770/0xF774 clash
+-	 * with the decoder's) and nothing here programs them yet: no encoder
+-	 * node rather than one that hangs the firmware.
+-	 */
+-	if (IS_MFCV15(dev)) {
+-		video_device_release(dev->vfd_enc);
+-		dev->vfd_enc = NULL;
+-		pr_debug("%s--\n", __func__);
+-		return 0;
+-	}
+-
+ 	ret = video_register_device(dev->vfd_enc, VFL_TYPE_VIDEO, 0);
+ 	if (ret) {
+ 		v4l2_err(&dev->v4l2_dev, "Failed to register video device\n");

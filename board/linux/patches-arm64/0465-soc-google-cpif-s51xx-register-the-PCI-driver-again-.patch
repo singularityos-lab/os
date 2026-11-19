@@ -1,0 +1,109 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Tue, 13 Oct 2026 12:24:01 -0400
+Subject: [PATCH] soc: google: cpif: s51xx: register the PCI driver again only
+ after a failed bind
+
+register_pcie() calls s51xx_pcie_init() on every power-on until the
+endpoint has bound, and s51xx_pcie_init() registers the s51xx PCI
+driver each time. Stock's probe never fails, so stock never meets the
+second call. In the first modem boot (MODEM-PLAN M3.4.5) the probe
+failed, and every later power-on from cbd ended in "Driver 's51xx' is
+already registered" (-EBUSY) without probing again. register_pcie()'s
+error was ignored, so start_normal_boot() then polled the boot stage
+for 200 rounds although the ROM had never been given its boot image.
+
+Unregister the driver when no endpoint bound, so the next power-on
+registers and probes afresh, return the error from register_pcie(), and
+fail the ROM boot (normal and dump) at once when the endpoint is
+missing.
+
+Assisted-by: LLM
+Signed-off-by: Derek Ross <derekross@gmail.com>
+---
+ drivers/soc/google/cpif/modem_ctrl_s5100.c | 24 +++++++++++++++++-----
+ drivers/soc/google/cpif/s51xx_pcie.c       | 14 +++++++++++++
+ 2 files changed, 33 insertions(+), 5 deletions(-)
+
+diff --git a/drivers/soc/google/cpif/modem_ctrl_s5100.c b/drivers/soc/google/cpif/modem_ctrl_s5100.c
+index 19ba6d38a..cca316a24 100644
+--- a/drivers/soc/google/cpif/modem_ctrl_s5100.c
++++ b/drivers/soc/google/cpif/modem_ctrl_s5100.c
+@@ -837,6 +837,7 @@ static int register_pcie(struct link_device *ld)
+ 	static int is_registered;
+ 	struct mem_link_device *mld = to_mem_link_device(ld);
+ 	u32 cp_num = ld->mdm_data->cp_num;
++	int err;
+ 
+ #if IS_ENABLED(CONFIG_GS_S2MPU)
+ 	u32 shmem_idx;
+@@ -901,10 +902,10 @@ static int register_pcie(struct link_device *ld)
+ 	if (is_registered == 0) {
+ 		/* initialize the pci_dev for modem_ctl */
+ 		mif_info("s51xx_pcie_init start\n");
+-		s51xx_pcie_init(mc);
+-		if (!mc->s51xx_pdev) {
++		err = s51xx_pcie_init(mc);
++		if (err || !mc->s51xx_pdev) {
+ 			mif_err("s51xx_pdev is NULL. Check if CP wake up is done.\n");
+-			return -EINVAL;
++			return err ?: -ENODEV;
+ 		}
+ 
+ 		/* debug: check MSI 32bit or 64bit - should be set as 32bit before this point*/
+@@ -1416,7 +1417,16 @@ static int start_normal_boot(struct modem_ctl *mc)
+ 	}
+ 
+ 	if (mld->attrs & LINK_ATTR_XMIT_BTDLR_PCIE) {
+-		register_pcie(ld);
++		/*
++		 * Without the endpoint the ROM is never told where its boot
++		 * image is, and boot_stage stays 0: fail now rather than
++		 * polling it for 200 rounds with the link up.
++		 */
++		ret = register_pcie(ld);
++		if (ret < 0) {
++			mif_err("ERR! no PCIe endpoint for the ROM boot (err %d)\n", ret);
++			goto status_error;
++		}
+ 		if (mc->s51xx_pdev && mc->pcie_registered)
+ 			set_cp_rom_boot_img(mld);
+ 
+@@ -1659,7 +1669,11 @@ static int start_dump_boot(struct modem_ctl *mc)
+ 	mif_disable_irq(&mc->cp_gpio_irq[CP_GPIO_IRQ_CP2AP_WAKEUP]);
+ 
+ 	if (mld->attrs & LINK_ATTR_XMIT_BTDLR_PCIE) {
+-		register_pcie(ld);
++		err = register_pcie(ld);
++		if (err < 0) {
++			mif_err("ERR! no PCIe endpoint for the ROM boot (err %d)\n", err);
++			goto status_error;
++		}
+ 		if (mc->s51xx_pdev && mc->pcie_registered)
+ 			set_cp_rom_boot_img(mld);
+ 
+diff --git a/drivers/soc/google/cpif/s51xx_pcie.c b/drivers/soc/google/cpif/s51xx_pcie.c
+index acdaa399d..3588dc7d5 100644
+--- a/drivers/soc/google/cpif/s51xx_pcie.c
++++ b/drivers/soc/google/cpif/s51xx_pcie.c
+@@ -554,6 +554,20 @@ int s51xx_pcie_init(struct modem_ctl *mc)
+ 	ret = pci_register_driver(&mc->pci_driver);
+ 	if (ret < 0) {
+ 		mif_err("pci_register_driver() failed, rc:%d\n", ret);
++		return ret;
++	}
++
++	/*
++	 * The endpoint probes from pci_register_driver(). If it did not bind
++	 * (no endpoint, or the probe failed), take the driver away again:
++	 * register_pcie() calls this on every power-on until the endpoint
++	 * has bound, and a second registration of the same driver fails
++	 * with -EBUSY and never probes.
++	 */
++	if (!mc->s51xx_pdev) {
++		mif_err("no s51xx endpoint bound; driver unregistered\n");
++		pci_unregister_driver(&mc->pci_driver);
++		return -ENODEV;
+ 	}
+ 
+ 	return 0;

@@ -1,0 +1,97 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Mon, 2 Nov 2026 13:18:57 -0647
+Subject: [PATCH] arm64: dts: exynos: google: zumapro: Add PCIe channel 0 and
+ its PHY
+
+zumapro's first PCIe controller (stock's pcie_0, HSI1 GEN3A_0) connects
+the modem on the Pixel 9a: the zuma family's root complex with two Gen3
+lanes and its two-lane PHY. Describe both, disabled, with stock's
+CLKREQ# and PERST# pin states, from Google's GPL zumapro-pcie.dtsi,
+zumapro-pinctrl.dtsi and zumapro-board-pcie-cp-s5300.dtsi: the
+registers, the controller and MSI interrupts (SPI 414, 416-420), the
+memory window the host maps to PCI 0x14e00000, and the PMU's PHY
+control word 0x3ec4. Stock's node names no clocks, and none are given.
+
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ .../arm64/boot/dts/exynos/google/zumapro.dtsi | 66 +++++++++++++++++++
+ 1 file changed, 66 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/zumapro.dtsi b/arch/arm64/boot/dts/exynos/google/zumapro.dtsi
+index 6951189c1..3d3126ab9 100644
+--- a/arch/arm64/boot/dts/exynos/google/zumapro.dtsi
++++ b/arch/arm64/boot/dts/exynos/google/zumapro.dtsi
+@@ -1193,6 +1193,72 @@ gph2: gph2-gpio-bank {
+ 				gpio-controller;
+ 				#gpio-cells = <2>;
+ 			};
++
++			/* Stock's pcie0 pins, selected by the link driver */
++			pcie0_clkreq: pcie0-clkreq-pins {
++				samsung,pins = "gph0-1";
++				samsung,pin-function = <2>;
++				samsung,pin-pud = <3>;
++				samsung,pin-drv = <3>;
++				samsung,pin-con-pdn = <3>;
++				samsung,pin-pud-pdn = <3>;
++			};
++
++			pcie0_perst: pcie0-perst-pins {
++				samsung,pins = "gph0-0";
++				samsung,pin-function = <1>;
++				samsung,pin-drv = <3>;
++				samsung,pin-con-pdn = <3>;
++			};
++		};
++
++		/*
++		 * The modem's controller (stock's pcie_0, ch-num 0) in HSI1:
++		 * the zuma family's root complex with two Gen3 lanes. The host
++		 * programs its outbound iATU; there is no secure-ATU SMC on
++		 * zumapro. No clocks: stock's node names none.
++		 */
++		pcie_0: pcie@12100000 {
++			compatible = "google,zumapro-pcie-cp";
++			reg = <0x0 0x12100000 0x1400>,
++			      <0x0 0x12400000 0x381000>,
++			      <0x0 0x40ffe000 0x2000>;
++			reg-names = "elbi", "dbi", "config";
++			#address-cells = <3>;
++			#size-cells = <2>;
++			device_type = "pci";
++			/* PCI 0x14e00000 = CPU 0x40000000, the host's iATU region 1 */
++			ranges = <0x82000000 0x0 0x14e00000 0x0 0x40000000 0x0 0xff0000>;
++			bus-range = <0x00 0xff>;
++			interrupts = <GIC_SPI 414 IRQ_TYPE_LEVEL_HIGH>,
++				     <GIC_SPI 416 IRQ_TYPE_LEVEL_HIGH>,
++				     <GIC_SPI 417 IRQ_TYPE_LEVEL_HIGH>,
++				     <GIC_SPI 418 IRQ_TYPE_LEVEL_HIGH>,
++				     <GIC_SPI 419 IRQ_TYPE_LEVEL_HIGH>,
++				     <GIC_SPI 420 IRQ_TYPE_LEVEL_HIGH>;
++			interrupt-names = "ctrl", "msi0", "msi1", "msi2", "msi3", "msi4";
++			phys = <&pcie_0_phy>;
++			phy-names = "pcie";
++			pinctrl-0 = <&pcie0_clkreq>, <&pcie0_perst>;
++			pinctrl-names = "active";
++			reset-gpios = <&gph0 0 GPIO_ACTIVE_LOW>;
++			samsung,pmu-syscon = <&pmu_system_controller 0x3ec4>;
++			num-lanes = <2>;
++			max-link-speed = <3>;
++			status = "disabled";
++		};
++
++		pcie_0_phy: phy@12140000 {
++			compatible = "google,zumapro-pcie-gen3x2-phy";
++			reg = <0x0 0x12140000 0x3000>,
++			      <0x0 0x12120000 0x5000>,
++			      <0x0 0x12101400 0x10>,
++			      <0x0 0x12130000 0xd000>,
++			      <0x0 0x12110000 0x5000>;
++			reg-names = "pma", "pcs", "rst", "udbg", "soc";
++			samsung,pmu-syscon = <&pmu_system_controller 0x3ec4>;
++			#phy-cells = <0>;
++			status = "disabled";
+ 		};
+ 
+ 		cmu_hsi2: clock-controller@13000000 {

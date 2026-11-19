@@ -1,0 +1,60 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?=C3=81ngel=20Ren=C3=A9?=
+ <17342133+angelrenefm@users.noreply.github.com>
+Date: Sat, 14 Nov 2026 16:03:31 +0100
+Subject: [PATCH] media: s5p-mfc: offer VP8, VP9 and HEVC decode on MFC v15
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+With the two previous commits these decode on the Pixel 7. Through
+FFmpeg's *_v4l2m2m decoders and through GStreamer's v4l2vp8dec,
+v4l2vp9dec and v4l2h265dec, every frame matches the software decoders
+(FFmpeg's, vp8dec, vp9dec, avdec_h265):
+
+  VP9 1920x1080, 450 frames; VP9 3840x2160 (libvpx), 90 frames
+  VP8 1280x720, 450 frames
+  HEVC 1920x1080, 450 frames; HEVC 1920x1080 (x265), 90 frames
+
+Chromium 156 decodes the 1080p VP9 clip on the MFC with no frame
+dropped. MPEG-1/2/4, H.263, VC-1 and H.264 MVC stay off: MPEG-2 and
+H.263 decode with differences that were not checked further, and MPEG-4
+fails to allocate its CAPTURE buffers.
+
+Assisted-by: LLM
+Signed-off-by: Ángel René <17342133+angelrenefm@users.noreply.github.com>
+---
+ drivers/media/platform/samsung/s5p-mfc/s5p_mfc_dec.c | 6 +++---
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_dec.c b/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_dec.c
+index d99efc15e..beb6bc32e 100644
+--- a/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_dec.c
++++ b/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_dec.c
+@@ -159,7 +159,7 @@ static const struct s5p_mfc_fmt formats[] = {
+ 		.codec_mode	= S5P_MFC_CODEC_VP8_DEC,
+ 		.type		= MFC_FMT_DEC,
+ 		.num_planes	= 1,
+-		.versions	= (MFC_V6PLUS_BITS & ~MFC_V15_BIT),
++		.versions	= MFC_V6PLUS_BITS,
+ 		.flags		= V4L2_FMT_FLAG_DYN_RESOLUTION,
+ 	},
+ 	{
+@@ -167,7 +167,7 @@ static const struct s5p_mfc_fmt formats[] = {
+ 		.codec_mode	= S5P_FIMV_CODEC_HEVC_DEC,
+ 		.type		= MFC_FMT_DEC,
+ 		.num_planes	= 1,
+-		.versions	= (MFC_V10PLUS_BITS & ~MFC_V15_BIT),
++		.versions	= MFC_V10PLUS_BITS,
+ 		.flags		= V4L2_FMT_FLAG_DYN_RESOLUTION |
+ 				  V4L2_FMT_FLAG_CONTINUOUS_BYTESTREAM,
+ 	},
+@@ -176,7 +176,7 @@ static const struct s5p_mfc_fmt formats[] = {
+ 		.codec_mode	= S5P_FIMV_CODEC_VP9_DEC,
+ 		.type		= MFC_FMT_DEC,
+ 		.num_planes	= 1,
+-		.versions	= (MFC_V10PLUS_BITS & ~MFC_V15_BIT),
++		.versions	= MFC_V10PLUS_BITS,
+ 		.flags		= V4L2_FMT_FLAG_DYN_RESOLUTION,
+ 	},
+ };

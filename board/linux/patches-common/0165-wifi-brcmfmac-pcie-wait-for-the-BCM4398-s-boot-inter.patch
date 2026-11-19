@@ -1,0 +1,63 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Brett-Michael Green <brett@bmgvisualtech.com>
+Date: Sat, 31 Oct 2026 11:45:10 -0400
+Subject: [PATCH] wifi: brcmfmac: pcie: wait for the BCM4398's boot interrupt
+
+The BCM4398's firmware writes an interim address to the last word of
+RAM before its shared area's, and signals the end of its boot with a
+mailbox interrupt, which Broadcom's driver waits for before it reads
+the address (dhdpcie_wait_readshared_area_addr(), "recd. boot intr").
+brcmfmac took the interim address and failed the firmware's API checks.
+
+Interrupts are not set up yet at that point, so poll the PCIe core's
+mailbox status through BAR0's fixed window onto it, then read the
+address.
+
+Assisted-by: LLM
+Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
+---
+ .../broadcom/brcm80211/brcmfmac/pcie.c        | 31 +++++++++++++++++++
+ 1 file changed, 31 insertions(+)
+
+diff --git a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/pcie.c b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/pcie.c
+index d56650a34..e63d9a8f2 100644
+--- a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/pcie.c
++++ b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/pcie.c
+@@ -2423,6 +2423,37 @@ static int brcmf_pcie_download_fw_nvram(struct brcmf_pciedev_info *devinfo,
+ 	brcmf_dbg(PCIE, "Wait for FW init\n");
+ 	sharedram_addr = sharedram_addr_written;
+ 	loop_counter = BRCMF_PCIE_FW_UP_TIMEOUT / 50;
++	/*
++	 * The BCM4398's firmware writes an interim address to the last word
++	 * of RAM before the real one, and signals the end of its boot with a
++	 * mailbox interrupt, which Google's driver waits for (dhd_pcie.c
++	 * dhdpcie_wait_readshared_area_addr(), "boot intr"). Interrupts are
++	 * not set up yet, so poll for it.
++	 */
++	if (devinfo->pdev->device == BRCM_PCIE_4398_DEVICE_ID) {
++		u32 mbint = BRCMF_PCIE_BARO_PCIE_ENUM_OFFSET +
++			    devinfo->reginfo->mailboxint;
++		u32 intstatus = 0;
++
++		brcmf_pcie_select_core(devinfo, BCMA_CORE_PCIE2);
++		while (loop_counter) {
++			intstatus = brcmf_pcie_read_reg32(devinfo, mbint);
++			if (intstatus && intstatus != 0xffffffff)
++				break;
++			msleep(50);
++			loop_counter--;
++		}
++		brcmf_dbg(PCIE, "boot interrupt %#x after %u ms\n", intstatus,
++			  (BRCMF_PCIE_FW_UP_TIMEOUT / 50 - loop_counter) * 50);
++		if (intstatus && intstatus != 0xffffffff)
++			brcmf_pcie_write_reg32(devinfo,
++					       BRCMF_PCIE_BARO_PCIE_ENUM_OFFSET +
++					       devinfo->reginfo->mailboxint,
++					       intstatus);
++		sharedram_addr = brcmf_pcie_read_ram32(devinfo,
++						       devinfo->ci->ramsize -
++						       4);
++	}
+ 	while ((sharedram_addr == sharedram_addr_written) && (loop_counter)) {
+ 		msleep(50);
+ 		sharedram_addr = brcmf_pcie_read_ram32(devinfo,

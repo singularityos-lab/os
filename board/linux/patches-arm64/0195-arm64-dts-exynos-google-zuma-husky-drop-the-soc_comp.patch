@@ -1,0 +1,39 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Brett-Michael Green <brett@bmgvisualtech.com>
+Date: Sat, 24 Oct 2026 12:18:37 -0400
+Subject: [PATCH] arm64: dts: exynos: google: zuma-husky: drop the
+ soc_compatible descriptions
+
+Stock's base DTBs label each /soc_compatible child with a description
+string ("B0,FOPLP"). ABL matches on product_id, major, minor and
+pkg_mode, and boots this tree without the labels, so drop them: the
+node names already say the same, and dtbs_check no longer reports them.
+
+Tested on a Pixel 8 Pro: the bootloader picks this tree and boots it.
+
+Assisted-by: LLM
+Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
+---
+ arch/arm64/boot/dts/exynos/google/zuma-husky.dts | 2 --
+ 1 file changed, 2 deletions(-)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/zuma-husky.dts b/arch/arm64/boot/dts/exynos/google/zuma-husky.dts
+index 449094128..105050a62 100644
+--- a/arch/arm64/boot/dts/exynos/google/zuma-husky.dts
++++ b/arch/arm64/boot/dts/exynos/google/zuma-husky.dts
+@@ -19,7 +19,6 @@ / {
+ 	 */
+ 	soc_compatible {
+ 		B0_FOPLP {
+-			description = "B0,FOPLP";
+ 			product_id = <0x9865>;
+ 			major = <1>;
+ 			minor = <0>;
+@@ -27,7 +26,6 @@ B0_FOPLP {
+ 		};
+ 
+ 		B1_FOPLP {
+-			description = "B1,FOPLP";
+ 			product_id = <0x9865>;
+ 			major = <1>;
+ 			minor = <1>;

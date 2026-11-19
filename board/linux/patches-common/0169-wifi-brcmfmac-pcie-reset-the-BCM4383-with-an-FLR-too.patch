@@ -1,0 +1,75 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Sun, 1 Nov 2026 14:24:58 -0647
+Subject: [PATCH] wifi: brcmfmac: pcie: reset the BCM4383 with an FLR too
+
+The BCM4383 (Pixel 9a) shares its chip with Bluetooth. With Bluetooth
+up, so with BT_REG_ON high, an unbind and rebind of the PCIe host (which
+drops and raises WL_REG_ON) left brcmfmac unable to start the chip
+again: it recognised the chip and downloaded the firmware, then failed
+with "FW failed to initialize". With hci_uart unloaded first, the same
+rebind brought wlan0 back.
+
+Broadcom's driver never resets this chip with the chipcommon watchdog.
+bcmdhd sets cc_wd_reset false, so dhdpcie_dongle_reset() resets the
+WLAN function with an FLR (dhd_bus_perform_flr()), with no check on
+Bluetooth: "For buscorerev = 66 and after, F0 FLR should be done
+independent from F1. So don't need BT quiesce" (dhd_pcie.c,
+google-modules/wlan/bcm4383). The chip advertises FLReset+.
+
+Reset it with the FLR the BCM4389 already uses, falling back to the
+watchdog if the FLR is refused or doesn't complete.
+
+Tested on a Pixel 9a (7.3.0-rc6-omamobile-push1-gd60d217db5c6): three
+unbinds and rebinds of the PCIe host with Bluetooth powered each brought
+wlan0 back, the link at Gen2 x1 every time, with hci0 still powered
+afterwards. Without this commit the same test failed twice out of two
+with "FW failed to initialize".
+
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ .../broadcom/brcm80211/brcmfmac/pcie.c        | 22 +++++++++++++++----
+ 1 file changed, 18 insertions(+), 4 deletions(-)
+
+diff --git a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/pcie.c b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/pcie.c
+index 969410ee3..f53ded28b 100644
+--- a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/pcie.c
++++ b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/pcie.c
+@@ -948,6 +948,19 @@ static void brcmf_pcie_set_bar_coherent(struct brcmf_pciedev_info *devinfo)
+  */
+ #define BRCMF_PCIE_SSCTRL_SSRESET_STATUS	BIT(13)
+ 
++/*
++ * Chips Broadcom's driver resets with a function 0 FLR rather than the
++ * chipcommon watchdog (bcmdhd dhdpcie_dongle_reset(), cc_wd_reset false).
++ * The BCM4383 shares the chip with its Bluetooth: while BT_REG_ON holds the
++ * chip up, the watchdog reset leaves the WLAN cores in a state where the
++ * downloaded firmware never comes up, and an F0 FLR leaves Bluetooth alone.
++ */
++static bool brcmf_pcie_reset_by_flr(struct brcmf_pciedev_info *devinfo)
++{
++	return brcmf_pcie_is_4389_family(devinfo) ||
++	       devinfo->pdev->device == BRCM_PCIE_4383_DEVICE_ID;
++}
++
+ static int brcmf_pcie_flr(struct brcmf_pciedev_info *devinfo)
+ {
+ 	struct pci_dev *pdev = devinfo->pdev;
+@@ -1014,12 +1027,13 @@ static void brcmf_pcie_reset_device(struct brcmf_pciedev_info *devinfo)
+ 			       val);
+ 
+ 	/* Watchdog reset, with all power domains up as it starts. The
+-	 * BCM4389 is reset the way Broadcom's driver resets it, with an
+-	 * FLR: after a chipcommon watchdog reset its ARM does not boot a
+-	 * second firmware download.
++	 * BCM4389 and BCM4383 are reset the way Broadcom's driver resets
++	 * them, with an FLR: after a chipcommon watchdog reset the BCM4389's
++	 * ARM does not boot a second firmware download, and the BCM4383's
++	 * doesn't while its Bluetooth is on.
+ 	 */
+ 	brcmf_pcie_srpwr_request(devinfo);
+-	if (!brcmf_pcie_is_4389_family(devinfo) || brcmf_pcie_flr(devinfo)) {
++	if (!brcmf_pcie_reset_by_flr(devinfo) || brcmf_pcie_flr(devinfo)) {
+ 		brcmf_pcie_select_core(devinfo, BCMA_CORE_CHIPCOMMON);
+ 		WRITECC32(devinfo, watchdog, 4);
+ 		msleep(100);

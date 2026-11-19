@@ -1,0 +1,262 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?=C3=81ngel=20Ren=C3=A9?=
+ <17342133+angelrenefm@users.noreply.github.com>
+Date: Fri, 13 Nov 2026 21:07:14 +0100
+Subject: [PATCH] media: s5p-mfc: decode with dynamic DPB on MFC v15
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Google's exynos-mfc driver always sets DYNAMIC_DPB (bit 3 of
+D_INIT_BUFFER_OPTIONS) on v15 and gives the firmware one capture buffer
+per FRAME_START, through D_DYNAMIC_DPB_FLAG and D_AVAILABLE_DPB_FLAG;
+D_USED_DPB_FLAG then tells which buffers the firmware still holds as
+references or for display. Mainline programs every DPB address once at
+INIT_BUFFERS (static DPB).
+
+Do as the vendor driver on v15: skip the DPB addresses at INIT_BUFFERS,
+and before each frame pick a queued capture buffer that the firmware
+does not hold (mfc_search_for_dpb() in the vendor driver). If it holds
+all of them it frees one by displaying it, so any queued buffer may be
+given then. A frame is not started while no buffer can be given.
+
+Tested on a Pixel 7 (panther, MFC v15.6, firmware version 0x44250901),
+module built from this series on omamobile, node applied as a runtime
+DT overlay on the "camera-pool" reserved region:
+
+- H.264 320x240 Baseline (30 frames), 1920x1080 High (60 frames) and a
+  hard 1920x1080 High stream (300 frames, ~20 Mbit/s): every frame
+  bit-exact against FFmpeg's software decoder.
+- 1080p at ~70 fps with ~0.09 s of CPU time for the 300 frames, against
+  8.3 s of CPU time for FFmpeg's software decoder (8 threads).
+- Clients: a small V4L2 stateful test client, FFmpeg's h264_v4l2m2m
+  (300/300 frames bit-exact with -fps_mode passthrough) and GStreamer's
+  v4l2h264dec.
+
+Not tested: VP8/VP9/HEVC/MPEG-4 decode, interlaced or MVC streams, a
+resolution change in the middle of a stream, seeking (decoder stop and
+restart in the middle of a stream).
+
+Assisted-by: LLM
+Signed-off-by: Ángel René <17342133+angelrenefm@users.noreply.github.com>
+---
+ .../platform/samsung/s5p-mfc/regs-mfc-v15.h   |  9 ++
+ .../media/platform/samsung/s5p-mfc/s5p_mfc.c  |  4 +
+ .../platform/samsung/s5p-mfc/s5p_mfc_common.h |  4 +
+ .../platform/samsung/s5p-mfc/s5p_mfc_dec.c    |  1 +
+ .../platform/samsung/s5p-mfc/s5p_mfc_opr_v6.c | 84 ++++++++++++++++++-
+ 5 files changed, 100 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/media/platform/samsung/s5p-mfc/regs-mfc-v15.h b/drivers/media/platform/samsung/s5p-mfc/regs-mfc-v15.h
+index 3a792de93..4c4a8fe37 100644
+--- a/drivers/media/platform/samsung/s5p-mfc/regs-mfc-v15.h
++++ b/drivers/media/platform/samsung/s5p-mfc/regs-mfc-v15.h
+@@ -18,6 +18,15 @@
+ #define S5P_FIMV_FW_STATUS_INFO_V15		0xF0A4
+ #define S5P_FIMV_FW_STATUS_READY_V15		BIT(0)
+ 
++/* Dynamic DPB */
++#define S5P_FIMV_D_NAL_START_OPTIONS_V15	0xF5AC
++#define S5P_FIMV_D_AVAILABLE_DPB_FLAG_UPPER_V15	0xF5B8
++#define S5P_FIMV_D_DYNAMIC_DPB_FLAG_UPPER_V15	0xF5D4
++#define S5P_FIMV_D_DYNAMIC_DPB_FLAG_LOWER_V15	0xF5D8
++#define S5P_FIMV_D_USED_DPB_FLAG_UPPER_V15	0xF720
++#define S5P_FIMV_D_USED_DPB_FLAG_LOWER_V15	0xF724
++#define S5P_FIMV_D_INIT_BUF_OPT_DYNAMIC_DPB_V15	BIT(3)
++
+ /* MFCv15 variant defines */
+ #define MFC_VERSION_V15			0xF0
+ #define MFC_HW_VERSION_V15		0x15060000
+diff --git a/drivers/media/platform/samsung/s5p-mfc/s5p_mfc.c b/drivers/media/platform/samsung/s5p-mfc/s5p_mfc.c
+index eba9b1430..21133072d 100644
+--- a/drivers/media/platform/samsung/s5p-mfc/s5p_mfc.c
++++ b/drivers/media/platform/samsung/s5p-mfc/s5p_mfc.c
+@@ -381,6 +381,9 @@ static void s5p_mfc_handle_frame(struct s5p_mfc_ctx *ctx,
+ 				& S5P_FIMV_DEC_STATUS_DECODING_STATUS_MASK;
+ 	dec_frame_status = s5p_mfc_hw_call(dev->mfc_ops, get_dec_status, dev)
+ 				& S5P_FIMV_DEC_STATUS_DECODING_STATUS_MASK;
++	/* DPBs the firmware still holds (references or not yet displayed) */
++	if (dev->dynamic_dpb)
++		ctx->dpb_used = readl(dev->mfc_regs->d_used_dpb_flag_lower);
+ 	res_change = (s5p_mfc_hw_call(dev->mfc_ops, get_dspl_status, dev)
+ 				& S5P_FIMV_DEC_STATUS_RESOLUTION_MASK)
+ 				>> S5P_FIMV_DEC_STATUS_RESOLUTION_SHIFT;
+@@ -1358,6 +1361,7 @@ static int s5p_mfc_probe(struct platform_device *pdev)
+ 		dev_err(&pdev->dev, "Failed to get device MFC hardware variant information\n");
+ 		return -ENOENT;
+ 	}
++	dev->dynamic_dpb = IS_MFCV15(dev);
+ 
+ 	dev->regs_base = devm_platform_ioremap_resource(pdev, 0);
+ 	if (IS_ERR(dev->regs_base))
+diff --git a/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_common.h b/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_common.h
+index a0192a79a..98ab487bd 100644
+--- a/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_common.h
++++ b/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_common.h
+@@ -301,6 +301,7 @@ struct s5p_mfc_priv_buf {
+  * @fw_get_done:	flag set when request_firmware() is complete and
+  *			copied into fw_buf
+  * @risc_on:		flag indicates RISC is on or off
++ * @dynamic_dpb:	decoder hands one DPB to the firmware per frame (MFCv15)
+  *
+  */
+ struct s5p_mfc_dev {
+@@ -348,6 +349,7 @@ struct s5p_mfc_dev {
+ 	enum s5p_mfc_fw_ver fw_ver;
+ 	bool fw_get_done;
+ 	bool risc_on; /* indicates if RISC is on or off */
++	bool dynamic_dpb;
+ };
+ 
+ /*
+@@ -592,6 +594,7 @@ struct s5p_mfc_codec_ops {
+  * @dst_bufs_cnt:	number of allocated destination buffers
+  * @sequence:		counter for the sequence number for v4l2
+  * @dec_dst_flag:	flags for buffers queued in the hardware
++ * @dpb_used:		DPBs still held by the firmware (dynamic DPB, MFCv15)
+  * @dec_src_buf_size:	size of the buffer for source buffers in decoding
+  * @codec_mode:		number of codec mode used by MFC hw
+  * @slice_interface:	slice interface flag
+@@ -685,6 +688,7 @@ struct s5p_mfc_ctx {
+ 
+ 	unsigned int sequence;
+ 	unsigned long dec_dst_flag;
++	unsigned long dpb_used;
+ 	size_t dec_src_buf_size;
+ 
+ 	/* Control values */
+diff --git a/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_dec.c b/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_dec.c
+index 8da765ebd..6d7f093b4 100644
+--- a/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_dec.c
++++ b/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_dec.c
+@@ -1134,6 +1134,7 @@ static void s5p_mfc_stop_streaming(struct vb2_queue *q)
+ 		ctx->dst_queue_cnt = 0;
+ 		ctx->dpb_flush_flag = 1;
+ 		ctx->dec_dst_flag = 0;
++		ctx->dpb_used = 0;
+ 		if (IS_MFCV6_PLUS(dev) && (ctx->state == MFCINST_RUNNING)) {
+ 			ctx->state = MFCINST_FLUSH;
+ 			set_work_bit_irqsave(ctx);
+diff --git a/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_opr_v6.c b/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_opr_v6.c
+index 98f8292b3..770e3e861 100644
+--- a/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_opr_v6.c
++++ b/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_opr_v6.c
+@@ -654,7 +654,18 @@ static int s5p_mfc_set_dec_frame_buffer_v6(struct s5p_mfc_ctx *ctx)
+ 	mfc_debug(2, "Frame size: %d ch: %d mv: %d\n",
+ 			frame_size, frame_size_ch, frame_size_mv);
+ 
+-	for (i = 0; i < ctx->total_dpb_count; i++) {
++	/*
++	 * Dynamic DPB: the DPB addresses are given one per frame at
++	 * FRAME_START (s5p_mfc_set_dynamic_dpb_v15()), not here.
++	 */
++	if (dev->dynamic_dpb) {
++		writel(readl(mfc_regs->d_init_buffer_options) |
++		       S5P_FIMV_D_INIT_BUF_OPT_DYNAMIC_DPB_V15,
++		       mfc_regs->d_init_buffer_options);
++		ctx->dpb_used = 0;
++	}
++
++	for (i = 0; !dev->dynamic_dpb && i < ctx->total_dpb_count; i++) {
+ 		/* Bank2 */
+ 		mfc_debug(2, "Luma %d: %zx\n", i,
+ 					ctx->dst_bufs[i].cookie.raw.luma);
+@@ -1826,6 +1837,57 @@ static inline void s5p_mfc_set_flush(struct s5p_mfc_ctx *ctx, int flush)
+ 	}
+ }
+ 
++/*
++ * Dynamic DPB (MFCv15): pick a capture buffer queued in the driver that the
++ * firmware does not hold any more, as the vendor driver does
++ * (mfc_search_for_dpb()). If the firmware holds all of them it releases one
++ * by displaying it, so any queued buffer may be given then.
++ */
++static struct s5p_mfc_buf *s5p_mfc_search_dynamic_dpb_v15(struct s5p_mfc_ctx *ctx)
++{
++	struct s5p_mfc_buf *buf;
++
++	list_for_each_entry(buf, &ctx->dst_queue, list)
++		if (!(ctx->dpb_used & BIT(buf->b->vb2_buf.index)))
++			return buf;
++
++	if (!list_empty(&ctx->dst_queue) &&
++	    hweight_long(ctx->dpb_used) >= ctx->total_dpb_count)
++		return list_first_entry(&ctx->dst_queue, struct s5p_mfc_buf,
++					list);
++	return NULL;
++}
++
++static void s5p_mfc_set_dynamic_dpb_v15(struct s5p_mfc_ctx *ctx)
++{
++	struct s5p_mfc_dev *dev = ctx->dev;
++	const struct s5p_mfc_regs *mfc_regs = dev->mfc_regs;
++	struct s5p_mfc_buf *buf;
++	u32 set = 0;
++	int i;
++
++	buf = s5p_mfc_search_dynamic_dpb_v15(ctx);
++	if (buf) {
++		i = buf->b->vb2_buf.index;
++		set = BIT(i);
++		writel(buf->cookie.raw.luma, mfc_regs->d_first_plane_dpb + i * 4);
++		writel(buf->cookie.raw.chroma,
++		       mfc_regs->d_second_plane_dpb + i * 4);
++		if (ctx->dst_fmt->fourcc == V4L2_PIX_FMT_YUV420M ||
++		    ctx->dst_fmt->fourcc == V4L2_PIX_FMT_YVU420M)
++			writel(buf->cookie.raw.chroma_1,
++			       mfc_regs->d_third_plane_dpb + i * 4);
++		mfc_debug(2, "Dynamic DPB %d: %zx (used %#lx)\n", i,
++			  buf->cookie.raw.luma, ctx->dpb_used);
++	}
++
++	writel(0, mfc_regs->d_nal_start_options);
++	writel(set, mfc_regs->d_dynamic_dpb_flag_lower);
++	writel(0, mfc_regs->d_dynamic_dpb_flag_upper);
++	writel(set, mfc_regs->d_available_dpb_flag_lower);
++	writel(0, mfc_regs->d_available_dpb_flag_upper);
++}
++
+ /* Decode a single frame */
+ static int s5p_mfc_decode_one_frame_v6(struct s5p_mfc_ctx *ctx,
+ 			enum s5p_mfc_decode_arg last_frame)
+@@ -1833,7 +1895,10 @@ static int s5p_mfc_decode_one_frame_v6(struct s5p_mfc_ctx *ctx,
+ 	struct s5p_mfc_dev *dev = ctx->dev;
+ 	const struct s5p_mfc_regs *mfc_regs = dev->mfc_regs;
+ 
+-	writel(ctx->dec_dst_flag, mfc_regs->d_available_dpb_flag_lower);
++	if (dev->dynamic_dpb)
++		s5p_mfc_set_dynamic_dpb_v15(ctx);
++	else
++		writel(ctx->dec_dst_flag, mfc_regs->d_available_dpb_flag_lower);
+ 	writel(ctx->slice_interface & 0x1, mfc_regs->d_slice_if_enable);
+ 
+ 	writel(ctx->inst_no, mfc_regs->instance_id);
+@@ -1969,6 +2034,10 @@ static inline int s5p_mfc_run_dec_frame(struct s5p_mfc_ctx *ctx)
+ 		mfc_debug(2, "No src buffers.\n");
+ 		return -EAGAIN;
+ 	}
++	if (dev->dynamic_dpb && !s5p_mfc_search_dynamic_dpb_v15(ctx)) {
++		mfc_debug(2, "No free DPB (used %#lx).\n", ctx->dpb_used);
++		return -EAGAIN;
++	}
+ 	/* Get the next source buffer */
+ 	temp_vb = list_entry(ctx->src_queue.next, struct s5p_mfc_buf, list);
+ 	temp_vb->flags |= MFC_BUF_FLAG_USED;
+@@ -2656,6 +2725,17 @@ const struct s5p_mfc_regs *s5p_mfc_init_regs_v6_plus(struct s5p_mfc_dev *dev)
+ 	R(e_hevc_lf_tc_offset_div2, S5P_FIMV_E_HEVC_LF_TC_OFFSET_DIV2_V10);
+ 	R(e_hevc_nal_control, S5P_FIMV_E_HEVC_NAL_CONTROL_V10);
+ 
++	if (!IS_MFCV15(dev))
++		goto done;
++
++	/* Dynamic DPB registers of MFC v15 */
++	R(d_nal_start_options, S5P_FIMV_D_NAL_START_OPTIONS_V15);
++	R(d_available_dpb_flag_upper, S5P_FIMV_D_AVAILABLE_DPB_FLAG_UPPER_V15);
++	R(d_dynamic_dpb_flag_upper, S5P_FIMV_D_DYNAMIC_DPB_FLAG_UPPER_V15);
++	R(d_dynamic_dpb_flag_lower, S5P_FIMV_D_DYNAMIC_DPB_FLAG_LOWER_V15);
++	R(d_used_dpb_flag_upper, S5P_FIMV_D_USED_DPB_FLAG_UPPER_V15);
++	R(d_used_dpb_flag_lower, S5P_FIMV_D_USED_DPB_FLAG_LOWER_V15);
++
+ done:
+ 	return &mfc_regs;
+ #undef S5P_MFC_REG_ADDR

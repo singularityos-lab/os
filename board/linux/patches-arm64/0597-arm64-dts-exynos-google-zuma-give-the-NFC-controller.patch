@@ -1,0 +1,59 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Lef <me@lefteros.com>
+Date: Sat, 7 Nov 2026 07:04:51 +0200
+Subject: [PATCH] arm64: dts: exynos: google: zuma: give the NFC controller its
+ clock pad
+
+Give the zuma PMU node its #clock-cells, and the Pixel 8 Pro's ST54L node
+clock 0, the PMU's NFC pad (stock: pmu_clk_pad 0x3e84), as on the
+zumapro-tegu node. The node stays disabled.
+
+The #clock-cells are in zuma.dtsi, so the clkout driver also binds on the
+Pixel 8a (zuma-akita). It writes nothing there: the 8a has no NFC node, so
+nothing enables the pad clock.
+
+Signed-off-by: Lef <me@lefteros.com>
+---
+ arch/arm64/boot/dts/exynos/google/zuma-husky.dts | 12 +++++++-----
+ arch/arm64/boot/dts/exynos/google/zuma.dtsi      |  1 +
+ 2 files changed, 8 insertions(+), 5 deletions(-)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/zuma-husky.dts b/arch/arm64/boot/dts/exynos/google/zuma-husky.dts
+index 68b784336..bedcfcc52 100644
+--- a/arch/arm64/boot/dts/exynos/google/zuma-husky.dts
++++ b/arch/arm64/boot/dts/exynos/google/zuma-husky.dts
+@@ -615,15 +615,17 @@ haptics: haptic-driver@43 {
+ 	 * from the stock DT: interrupt gpa7-6, enable (the chip's RST_N)
+ 	 * gph1-6, power-idle gph1-3. The pin groups are stock's and set only
+ 	 * the power-down state (and the power-idle pull-down), no pin
+-	 * function. The chip's reference clock (stock: PMU pad CLKOUT1) has no
+-	 * provider on zuma yet, so there is no clocks property and the pad
+-	 * stays as the bootloader left it. The eSE half of the chip (spi_12,
+-	 * reset gph1-5) is not described. Disabled: nothing binds to it until
+-	 * a bring-up overlay enables it.
++	 * function. The chip's reference clock is the PMU's NFC pad (stock:
++	 * pmu_clk_pad 0x3e84), clock 0 of the PMU node; without it the 9a's
++	 * ST54L does not ACK its I2C address (on the 8 Pro the chip did answer
++	 * without the pad and only found no tag, in one run). The eSE half of
++	 * the chip (spi_12, reset gph1-5) is not described. Disabled: nothing
++	 * binds to it until a bring-up overlay enables it.
+ 	 */
+ 	nfc: nfc@8 {
+ 		compatible = "st,st54l", "nxp,nxp-nci-i2c";
+ 		reg = <0x08>;
++		clocks = <&pmu_system_controller 0>;
+ 		interrupts-extended = <&gpa7 6 IRQ_TYPE_LEVEL_HIGH>;
+ 		enable-gpios = <&gph1 6 GPIO_ACTIVE_HIGH>;
+ 		pinctrl-0 = <&nfc_en &nfc_pidle>;
+diff --git a/arch/arm64/boot/dts/exynos/google/zuma.dtsi b/arch/arm64/boot/dts/exynos/google/zuma.dtsi
+index 209e23b74..4143c3b74 100644
+--- a/arch/arm64/boot/dts/exynos/google/zuma.dtsi
++++ b/arch/arm64/boot/dts/exynos/google/zuma.dtsi
+@@ -825,6 +825,7 @@ uart18: serial@155d0000 {
+ 		pmu_system_controller: system-controller@15460000 {
+ 			compatible = "google,zuma-pmu";
+ 			reg = <0x15460000 0x10000>;
++			#clock-cells = <1>;
+ 
+ 			/*
+ 			 * The bootloader reads the reboot reason from SYSIP_DAT0,

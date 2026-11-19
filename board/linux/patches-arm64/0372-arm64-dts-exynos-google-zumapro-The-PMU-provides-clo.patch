@@ -1,0 +1,25 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Tue, 27 Oct 2026 19:56:39 -0647
+Subject: [PATCH] arm64: dts: exynos: google: zumapro: The PMU provides clocks
+
+The Tensor G4 (zumapro) PMU provides the NFC controller's clock pad as
+clock 0; give its node #clock-cells.
+
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ arch/arm64/boot/dts/exynos/google/zumapro.dtsi | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/zumapro.dtsi b/arch/arm64/boot/dts/exynos/google/zumapro.dtsi
+index 5ad4107f8..f8be1721d 100644
+--- a/arch/arm64/boot/dts/exynos/google/zumapro.dtsi
++++ b/arch/arm64/boot/dts/exynos/google/zumapro.dtsi
+@@ -1342,6 +1342,7 @@ sysreg_apm: syscon@154204e0 {
+ 		pmu_system_controller: system-controller@15460000 {
+ 			compatible = "google,zumapro-pmu", "google,zuma-pmu";
+ 			reg = <0x0 0x15460000 0x10000>;
++			#clock-cells = <1>;
+ 			status = "disabled";
+ 
+ 			reboot_mode: reboot-mode {

@@ -1,0 +1,38 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: boozedog <code@booze.dog>
+Date: Mon, 26 Oct 2026 07:32:40 -0400
+Subject: [PATCH] dt-bindings: input: touchscreen: allow SALIXP touchscreen
+ properties
+
+The report path needs the standard size properties, so the binding
+references touchscreen.yaml. This binding describes the part, not
+the Linux driver. The sizes are not required yet, and the example
+does not set them. The interrupt stays described and is not
+requested.
+
+Signed-off-by: boozedog <code@booze.dog>
+Assisted-by: LLM
+---
+ .../devicetree/bindings/input/touchscreen/st,salixp.yaml    | 6 +++---
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/Documentation/devicetree/bindings/input/touchscreen/st,salixp.yaml b/Documentation/devicetree/bindings/input/touchscreen/st,salixp.yaml
+index 8864b9698..c87136249 100644
+--- a/Documentation/devicetree/bindings/input/touchscreen/st,salixp.yaml
++++ b/Documentation/devicetree/bindings/input/touchscreen/st,salixp.yaml
+@@ -11,12 +11,12 @@ maintainers:
+ 
+ description:
+   STMicroelectronics SALIXP touch controller on SPI. SALIXP is the FTS
+-  part whose chip id is 36 40. The binding covers the chip-id read. It
+-  does not describe firmware loading or touch reports. The I2C FingerTip
+-  controller is st,stmfts and is a different device.
++  part whose chip id is 36 40. The I2C FingerTip controller is
++  st,stmfts and is a different device.
+ 
+ allOf:
+   - $ref: /schemas/spi/spi-peripheral-props.yaml#
++  - $ref: touchscreen.yaml#
+ 
+ properties:
+   compatible:

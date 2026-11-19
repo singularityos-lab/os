@@ -1,0 +1,28 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Lef <me@lefteros.com>
+Date: Sun, 1 Nov 2026 13:14:36 +0200
+Subject: [PATCH] dt-bindings: i2c: exynos5: add google,zuma-hsi2c
+
+The Pixel 8 Pro's USI11 bus (hsi2c_11, at 0x10cb0000, as in Google's
+devicetree) is the same Samsung HSI2C controller as the other Google SoCs
+in this list. Add the zuma compatible, which the zuma devicetree uses for
+it.
+
+Signed-off-by: Lef <me@lefteros.com>
+Assisted-by: LLM
+---
+ Documentation/devicetree/bindings/i2c/i2c-exynos5.yaml | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/Documentation/devicetree/bindings/i2c/i2c-exynos5.yaml b/Documentation/devicetree/bindings/i2c/i2c-exynos5.yaml
+index b4ed5cd25..e15efb553 100644
+--- a/Documentation/devicetree/bindings/i2c/i2c-exynos5.yaml
++++ b/Documentation/devicetree/bindings/i2c/i2c-exynos5.yaml
+@@ -41,6 +41,7 @@ properties:
+           - enum:
+               - google,gs101-hsi2c
+               - google,gs201-hsi2c
++              - google,zuma-hsi2c
+               - google,zumapro-hsi2c
+               - samsung,exynos2200-hsi2c
+               - samsung,exynos850-hsi2c

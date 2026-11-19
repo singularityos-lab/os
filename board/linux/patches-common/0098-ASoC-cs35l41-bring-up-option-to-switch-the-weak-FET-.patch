@@ -1,0 +1,60 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Tue, 27 Oct 2026 11:34:31 -0400
+Subject: [PATCH] ASoC: cs35l41: bring-up option to switch the weak-FET output
+ mode off
+
+The CS35L41 drives the load through a reduced output stage at low
+signal levels (PWR_CTRL3 bit 24, WKFET_AMP_EN in Google's driver, on by
+default and left on by stock). On the Pixel 7 Pro at the everyday level
+(digital -10 dB, analog 10) both speakers distort heavily (10-50 % THD
+on a 1 kHz tone) once the load current passes a few tens of mA, at a
+fixed output level per speaker, after the DSP and independent of
+frequency, while the same tone 6 dB lower is clean (AOC-PLAN C9j,
+2026-10-27). A module parameter, wkfet_amp (default Y), lets the mode be
+switched off on the phone for a comparison without a rebuild. Not for
+upstream as is.
+
+Assisted-by: LLM
+Signed-off-by: Derek Ross <derekross@gmail.com>
+---
+ sound/soc/codecs/cs35l41.c | 19 +++++++++++++++++++
+ 1 file changed, 19 insertions(+)
+
+diff --git a/sound/soc/codecs/cs35l41.c b/sound/soc/codecs/cs35l41.c
+index ee7a82293..2b6cfaaba 100644
+--- a/sound/soc/codecs/cs35l41.c
++++ b/sound/soc/codecs/cs35l41.c
+@@ -1096,6 +1096,18 @@ static bool dsp_rx6_classh;
+ module_param(dsp_rx6_classh, bool, 0644);
+ MODULE_PARM_DESC(dsp_rx6_classh, "Route the class H target, not VBSTMON, to DSP1 RX6");
+ 
++/*
++ * Bring-up option (AOC-PLAN C9j): the amplifier's weak-FET output mode
++ * (PWR_CTRL3 bit 24, "WKFET_AMP_EN" in Google's driver, on by default) drives
++ * the load through a reduced output stage at low signal levels. On the Pixel
++ * 7 Pro both speakers distort heavily above a few tens of mA of load current
++ * at the everyday level; this lets the mode be switched off for a comparison.
++ */
++static bool wkfet_amp = true;
++module_param(wkfet_amp, bool, 0644);
++MODULE_PARM_DESC(wkfet_amp, "Weak-FET output mode at low levels (default Y)");
++#define CS35L41_WKFET_AMP_EN_MASK	BIT(24)
++
+ static int cs35l41_dsp_init(struct cs35l41_private *cs35l41)
+ {
+ 	struct wm_adsp *dsp;
+@@ -1145,6 +1157,13 @@ static int cs35l41_dsp_init(struct cs35l41_private *cs35l41)
+ 		dev_err(cs35l41->dev, "Write DSP1_RX6_SRC failed: %d\n", ret);
+ 		goto err_dsp;
+ 	}
++	ret = regmap_update_bits(cs35l41->regmap, CS35L41_PWR_CTRL3, CS35L41_WKFET_AMP_EN_MASK,
++				 wkfet_amp ? CS35L41_WKFET_AMP_EN_MASK : 0);
++	if (ret < 0) {
++		dev_err(cs35l41->dev, "Write PWR_CTRL3 (WKFET_AMP_EN) failed: %d\n", ret);
++		goto err_dsp;
++	}
++	dev_info(cs35l41->dev, "weak-FET output mode %s\n", wkfet_amp ? "on" : "off");
+ 	ret = regmap_write(cs35l41->regmap, CS35L41_DSP1_RX7_SRC,
+ 			   CS35L41_INPUT_SRC_TEMPMON);
+ 	if (ret < 0) {

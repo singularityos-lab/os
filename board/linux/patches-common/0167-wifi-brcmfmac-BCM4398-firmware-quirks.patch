@@ -1,0 +1,69 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Brett-Michael Green <brett@bmgvisualtech.com>
+Date: Sat, 31 Oct 2026 11:45:10 -0400
+Subject: [PATCH] wifi: brcmfmac: BCM4398 firmware quirks
+
+The BCM4398's 24.100 firmware (WLC version 18.2):
+
+- takes the versioned join parameters only, by the same WLC version
+  test as the BCM4389 and BCM4383;
+- advertises the supplicant offload but refuses the key, as the
+  BCM4383's does ("failed to change PSK in firmware"): leave the
+  handshakes to the host;
+- advertises host_sfhllc and relies on it: given plain Ethernet frames
+  it traps in its transmit path (a null write in txq_hw_fill() while
+  encrypting the first aggregated frame). Build the 802.3/LLC header on
+  the host, as for the BCM4389.
+
+Assisted-by: LLM
+Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
+---
+ .../broadcom/brcm80211/brcmfmac/feature.c     | 21 ++++++++++++-------
+ 1 file changed, 13 insertions(+), 8 deletions(-)
+
+diff --git a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/feature.c b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/feature.c
+index afac815ca..85c1ef8ff 100644
+--- a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/feature.c
++++ b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/feature.c
+@@ -164,10 +164,12 @@ static void brcmf_feat_wlc_version_overrides(struct brcmf_pub *drv)
+ 	 * on 16, or 17 and later. The BCM4389 (its 20.101.90 firmware
+ 	 * reports 14.4 and rejects the unversioned layout) and the Pixel
+ 	 * 9a's BCM4383 (20.123.13: the unversioned "join" and SET_SSID
+-	 * both fail with -52).
++	 * both fail with -52), and the Pixel 8 Pro's BCM4398 (24.100,
++	 * WLC version 18.2).
+ 	 */
+ 	if ((drv->bus_if->chip == BRCM_CC_4389_CHIP_ID ||
+-	     drv->bus_if->chip == BRCM_CC_4383_CHIP_ID) &&
++	     drv->bus_if->chip == BRCM_CC_4383_CHIP_ID ||
++	     drv->bus_if->chip == BRCM_CC_4398_CHIP_ID) &&
+ 	    ((major == 14 && (minor == 2 || minor == 4)) ||
+ 	     (major == 16 && minor >= 1) || major >= 17))
+ 		feat_flags |= BIT(BRCMF_FEAT_JOIN_V1);
+@@ -378,17 +380,20 @@ void brcmf_feat_attach(struct brcmf_pub *drvr)
+ 
+ 	brcmf_fwvid_feat_attach(ifp);
+ 
+-	/* Host-built 802.3 + LLC/SNAP TX headers: only the BCM4389 for now */
+-	if (drvr->bus_if->chip != BRCM_CC_4389_CHIP_ID)
++	/* Host-built 802.3 + LLC/SNAP TX headers: the BCM4389 and BCM4398 for now */
++	if (drvr->bus_if->chip != BRCM_CC_4389_CHIP_ID &&
++	    drvr->bus_if->chip != BRCM_CC_4398_CHIP_ID)
+ 		drvr->feat_flags &= ~BIT(BRCMF_FEAT_HOST_SFHLLC);
+ 
+ 	/*
+-	 * The BCM4383's firmware (20.123.13 on the Pixel 9a) advertises the
+-	 * supplicant offload but refuses the key: brcmf_set_wsec() fails with
+-	 * "failed to change PSK in firmware" and the join never gets past
++	 * The BCM4383's firmware (20.123.13 on the Pixel 9a) and the
++	 * BCM4398's (24.100 on the Pixel 8 Pro) advertise the supplicant
++	 * offload but refuse the key: brcmf_set_wsec() fails with "failed to
++	 * change PSK in firmware" and the join never gets past
+ 	 * authentication. Leave the handshakes to the host.
+ 	 */
+-	if (drvr->bus_if->chip == BRCM_CC_4383_CHIP_ID)
++	if (drvr->bus_if->chip == BRCM_CC_4383_CHIP_ID ||
++	    drvr->bus_if->chip == BRCM_CC_4398_CHIP_ID)
+ 		drvr->feat_flags &= ~(BIT(BRCMF_FEAT_FWSUP) | BIT(BRCMF_FEAT_SAE) |
+ 				      BIT(BRCMF_FEAT_FWAUTH));
+ 

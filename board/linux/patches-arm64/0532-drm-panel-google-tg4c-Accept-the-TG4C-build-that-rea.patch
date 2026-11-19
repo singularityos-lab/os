@@ -1,0 +1,80 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: cbm <omarchy-mobile@kloot.lu>
+Date: Sat, 7 Nov 2026 19:07:27 +0100
+Subject: [PATCH] drm/panel: google-tg4c: Accept the TG4C build that reads ID3
+ 0x40
+
+Commit 77ea6afd9f55 ("drm/panel: google-tg4c: Send no commands to a panel that is not a TG4C")
+takes a panel whose ID3 is not 0x00 for another panel and sends it
+nothing. A second Pixel 9a reads ID 04 80 40 2d, and its bootloader
+passes exynos_drm.panel_name=google-tg4c.2d408004 -- the same four
+bytes, so ABL itself identifies this panel as a TG4C. With the check
+failing, every backlight write and every 60/120 Hz switch on that phone
+returned -ENODEV:
+
+  panel-google-tg4c 19440000.dsi.0: panel ID 04 80 40 2d is not a TG4C's:
+  sending it no commands
+  gs-dsim-cmd 19440000.dsi: switching from 60 to 120 Hz failed: -19
+
+Accept ID3 0x40 as well. ID1 is still checked and ID3 must be one of
+the two values seen on TG4C panels, so any other ID still gets no
+commands. Google's panel-gs-tg4c.c treats the two builds the same: its
+tg4c_get_panel_rev() picks the command revisions from the build code in
+0xDB alone, and that byte is 0x80 on both panels, so Google's own driver
+sends this panel exactly the TG4C commands.
+
+Tested on a Pixel 9a (tegu, panel ID 04 80 40 2d) with
+7.3.0-rc6-omamobile-push1-ge8d722982099, whose panel-google-tg4c.c is
+this commit's (blob 8901b8f50009):
+
+- the "not a TG4C" message is gone, and writing 600 and then 3000 to
+  /sys/class/backlight/19440000.dsi.0/brightness succeeds instead of
+  failing with -ENODEV;
+- the refresh rate, switched from Hyprland 120 -> 60 -> 120 -> 60 ->
+  120 Hz: gs-decon logs each switch with no error, and with a terminal
+  redrawing every frame the DECON frame-start interrupt counts 120, 60,
+  121, 60 and 121 a second;
+- the display off and on (DPMS) at 60 Hz and at 120 Hz: the frames come
+  back at the same rate and the next brightness write succeeds;
+- LHBM at 120 Hz with allow_lhbm=1: local_hbm_mode reads 1 after
+  writing 1 and 0 after writing 0, with no error, and a switch to 60 Hz
+  ends it (the circle itself was not looked at).
+
+Assisted-by: Claude:claude-opus-5-5
+Signed-off-by: cbm <omarchy-mobile@kloot.lu>
+---
+ drivers/gpu/drm/panel/panel-google-tg4c.c | 10 +++++++---
+ 1 file changed, 7 insertions(+), 3 deletions(-)
+
+diff --git a/drivers/gpu/drm/panel/panel-google-tg4c.c b/drivers/gpu/drm/panel/panel-google-tg4c.c
+index b42431301..8901b8f50 100644
+--- a/drivers/gpu/drm/panel/panel-google-tg4c.c
++++ b/drivers/gpu/drm/panel/panel-google-tg4c.c
+@@ -58,12 +58,16 @@ static const u8 tg4c_cmd2_page2[] = { 0xF0, 0x55, 0xAA, 0x52, 0x08, 0x02 };
+  * The panel's ID as Google's gs_panel reads it: MIPI DCS ID1 (the module's
+  * manufacturer), ID2 (its version), ID3 (the module/driver ID), and the first
+  * byte of the device descriptor block. The bootloader appends the same four
+- * bytes, last first, to exynos_drm.panel_name: google-tg4c.2d008004 on the
+- * Pixel 9a's TG4C, so ID1 0x04 and ID3 0x00.
++ * bytes, last first, to exynos_drm.panel_name. Pixel 9a TG4Cs come in two
++ * builds: google-tg4c.2d008004 (ID3 0x00) and google-tg4c.2d408004 (ID3
++ * 0x40). Both read ID1 0x04 and ID2 0x80, the build code Google's
++ * panel-gs-tg4c.c picks its command revisions from, so both get the same
++ * commands.
+  */
+ static const u8 tg4c_id_regs[] = { 0xda, 0xdb, 0xdc, MIPI_DCS_READ_DDB_START };
+ #define TG4C_ID1		0x04
+ #define TG4C_ID3		0x00
++#define TG4C_ID3_ALT		0x40
+ 
+ enum tg4c_id {
+ 	TG4C_ID_UNREAD,
+@@ -127,7 +131,7 @@ static bool tg4c_check_id(struct tg4c *ctx)
+ 		}
+ 	}
+ 
+-	if (id[0] != TG4C_ID1 || id[2] != TG4C_ID3) {
++	if (id[0] != TG4C_ID1 || (id[2] != TG4C_ID3 && id[2] != TG4C_ID3_ALT)) {
+ 		dev_err(dev, "panel ID %*ph is not a TG4C's: sending it no commands\n",
+ 			(int)sizeof(id), id);
+ 		ctx->id = TG4C_ID_OTHER;

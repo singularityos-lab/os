@@ -1,0 +1,49 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Tue, 13 Oct 2026 08:43:04 -0400
+Subject: [PATCH] soc: google: cpif: add the channel extension option
+
+Google's CPIF tests CONFIG_CH_EXTENSION to treat channels 181-211
+(SIPC_CH_EX_ID_PDP_*) as packet data and to set AP_CAP_0_CH_EXTENSION
+in the AP capability word it hands the modem at boot. The port has the
+code but no Kconfig symbol, so it was always off.
+
+The S5300 firmware on gs201 uses the extended range: stock's device tree
+puts the 30 rmnet devices on channels 181 and up, and stock builds the
+option (pantah_defconfig: CONFIG_CH_EXTENSION=m). Without it only
+channels 10-24 count as packet data, the modem is not told about the
+extended range, and the rmnet interfaces carry nothing although
+registration and the IPC channels work.
+
+Add the symbol, on by default with the driver.
+
+Assisted-by: LLM
+Signed-off-by: Derek Ross <derekross@gmail.com>
+---
+ drivers/soc/google/cpif/Kconfig | 13 +++++++++++++
+ 1 file changed, 13 insertions(+)
+
+diff --git a/drivers/soc/google/cpif/Kconfig b/drivers/soc/google/cpif/Kconfig
+index 1165b09ca..537d8e419 100644
+--- a/drivers/soc/google/cpif/Kconfig
++++ b/drivers/soc/google/cpif/Kconfig
+@@ -36,6 +36,19 @@ config CPIF_AP_SUSPEND_DURING_VOICE_CALL
+ 	  suspend while a call's audio runs over the AoC, as notified by the
+ 	  voice call events. Without it the S5100 control code does not build.
+ 
++config CH_EXTENSION
++	bool "Extended packet data channels"
++	default y
++	help
++	  The S5300 firmware of gs201 phones carries packet data on the
++	  extended channel range (181 and up, SIPC_CH_EX_ID_PDP_*), which
++	  the device tree's rmnet I/O devices use, and the AP advertises
++	  that range in its capability word at boot. Without it only
++	  channels 10-24 are treated as packet data, and the rmnet
++	  interfaces carry nothing. Stock builds it (pantah_defconfig).
++
++	  If unsure, say Y.
++
+ config SHM_IPC
+ 	tristate "Shared-memory regions for the modem"
+ 	default EXYNOS_MODEM_IF

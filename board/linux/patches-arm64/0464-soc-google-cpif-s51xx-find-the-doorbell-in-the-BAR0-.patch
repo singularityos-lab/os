@@ -1,0 +1,145 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Tue, 13 Oct 2026 12:23:30 -0400
+Subject: [PATCH] soc: google: cpif: s51xx: find the doorbell in the BAR0 the
+ PCI core assigned
+
+Stock's probe writes pci_db_addr into BAR0, then "disables" every BAR
+by rewriting pdev->resource[] in place and calling
+pci_assign_resource(), re-assigns a 4 KiB BAR0 at pci_db_addr, and maps
+the doorbell at the root port's window start plus the doorbell's offset
+in BAR0. In the first modem boot (MODEM-PLAN M3.4.5) every one of those
+assignments failed ("can't assign; no space") and the window was empty,
+so the probe refused to map the doorbell and the modem never booted.
+
+The resource rewrite edits resources the PCI core has already inserted
+in its resource tree, and the window start is BAR0 only where the core
+happened to put BAR0 first. With the root port and the modem now given
+a class by the host driver, the core assigns BAR0 itself.
+
+Keep that assignment: require BAR0 to be an assigned memory BAR, take
+the doorbell at pci_db_addr's offset within it (0x60000 for the 1 MiB
+BAR), and record BAR0's bus address for restore_state's BAR0 check.
+Fail the probe if the device cannot be enabled, since without memory
+decode no doorbell reaches the modem. This replaces the bridge-window
+check added earlier.
+
+Assisted-by: LLM
+Signed-off-by: Derek Ross <derekross@gmail.com>
+---
+ drivers/soc/google/cpif/s51xx_pcie.c | 74 ++++++++++++----------------
+ 1 file changed, 32 insertions(+), 42 deletions(-)
+
+diff --git a/drivers/soc/google/cpif/s51xx_pcie.c b/drivers/soc/google/cpif/s51xx_pcie.c
+index 106d77013..acdaa399d 100644
+--- a/drivers/soc/google/cpif/s51xx_pcie.c
++++ b/drivers/soc/google/cpif/s51xx_pcie.c
+@@ -370,16 +370,13 @@ static void s51xx_pcie_event_cb(struct exynos_pcie_notify *noti)
+ static int s51xx_pcie_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
+ {
+ 	int ret;
+-	int __maybe_unused i;
+ 	struct s51xx_pcie *s51xx_pcie;
+ 	struct device *dev = &pdev->dev;
+ 	struct pci_driver *driver = pdev->driver;
+ 	struct modem_ctl *mc = container_of(driver, struct modem_ctl, pci_driver);
+ 	struct device *mc_dev = mc->dev;
+-	struct pci_bus *bus = pdev->bus;
+-	struct pci_dev *bus_self = bus->self;
+-	struct resource *tmp_rsc;
+-	int resno = PCI_BRIDGE_MEM_WINDOW;
++	struct resource *bar0;
++	struct pci_bus_region bar0_bus;
+ 	u32 val, db_addr;
+ 
+ 	dev_info(dev, "%s EP driver Probe(%s), chNum: %d\n",
+@@ -397,51 +394,40 @@ static int s51xx_pcie_probe(struct pci_dev *pdev, const struct pci_device_id *en
+ 
+ 	if (of_property_read_u32(mc_dev->of_node, "pci_db_addr", &db_addr)) {
+ 		dev_err(dev, "Failed to parse the EP DB base address\n");
++		mc->s51xx_pdev = NULL;
+ 		return -EINVAL;
+ 	}
+ 
+-	pci_write_config_dword(pdev, PCI_BASE_ADDRESS_0, db_addr);
+-	pci_read_config_dword(pdev, PCI_BASE_ADDRESS_0, &val);
+-	val &= PCI_BASE_ADDRESS_MEM_MASK;
+-	s51xx_pcie->dbaddr_offset = db_addr - val;
+-	s51xx_pcie->dbaddr_changed_base = val;
+-	dev_info(dev, "db_addr : 0x%x , val : 0x%x, offset : 0x%x\n",
+-			db_addr, val, (unsigned int)s51xx_pcie->dbaddr_offset);
+-
+-	mif_info("Disable BAR resources.\n");
+-	for (i = 0; i < 6; i++) {
+-		pdev->resource[i].start = 0x0;
+-		pdev->resource[i].end = 0x0;
+-		if (pci_assign_resource(pdev, i))
+-			pr_warn("%s: failed to assign pci resource (i=%d)\n", __func__, i);
+-	}
+-
+-	/* EP BAR setup: BAR0 (4kB) */
+-	pdev->resource[0].start = val;
+-	pdev->resource[0].end = val + SZ_4K;
+-	if (pci_assign_resource(pdev, 0))
+-		pr_warn("%s: failed to assign EP BAR0 pci resource\n", __func__);
+-
+-	/* get Doorbell base address from root bus range */
+-	tmp_rsc = bus_self->resource + resno;
+-	dev_info(&bus_self->dev, "[%s] BAR %d: tmp rsc : %pR\n", __func__, resno, tmp_rsc);
+-	s51xx_pcie->dbaddr_base = tmp_rsc->start;
+-
+ 	/*
+-	 * The doorbell is BAR0 + offset, reached through the root port's
+-	 * memory window, which must therefore be assigned and contain it.
+-	 * Stock maps whatever the sum gives; with an unassigned window that
+-	 * is a low physical address, and every doorbell would write it.
++	 * The doorbell is a register in the modem's BAR0: pci_db_addr is its
++	 * bus address in stock's layout (BAR0 at the start of the window).
++	 * Stock wrote pci_db_addr into BAR0, then rewrote pdev->resource[]
++	 * in place to "disable" every BAR, re-assigned a 4 KiB BAR0 and
++	 * mapped the doorbell from the root port's window start. That
++	 * rewrites resources the PCI core has already inserted in its tree,
++	 * and only works where the window starts at BAR0. Keep the core's
++	 * assignment and find the doorbell in BAR0 at the same offset.
+ 	 */
+-	if (!(resource_type(tmp_rsc) & IORESOURCE_MEM) || !tmp_rsc->start ||
+-	    tmp_rsc->flags & IORESOURCE_UNSET ||
+-	    s51xx_pcie->dbaddr_base + s51xx_pcie->dbaddr_offset + SZ_4 - 1 > tmp_rsc->end) {
+-		dev_err(dev, "doorbell base %#llx + %#x outside the bridge window %pR: not mapped\n",
+-			(unsigned long long)s51xx_pcie->dbaddr_base,
+-			s51xx_pcie->dbaddr_offset, tmp_rsc);
++	bar0 = &pdev->resource[0];
++	if (resource_type(bar0) != IORESOURCE_MEM || !resource_assigned(bar0)) {
++		dev_err(dev, "BAR0 %pR not assigned: no doorbell\n", bar0);
+ 		mc->s51xx_pdev = NULL;
+ 		return -ENODEV;
+ 	}
++	s51xx_pcie->dbaddr_offset = db_addr & (resource_size(bar0) - 1);
++	if (s51xx_pcie->dbaddr_offset + SZ_4 > resource_size(bar0)) {
++		dev_err(dev, "doorbell %#x outside BAR0 %pR\n", db_addr, bar0);
++		mc->s51xx_pdev = NULL;
++		return -ENODEV;
++	}
++	pcibios_resource_to_bus(pdev->bus, &bar0_bus, bar0);
++	s51xx_pcie->dbaddr_base = bar0->start;
++	/* restore_state puts BAR0 back to this if the modem lost it */
++	s51xx_pcie->dbaddr_changed_base = lower_32_bits(bar0_bus.start);
++	pci_read_config_dword(pdev, PCI_BASE_ADDRESS_0, &val);
++	dev_info(dev, "doorbell: BAR0 %pR (bus %#llx, reads %#x) + %#x; pci_db_addr %#x\n",
++		 bar0, (unsigned long long)bar0_bus.start, val,
++		 s51xx_pcie->dbaddr_offset, db_addr);
+ 
+ 	mif_info("Set Doorbell register address.\n");
+ 	s51xx_pcie->doorbell_addr = devm_ioremap(&pdev->dev,
+@@ -475,7 +461,11 @@ static int s51xx_pcie_probe(struct pci_dev *pdev, const struct pci_device_id *en
+ 	mif_info("Enable PCI device...\n");
+ 	ret = pci_enable_device(pdev);
+ 	if (ret < 0) {
++		/* without memory decode the doorbell goes nowhere */
+ 		mif_err("pci_enable_device() failed, rc:%d\n", ret);
++		exynos_pcie_deregister_event(&s51xx_pcie->pcie_event);
++		mc->s51xx_pdev = NULL;
++		return ret;
+ 	}
+ 
+ 	pci_set_master(pdev);

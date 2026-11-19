@@ -1,0 +1,354 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Mon, 12 Oct 2026 17:22:47 -0400
+Subject: [PATCH] PCI: dwc: gs201-cp: register the modem's PCI bus on request,
+ with MSI
+
+The modem interface driver (Google's CPIF) talks to the S5300 as a PCI
+device: it binds to 144d:a5a5, allocates four MSI vectors and maps the
+endpoint's BAR. Add a "bus" bring-up step that gives it one:
+
+- the host bridge is allocated at probe from "ranges" (no hardware
+  access) and registered and scanned by the first "bus" step, after
+  link_up and the secure-ATU SMC;
+- configuration space: the root port through DBI, the endpoint through
+  the window the secure monitor maps to bus 1, device 0. Both read as
+  absent while the link is down, under a lock that link_down takes
+  first, because a DBI access with the PHY isolated hangs the SoC;
+- MSI: the DesignWare iMSI-RX block with one GIC SPI per 32 vectors
+  ("msi0".."msi4", Google's separated MSI), handled by the DWC core's
+  MSI domain, with the target set to the reserved MSI page as Google's
+  driver does for the modem. The chained handlers read DBI, so their
+  parent interrupts are disabled at link_down and re-armed by the next
+  "bus" step.
+
+As in Google's driver, the bus is kept across link_down/link_up cycles;
+it is removed only when the module is. Nothing enables bus mastering:
+without a driver bound to the endpoint it cannot DMA.
+
+The DWC host core (dw_pcie_host_init()) is not used because it detects
+and programs the outbound iATU, which belongs to the secure monitor on
+this link.
+
+Assisted-by: LLM
+Signed-off-by: Derek Ross <derekross@gmail.com>
+---
+ drivers/pci/controller/dwc/pcie-gs201-cp.c | 216 ++++++++++++++++++++-
+ 1 file changed, 215 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/pci/controller/dwc/pcie-gs201-cp.c b/drivers/pci/controller/dwc/pcie-gs201-cp.c
+index 1d0efd6eb..823c21bf9 100644
+--- a/drivers/pci/controller/dwc/pcie-gs201-cp.c
++++ b/drivers/pci/controller/dwc/pcie-gs201-cp.c
+@@ -11,7 +11,7 @@
+  *    Google's device tree): Linux asks for it with an SMC and then reaches
+  *    the endpoint's configuration space through the fixed config window;
+  *  - two lanes, Gen1 for the ROM, Gen3 later;
+- *  - MSI to a fixed target in the modem's shared memory (not used here yet).
++ *  - MSI to a fixed target in the modem's shared memory (the "bus" step).
+  *
+  * Sequences from Google's GPL driver for gs201
+  * (google-modules/soc/gs/drivers/pci/controller/dwc-whi/pcie-exynos-rc.c:
+@@ -29,9 +29,16 @@
+  *              release, LTSSM, wait for L0 (Gen1 unless "link_up 3")
+  *   atu        the secure-ATU SMC (config and memory windows)
+  *   id         read the endpoint's vendor/device ID through the config window
++ *   bus        register the PCI host bridge and scan it (first time), with
++ *              the DWC MSI controller aimed at the modem's MSI page; after
++ *              a later link_up and atu, it re-arms MSI on the same bus
+  *   link_down  PERST#, LTSSM off, controller soft power reset, PHY
+  *              power-down, then the PHY isolated again in the PMU
+  *
++ * The bus is never removed while the module is loaded: as with Google's
++ * driver, the endpoint's pci_dev outlives link_down/link_up cycles, and its
++ * configuration space reads as absent while the link is down.
++ *
+  * The "status" file only reads GPIO levels and the PMU isolation bit, plus
+  * controller registers once the PHY is out of isolation (an ELBI access
+  * while it is isolated hangs the SoC, as found on the Wi-Fi link).
+@@ -49,6 +56,7 @@
+ #include <linux/module.h>
+ #include <linux/mutex.h>
+ #include <linux/of.h>
++#include <linux/of_reserved_mem.h>
+ #include <linux/pci.h>
+ #include <linux/pci_regs.h>
+ #include <linux/phy/phy.h>
+@@ -162,14 +170,21 @@ struct gs201_pcie_cp {
+ 		struct gs201_pcie_cp *cp;
+ 		unsigned int line;
+ 	} watch[CP_NUM_INPUTS];
++	struct pci_host_bridge *bridge;
++	struct resource msi_page;	/* memory-region: the modem's MSI page */
+ 	struct dentry *debugfs;
+ 	struct mutex lock;		/* serializes the steps */
++	raw_spinlock_t cfg_lock;	/* config accesses against link changes */
++	bool cfg_root_ok;		/* root port (DBI) accessible */
++	bool cfg_ep_ok;			/* endpoint reachable (link up, ATU set) */
+ 	u32 num_lanes;
+ 	bool cp_powered;
+ 	bool phy_inited;
+ 	bool phy_on;
+ 	bool link_up;
+ 	bool atu_done;
++	bool msi_ready;		/* MSI domain and chained handlers set up */
++	bool msi_irqs_on;	/* their parent interrupts enabled */
+ };
+ 
+ static u32 cp_elbi_read(struct gs201_pcie_cp *cp, u32 reg)
+@@ -279,6 +294,180 @@ static void cp_setup_dbi(struct gs201_pcie_cp *cp, unsigned int speed)
+ 	dw_pcie_dbi_ro_wr_dis(pci);
+ }
+ 
++/*
++ * Configuration space. The root port is the controller's own (DBI); the
++ * endpoint is reached through the window the secure monitor maps to bus 1,
++ * device 0. Neither may be touched while the link is down: a DBI access
++ * hangs the SoC while the PHY is isolated, and the window has no target.
++ * cfg_lock makes the checks and the accesses atomic against link_down.
++ */
++static void cp_cfg_allow(struct gs201_pcie_cp *cp, bool root, bool ep)
++{
++	unsigned long flags;
++
++	raw_spin_lock_irqsave(&cp->cfg_lock, flags);
++	cp->cfg_root_ok = root;
++	cp->cfg_ep_ok = ep;
++	raw_spin_unlock_irqrestore(&cp->cfg_lock, flags);
++}
++
++static void __iomem *cp_root_map_bus(struct pci_bus *bus, unsigned int devfn,
++				     int where)
++{
++	struct gs201_pcie_cp *cp = bus->sysdata;
++
++	if (devfn || !cp->cfg_root_ok)
++		return NULL;
++	return cp->pci.dbi_base + where;
++}
++
++static void __iomem *cp_child_map_bus(struct pci_bus *bus, unsigned int devfn,
++				      int where)
++{
++	struct gs201_pcie_cp *cp = bus->sysdata;
++
++	if (devfn || !pci_is_root_bus(bus->parent) || !cp->cfg_ep_ok)
++		return NULL;
++	return cp->cfg + where;
++}
++
++static int cp_cfg_read(struct pci_bus *bus, unsigned int devfn, int where,
++		       int size, u32 *val)
++{
++	struct gs201_pcie_cp *cp = bus->sysdata;
++	unsigned long flags;
++	int ret;
++
++	raw_spin_lock_irqsave(&cp->cfg_lock, flags);
++	ret = pci_generic_config_read(bus, devfn, where, size, val);
++	raw_spin_unlock_irqrestore(&cp->cfg_lock, flags);
++
++	return ret;
++}
++
++static int cp_cfg_write(struct pci_bus *bus, unsigned int devfn, int where,
++			int size, u32 val)
++{
++	struct gs201_pcie_cp *cp = bus->sysdata;
++	unsigned long flags;
++	int ret;
++
++	raw_spin_lock_irqsave(&cp->cfg_lock, flags);
++	ret = pci_generic_config_write(bus, devfn, where, size, val);
++	raw_spin_unlock_irqrestore(&cp->cfg_lock, flags);
++
++	return ret;
++}
++
++static struct pci_ops cp_root_ops = {
++	.map_bus = cp_root_map_bus,
++	.read = cp_cfg_read,
++	.write = cp_cfg_write,
++};
++
++static struct pci_ops cp_child_ops = {
++	.map_bus = cp_child_map_bus,
++	.read = cp_cfg_read,
++	.write = cp_cfg_write,
++};
++
++/*
++ * MSI: the DWC iMSI-RX block, one GIC SPI per block of 32 vectors
++ * ("msi0".."msi4", Google's "separated" MSI), aimed at the modem's MSI
++ * page as Google's driver does (exynos_pcie_set_msi_ctrl_addr()). The
++ * modem writes its boot stage into the same page, so it is reserved RAM.
++ * The chained handlers read DBI, so their parent interrupts are disabled
++ * before the PHY goes back into isolation and enabled again after the next
++ * link_up.
++ */
++static void cp_msi_irqs(struct gs201_pcie_cp *cp, bool on)
++{
++	struct dw_pcie_rp *pp = &cp->pci.pp;
++	unsigned int i;
++
++	if (!cp->msi_ready || cp->msi_irqs_on == on)
++		return;
++	for (i = 0; i < MAX_MSI_CTRLS; i++) {
++		if (pp->msi_irq[i] <= 0)
++			continue;
++		if (on)
++			enable_irq(pp->msi_irq[i]);
++		else
++			disable_irq(pp->msi_irq[i]);
++	}
++	cp->msi_irqs_on = on;
++}
++
++static int cp_msi_setup(struct gs201_pcie_cp *cp)
++{
++	struct dw_pcie_rp *pp = &cp->pci.pp;
++	int ret;
++
++	if (!cp->msi_page.start) {
++		dev_warn(cp->dev, "no MSI page (memory-region): no MSI\n");
++		return 0;
++	}
++	if (!cp->msi_ready) {
++		raw_spin_lock_init(&pp->lock);
++		pp->use_imsi_rx = true;
++		ret = dw_pcie_msi_host_init(pp);	/* handlers on, enabled */
++		if (ret)
++			return ret;
++		pp->msi_data = cp->msi_page.start;
++		cp->msi_ready = true;
++		cp->msi_irqs_on = true;
++		dev_info(cp->dev, "MSI: %u vectors, target %pa\n",
++			 pp->num_vectors, &pp->msi_data);
++	}
++	dw_pcie_msi_init(pp);	/* the controller reset cleared these */
++	cp_msi_irqs(cp, true);
++
++	return 0;
++}
++
++static int cp_bus_report(struct pci_dev *pdev, void *data)
++{
++	struct gs201_pcie_cp *cp = data;
++
++	dev_info(cp->dev, "%s %04x:%04x class %06x\n", pci_name(pdev),
++		 pdev->vendor, pdev->device, pdev->class);
++	return 0;
++}
++
++static int cp_bus(struct gs201_pcie_cp *cp)
++{
++	int ret;
++
++	if (!cp->link_up || !cp->atu_done)
++		return -ENOLINK;
++
++	ret = cp_msi_setup(cp);
++	if (ret)
++		return ret;
++
++	if (cp->bridge->bus) {
++		dev_info(cp->dev, "bus already registered, MSI re-armed\n");
++		return 0;
++	}
++
++	ret = pci_host_probe(cp->bridge);
++	if (ret)
++		return ret;
++	pci_walk_bus(cp->bridge->bus, cp_bus_report, cp);
++
++	return 0;
++}
++
++static void cp_bus_remove(struct gs201_pcie_cp *cp)
++{
++	if (!cp->bridge->bus)
++		return;
++	pci_lock_rescan_remove();
++	pci_stop_root_bus(cp->bridge->bus);
++	pci_remove_root_bus(cp->bridge->bus);
++	pci_unlock_rescan_remove();
++}
++
+ /*
+  * Isolate the PHY again once it is powered down. The PHY driver's exit
+  * leaves isolation off, because the Wi-Fi link's controller is accessed
+@@ -312,6 +501,9 @@ static void cp_link_down(struct gs201_pcie_cp *cp)
+ 	bool was_inited = cp->phy_inited;
+ 	u32 val;
+ 
++	cp_cfg_allow(cp, false, false);
++	cp_msi_irqs(cp, false);
++
+ 	if (cp->phy_inited) {
+ 		gpiod_direction_output(cp->perst, 1);
+ 		cp_elbi_write(cp, CP_ELBI_LTSSM_EN, 0);
+@@ -438,6 +630,7 @@ static int cp_link_up(struct gs201_pcie_cp *cp, unsigned int speed)
+ 	cp_elbi_write(cp, CP_ELBI_IRQ1, cp_elbi_read(cp, CP_ELBI_IRQ1));
+ 	cp_elbi_write(cp, CP_ELBI_IRQ2, cp_elbi_read(cp, CP_ELBI_IRQ2));
+ 	cp->link_up = true;
++	cp_cfg_allow(cp, true, false);
+ 
+ 	return 0;
+ }
+@@ -451,6 +644,7 @@ static int cp_secure_atu(struct gs201_pcie_cp *cp)
+ 	if (res.a0)
+ 		return -EIO;
+ 	cp->atu_done = true;
++	cp_cfg_allow(cp, true, true);
+ 
+ 	return 0;
+ }
+@@ -503,6 +697,8 @@ static ssize_t cp_ctl_write(struct file *file, const char __user *ubuf,
+ 		ret = cp->link_up ? cp_secure_atu(cp) : -ENOLINK;
+ 	} else if (!strcmp(cmd, "id")) {
+ 		ret = cp->atu_done ? cp_read_id(cp) : -ENOLINK;
++	} else if (!strcmp(cmd, "bus")) {
++		ret = cp_bus(cp);
+ 	} else {
+ 		ret = -EINVAL;
+ 	}
+@@ -614,6 +810,7 @@ static int gs201_pcie_cp_probe(struct platform_device *pdev)
+ 		return -ENOMEM;
+ 	cp->dev = dev;
+ 	mutex_init(&cp->lock);
++	raw_spin_lock_init(&cp->cfg_lock);
+ 	platform_set_drvdata(pdev, cp);
+ 
+ 	/* Mappings only: nothing here touches the controller or the PHY. */
+@@ -644,6 +841,18 @@ static int gs201_pcie_cp_probe(struct platform_device *pdev)
+ 	if (ret)
+ 		return dev_err_probe(dev, ret, "no PMU offset\n");
+ 
++	/* The bus: windows from "ranges", registered only by the bus step */
++	cp->bridge = devm_pci_alloc_host_bridge(dev, 0);
++	if (!cp->bridge)
++		return -ENOMEM;
++	cp->bridge->ops = &cp_root_ops;
++	cp->bridge->child_ops = &cp_child_ops;
++	cp->bridge->sysdata = cp;
++	cp->pci.pp.bridge = cp->bridge;
++
++	if (of_reserved_mem_region_to_resource(np, 0, &cp->msi_page))
++		memset(&cp->msi_page, 0, sizeof(cp->msi_page));
++
+ 	cp->num_lanes = 2;
+ 	of_property_read_u32(np, "num-lanes", &cp->num_lanes);
+ 
+@@ -711,7 +920,12 @@ static void gs201_pcie_cp_remove(struct platform_device *pdev)
+ 
+ 	debugfs_remove_recursive(cp->debugfs);
+ 	mutex_lock(&cp->lock);
++	cp_bus_remove(cp);
+ 	cp_link_down(cp);
++	if (cp->msi_ready) {
++		dw_pcie_free_msi(&cp->pci.pp);
++		cp->msi_ready = false;
++	}
+ 	if (cp->cp_powered)
+ 		cp_power_off(cp);
+ 	mutex_unlock(&cp->lock);

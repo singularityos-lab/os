@@ -1,0 +1,28 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Lef <me@lefteros.com>
+Date: Sat, 7 Nov 2026 15:58:14 +0200
+Subject: [PATCH] soc: samsung: exynos-pmu: say the NFC pad register is Tensor
+ G3's too
+
+The comment above the NFC clock pad register in the zuma PMU table says
+it is Tensor G4's. Stock's pmu_clk_pad is 0x3e84 on the Pixel 8 Pro too,
+so name both. Comment only, no change in the code.
+
+Signed-off-by: Lef <me@lefteros.com>
+---
+ drivers/soc/samsung/gs101-pmu.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/drivers/soc/samsung/gs101-pmu.c b/drivers/soc/samsung/gs101-pmu.c
+index 6cf15a30b..81b45e308 100644
+--- a/drivers/soc/samsung/gs101-pmu.c
++++ b/drivers/soc/samsung/gs101-pmu.c
+@@ -365,7 +365,7 @@ static const struct regmap_range zuma_pmu_registers[] = {
+ 	regmap_reg_range(ZUMA_PHY_CTRL_PCIE1, ZUMA_PHY_CTRL_PCIE1),
+ 	/* a hint TF-A reads, not a status register: see zuma_pmu_regmap_init() */
+ 	regmap_reg_range(ZUMA_PMU_INFORM0, ZUMA_PMU_INFORM0),
+-	/* Tensor G4's NFC reference clock pad, a clock of clk-exynos-clkout */
++	/* Tensor G3 and G4's NFC reference clock pad (clk-exynos-clkout) */
+ 	regmap_reg_range(ZUMA_PAD_CTRL_NFC_CLK, ZUMA_PAD_CTRL_NFC_CLK),
+ };
+ 

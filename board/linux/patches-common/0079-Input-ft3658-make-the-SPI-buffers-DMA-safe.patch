@@ -1,0 +1,49 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Alejandro Garcia <skipper.pelygro@gmail.com>
+Date: Wed, 28 Oct 2026 22:27:24 -0700
+Subject: [PATCH] Input: ft3658 - make the SPI buffers DMA-safe
+
+SPI transfer buffers must be DMA-safe (include/linux/spi/spi.h,
+Documentation/spi/spi-summary.rst), and tx and rx sit in struct ft3658
+next to other fields, so a controller with a DMA channel would map
+memory those fields share. Put each buffer on its own ARCH_DMA_MINALIGN
+boundary, after every other field. On gs201 the USI SPI has no DMA
+channel and runs in polling mode, so this changes nothing on the
+Pixel 7.
+
+Tested on a Pixel 7 (7.3.0-rc6) with the touch node: the controller
+probes (chip id 0x56, firmware 0x16) and reports touches across the
+panel with no CRC errors.
+
+Suggested-by: Derek Ross <derekross@gmail.com>
+Assisted-by: Claude Opus 5.5
+Signed-off-by: Alejandro Garcia <skipper.pelygro@gmail.com>
+---
+ drivers/input/touchscreen/focaltech_ft3658.c | 6 ++++--
+ 1 file changed, 4 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/input/touchscreen/focaltech_ft3658.c b/drivers/input/touchscreen/focaltech_ft3658.c
+index d16c4bc09..61fc50514 100644
+--- a/drivers/input/touchscreen/focaltech_ft3658.c
++++ b/drivers/input/touchscreen/focaltech_ft3658.c
+@@ -29,6 +29,7 @@
+  *	event (2 bits) | x (12) | id (4) | y (12) | pressure | area
+  */
+ 
++#include <linux/cache.h>
+ #include <linux/crc-ccitt.h>
+ #include <linux/delay.h>
+ #include <linux/gpio/consumer.h>
+@@ -77,9 +78,10 @@ struct ft3658 {
+ 	struct regulator *vdd;
+ 	struct regulator *avdd;
+ 	struct touchscreen_properties prop;
+-	u8 tx[FT3658_BUF_LEN];
+-	u8 rx[FT3658_BUF_LEN];
+ 	u8 report[FT3658_REPORT_LEN];
++	/* SPI buffers, DMA-safe: each on its own DMA alignment boundary */
++	u8 tx[FT3658_BUF_LEN] __aligned(ARCH_DMA_MINALIGN);
++	u8 rx[FT3658_BUF_LEN] __aligned(ARCH_DMA_MINALIGN);
+ };
+ 
+ static int ft3658_read(struct ft3658 *ts, u8 addr, u8 *data, size_t len)

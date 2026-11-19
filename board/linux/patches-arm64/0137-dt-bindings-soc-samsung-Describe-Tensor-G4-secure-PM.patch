@@ -1,0 +1,36 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Thu, 22 Oct 2026 20:10:34 -0700
+Subject: [PATCH] dt-bindings: soc: samsung: Describe Tensor G4 secure PMU
+
+Stock zumapro.dtsi names the PMU samsung,gs101-pmu, with the secure
+write transport implemented in Google's exynos-pmu-if.c. The existing
+zuma data provides that transport without attaching gs101 CPU hooks
+or register tables. Describe G4 with a zuma fallback so no new driver
+match is needed.
+
+This does not add CPU hooks, a register access table, power-domain
+policy or the unresolved PCIe masked-update callback. No board node
+is added.
+
+Link: https://android.googlesource.com/kernel/devices/google/zumapro/+/8831630eee2ad095b85ed452944e6353940966a5/dts/zumapro.dtsi#503
+Link: https://android.googlesource.com/kernel/google-modules/soc/gs/+/204078758737776959ecc85c527a00fd2cabb62f/drivers/soc/google/exynos-pmu-if.c
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ Documentation/devicetree/bindings/soc/samsung/exynos-pmu.yaml | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/Documentation/devicetree/bindings/soc/samsung/exynos-pmu.yaml b/Documentation/devicetree/bindings/soc/samsung/exynos-pmu.yaml
+index 14caf5bdc..d594982f2 100644
+--- a/Documentation/devicetree/bindings/soc/samsung/exynos-pmu.yaml
++++ b/Documentation/devicetree/bindings/soc/samsung/exynos-pmu.yaml
+@@ -15,6 +15,9 @@ properties:
+       - enum:
+           - google,gs101-pmu
+           - google,zuma-pmu
++      - items:
++          - const: google,zumapro-pmu
++          - const: google,zuma-pmu
+       - items:
+           - enum:
+               - samsung,exynos3250-pmu

@@ -1,0 +1,62 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Mon, 12 Oct 2026 17:10:06 -0400
+Subject: [PATCH] soc: google: aoc: alsa: refuse a PCM whose number is not its
+ entry point
+
+The PCM driver takes the AoC entry point of a playback stream, and the
+use case of a capture stream, from the PCM device number. That holds
+only when the card's DAI links are in the order of the stock device
+tree, where EPn playback is PCM n - 1 and EPn capture PCM 8 + n - 1.
+
+A card described by a device tree overlay had its links reversed (the
+overlay apply inserts each new node first), so EP6 playback became PCM
+47, and the AoC rejected it:
+
+  F1: ERR: controller_audio_output.cc, 1912: Mode Playback is not supported by Entrypoint 47
+  F1: ERR: controller_audio_output.cc, 2005: Entrypoint 47 cannot be configured
+
+For the EP playback and capture links, check the PCM number against the
+link id and refuse to open the PCM if they disagree, instead of
+configuring some other entry point on the AoC.
+
+Assisted-by: LLM
+Signed-off-by: Derek Ross <derekross@gmail.com>
+---
+ drivers/soc/google/aoc/alsa/aoc_alsa_pcm.c | 23 ++++++++++++++++++++++
+ 1 file changed, 23 insertions(+)
+
+diff --git a/drivers/soc/google/aoc/alsa/aoc_alsa_pcm.c b/drivers/soc/google/aoc/alsa/aoc_alsa_pcm.c
+index c50d8e2d2..c5e3d2c3a 100644
+--- a/drivers/soc/google/aoc/alsa/aoc_alsa_pcm.c
++++ b/drivers/soc/google/aoc/alsa/aoc_alsa_pcm.c
+@@ -375,6 +375,29 @@ static int snd_aoc_pcm_open(struct snd_soc_component *component,
+ 
+ 	idx = substream->pcm->device;
+ 	pr_debug("pcm device open (%d)\n", idx);
++
++	/*
++	 * The AoC entry point (playback) and the capture use case are taken
++	 * from the PCM device number below, which is right only when the
++	 * card's DAI links are in the stock order, where the PCM number of a
++	 * front end follows from its link id: EPn playback (id n - 1) is PCM
++	 * n - 1, EPn capture (AOC_TX | n - 1) is PCM 8 + n - 1. Anything else
++	 * would configure some other entry point on the AoC, so refuse. (The
++	 * raw, ultrasonic and immersive links sit further down the stock list
++	 * with ids of their own; they are not checked.)
++	 */
++	if (!(rtd->dai_link->id & (AOC_BE | AOC_NOHOST)) &&
++	    AOC_ID_TO_INDEX(rtd->dai_link->id) < UC_AUDIO_RECORD) {
++		int expect = AOC_ID_TO_INDEX(rtd->dai_link->id) +
++			     ((rtd->dai_link->id & AOC_TX) ? UC_AUDIO_RECORD : 0);
++
++		if (expect != idx) {
++			pr_err("%s is PCM %d, expected PCM %d: the card's DAI links are not in the stock order\n",
++			       rtd->dai_link->name, idx, expect);
++			mutex_unlock(&chip->audio_mutex);
++			return -EINVAL;
++		}
++	}
+ 	pr_debug("chip open (%llu)\n", chip->opened);
+ 
+ 	alsa_stream = kzalloc(sizeof(struct aoc_alsa_stream), GFP_KERNEL);

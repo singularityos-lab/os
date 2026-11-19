@@ -1,0 +1,120 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Sun, 11 Oct 2026 16:42:56 -0400
+Subject: [PATCH] arm64: dts: exynos: google: gs201: add CMU nodes
+
+Describe the clock controllers handled by the gs201 clock driver: TOP,
+MISC, PERIC0, PERIC1, HSI0 and HSI2, fed from oscclk. Base addresses
+are from Google's gs201 CMUCAL SFR block table.
+
+Consumers keep their fixed-clock placeholders for now, and the board
+still boots with clk_ignore_unused. A comment lists the clock IDs to
+switch the watchdogs, MCT, USB, UFS and the touchscreen SPI to.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ arch/arm64/boot/dts/exynos/google/gs201.dtsi | 84 ++++++++++++++++++++
+ 1 file changed, 84 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/gs201.dtsi b/arch/arm64/boot/dts/exynos/google/gs201.dtsi
+index 102be1138..e07d0fddc 100644
+--- a/arch/arm64/boot/dts/exynos/google/gs201.dtsi
++++ b/arch/arm64/boot/dts/exynos/google/gs201.dtsi
+@@ -3,6 +3,7 @@
+  * Google GS201 (Tensor G2) SoC - minimal description for early bring-up.
+  */
+ 
++#include <dt-bindings/clock/google,gs201.h>
+ #include <dt-bindings/gpio/gpio.h>
+ #include <dt-bindings/interrupt-controller/arm-gic.h>
+ 
+@@ -154,6 +155,89 @@ soc: soc@0 {
+ 		#size-cells = <1>;
+ 		ranges = <0x0 0x0 0x0 0x40000000>;
+ 
++		/*
++		 * Clock controllers. Consumers below still use the fixed-clock
++		 * placeholders (and we boot with clk_ignore_unused); switch them
++		 * one at a time:
++		 *   watchdog_cl0/1: <&cmu_misc CLK_GOUT_MISC_WDT_CLUSTER{0,1}_PCLK>
++		 *   MCT:            <&cmu_misc CLK_GOUT_MISC_MCT_PCLK>
++		 *   usbdrd31_phy:   CLK_GOUT_HSI0_USB31DRD_ACLK_PHYCTRL ("phy"),
++		 *                   CLK_GOUT_HSI0_USB31DRD_I_USB20_PHY_REFCLK_26 ("ref"),
++		 *                   CLK_GOUT_HSI0_UASC_HSI0_CTRL_{ACLK,PCLK},
++		 *                   CLK_GOUT_HSI0_USB31DRD_I_USBDPPHY_SCL_APB_PCLK
++		 *   usb (dwc3):     CLK_GOUT_HSI0_USB31DRD_BUS_CLK_EARLY,
++		 *                   CLK_GOUT_HSI0_USB31DRD_I_USB31DRD_SUSPEND_CLK_26,
++		 *                   CLK_GOUT_HSI0_UASC_HSI0_LINK_{ACLK,PCLK},
++		 *                   CLK_GOUT_HSI0_USB31DRD_I_USB31DRD_REF_CLK_40
++		 *   UFS:            CLK_GOUT_HSI2_UFS_EMBD_I_{ACLK,CLK_UNIPRO,FMP_CLK},
++		 *                   CLK_GOUT_HSI2_QE_UFS_EMBD_HSI2_{ACLK,PCLK},
++		 *                   CLK_GOUT_HSI2_SYSREG_HSI2_PCLK
++		 *   touch SPI (PERIC1 USI0 @ 0x10d10000):
++		 *                   CLK_GOUT_PERIC1_USI0_USI_{PCLK,IPCLK}
++		 *                   (rate set on CLK_DOUT_PERIC1_USI0_USI)
++		 */
++		cmu_misc: clock-controller@10010000 {
++			compatible = "google,gs201-cmu-misc";
++			reg = <0x10010000 0x10000>;
++			#clock-cells = <1>;
++			clocks = <&cmu_top CLK_DOUT_CMU_MISC_NOC>,
++				 <&cmu_top CLK_DOUT_CMU_MISC_SSS>;
++			clock-names = "bus", "sss";
++		};
++
++		cmu_peric0: clock-controller@10800000 {
++			compatible = "google,gs201-cmu-peric0";
++			reg = <0x10800000 0x10000>;
++			#clock-cells = <1>;
++			clocks = <&oscclk>,
++				 <&cmu_top CLK_DOUT_CMU_PERIC0_NOC>,
++				 <&cmu_top CLK_DOUT_CMU_PERIC0_IP>;
++			clock-names = "oscclk", "bus", "ip";
++		};
++
++		cmu_peric1: clock-controller@10c00000 {
++			compatible = "google,gs201-cmu-peric1";
++			reg = <0x10c00000 0x10000>;
++			#clock-cells = <1>;
++			clocks = <&oscclk>,
++				 <&cmu_top CLK_DOUT_CMU_PERIC1_NOC>,
++				 <&cmu_top CLK_DOUT_CMU_PERIC1_IP>;
++			clock-names = "oscclk", "bus", "ip";
++		};
++
++		cmu_hsi0: clock-controller@11000000 {
++			compatible = "google,gs201-cmu-hsi0";
++			reg = <0x11000000 0x10000>;
++			#clock-cells = <1>;
++			clocks = <&oscclk>,
++				 <&cmu_top CLK_DOUT_CMU_HSI0_NOC>,
++				 <&cmu_top CLK_DOUT_CMU_HSI0_DPGTC>,
++				 <&cmu_top CLK_DOUT_CMU_HSI0_USB31DRD>,
++				 <&cmu_top CLK_DOUT_CMU_HSI0_USBDPDBG>;
++			clock-names = "oscclk", "bus", "dpgtc", "usb31drd",
++				      "usbdpdbg";
++		};
++
++		cmu_hsi2: clock-controller@14400000 {
++			compatible = "google,gs201-cmu-hsi2";
++			reg = <0x14400000 0x10000>;
++			#clock-cells = <1>;
++			clocks = <&oscclk>,
++				 <&cmu_top CLK_DOUT_CMU_HSI2_NOC>,
++				 <&cmu_top CLK_DOUT_CMU_HSI2_PCIE>,
++				 <&cmu_top CLK_DOUT_CMU_HSI2_UFS_EMBD>,
++				 <&cmu_top CLK_DOUT_CMU_HSI2_MMC_CARD>;
++			clock-names = "oscclk", "bus", "pcie", "ufs", "mmc";
++		};
++
++		cmu_top: clock-controller@1e080000 {
++			compatible = "google,gs201-cmu-top";
++			reg = <0x1e080000 0x10000>;
++			#clock-cells = <1>;
++			clocks = <&oscclk>;
++			clock-names = "oscclk";
++		};
++
+ 		gic: interrupt-controller@10400000 {
+ 			compatible = "arm,gic-v3";
+ 			#interrupt-cells = <3>;

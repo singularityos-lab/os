@@ -1,0 +1,122 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Wed, 14 Oct 2026 20:37:48 -0400
+Subject: [PATCH] media: i2c: s5kgn1: let VBLANK shorten frames of stretched
+ lines
+
+Lines stretched to the receiver's throughput take no longer to read
+out, only to send, but the shortest frame length stayed the mode
+table's, so the frame rate topped out at the table's rate over the
+stretch: the main camera's 120 fps 2016x1136 mode at about 39 fps, its
+60 fps 2032x1536 (4:3 preview) mode at 19.5 fps, and the telephoto's
+60 fps 2016x1136 mode at about 26 fps.
+
+Shorten the shortest frame length in proportion to the stretch, down
+to the active lines and 32 lines of blanking, so VBLANK can ask for the
+table's frame time again, and let the 30 fps default use it: the
+2032x1536 mode then runs at 30 fps by default (measured at 19.5 before,
+WDMA errors 0 over 61 frames).
+
+Signed-off-by: Derek Ross <derekross@gmail.com>
+---
+ drivers/media/i2c/s5kgn1.c | 41 ++++++++++++++++++++++++++++----------
+ 1 file changed, 31 insertions(+), 10 deletions(-)
+
+diff --git a/drivers/media/i2c/s5kgn1.c b/drivers/media/i2c/s5kgn1.c
+index df7561e8b..e7e6bb5aa 100644
+--- a/drivers/media/i2c/s5kgn1.c
++++ b/drivers/media/i2c/s5kgn1.c
+@@ -85,6 +85,8 @@
+ #define S5KGN1_DGTL_GAIN_MAX		0x0fff
+ #define S5KGN1_DGTL_GAIN_DEFAULT	0x0100
+ #define S5KGN1_FLL_MAX			0xffff
++/* Vertical blanking kept at the least, in lines */
++#define S5KGN1_VBLANK_MIN		32
+ /* Default frame rate: a longer frame leaves room for indoor exposures */
+ #define S5KGN1_DEFAULT_FPS		30
+ 
+@@ -135,6 +137,7 @@ struct s5kgn1_mode {
+ 	u32 line_length;
+ 	u32 table_line_length;	/* as the mode's list writes it */
+ 	u32 frame_length;
++	u32 min_frame_length;	/* the shortest VBLANK allows */
+ 	u64 pixel_rate;
+ 	s64 link_freq;
+ 	struct v4l2_rect crop;	/* analogue crop, in pixel array coordinates */
+@@ -431,23 +434,37 @@ static void s5kgn1_mode_crop(struct s5kgn1 *s, struct s5kgn1_mode *mode)
+  * A receiver that takes lines at no more than so many bytes a second needs
+  * each line to last at least its size over that rate: lengthen the line
+  * (more horizontal blanking at the same pixel clock) where the mode's is
+- * shorter. The frame rate then tops out lower; nothing else changes.
++ * shorter.
++ *
++ * The longer line takes no longer to read out, so the frame may keep the
++ * mode's frame time: shorten the shortest frame length in proportion, down
++ * to the active lines and S5KGN1_VBLANK_MIN of blanking, so that VBLANK can
++ * ask for it. Without that the frame rate would top out at the mode's rate
++ * over the stretch (the main camera's 120 fps binned mode at about 39 fps).
++ * The default frame length stays as it was.
+  */
+ static void s5kgn1_limit_line_rate(struct s5kgn1 *s, struct s5kgn1_mode *mode)
+ {
+ 	u64 bytes = DIV_ROUND_UP(mode->width * 10, 8);
+ 	u64 min_ll;
++	u32 ll, fl;
+ 
+ 	if (!s->max_line_mbps)
+ 		return;
+ 
+ 	min_ll = DIV64_U64_ROUND_UP(mode->pixel_rate * bytes,
+ 				    (u64)s->max_line_mbps * 1000000);
+-	if (min_ll > mode->line_length && min_ll <= 0xfff0) {
+-		dev_dbg(s->dev, "%ux%u: line length %u -> %llu\n", mode->width,
+-			mode->height, mode->line_length, min_ll);
+-		mode->line_length = ALIGN(min_ll, 2);
+-	}
++	if (min_ll <= mode->line_length || min_ll > 0xfff0)
++		return;
++
++	ll = ALIGN(min_ll, 2);
++	fl = DIV_ROUND_UP(mode->frame_length * mode->line_length, ll);
++	fl = max(fl, mode->height + S5KGN1_VBLANK_MIN);
++	dev_dbg(s->dev, "%ux%u: line length %u -> %u, frame length %u -> %u\n",
++		mode->width, mode->height, mode->line_length, ll,
++		mode->frame_length, fl);
++	mode->line_length = ll;
++	mode->min_frame_length = min(fl, mode->frame_length);
+ }
+ 
+ static int s5kgn1_load_data(struct s5kgn1 *s)
+@@ -506,6 +523,7 @@ static int s5kgn1_load_data(struct s5kgn1 *s)
+ 		mode->height = le16_to_cpu(m->height);
+ 		mode->line_length = le16_to_cpu(m->line_length);
+ 		mode->frame_length = le16_to_cpu(m->frame_length);
++		mode->min_frame_length = mode->frame_length;
+ 		mode->table_line_length = mode->line_length;
+ 		mode->pixel_rate = le32_to_cpu(m->pixel_rate);
+ 		mode->link_freq = le32_to_cpu(m->link_freq);
+@@ -768,17 +786,20 @@ static void s5kgn1_update_mode_ctrls(struct s5kgn1 *s)
+ 
+ 	/*
+ 	 * The binned video modes run at 60 or 120 fps, which caps the
+-	 * exposure at 8-16 ms, and libcamera's simple pipeline never raises
+-	 * VBLANK itself: default to 30 fps where the mode is faster.
++	 * exposure at 8-16 ms, and an application that doesn't ask for a
++	 * frame duration leaves VBLANK alone: default to 30 fps where the
++	 * mode can go faster, counting a stretched line's shorter frames
++	 * (the 2032x1536 preview mode ran at 19.5 fps on its table's frame
++	 * length).
+ 	 */
+ 	fll = div_u64(m->pixel_rate, (u64)m->line_length * S5KGN1_DEFAULT_FPS);
+-	if (fll > m->frame_length && fll <= S5KGN1_FLL_MAX)
++	if (fll > m->min_frame_length && fll <= S5KGN1_FLL_MAX)
+ 		vblank = fll - m->height;
+ 
+ 	__v4l2_ctrl_s_ctrl(s->link_freq, s5kgn1_link_freq_index(s, m->link_freq));
+ 	__v4l2_ctrl_s_ctrl_int64(s->pixel_rate, m->pixel_rate);
+ 	__v4l2_ctrl_modify_range(s->hblank, hblank, hblank, 1, hblank);
+-	__v4l2_ctrl_modify_range(s->vblank, m->frame_length - m->height,
++	__v4l2_ctrl_modify_range(s->vblank, m->min_frame_length - m->height,
+ 				 S5KGN1_FLL_MAX - m->height, 1, vblank);
+ 	__v4l2_ctrl_s_ctrl(s->vblank, vblank);
+ 

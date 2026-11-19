@@ -1,0 +1,35 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?=C3=81ngel=20Ren=C3=A9?=
+ <17342133+angelrenefm@users.noreply.github.com>
+Date: Sat, 14 Nov 2026 19:27:02 +0100
+Subject: [PATCH] media: s5p-mfc: check only the queue being set in the encoder
+ S_FMT
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The encoder's VIDIOC_S_FMT returns -EBUSY when either queue streams.
+That forbids setting the OUTPUT format while CAPTURE streams, which the
+stateful encoder interface allows. The decoder got the same fix earlier
+in this series.
+
+Assisted-by: LLM
+Signed-off-by: Ángel René <17342133+angelrenefm@users.noreply.github.com>
+---
+ drivers/media/platform/samsung/s5p-mfc/s5p_mfc_enc.c | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_enc.c b/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_enc.c
+index 2c605f8dd..c71536a7d 100644
+--- a/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_enc.c
++++ b/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_enc.c
+@@ -1485,7 +1485,8 @@ static int vidioc_s_fmt(struct file *file, void *priv, struct v4l2_format *f)
+ 	ret = vidioc_try_fmt(file, priv, f);
+ 	if (ret)
+ 		return ret;
+-	if (ctx->vq_src.streaming || ctx->vq_dst.streaming) {
++	if (f->type == V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE ?
++	    ctx->vq_dst.streaming : ctx->vq_src.streaming) {
+ 		v4l2_err(&dev->v4l2_dev, "%s queue busy\n", __func__);
+ 		ret = -EBUSY;
+ 		goto out;

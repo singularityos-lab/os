@@ -1,0 +1,46 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: saiththerobo <the.tom.sharp@gmail.com>
+Date: Thu, 15 Oct 2026 14:30:17 +0100
+Subject: [PATCH] dt-bindings: firmware: google,gs101-acpm-ipc: add the thermal
+ sensors
+
+On gs101 the TMU belongs to the APM, and the kernel reads temperatures
+by asking the ACPM firmware over its TMU channel. Describe that as a
+thermal-sensor child of the ACPM node, as the PMICs are.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Signed-off-by: saiththerobo <the.tom.sharp@gmail.com>
+---
+ .../firmware/google,gs101-acpm-ipc.yaml       | 19 +++++++++++++++++++
+ 1 file changed, 19 insertions(+)
+
+diff --git a/Documentation/devicetree/bindings/firmware/google,gs101-acpm-ipc.yaml b/Documentation/devicetree/bindings/firmware/google,gs101-acpm-ipc.yaml
+index 3594fb906..7005da5ea 100644
+--- a/Documentation/devicetree/bindings/firmware/google,gs101-acpm-ipc.yaml
++++ b/Documentation/devicetree/bindings/firmware/google,gs101-acpm-ipc.yaml
+@@ -73,6 +73,25 @@ properties:
+     type: object
+     additionalProperties: true
+ 
++  thermal-sensor:
++    description:
++      The SoC's thermal sensors, which the ACPM firmware reads on the
++      kernel's behalf. Cells are the sensor index (0 big, 1 mid, 2 little
++      CPU cluster, 3 GPU, 4 ISP, 5 TPU).
++    type: object
++    $ref: /schemas/thermal/thermal-sensor.yaml#
++    unevaluatedProperties: false
++
++    properties:
++      compatible:
++        const: google,gs101-acpm-tmu
++
++      "#thermal-sensor-cells":
++        const: 1
++
++    required:
++      - compatible
++
+   shmem:
+     description:
+       List of phandle pointing to the shared memory (SHM) area. The memory

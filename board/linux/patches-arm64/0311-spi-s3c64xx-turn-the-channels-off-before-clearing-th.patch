@@ -1,0 +1,52 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Fri, 30 Oct 2026 19:07:38 -0643
+Subject: [PATCH] spi: s3c64xx: turn the channels off before clearing the
+ packet count
+
+s3c64xx_flush_fifo() clears PACKET_CNT, and with it PACKET_CNT_EN, while
+RXCH_ON is still set. For the duration of that write the controller is
+receiving with no packet count, so it runs SCK freely; with automatic
+chip select the slave stays selected and shifts out bits that the flush
+then throws away.
+
+Slaves that restart their protocol on every chip-select cycle don't
+notice. A slave that streams across cycles does: the Pixel 9a's GNSS
+core, which talks CHPP over this controller, lost two to six bits per
+transfer, so every read arrived at a different bit offset and frames that
+crossed reads failed their CRC. With the channels turned off first, as
+Google's driver for this controller does, every read arrives at bit 0
+with a valid CRC and the receiver gets a fix.
+
+Turn RX and TX off before clearing the packet count.
+
+Link: https://android.googlesource.com/kernel/google-modules/soc/gs/+/204078758737776959ecc85c527a00fd2cabb62f/drivers/spi/spi-s3c64xx.c
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ drivers/spi/spi-s3c64xx.c | 9 +++++++--
+ 1 file changed, 7 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/spi/spi-s3c64xx.c b/drivers/spi/spi-s3c64xx.c
+index 870aae659..185de17f6 100644
+--- a/drivers/spi/spi-s3c64xx.c
++++ b/drivers/spi/spi-s3c64xx.c
+@@ -235,12 +235,17 @@ static void s3c64xx_flush_fifo(struct s3c64xx_spi_driver_data *sdd)
+ 	unsigned long loops;
+ 	u32 val;
+ 
+-	writel(0, regs + S3C64XX_SPI_PACKET_CNT);
+-
+ 	val = readl(regs + S3C64XX_SPI_CH_CFG);
+ 	val &= ~(S3C64XX_SPI_CH_RXCH_ON | S3C64XX_SPI_CH_TXCH_ON);
+ 	writel(val, regs + S3C64XX_SPI_CH_CFG);
+ 
++	/*
++	 * Clear the count only with the channels off, as Google's driver does:
++	 * with RXCH_ON set and PACKET_CNT_EN cleared the controller clocks
++	 * freely, and with automatic chip select the slave sees those edges.
++	 */
++	writel(0, regs + S3C64XX_SPI_PACKET_CNT);
++
+ 	val = readl(regs + S3C64XX_SPI_CH_CFG);
+ 	val |= S3C64XX_SPI_CH_SW_RST;
+ 	val &= ~S3C64XX_SPI_CH_HS_EN;

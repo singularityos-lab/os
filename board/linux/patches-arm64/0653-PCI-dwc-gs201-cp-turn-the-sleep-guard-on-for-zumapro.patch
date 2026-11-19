@@ -1,0 +1,87 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Sat, 14 Nov 2026 18:36:05 -0644
+Subject: [PATCH] PCI: dwc: gs201-cp: turn the sleep guard on for zumapro
+
+The system sleep handling for the modem's link (the refusal while the
+link is up, before the freeze and again at noirq; the root port and the
+endpoint kept out of the PCI core's sleep path) is behind sleep_guard,
+and only gs201 sets it. zumapro has the same link driver and CPIF and
+fails the same way without it: a system sleep with the modem's link
+down puts the root port in D3hot with the device inaccessible, the
+resume waits for a link that isn't coming, and CPIF reads 0xffff from
+the modem's command register until a reboot.
+
+Set sleep_guard for zumapro, and say so where the comments name gs201
+alone.
+
+Tested on a Pixel 9a (tegu) with the modem registered on LTE with IMS
+voice and SMS, Wi-Fi connected and the cellular data service running:
+
+- with the series as it was under review plus the maintainer's two
+  review patches (the second a ring trace, left out of the merge): 300
+  sleep requests of 60 s in one boot, 299 entered and woke (239 on the
+  RTC alarm, 60 on cp2ap_wakeup) and 1 refused before the freeze with
+  the link up; after every one the CP was ONLINE and the phone service
+  answered. Calls and texts sent to the sleeping palmtop woke it on
+  cp2ap_wakeup, and rang or arrived;
+- with the series as merged: 10 sleeps entered, none refused or failed,
+  in a boot of 954 link power-ups.
+
+In those boots there was no "Unable to change power state", "Link
+Active not set", "Can't set D0", "BME" or UFS error handler line, and
+the shutdowns stopped the modem cleanly. Without the guard the same
+phone lost the modem at the first sleep with the link down.
+
+One open point from the same testing, not on the sleep path: a boot of
+the first build hung once at a link power-up while awake, before the
+PHY's external PLL lock was reported (the 1,549th power-up of that
+boot); none in over 15,000 power-ups since, on either build.
+
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ drivers/pci/controller/dwc/pcie-gs201-cp.c | 10 ++++++----
+ 1 file changed, 6 insertions(+), 4 deletions(-)
+
+diff --git a/drivers/pci/controller/dwc/pcie-gs201-cp.c b/drivers/pci/controller/dwc/pcie-gs201-cp.c
+index 7ed4650b2..1677a2346 100644
+--- a/drivers/pci/controller/dwc/pcie-gs201-cp.c
++++ b/drivers/pci/controller/dwc/pcie-gs201-cp.c
+@@ -248,8 +248,8 @@ static const char * const cp_input_names[CP_NUM_INPUTS] = {
+  * @sysreg_optional: without samsung,sysreg the link runs without I/O
+  *	coherency
+  * @sleep_guard: system sleep with the modem up has been tried on this SoC
+- *	(gs201): the noirq sleep callbacks run, and the root port is kept out
+- *	of the PCI core's D3 handling; elsewhere neither happens
++ *	(gs201, zumapro): the noirq sleep callbacks run, and the root port is
++ *	kept out of the PCI core's D3 handling; elsewhere neither happens
+  */
+ struct gs201_pcie_cp_data {
+ 	bool zuma_ctrl;
+@@ -865,7 +865,7 @@ static int cp_bus(struct gs201_pcie_cp *cp)
+ 	 * read back all ones. Its windows are this driver's, restored at
+ 	 * every link up (cp_root_win_restore()).
+ 	 * All of this only where system sleep with the modem up has been
+-	 * tried (sleep_guard, gs201).
++	 * tried (sleep_guard: gs201, zumapro).
+ 	 */
+ 	if (cp->data->sleep_guard) {
+ 		list_for_each_entry(rp, &cp->bridge->bus->devices, bus_list) {
+@@ -2397,7 +2397,8 @@ static void gs201_pcie_cp_remove(struct platform_device *pdev)
+ }
+ 
+ /*
+- * System sleep (s2idle) with the modem up, on gs201 only (sleep_guard).
++ * System sleep (s2idle) with the modem up, on gs201 and zumapro only
++ * (sleep_guard).
+  * The modem stays powered; its driver lets the AP sleep only once
+  * CP2AP_WAKEUP has dropped and the idle link has been powered down (cpif
+  * holds a wake lock while the link is up, and its suspend refuses while
+@@ -2470,6 +2471,7 @@ static const struct gs201_pcie_cp_data zumapro_pcie_cp_data = {
+ 	.phy_bypass_once = true,
+ 	.host_atu = true,
+ 	.sysreg_optional = true,
++	.sleep_guard = true,
+ };
+ 
+ static const struct of_device_id gs201_pcie_cp_of_match[] = {

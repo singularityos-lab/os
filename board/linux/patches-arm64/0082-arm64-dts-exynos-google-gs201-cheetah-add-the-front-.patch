@@ -1,0 +1,188 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Wed, 14 Oct 2026 21:05:14 -0400
+Subject: [PATCH] arm64: dts: exynos: google: gs201-cheetah: add the front and
+ telephoto cameras
+
+The front camera is a Samsung S5K3J1 at 0x10 on USI2 (Google's I2C bus
+2), four D-PHY lanes to CSIS link 0; fixed focus. Its master clock is
+CIS_CLK1 on gpp5-0.
+
+The telephoto is a Samsung S5KGM5 at 0x2d on USI4 (Google's I2C bus 4),
+two C-PHY trios to CSIS link 4, which must expect the sensor's LRTE
+packet delimiters. Its folded optics mirror the image, which the sensor
+undoes with a vertical readout flip. Its master clock is CIS_CLK2 on
+gpp7-0. Its SEM1215SA at 0x34 drives focus and OIS and holds the
+module's calibration. The bus runs at 950 kHz: i2c-exynos5 runs 1 MHz
+as high-speed mode, which stock's driver doesn't, and the SEM1215SA hung
+the bus in it.
+
+Both use CSIS WDMA context 0 as the others, run their sensors' clocks
+at 24.576 MHz and their supplies in stock's order, and limit their
+lines to 360 MB/s. Everything stays disabled.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ .../boot/dts/exynos/google/gs201-cheetah.dts  | 152 ++++++++++++++++++
+ 1 file changed, 152 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts b/arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts
+index fd8c5bdcd..643c2c8a1 100644
+--- a/arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts
++++ b/arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts
+@@ -778,3 +778,155 @@ &csis1_in {
+ 	bus-type = <MEDIA_BUS_TYPE_CSI2_CPHY>;
+ 	data-lanes = <1 2 3>;
+ };
++
++/*
++ * Front camera (CAMERA-PLAN.md CAM7): the Samsung S5K3J1 [chip ID 0x30a1]
++ * at 0x10 on PERIC0 USI2 (Google's I2C bus 2, 950 kHz as stock), four
++ * D-PHY lanes to CSIS link 0, then CSIS WDMA context 0 as the others. Fixed
++ * focus; the module EEPROM at 0x51 is not described. Stock power-up:
++ * PP3200_BB, PP1300, LDO12S, LDO8, SLG switch 4, 1 ms, MCLK on (CIS_CLK1
++ * on gpp5-0), 1 ms, reset released (gpp4-2), 8 ms. Its settings expect the
++ * 24.576 MHz oscillator as the other cameras' do. All disabled; the
++ * camera-front overlay enables them, and the drivers are blacklisted.
++ */
++&usi2 {
++	samsung,mode = <USI_MODE_I2C>;
++};
++
++&hsi2c_2 {
++	clock-frequency = <950000>;
++
++	camera-sensor@10 {
++		compatible = "samsung,s5k3j1";
++		reg = <0x10>;
++		clocks = <&cmu_top CLK_DOUT_CMU_CIS_CLK1>;
++		assigned-clocks = <&cmu_top CLK_DOUT_CMU_CIS_CLK1>;
++		assigned-clock-rates = <24576000>;
++		pinctrl-names = "default";
++		pinctrl-0 = <&cam_front_mclk_on>;
++		reset-gpios = <&gpp4 2 GPIO_ACTIVE_LOW>;
++		vbb-supply = <&pp3200_bb_cam>;
++		vbuck-supply = <&pp1300_cam>;
++		vio-supply = <&ldo12s>;
++		vdig-supply = <&cam_ldo8>;
++		vsw-supply = <&cam_sw4>;
++		firmware-name = "omamobile/camera/s5k3j1-front.bin";
++		samsung,max-line-throughput = <360>;
++		orientation = <0>;	/* front */
++		rotation = <90>;	/* upside down at 270 in Snapshot */
++		status = "disabled";
++
++		port {
++			front_out: endpoint {
++				remote-endpoint = <&csis0_in>;
++				data-lanes = <1 2 3 4>;
++				/* 1665 Mbps per lane, from the data file [I] */
++				link-frequencies = /bits/ 64 <832512000>;
++			};
++		};
++	};
++};
++
++&csis0 {
++	memory-region = <&camera_pool>;
++};
++
++&csis0_in {
++	remote-endpoint = <&front_out>;
++	data-lanes = <1 2 3 4>;
++};
++
++/*
++ * Telephoto (CAMERA-PLAN.md CAM-T): the Samsung S5KGM5 [chip ID 0x08d5] at
++ * 0x2d on PERIC0 USI4 (Google's I2C bus 4, 1 MHz as stock), two C-PHY
++ * trios to CSIS link 4 / DC-PHY slave 4, which also needs to expect its
++ * LRTE packet delimiters [I]. The folded optics mirror the image, which
++ * the sensor undoes with a vertical readout flip [I]. Stock power-up:
++ * PP3200_BB, PP1300, LDO12S, 0.3 ms, LDO7, LDO3, MCLK on (CIS_CLK2 on
++ * gpp7-0), 1 ms, reset released (gpp6-2), 10 ms. Its SEM1215SA at 0x34
++ * drives focus and OIS and holds the module's calibration; stock powers
++ * it from LDO12S, 1 ms, SLG LDO5 2.85 V and switch 1. gpp8-2 (the torch's
++ * HWEN) shares the bank with this bus's pins. All disabled; the
++ * camera-tele overlay enables them, and the drivers are blacklisted.
++ */
++&usi4 {
++	samsung,mode = <USI_MODE_I2C>;
++};
++
++&hsi2c_4 {
++	/*
++	 * Below 1 MHz: i2c-exynos5 runs 1 MHz as high-speed mode (master
++	 * code first), which stock's driver doesn't without samsung,hs-mode;
++	 * the telephoto's SEM1215SA lens hung the bus in it.
++	 */
++	clock-frequency = <950000>;
++
++	camera-sensor@2d {
++		compatible = "samsung,s5kgm5";
++		reg = <0x2d>;
++		clocks = <&cmu_top CLK_DOUT_CMU_CIS_CLK2>;
++		assigned-clocks = <&cmu_top CLK_DOUT_CMU_CIS_CLK2>;
++		assigned-clock-rates = <24576000>;
++		pinctrl-names = "default";
++		pinctrl-0 = <&cam_tele_mclk_on>;
++		reset-gpios = <&gpp6 2 GPIO_ACTIVE_LOW>;
++		vbb-supply = <&pp3200_bb_cam>;
++		vbuck-supply = <&pp1300_cam>;
++		vio-supply = <&ldo12s>;
++		vdig-supply = <&cam_ldo7>;
++		vana-supply = <&cam_ldo3>;
++		firmware-name = "omamobile/camera/s5kgm5-tele.bin";
++		samsung,max-line-throughput = <360>;
++		samsung,vertical-flip;
++		orientation = <1>;	/* back */
++		rotation = <270>;	/* with the vertical flip: upside down at 90 in Snapshot */
++		status = "disabled";
++
++		port {
++			tele_out: endpoint {
++				remote-endpoint = <&csis4_in>;
++				bus-type = <MEDIA_BUS_TYPE_CSI2_CPHY>;
++				data-lanes = <1 2>;
++				/* half the trio symbol rate per mode, from the data file [I] */
++				link-frequencies = /bits/ 64 <901120000 1019904000>;
++			};
++		};
++	};
++
++	tele_lens: lens@34 {
++		compatible = "semco,sem1215sa";
++		reg = <0x34>;
++		vbb-supply = <&pp3200_bb_cam>;
++		vio-supply = <&ldo12s>;
++		vdd-supply = <&cam_ldo5>;
++		vsw-supply = <&cam_sw1>;
++		status = "disabled";
++	};
++};
++
++&csis4 {
++	memory-region = <&camera_pool>;
++	google,lrte-packet-delimiters;
++};
++
++&csis4_in {
++	remote-endpoint = <&tele_out>;
++	bus-type = <MEDIA_BUS_TYPE_CSI2_CPHY>;
++	data-lanes = <1 2>;
++};
++
++&pinctrl_peric0 {
++	cam_front_mclk_on: cam-front-mclk-on-pins {
++		samsung,pins = "gpp5-0";
++		samsung,pin-function = <GS101_PIN_FUNC_2>;
++		samsung,pin-pud = <GS101_PIN_PULL_NONE>;
++		samsung,pin-drv = <GS101_PIN_DRV_2_5_MA>;
++	};
++
++	cam_tele_mclk_on: cam-tele-mclk-on-pins {
++		samsung,pins = "gpp7-0";
++		samsung,pin-function = <GS101_PIN_FUNC_2>;
++		samsung,pin-pud = <GS101_PIN_PULL_NONE>;
++		samsung,pin-drv = <GS101_PIN_DRV_2_5_MA>;
++	};
++};

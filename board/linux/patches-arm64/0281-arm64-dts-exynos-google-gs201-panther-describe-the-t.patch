@@ -1,0 +1,88 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Alejandro Garcia <skipper.pelygro@gmail.com>
+Date: Tue, 27 Oct 2026 21:04:27 -0700
+Subject: [PATCH] arm64: dts: exynos: google: gs201-panther: describe the touch
+ rails
+
+LDO25M and LDO26M on the main PMIC (S2MPG12) are the supplies of the
+FocalTech FT3658 touch controller, its VDD and AVDD; nothing else on the
+stock board uses them. Stock constrains them to 1.6-1.95 V and
+2.5-3.0 V. Describe those two rails under pmic-1, as the Pixel Fold
+does. The sub-PMIC is not described. Leave the node disabled: it is
+switched on with the touch controller.
+
+ABL leaves both rails off, LDO25M programmed at 1.8 V and LDO26M at
+3.3 V, above stock's range. LDO25M gets no voltage, so the PMIC keeps
+its 1.8 V. LDO26M is fixed at 3.0 V, the top of stock's range: stock's
+regulator core moves it there before the touch driver switches it on,
+and this tree's does the same while the rail is still off.
+
+Tested on a Pixel 7 from slot B, with the node enabled: the S2MPG12
+regulators register; vdd-ts reads 1.8 V and avdd-ts 3.0 V, both off,
+and no other LDO changes. With the touch controller described as well
+(not in this series), both rails come up in order and the controller
+answers.
+
+Assisted-by: Claude Opus 5.5
+Signed-off-by: Alejandro Garcia <skipper.pelygro@gmail.com>
+---
+ .../boot/dts/exynos/google/gs201-panther.dts  | 39 ++++++++++++++++++-
+ 1 file changed, 37 insertions(+), 2 deletions(-)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/gs201-panther.dts b/arch/arm64/boot/dts/exynos/google/gs201-panther.dts
+index 6023ee8b5..d3e061a5b 100644
+--- a/arch/arm64/boot/dts/exynos/google/gs201-panther.dts
++++ b/arch/arm64/boot/dts/exynos/google/gs201-panther.dts
+@@ -3,8 +3,9 @@
+  * Google Pixel 7 (panther) - first-light board file.
+  *
+  * USB (NCM + ACM), the cluster watchdogs from gs201.dtsi, a
+- * simple-framebuffer on the buffer ABL leaves DPP0 scanning out, UFS and
+- * the three keys. The panel driver, touch and the GPU stay disabled.
++ * simple-framebuffer on the buffer ABL leaves DPP0 scanning out, UFS, the
++ * three keys, and the touch rails on the main PMIC. The panel driver,
++ * touch and the GPU stay disabled.
+  */
+ 
+ /dts-v1/;
+@@ -114,6 +115,40 @@ cont_splash_mem: splash@fac00000 {
+ 	};
+ };
+ 
++&acpm_ipc {
++	/*
++	 * Main PMIC, touch rails only. LDO25M is the touch controller's VDD
++	 * and LDO26M its AVDD; nothing else on the stock board consumes
++	 * them. Stock constrains them to 1.6-1.95 V and 2.5-3.0 V. The sub-PMIC
++	 * is not described.
++	 */
++	pmic-1 {
++		compatible = "samsung,s2mpg12-pmic";
++		interrupts = <GIC_SPI 72 IRQ_TYPE_LEVEL_HIGH>;
++		google,vgpio2ap-sysreg = <&sysreg_vgpio2ap>;
++		wakeup-source;
++		status = "disabled";
++
++		regulators {
++			/* No voltage: the PMIC keeps the 1.8 V it holds. */
++			ldo25m: ldo25m {
++				regulator-name = "vdd-ts";
++			};
++
++			/*
++			 * ABL leaves 3.3 V programmed, above stock's range;
++			 * stock's regulator core lowers it to 3.0 V before
++			 * the touch driver switches it on.
++			 */
++			ldo26m: ldo26m {
++				regulator-name = "avdd-ts";
++				regulator-min-microvolt = <3000000>;
++				regulator-max-microvolt = <3000000>;
++			};
++		};
++	};
++};
++
+ &usbdrd31_phy {
+ 	status = "okay";
+ };

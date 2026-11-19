@@ -1,0 +1,32 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Fri, 23 Oct 2026 10:46:40 -0647
+Subject: [PATCH] dt-bindings: i2c: exynos5: Add Tensor G4 compatible
+
+Google's zumapro-usi.dtsi describes the Tensor G4 HSI2C integration.
+Use the existing ExynosAuto V9 fallback for its 64-entry FIFO variant,
+as the gs101 and gs201 integrations do. No new driver data is needed.
+
+Preserve the fallback's two-clock requirement and all existing
+identities. The PERIC0 clock provider and board resources are separate;
+this binding enables no controller, pin, clock or battery device.
+
+Link: https://android.googlesource.com/kernel/devices/google/zumapro/+/8831630eee2ad095b85ed452944e6353940966a5/dts/zumapro-usi.dtsi
+
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ Documentation/devicetree/bindings/i2c/i2c-exynos5.yaml | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/Documentation/devicetree/bindings/i2c/i2c-exynos5.yaml b/Documentation/devicetree/bindings/i2c/i2c-exynos5.yaml
+index 8b4332942..b4ed5cd25 100644
+--- a/Documentation/devicetree/bindings/i2c/i2c-exynos5.yaml
++++ b/Documentation/devicetree/bindings/i2c/i2c-exynos5.yaml
+@@ -41,6 +41,7 @@ properties:
+           - enum:
+               - google,gs101-hsi2c
+               - google,gs201-hsi2c
++              - google,zumapro-hsi2c
+               - samsung,exynos2200-hsi2c
+               - samsung,exynos850-hsi2c
+               - samsung,exynos990-hsi2c

@@ -1,0 +1,47 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Tue, 27 Oct 2026 09:33:07 -0647
+Subject: [PATCH] dt-bindings: clock: google,zumapro: Add the HSI0 USI3 clocks
+
+Add CMU_HSI0's USI3 clock ids, 23 to 27, appended after the existing
+ones. On the Pixel 9a USI3 is SPI21, the bus to the modem's GNSS
+receiver.
+
+Link: https://android.googlesource.com/kernel/google-modules/soc/gs/+/204078758737776959ecc85c527a00fd2cabb62f/drivers/soc/google/cal-if/zuma/cmucal-sfr.c
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ .../devicetree/bindings/clock/google,zumapro-clock.yaml      | 4 ++--
+ include/dt-bindings/clock/google,zumapro.h                   | 5 +++++
+ 2 files changed, 7 insertions(+), 2 deletions(-)
+
+diff --git a/Documentation/devicetree/bindings/clock/google,zumapro-clock.yaml b/Documentation/devicetree/bindings/clock/google,zumapro-clock.yaml
+index f71b12f3e..fa9d61110 100644
+--- a/Documentation/devicetree/bindings/clock/google,zumapro-clock.yaml
++++ b/Documentation/devicetree/bindings/clock/google,zumapro-clock.yaml
+@@ -17,8 +17,8 @@ description: |
+   CMU_MISC supplies the firmware-owned watchdog bus clock paths.
+   CMU_PERIC0 supplies its GPIO bank and USI2-USI6 (the cameras' and the
+   battery's I2C buses), the USIs from CMU_TOP's optional PERIC0 IP clock.
+-  CMU_HSI0 supplies the USB, eUSB2 PHY and touchscreen USI2 clocks; its
+-  ALT and TCXO inputs are board-level fixed clocks.
++  CMU_HSI0 supplies the USB, eUSB2 PHY, touchscreen USI2 and GNSS SPI USI3
++  clocks; its ALT and TCXO inputs are board-level fixed clocks.
+   CMU_G3D supplies the GPU's core, coregroup and stacks clocks from its two
+   PLLs and CMU_TOP's G3D NoC, global and switch clocks.
+   CMU_HSI1 supplies the HSI1 GPIO bank's clock; its ALT input is a
+diff --git a/include/dt-bindings/clock/google,zumapro.h b/include/dt-bindings/clock/google,zumapro.h
+index 972d9c9f5..2560150f8 100644
+--- a/include/dt-bindings/clock/google,zumapro.h
++++ b/include/dt-bindings/clock/google,zumapro.h
+@@ -98,6 +98,11 @@
+ #define CLK_GOUT_HSI0_USB_SUBCTL	20
+ #define CLK_GOUT_HSI0_USB_LINK		21
+ #define CLK_GOUT_HSI0_USB_SUSPEND	22
++#define CLK_MOUT_HSI0_USI3_LOCAL	23
++#define CLK_GOUT_HSI0_USI3_SOURCE	24
++#define CLK_DOUT_HSI0_USI3		25
++#define CLK_GOUT_HSI0_USI3_IP		26
++#define CLK_GOUT_HSI0_USI3_PCLK		27
+ 
+ /* CMU_G3D. */
+ #define CLK_FOUT_G3D			1

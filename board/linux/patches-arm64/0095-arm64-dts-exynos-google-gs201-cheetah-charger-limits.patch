@@ -1,0 +1,105 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Wed, 14 Oct 2026 21:05:19 -0400
+Subject: [PATCH] arm64: dts: exynos: google: gs201-cheetah: charger limits and
+ a sink-only port
+
+Give the battery the charger limits the MAX77759 charger programs at
+probe, and point pmic@66 (whose charger cell uses the parent's node) at
+it. Without them the charger driver falls back to 4.3 V and 2.27 A.
+
+ - Float voltage 4.45 V: stock's google,fv-max-uv and the top of its
+   google,chg-cv-limits.
+ - Fast charge current 1.47 A: 0.3 C of the 4926 mAh pack, the lowest
+   google,chg-cc-limits entry (in percent of capacity) at any voltage
+   tier between 10 and 46 degC, since there is no step charging here.
+
+Describe the still disabled Type-C port as sink only. On this board
+VBUS is sourced from an external boost (stock: max77759,ext-otg-only)
+that has no driver, so there is nothing to put in vbus-supply and a dual
+role port would fail every attempt to become source. Drop the source
+PDO and try-power-role until that exists.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ .../boot/dts/exynos/google/gs201-cheetah.dts  | 39 ++++++++++++-------
+ 1 file changed, 25 insertions(+), 14 deletions(-)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts b/arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts
+index 50737a8d8..42b7317fc 100644
+--- a/arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts
++++ b/arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts
+@@ -59,6 +59,15 @@ battery: battery {
+ 		/* Google's fv-max-uv; VEmpty of the gauge model */
+ 		voltage-max-design-microvolt = <4450000>;
+ 		voltage-min-design-microvolt = <3300000>;
++		/*
++		 * Charger limits without Google's step charging: the float
++		 * voltage is fv-max-uv, the top of google,chg-cv-limits
++		 * (4.2/4.3/4.45 V). The fast charge current is 0.3 C, the
++		 * lowest google,chg-cc-limits entry at any voltage tier from
++		 * 10 to 46 degC, and a charger selector (0x16) exactly.
++		 */
++		constant-charge-voltage-max-microvolt = <4450000>;
++		constant-charge-current-max-microamp = <1466730>;
+ 	};
+ 
+ 	gpio-keys {
+@@ -322,10 +331,12 @@ &ufs_0_phy {
+  *
+  * The Type-C port controller stays disabled: the USB link is our only way
+  * into the phone, and TCPM would take over VBUS and data role from the
+- * forced-VBUS setup the USB PHY uses today. The charger has no DT node of
+- * its own (it is an MFD cell of pmic@66); note that its probe turns
+- * charging off until a "tcpm-source" power supply reports a source, so do
+- * not load it before the Type-C side works.
++ * forced-VBUS setup the USB PHY uses today. Its graph links to the USB PHY
++ * (orientation, i.e. VBUS valid) and dwc3 (role switch) are added by the
++ * bring-up overlays. The charger has no DT node of its own (it is an MFD
++ * cell of pmic@66, which carries its monitored-battery); its probe turns
++ * charging off until a "tcpm-source" power supply reports a source, unless
++ * it is loaded with default_ilim_ua.
+  */
+ &usi13 {
+ 	samsung,mode = <USI_MODE_I2C>;
+@@ -345,23 +356,21 @@ usb-typec@25 {
+ 		status = "disabled";
+ 
+ 		/*
+-		 * Power roles and PDOs as on gs101 (the same MAX77759 design).
+-		 * PD stays off, and the orientation/role-switch ports to the
+-		 * USB PHY and dwc3 come with the Type-C work.
++		 * Sink only for now: sourcing VBUS goes through an external
++		 * boost on this board (stock: max77759,ext-otg-only, switched
++		 * by MAX77759 GPIO5 "bst-on" and the TCPC's EXTBST_CTRL), which
++		 * has no driver yet, so there is no vbus-supply. MAX77759 GPIO6
++		 * is the VBUS input switch (stock in-switch-gpio): leave it.
++		 * Stock is dual role with try-sink and a 5 V / 900 mA source
++		 * PDO. Sink PDOs as on gs101 and stock; PD stays off.
+ 		 */
+ 		connector {
+ 			compatible = "usb-c-connector";
+ 			label = "USB-C";
+ 			data-role = "dual";
+-			power-role = "dual";
++			power-role = "sink";
+ 			self-powered;
+-			try-power-role = "sink";
+ 			op-sink-microwatt = <2600000>;
+-			source-pdos = <PDO_FIXED(5000, 900,
+-						 (PDO_FIXED_SUSPEND
+-						  | PDO_FIXED_USB_COMM
+-						  | PDO_FIXED_DATA_SWAP
+-						  | PDO_FIXED_DUAL_ROLE))>;
+ 			sink-pdos = <PDO_FIXED(5000, 3000,
+ 					       (PDO_FIXED_DATA_SWAP
+ 						| PDO_FIXED_USB_COMM
+@@ -440,6 +449,8 @@ pmic@66 {
+ 		pinctrl-names = "default";
+ 		interrupt-controller;
+ 		#interrupt-cells = <2>;
++		/* for the charger cell */
++		monitored-battery = <&battery>;
+ 
+ 		gpio {
+ 			compatible = "maxim,max77759-gpio";

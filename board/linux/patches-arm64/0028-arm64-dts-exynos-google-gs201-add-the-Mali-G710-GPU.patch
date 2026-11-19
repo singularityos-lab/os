@@ -1,0 +1,98 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Sun, 11 Oct 2026 19:19:11 -0400
+Subject: [PATCH] arm64: dts: exynos: google: gs201: add the Mali-G710 GPU
+
+Describe the gs201 Mali-G710 for Panthor. Values from Google's GPL-2.0
+gs201-gpu.dtsi and gs201.h, checked against the device tree the
+bootloader hands over on a Pixel 7 Pro:
+
+ - registers 0x28000000, size 0x480000
+ - interrupts GIC SPI 329 (job), 330 (mmu), 328 (gpu)
+
+The GPU clocks belong to the APM firmware: Google's kbase changes them
+only through ACPM DVFS requests (domains G3D and G3DL2), which also set
+the rail voltage. Until Linux can talk to ACPM on gs201, give the GPU a
+fixed-clock placeholder and a single OPP at the rate the bootloader
+leaves it at, so devfreq never requests a change. That rate is the boot
+level in the bootloader's ECT table: MINMAX_G3D and MINMAX_G3DL2 list
+boot = resume = 151 MHz for every ASV group (parsed from the ECT blob in
+the device's bl2 partition with the layout from Google's ect_parser.c).
+
+No power-domains yet: the bootloader leaves pd_g3d and pd_embedded_g3d
+on (the stock kernel reports both "on" at probe, before anything powers
+them), and their on/off sequence needs EL3 calls (PMU writes through
+SMC and the D_TZPC restore) that the Exynos power domain driver does
+not make. No mali-supply either: the G3D bucks are switched by the PMU
+power domain signal and their voltage is set by ACPM.
+
+The node is disabled here and enabled per board.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ arch/arm64/boot/dts/exynos/google/gs201.dtsi | 45 ++++++++++++++++++++
+ 1 file changed, 45 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/gs201.dtsi b/arch/arm64/boot/dts/exynos/google/gs201.dtsi
+index d11f3a9bc..5d5b70a33 100644
+--- a/arch/arm64/boot/dts/exynos/google/gs201.dtsi
++++ b/arch/arm64/boot/dts/exynos/google/gs201.dtsi
+@@ -131,6 +131,32 @@ usb_ref_clk: clock-usb-ref {
+ 		clock-output-names = "usb20-ref";
+ 	};
+ 
++	/*
++	 * Bring-up placeholder for the GPU clocks. The real rate is owned by
++	 * the APM firmware (ACPM DVFS domains G3D and G3DL2); this only gives
++	 * Panthor a clock and an OPP whose rate matches what the hardware is
++	 * running at, so devfreq never asks for a change.
++	 */
++	gpu_clk: clock-gpu {
++		compatible = "fixed-clock";
++		#clock-cells = <0>;
++		clock-frequency = <151000000>;
++		clock-output-names = "gpu";
++	};
++
++	/*
++	 * Single OPP at the boot level from the bootloader's ECT
++	 * (MINMAX_G3D and MINMAX_G3DL2: boot = resume = 151 MHz on every ASV
++	 * group). No opp-microvolt: the rail voltage is set by ACPM.
++	 */
++	gpu_opp_table: opp-table-gpu {
++		compatible = "operating-points-v2";
++
++		opp-151000000 {
++			opp-hz = /bits/ 64 <151000000>;
++		};
++	};
++
+ 	reserved-memory {
+ 		#address-cells = <2>;
+ 		#size-cells = <1>;
+@@ -436,6 +462,25 @@ wakeup-interrupt-controller {
+ 					     "samsung,exynos7-wakeup-eint";
+ 			};
+ 		};
++
++		/*
++		 * No power-domains: the bootloader leaves both G3D power domains
++		 * (pd_g3d, pd_embedded_g3d) on, and nothing in Linux turns them
++		 * off yet. Their on/off sequence needs EL3 calls that the generic
++		 * Exynos power domain driver does not make.
++		 */
++		gpu: gpu@28000000 {
++			compatible = "google,gs201-mali", "arm,mali-valhall-csf";
++			reg = <0x28000000 0x480000>;
++			interrupts = <GIC_SPI 329 IRQ_TYPE_LEVEL_HIGH>,
++				     <GIC_SPI 330 IRQ_TYPE_LEVEL_HIGH>,
++				     <GIC_SPI 328 IRQ_TYPE_LEVEL_HIGH>;
++			interrupt-names = "job", "mmu", "gpu";
++			clocks = <&gpu_clk>;
++			clock-names = "core";
++			operating-points-v2 = <&gpu_opp_table>;
++			status = "disabled";
++		};
+ 	};
+ };
+ 

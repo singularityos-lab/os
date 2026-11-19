@@ -1,0 +1,118 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Wed, 14 Oct 2026 21:05:14 -0400
+Subject: [PATCH] arm64: dts: exynos: google: gs201-cheetah: add the main
+ camera
+
+The main camera is a Samsung S5KGN1 at 0x3d on USI1 (Google's I2C bus
+1, 1 MHz as stock), three C-PHY trios to CSIS link 1, then CSIS WDMA
+context 0 as the ultrawide. Its master clock is CIS_CLK3 on gpp9-0 at
+24.576 MHz and its supplies come up in stock's order. Its lines are
+limited to 360 MB/s, under what the CSIS write DMA takes.
+
+Its AF actuator is an AK7375-type VCM at 0x0c on the same bus; the
+module's OIS/EEPROM controller and the laser AF are not described.
+Everything stays disabled.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ .../boot/dts/exynos/google/gs201-cheetah.dts  | 82 +++++++++++++++++++
+ 1 file changed, 82 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts b/arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts
+index c70ebc3c9..fd8c5bdcd 100644
+--- a/arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts
++++ b/arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts
+@@ -6,6 +6,7 @@
+ /dts-v1/;
+ 
+ #include <dt-bindings/input/input.h>
++#include <dt-bindings/media/video-interfaces.h>
+ #include <dt-bindings/soc/samsung,exynos-usi.h>
+ #include <dt-bindings/usb/pd.h>
+ #include "gs201.dtsi"
+@@ -696,3 +697,84 @@ uw_vcm: lens@f {
+ 		status = "disabled";
+ 	};
+ };
++
++/*
++ * Main camera (CAMERA-PLAN.md CAM-M): the Samsung S5KGN1 [chip ID 0x08e1]
++ * at 0x3d on PERIC0 USI1 (Google's I2C bus 1, 1 MHz as stock), three C-PHY
++ * trios to CSIS link 1, then CSIS WDMA context 0 as the ultrawide. Its AF
++ * VCM driver is an AK7375-type at 0x0c; the module's OIS/EEPROM controller
++ * (0x24) and the laser AF (0x29) on the same bus are not described. Stock
++ * power-up: PP3200_BB, PP1300, LDO12S, LDO4, 1 ms, SLG switch 3, LDO8,
++ * LDO1, 2 ms, reset released, 1 ms, MCLK on (CIS_CLK3 on gpp9-0), 9 ms.
++ * The sensor settings expect a 24.576 MHz clock (their EXCK register).
++ * All disabled; the camera-main overlay enables them, and the drivers are
++ * blacklisted as well.
++ */
++&usi1 {
++	samsung,mode = <USI_MODE_I2C>;
++};
++
++&hsi2c_1 {
++	clock-frequency = <1000000>;
++
++	main_vcm: lens@c {
++		compatible = "asahi-kasei,ak7375";
++		reg = <0x0c>;
++		vdd-supply = <&cam_ldo4>;
++		vio-supply = <&ldo12s>;
++		status = "disabled";
++	};
++
++	camera-sensor@3d {
++		compatible = "samsung,s5kgn1";
++		reg = <0x3d>;
++		clocks = <&cmu_top CLK_DOUT_CMU_CIS_CLK3>;
++		assigned-clocks = <&cmu_top CLK_DOUT_CMU_CIS_CLK3>;
++		assigned-clock-rates = <24576000>;
++		pinctrl-names = "default";
++		pinctrl-0 = <&cam_main_mclk_on>;
++		reset-gpios = <&gpp2 2 GPIO_ACTIVE_LOW>;
++		vbb-supply = <&pp3200_bb_cam>;
++		vbuck-supply = <&pp1300_cam>;
++		vio-supply = <&ldo12s>;
++		vaux-supply = <&cam_ldo4>;
++		vsw-supply = <&cam_sw3>;
++		vdig-supply = <&cam_ldo8>;
++		vana-supply = <&cam_ldo1>;
++		firmware-name = "omamobile/camera/s5kgn1-main.bin";
++		/* the CSIS WDMA drops lines arriving above ~400 MB/s */
++		samsung,max-line-throughput = <360>;
++		orientation = <1>;	/* back */
++		rotation = <90>;	/* upright in Snapshot with the phone in portrait */
++		status = "disabled";
++
++		port {
++			main_out: endpoint {
++				remote-endpoint = <&csis1_in>;
++				bus-type = <MEDIA_BUS_TYPE_CSI2_CPHY>;
++				data-lanes = <1 2 3>;
++				/* half the trio symbol rate [I], from the data file */
++				link-frequencies = /bits/ 64 <931229968>;
++			};
++		};
++	};
++};
++
++&pinctrl_peric0 {
++	cam_main_mclk_on: cam-main-mclk-on-pins {
++		samsung,pins = "gpp9-0";
++		samsung,pin-function = <GS101_PIN_FUNC_2>;
++		samsung,pin-pud = <GS101_PIN_PULL_NONE>;
++		samsung,pin-drv = <GS101_PIN_DRV_2_5_MA>;
++	};
++};
++
++&csis1 {
++	memory-region = <&camera_pool>;
++};
++
++&csis1_in {
++	remote-endpoint = <&main_out>;
++	bus-type = <MEDIA_BUS_TYPE_CSI2_CPHY>;
++	data-lanes = <1 2 3>;
++};

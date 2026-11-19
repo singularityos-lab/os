@@ -1,0 +1,91 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Tue, 27 Oct 2026 19:56:39 -0647
+Subject: [PATCH] arm64: dts: exynos: google: zumapro-tegu: Add the NFC
+ controller
+
+The Pixel 9a's ST54L sits at 0x08 on hsi2c9, its interrupt on gpa7-5
+(level high), its RST_N on gph1-6, and its reference clock from the PMU's
+clock pad. Its chip enable (gpa0-1) powers the whole chip and is held
+high by a hog: stock's eSE driver raises it, and nothing here drives the
+eSE.
+
+Tested on the Pixel 9a: on this tree the controller probes on nxp-nci
+and neard polls with the clock enabled, with no I2C errors. The read of
+a contactless card (ISO-DEP over NFC-A) was on the earlier version of
+the series, which took the clock from a different provider.
+
+Link: https://android.googlesource.com/kernel/devices/google/tegu/+/6276884d9940694b25a6934671918ec8ac412ee8/dts/zuma-tegu-nfc.dtsi
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ .../boot/dts/exynos/google/zumapro-tegu.dts   | 43 +++++++++++++++++++
+ 1 file changed, 43 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/zumapro-tegu.dts b/arch/arm64/boot/dts/exynos/google/zumapro-tegu.dts
+index 91dffaac3..76a95c1b0 100644
+--- a/arch/arm64/boot/dts/exynos/google/zumapro-tegu.dts
++++ b/arch/arm64/boot/dts/exynos/google/zumapro-tegu.dts
+@@ -272,6 +272,21 @@ dsi0_in: endpoint {
+ 	};
+ };
+ 
++/*
++ * The ST54L's chip enable (gpa0-1) powers the whole chip, NFC and its
++ * secure element; stock's eSE driver raises it at probe
++ * (ese_chip_enable-gpio in Google's GPL zuma-tegu-ese.dtsi). Nothing here
++ * drives the eSE, so hold it high.
++ */
++&gpa0 {
++	nfc-chip-enable-hog {
++		gpio-hog;
++		gpios = <1 GPIO_ACTIVE_HIGH>;
++		output-high;
++		line-name = "nfc-chip-enable";
++	};
++};
++
+ /* The keys' banks and the touchscreen's raise their own interrupts. */
+ &gpa4 {
+ 	interrupt-controller;
+@@ -305,6 +320,20 @@ &gpa6 {
+ 		     <GIC_SPI 35 IRQ_TYPE_LEVEL_HIGH>;
+ };
+ 
++/* The NFC controller's interrupt (gpa7-5). */
++&gpa7 {
++	interrupt-controller;
++	#interrupt-cells = <2>;
++	interrupts = <GIC_SPI 36 IRQ_TYPE_LEVEL_HIGH>,
++		     <GIC_SPI 37 IRQ_TYPE_LEVEL_HIGH>,
++		     <GIC_SPI 38 IRQ_TYPE_LEVEL_HIGH>,
++		     <GIC_SPI 39 IRQ_TYPE_LEVEL_HIGH>,
++		     <GIC_SPI 40 IRQ_TYPE_LEVEL_HIGH>,
++		     <GIC_SPI 41 IRQ_TYPE_LEVEL_HIGH>,
++		     <GIC_SPI 42 IRQ_TYPE_LEVEL_HIGH>,
++		     <GIC_SPI 43 IRQ_TYPE_LEVEL_HIGH>;
++};
++
+ /* The USB-C port controller's interrupt (gpa8-3). */
+ &gpa8 {
+ 	interrupt-controller;
+@@ -421,6 +450,20 @@ haptic-driver@43 {
+ 		cirrus,lra-redc-micro-ohms = <14100007>;
+ 		cirrus,vpbr-threshold-microvolt = <3008000>;
+ 	};
++
++	/*
++	 * The ST54L NFC controller: plain NCI over I2C, nxp-nci's transport.
++	 * Its "enable" line is the chip's RST_N; the PMU's clock pad gives it
++	 * its reference clock.
++	 */
++	nfc@8 {
++		compatible = "st,st54l", "nxp,nxp-nci-i2c";
++		reg = <0x08>;
++		clocks = <&pmu_system_controller 0>;
++		interrupt-parent = <&gpa7>;
++		interrupts = <5 IRQ_TYPE_LEVEL_HIGH>;
++		enable-gpios = <&gph1 6 GPIO_ACTIVE_HIGH>;
++	};
+ };
+ 
+ &pinctrl_alive {

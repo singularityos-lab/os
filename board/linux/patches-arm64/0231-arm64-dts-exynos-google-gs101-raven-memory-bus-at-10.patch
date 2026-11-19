@@ -1,0 +1,42 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: saiththerobo <the.tom.sharp@gmail.com>
+Date: Thu, 15 Oct 2026 06:10:02 +0100
+Subject: [PATCH] arm64: dts: exynos: google: gs101-raven: memory bus at 1014
+ MHz from boot
+
+ABL leaves the ACPM MIF domain at 2028 MHz and nothing scales it. With
+the screen on, 1014 MHz drew about 70 mA less (as much as stock's
+421 MHz idle) with no DECON underruns; it keeps headroom for the
+display and the GPU until there is a MIF devfreq.
+
+Checked on raven (2026-10-26): clk_summary reads mif at 1014000000
+with the panel off, and at 1352000000 while lit, which is gs-decon's
+120 Hz floor. A fullscreen glmark2-es2-wayland minute (GPU at its top
+762 MHz) and normal use showed no DECON underrun or underflow and no
+panfrost fault.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Signed-off-by: saiththerobo <the.tom.sharp@gmail.com>
+---
+ arch/arm64/boot/dts/exynos/google/gs101-raven.dts | 8 ++++++++
+ 1 file changed, 8 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/gs101-raven.dts b/arch/arm64/boot/dts/exynos/google/gs101-raven.dts
+index 1670a2ec7..991d62731 100644
+--- a/arch/arm64/boot/dts/exynos/google/gs101-raven.dts
++++ b/arch/arm64/boot/dts/exynos/google/gs101-raven.dts
+@@ -31,6 +31,14 @@ chosen {
+ };
+ 
+ &acpm_ipc {
++	/*
++	 * ABL leaves the memory bus at 2028 MHz and nothing scales it yet.
++	 * 1014 MHz saved about 70 mA, as much as stock's
++	 * 421 MHz idle, with headroom for the display and the GPU.
++	 */
++	assigned-clocks = <&acpm_ipc GS101_CLK_ACPM_DVFS_MIF>;
++	assigned-clock-rates = <1014000000>;
++
+ 	pmic-2 {
+ 		regulators {
+ 			ldo4s {

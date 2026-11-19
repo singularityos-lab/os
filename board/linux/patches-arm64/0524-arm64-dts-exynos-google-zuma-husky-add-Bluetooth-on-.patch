@@ -1,0 +1,147 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Lef <me@lefteros.com>
+Date: Fri, 6 Nov 2026 06:45:56 +0200
+Subject: [PATCH] arm64: dts: exynos: google: zuma-husky: add Bluetooth on the
+ APM UART
+
+The Pixel 8 Pro's Bluetooth is the BCM4398D0 on the APM's USI1 UART
+(uart18, 0x155d0000), as in Google's GPL zuma-board-bluetooth.dtsi:
+
+ - BT_REG_ON gpn8-0, BT_DEV_WAKE gpn9-0, BT_HOST_WAKE gpn6-0 (rising
+   edge);
+ - the UART pads gpa3-0 to gpa3-3 in function 2 (Google's uart18_bus);
+ - gpp24-3 as brcm,ble-dbo-gpios: BT_REG_ON reaches the chip through a
+   flip-flop clocked by it, as on the 9a, and hci_bcm already clocks
+   it.
+
+Without the pads or the latch the chip never answers the first command
+(0xfc18 tx timeout, then Reset failed -110). The compatible names the
+BCM4398 with the BCM4389 as fallback, as hci_bcm has no BCM4398 entry;
+the fallback only adds the 30 ms wait.
+
+Tested on a Pixel 8 Pro with 7.3.0-rc6 and the stock BCM.hcd installed
+as brcm/BCM.google,zuma-husky.hcd: hci0 comes up as "BCM4398D0
+G5SN_V17_HK3 REL BR:0169 FW:b8718197dc", discovery finds devices, and a
+pair of Soundcore A40 headphones paired and played YouTube over A2DP.
+Not tested: calls (HFP), mice and keyboards, suspend, power draw. The
+controller keeps a placeholder address until userspace sets the one in
+/chosen/config/bt_addr.
+
+Signed-off-by: Lef <me@lefteros.com>
+---
+ .../boot/dts/exynos/google/zuma-husky.dts     | 38 +++++++++++++++++
+ .../boot/dts/exynos/google/zuma-pinctrl.dtsi  | 41 +++++++++++++++++++
+ 2 files changed, 79 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/zuma-husky.dts b/arch/arm64/boot/dts/exynos/google/zuma-husky.dts
+index 38e9961a8..9cf4a9f5a 100644
+--- a/arch/arm64/boot/dts/exynos/google/zuma-husky.dts
++++ b/arch/arm64/boot/dts/exynos/google/zuma-husky.dts
+@@ -344,3 +344,41 @@ eeprom@50 {
+ 		read-only;
+ 	};
+ };
++
++/*
++ * Bluetooth, on the APM's USI1 UART (0x155d0000) as in Google's GPL zuma
++ * Bluetooth DT: BT_REG_ON gpn8-0, BT_DEV_WAKE gpn9-0, BT_HOST_WAKE gpn6-0,
++ * the UART pads gpa3-0 to gpa3-3 in function 2, and gpp24-3 clocking the
++ * flip-flop that latches BT_REG_ON (the 9a's BCM4383 has the same).
++ *
++ * The chip answers as a BCM4398D0, the Bluetooth half of the Wi-Fi combo.
++ * hci_bcm has no entry for it; the BCM4389's (30 ms after REG_ON) works.
++ * btbcm loads the stock firmware as brcm/BCM.google,zuma-husky.hcd, taken
++ * from the owner's own image, never shipped. Without the file the controller
++ * stays in its ROM state.
++ */
++&sysreg_apm {
++	status = "okay";
++};
++
++&usi_apm1 {
++	status = "okay";
++};
++
++&uart18 {
++	status = "okay";
++	pinctrl-0 = <&uart18_bus>;
++	pinctrl-names = "default";
++
++	bluetooth {
++		compatible = "brcm,bcm4398-bt", "brcm,bcm4389-bt";
++		pinctrl-names = "default";
++		pinctrl-0 = <&bt_power &bt_ble_dbo &bt_host_wake>;
++		max-speed = <3000000>;
++		shutdown-gpios = <&gpn8 0 GPIO_ACTIVE_HIGH>;
++		device-wakeup-gpios = <&gpn9 0 GPIO_ACTIVE_HIGH>;
++		brcm,ble-dbo-gpios = <&gpp24 3 GPIO_ACTIVE_HIGH>;
++		interrupts-extended = <&gpn6 0 IRQ_TYPE_EDGE_RISING>;
++		interrupt-names = "host-wakeup";
++	};
++};
+diff --git a/arch/arm64/boot/dts/exynos/google/zuma-pinctrl.dtsi b/arch/arm64/boot/dts/exynos/google/zuma-pinctrl.dtsi
+index 2de587797..69c1a1999 100644
+--- a/arch/arm64/boot/dts/exynos/google/zuma-pinctrl.dtsi
++++ b/arch/arm64/boot/dts/exynos/google/zuma-pinctrl.dtsi
+@@ -138,6 +138,17 @@ gpa10: gpa10-gpio-bank {
+ 			     <GIC_SPI 59 IRQ_TYPE_LEVEL_HIGH>;
+ 	};
+ 
++	/*
++	 * The APM USI1 UART (Bluetooth): gpa3-0..3 in function 2, as Google's
++	 * uart18_bus.
++	 */
++	uart18_bus: uart18-bus-pins {
++		samsung,pins = "gpa3-0", "gpa3-1", "gpa3-2", "gpa3-3";
++		samsung,pin-function = <GS101_PIN_FUNC_2>;
++		samsung,pin-pud = <GS101_PIN_PULL_NONE>;
++		samsung,pin-drv = <GS101_PIN_DRV_2_5_MA>;
++	};
++
+ 	key_power: key-power-pins {
+ 		samsung,pins = "gpa4-0";
+ 		samsung,pin-function = <GS101_PIN_FUNC_EINT>;
+@@ -273,6 +284,25 @@ gpn9: gpn9-gpio-bank {
+ 		interrupts = <GIC_SPI 9 IRQ_TYPE_LEVEL_HIGH>;
+ 	};
+ 
++	/*
++	 * Bluetooth: BT_REG_ON gpn8-0 and BT_DEV_WAKE gpn9-0, from Google's
++	 * zuma-board-bluetooth.dtsi.
++	 */
++	bt_power: bt-power-pins {
++		samsung,pins = "gpn8-0", "gpn9-0";
++		samsung,pin-function = <GS101_PIN_FUNC_OUTPUT>;
++		samsung,pin-pud = <GS101_PIN_PULL_NONE>;
++		samsung,pin-drv = <GS101_PIN_DRV_2_5_MA>;
++	};
++
++	/* BT_HOST_WAKE: gpn6-0 as an interrupt, pulled down (function F in stock). */
++	bt_host_wake: bt-host-wake-pins {
++		samsung,pins = "gpn6-0";
++		samsung,pin-function = <GS101_PIN_FUNC_EINT>;
++		samsung,pin-pud = <GS101_PIN_PULL_DOWN>;
++		samsung,pin-drv = <GS101_PIN_DRV_2_5_MA>;
++	};
++
+ 	ts_irq: ts-irq-pins {
+ 		samsung,pins = "gpn0-0";
+ 		samsung,pin-function = <GS101_PIN_FUNC_EINT>;
+@@ -459,6 +489,17 @@ ts_reset: ts-reset-pins {
+ 		samsung,pin-drv = <GS101_PIN_DRV_2_5_MA>;
+ 	};
+ 
++	/*
++	 * BT_BLE_DBO_LE: the clock of the flip-flop that latches BT_REG_ON
++	 * (Google's bt_ble_dbo_le, an input at reset).
++	 */
++	bt_ble_dbo: bt-ble-dbo-pins {
++		samsung,pins = "gpp24-3";
++		samsung,pin-function = <GS101_PIN_FUNC_INPUT>;
++		samsung,pin-pud = <GS101_PIN_PULL_NONE>;
++		samsung,pin-drv = <GS101_PIN_DRV_2_5_MA>;
++	};
++
+ 	/* USI9, the battery pack EEPROM's bus: gpp19-4/5, no pull as in stock. */
+ 	hsi2c9_bus: hsi2c9-bus-pins {
+ 		samsung,pins = "gpp19-4", "gpp19-5";

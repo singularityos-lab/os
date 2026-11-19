@@ -1,0 +1,111 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Tue, 27 Oct 2026 03:26:26 -0647
+Subject: [PATCH] power: supply: max77779: Report current and time estimates
+
+Add the battery current (Current 0x1c and AvgCurrent 0x1d, signed
+1.5625 uV per LSB over the sense resistor) and the gauge's averaged time
+to empty and to full (TTE 0x11 and TTF 0x20, 5.625 s per LSB; all ones
+when the gauge has no estimate, reported as no data). The register map
+stays read-only.
+
+The sign follows power_supply: the gauge counts charging as positive.
+Checked on a Pixel 9a: about +310 mA while charging near full, and about
+-500 mA with the charger's input switched off for a few seconds, with
+UPower showing the charge rate it had no source for before.
+
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ drivers/power/supply/max77779_battery.c | 40 +++++++++++++++++++++++++
+ 1 file changed, 40 insertions(+)
+
+diff --git a/drivers/power/supply/max77779_battery.c b/drivers/power/supply/max77779_battery.c
+index dbefc3c23..106226950 100644
+--- a/drivers/power/supply/max77779_battery.c
++++ b/drivers/power/supply/max77779_battery.c
+@@ -16,10 +16,14 @@
+ #define MAX77779_REPSOC		0x07
+ #define MAX77779_CONFIG		0x0c
+ #define MAX77779_FULLCAPREP	0x10
++#define MAX77779_TTE		0x11	/* 5.625 s, 0xffff unknown */
+ #define MAX77779_DESIGNCAP	0x18
+ #define MAX77779_AVGVCELL		0x19
+ #define MAX77779_VCELL		0x1a
+ #define MAX77779_TEMP		0x1b	/* thermistor, signed 1/256 degC */
++#define MAX77779_CURRENT	0x1c	/* signed 1.5625 uV / Rsense */
++#define MAX77779_AVGCURRENT	0x1d
++#define MAX77779_TTF		0x20
+ #define MAX77779_DEVNAME		0x21
+ #define MAX77779_FSTAT		0x3d
+ #define MAX77779_POR		BIT(1)
+@@ -53,6 +57,10 @@ static bool max77779_readable(struct device *dev, unsigned int reg)
+ 	case MAX77779_DEVNAME:
+ 	case MAX77779_FSTAT:
+ 	case MAX77779_TEMP:
++	case MAX77779_CURRENT:
++	case MAX77779_AVGCURRENT:
++	case MAX77779_TTE:
++	case MAX77779_TTF:
+ 		return true;
+ 	default:
+ 		return false;
+@@ -96,6 +104,7 @@ static int max77779_get_property(struct power_supply *supply,
+ 				 union power_supply_propval *value)
+ {
+ 	struct max77779_battery *battery = power_supply_get_drvdata(supply);
++	s64 ibat;
+ 	u64 charge;
+ 	u32 status, raw;
+ 	unsigned int reg;
+@@ -150,6 +159,18 @@ static int max77779_get_property(struct power_supply *supply,
+ 	case POWER_SUPPLY_PROP_CHARGE_FULL_DESIGN:
+ 		reg = MAX77779_DESIGNCAP;
+ 		break;
++	case POWER_SUPPLY_PROP_CURRENT_NOW:
++		reg = MAX77779_CURRENT;
++		break;
++	case POWER_SUPPLY_PROP_CURRENT_AVG:
++		reg = MAX77779_AVGCURRENT;
++		break;
++	case POWER_SUPPLY_PROP_TIME_TO_EMPTY_AVG:
++		reg = MAX77779_TTE;
++		break;
++	case POWER_SUPPLY_PROP_TIME_TO_FULL_AVG:
++		reg = MAX77779_TTF;
++		break;
+ 	default:
+ 		return -EINVAL;
+ 	}
+@@ -168,6 +189,21 @@ static int max77779_get_property(struct power_supply *supply,
+ 	case POWER_SUPPLY_PROP_VOLTAGE_AVG:
+ 		value->intval = div_u64((u64)raw * 78125, 1000);
+ 		break;
++	case POWER_SUPPLY_PROP_CURRENT_NOW:
++	case POWER_SUPPLY_PROP_CURRENT_AVG:
++		/* positive while charging, as power_supply expects */
++		ibat = div_s64((s64)(s16)raw * 1562500, battery->rsense);
++		if (ibat > INT_MAX || ibat < INT_MIN)
++			return -ERANGE;
++		value->intval = ibat;
++		break;
++	case POWER_SUPPLY_PROP_TIME_TO_EMPTY_AVG:
++	case POWER_SUPPLY_PROP_TIME_TO_FULL_AVG:
++		/* the gauge reads all ones when it has no estimate */
++		if (raw == 0xffff)
++			return -ENODATA;
++		value->intval = raw * 5625 / 1000;
++		break;
+ 	default:
+ 		/* 5 uVh / Rsense, with Rsense expressed in micro-ohms. */
+ 		charge = div_u64((u64)raw * 5000000, battery->rsense);
+@@ -191,6 +227,10 @@ static const enum power_supply_property max77779_properties[] = {
+ 	POWER_SUPPLY_PROP_CHARGE_NOW,
+ 	POWER_SUPPLY_PROP_CHARGE_FULL,
+ 	POWER_SUPPLY_PROP_CHARGE_FULL_DESIGN,
++	POWER_SUPPLY_PROP_CURRENT_NOW,
++	POWER_SUPPLY_PROP_CURRENT_AVG,
++	POWER_SUPPLY_PROP_TIME_TO_EMPTY_AVG,
++	POWER_SUPPLY_PROP_TIME_TO_FULL_AVG,
+ };
+ 
+ static const struct power_supply_desc max77779_supply = {

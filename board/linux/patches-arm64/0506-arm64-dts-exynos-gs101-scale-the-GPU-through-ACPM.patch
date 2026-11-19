@@ -1,0 +1,101 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: saiththerobo <the.tom.sharp@gmail.com>
+Date: Wed, 4 Nov 2026 07:56:37 +0000
+Subject: [PATCH] arm64: dts: exynos: gs101: scale the GPU through ACPM
+
+Use the ACPM GPU clock for the Mali-G78 instead of the fixed oscillator
+stand-in, with Google's gs101 levels (gpu_dvfs_table_v2 capped at
+gpu_dvfs_max_freq, 800 MHz) as the OPP table. Setting the clock moves
+G3D and pairs G3DL2 with it, and ACPM applies the voltages, so the
+table has rates only.
+
+Stock's gpu_dvfs_min_freq is 250 MHz; the 151 and 202 MHz levels are
+kept, as gs201's are. Stock also raises the memory interface (MIF) to
+845 MHz for the top three levels; that isn't done here.
+
+Assisted-by: Claude Opus 5.5
+Signed-off-by: saiththerobo <the.tom.sharp@gmail.com>
+---
+ arch/arm64/boot/dts/exynos/google/gs101.dtsi | 62 ++++++++++++++++++--
+ 1 file changed, 57 insertions(+), 5 deletions(-)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/gs101.dtsi b/arch/arm64/boot/dts/exynos/google/gs101.dtsi
+index bf3a00cb4..29a8272e9 100644
+--- a/arch/arm64/boot/dts/exynos/google/gs101.dtsi
++++ b/arch/arm64/boot/dts/exynos/google/gs101.dtsi
+@@ -214,6 +214,59 @@ hera_cpu_sleep: cpu-hera-sleep {
+ 		};
+ 	};
+ 
++	/*
++	 * Google's gs101 GPU levels (gpu_dvfs_table_v2, capped at their
++	 * gpu_dvfs_max_freq of 800 MHz), as shader clock rates. The ACPM GPU
++	 * clock moves the L2 clock to its paired level and sets the voltages.
++	 */
++	gpu_opp_table: opp-table-gpu {
++		compatible = "operating-points-v2";
++
++		opp-151000000 {
++			opp-hz = /bits/ 64 <151000000>;
++		};
++
++		opp-202000000 {
++			opp-hz = /bits/ 64 <202000000>;
++		};
++
++		opp-251000000 {
++			opp-hz = /bits/ 64 <251000000>;
++		};
++
++		opp-302000000 {
++			opp-hz = /bits/ 64 <302000000>;
++		};
++
++		opp-351000000 {
++			opp-hz = /bits/ 64 <351000000>;
++		};
++
++		opp-400000000 {
++			opp-hz = /bits/ 64 <400000000>;
++		};
++
++		opp-471000000 {
++			opp-hz = /bits/ 64 <471000000>;
++		};
++
++		opp-510000000 {
++			opp-hz = /bits/ 64 <510000000>;
++		};
++
++		opp-572000000 {
++			opp-hz = /bits/ 64 <572000000>;
++		};
++
++		opp-701000000 {
++			opp-hz = /bits/ 64 <701000000>;
++		};
++
++		opp-762000000 {
++			opp-hz = /bits/ 64 <762000000>;
++		};
++	};
++
+ 	cpucl0_opp_table: opp-table-0 {
+ 		compatible = "operating-points-v2";
+ 		opp-shared;
+@@ -2073,11 +2126,10 @@ sysreg_dpu: syscon@1c020000 {
+ 		gpu: gpu@1c500000 {
+ 			compatible = "google,gs101-mali", "arm,mali-valhall-jm";
+ 			reg = <0x1c500000 0x5000>;
+-			/*
+-			 * TODO: placeholder until a CMU_G3D driver exists. ABL
+-			 * leaves the G3D clock running; this is not that clock.
+-			 */
+-			clocks = <&ext_24_5m>;
++			/* The shader clock, with L2 paired, set by the APM firmware */
++			clocks = <&acpm_ipc GS101_CLK_ACPM_GPU>;
++			clock-names = "core";
++			operating-points-v2 = <&gpu_opp_table>;
+ 			interrupt-names = "job", "mmu", "gpu";
+ 			interrupts = <GIC_SPI 420 IRQ_TYPE_LEVEL_HIGH 0>,
+ 				     <GIC_SPI 421 IRQ_TYPE_LEVEL_HIGH 0>,

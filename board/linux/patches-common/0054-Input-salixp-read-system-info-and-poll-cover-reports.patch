@@ -1,0 +1,683 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: boozedog <code@booze.dog>
+Date: Mon, 26 Oct 2026 13:49:38 -0400
+Subject: [PATCH] Input: salixp: read system info and poll cover reports
+
+The chip-id reader stopped after the CRC register. The report path
+reads the request-0 system-info block, polls config, CX, and panel
+CRC events after a GPIO reset, sends the scan command once, and
+polls the FIFO for touch reports. It does not write the flash, run
+a panel init, or request attention.
+
+Probe fails before the scan command, and does not register an input
+device, where stock would repair. A non-zero CRC status is the
+reflash path (fts.c:4224). Config CRC events 0x20 and 0x21 are the
+same class: fts_crc_check returns CRC_CONFIG and fts_fw_update sets
+reflash_fw (ftsCore.c:957, 979-982, ftsSoftware.h:456-458). A header
+other than a5 01 is not a loaded system-info block. A missing
+controller-ready is not the full panel init: stock skips init
+because the state is unknown (fts.c:4325). A CX CRC event 0xa0,
+0xa1, 0xa5, or 0xa6 is the full panel init under
+COMPUTE_INIT_METHOD (fts.c:4307-4321). A panel CRC event 0x22 or
+0x23 is the panel init that follows that poll (fts.c:4293-4304,
+ftsSoftware.h:460-463). An AFE mismatch or an MP flag other than
+0xa5, 0x5a, or 0xdf is the same function's panel-init selection
+(fts.c:4330-4361). Felix does not set st,skip-fpi-for-unset-mpflag,
+so an unset flag is included. A missing scan echo fails probe.
+Stock retries that write. This sends it once. The Kconfig text
+lists the four SPI sends and the things this driver never sends.
+
+On the Fold the header matched, the MP flag was a5, and a finger
+produced enter and motion. Position axes are advertised so the
+device is tagged as a touchscreen. Step 8 booted this path as a
+packed image, release 7.3.0-rc6-omamobile-push1-gaa42f8a8c1bf,
+salixp.c blob c1752a85. Slot B was not marked successful.
+
+Signed-off-by: boozedog <code@booze.dog>
+Assisted-by: LLM
+---
+ drivers/input/touchscreen/Kconfig  |  14 +-
+ drivers/input/touchscreen/salixp.c | 510 ++++++++++++++++++++++++++++-
+ 2 files changed, 505 insertions(+), 19 deletions(-)
+
+diff --git a/drivers/input/touchscreen/Kconfig b/drivers/input/touchscreen/Kconfig
+index af1c9fe59..dde01a6db 100644
+--- a/drivers/input/touchscreen/Kconfig
++++ b/drivers/input/touchscreen/Kconfig
+@@ -1256,13 +1256,19 @@ config TOUCHSCREEN_SALIXP
+ 	depends on SPI
+ 	help
+ 	  Say Y here for the STMicroelectronics SALIXP touch controller
+-	  (chip id 36 40) over SPI. The driver reads the chip id and
+-	  the CRC status register, then registers a touchscreen. A
+-	  non-zero status is logged. It does not send a scan command
+-	  or request the interrupt.
++	  (chip id 36 40) over SPI. The driver sends a hardware-register
++	  read (opcode 0xfb), a framebuffer read (opcode 0xa7), a FIFO
++	  read (opcode 0x87), and one scan command (0xa0 00 ff). It
++	  toggles reset once after the system-info read. It never sends
++	  opcode 0xfa, a flash or config write, a system or load
++	  command, or the setScanMode preamble. It does not request the
++	  interrupt. Probe stops before the scan command on a config CRC
++	  event (0x20 or 0x21), and on a missing scan echo. It does not
++	  send the scan command again.
+ 
+ 	  To compile this driver as a module, choose M here: the
+ 	  module will be called salixp.
++
+ config TOUCHSCREEN_STMPE
+ 	tristate "STMicroelectronics STMPE touchscreens"
+ 	depends on MFD_STMPE
+diff --git a/drivers/input/touchscreen/salixp.c b/drivers/input/touchscreen/salixp.c
+index 2791035e7..c1752a858 100644
+--- a/drivers/input/touchscreen/salixp.c
++++ b/drivers/input/touchscreen/salixp.c
+@@ -1,16 +1,19 @@
+ // SPDX-License-Identifier: GPL-2.0-only
+ /*
+- * STMicroelectronics SALIXP chip-id reader (SPI).
++ * STMicroelectronics SALIXP SPI touchscreen.
+  *
+  * SALIXP is the FTS part whose hardware id is 36 40. Google's GPL FTM5
+  * driver (kernel/google-modules/touch/fts_touch), Copyright (C) 2016
+  * STMicroelectronics, calls that id SALIXP. Chip id 36 48 is ALIX and is
+- * not this part. This reader resets the controller, reads the id, and
+- * registers an input device, and reads the CRC status register. It can
+- * decode one 8-byte report. It does not load firmware or reset the
+- * controller after that read. Attention is level low and this driver
+- * does not request it. After reset is released the line falls and stays
+- * low, so a level interrupt would storm before any firmware handshake.
++ * not this part. This driver sends four things: a hardware-register
++ * read (opcode 0xfb), a framebuffer read (opcode 0xa7), a FIFO read
++ * (opcode 0x87), and one scan command (0xa0 0x00 0xff). It also
++ * toggles the reset GPIO once, after the system-info read. It never
++ * sends opcode 0xfa, a flash or config write, a system or load
++ * command, or the setScanMode preamble. It does not request the
++ * interrupt. Attention is level low. After reset is released the line
++ * falls and stays low, so a level interrupt would storm before any
++ * firmware handshake.
+  *
+  * Hardware register read, SPI: opcode 0xfb, then the 32-bit address in
+  * big-endian, then a one-byte dummy, then the payload. Chip id is at
+@@ -20,6 +23,19 @@
+  * shifts a transfer only when it has a TX buffer. The power-cycle path
+  * in that driver asserts reset, enables vdd, waits 1 ms, enables avdd,
+  * and waits 15 ms before releasing reset.
++ *
++ * System info is the 216-byte framebuffer block at address 0. The SPI
++ * read is opcode 0xa7, a 16-bit big-endian address, one dummy byte,
++ * then the payload. The reply half clocks zeros, as above. This is
++ * readSysInfo with request 0: no load command. Probe fails before the
++ * scan command, and does not register an input device, on a header
++ * other than 0xa5 0x01, a non-zero CRC status, a missing
++ * controller-ready, a missing scan echo, a config CRC event (0x20 or
++ * 0x21), a CX or panel CRC event, or an AFE or MP-flag value stock
++ * would panel-init. A missing controller-ready is not the full panel
++ * init: stock skips init because the state is unknown. The log is the
++ * firmware version, the CX version, the three AFE version bytes, and
++ * the MP flag. It is not the calibration and not the die info.
+  */
+ 
+ #include <linux/cache.h>
+@@ -29,18 +45,61 @@
+ #include <linux/gpio/consumer.h>
+ #include <linux/input.h>
+ #include <linux/input/mt.h>
++#include <linux/workqueue.h>
+ #include <linux/input/touchscreen.h>
+ #include <linux/ktime.h>
+ #include <linux/mod_devicetable.h>
+ #include <linux/module.h>
++#include <linux/pm.h>
+ #include <linux/property.h>
+ #include <linux/regulator/consumer.h>
+ #include <linux/spi/spi.h>
++#include <linux/unaligned.h>
+ 
+ #define SALIXP_CMD_HW_REG_R	0xfb
++#define SALIXP_CMD_FRAMEBUFFER_R 0xa7
+ #define SALIXP_ADDR_DCHIP_ID	0x20000000
+ #define SALIXP_ADDR_CRC		0x20000078
++#define SALIXP_ADDR_FRAMEBUFFER	0x0000
+ #define SALIXP_CRC_MASK		0x03
++#define SALIXP_SYSINFO_SIZE	216
++#define SALIXP_SYSINFO_SIG	0xa5
++#define SALIXP_SYSINFO_ID	0x01
++#define SALIXP_SYSINFO_FW_OFF	16
++#define SALIXP_SYSINFO_CX_OFF	24
++#define SALIXP_SYSINFO_CFG_AFE	28
++#define SALIXP_SYSINFO_CX_AFE	29
++#define SALIXP_SYSINFO_PANEL_AFE 30
++#define SALIXP_SYSINFO_MP_FLAG	68
++#define SALIXP_MP_FACTORY	0xa5
++#define SALIXP_MP_BOOT		0x5a
++#define SALIXP_MP_NEED_FPI	0xdf
++#define SALIXP_CMD_FIFO_READ	0x87
++#define SALIXP_EVT_SIZE		8
++#define SALIXP_EVT_EMPTY	0x00
++#define SALIXP_EVT_NO_RESP	0xff
++#define SALIXP_EVT_READY	0x03
++#define SALIXP_EVT_ERROR	0xf3
++#define SALIXP_CRC_CX_HEAD	0xa0
++#define SALIXP_CRC_CX		0xa1
++#define SALIXP_CRC_CX_SUB_HEAD	0xa5
++#define SALIXP_CRC_CX_SUB	0xa6
++#define SALIXP_CRC_CFG_HEAD	0x20
++#define SALIXP_CRC_CFG		0x21
++#define SALIXP_CRC_PANEL_HEAD	0x22
++#define SALIXP_CRC_PANEL	0x23
++#define SALIXP_RESET_HOLD_MS	10
++#define SALIXP_POLL_MS		100
++#define SALIXP_POLL_SLEEP_MS	5
++#define SALIXP_POLL_MAX_EVT	32
++#define SALIXP_CMD_SCAN		0xa0
++#define SALIXP_SCAN_ACTIVE	0x00
++#define SALIXP_SCAN_ALL		0xff
++#define SALIXP_EVT_STATUS	0x43
++#define SALIXP_ECHO_TYPE	0x01
++#define SALIXP_ECHO_MS		50
++#define SALIXP_TOUCH_POLL_MS	10
++#define SALIXP_TOUCH_LOG_MAX	8
+ #define SALIXP_CS_DELAY_US	10
+ #define SALIXP_VDD_DELAY_US	1000
+ #define SALIXP_AVDD_DELAY_US	15000
+@@ -61,9 +120,20 @@ struct salixp {
+ 	struct gpio_desc *reset;
+ 	struct input_dev *input;
+ 	struct touchscreen_properties prop;
++	struct delayed_work poll_work;
++	unsigned int touch_logged;
++	u32 max_x;
++	u32 max_y;
+ 	u8 tx[5] __aligned(ARCH_DMA_MINALIGN);
+ 	u8 reply_tx[3] __aligned(ARCH_DMA_MINALIGN);
+ 	u8 rx[3] __aligned(ARCH_DMA_MINALIGN);
++	u8 fb_tx[3] __aligned(ARCH_DMA_MINALIGN);
++	u8 fb_reply_tx[SALIXP_SYSINFO_SIZE + 1] __aligned(ARCH_DMA_MINALIGN);
++	u8 fb_rx[SALIXP_SYSINFO_SIZE + 1] __aligned(ARCH_DMA_MINALIGN);
++	u8 fifo_tx[1] __aligned(ARCH_DMA_MINALIGN);
++	u8 fifo_reply_tx[SALIXP_EVT_SIZE + 1] __aligned(ARCH_DMA_MINALIGN);
++	u8 fifo_rx[SALIXP_EVT_SIZE + 1] __aligned(ARCH_DMA_MINALIGN);
++	u8 cmd_tx[3] __aligned(ARCH_DMA_MINALIGN);
+ };
+ 
+ static const struct salixp_info salixp_info = {
+@@ -137,15 +207,301 @@ static int salixp_read_crc(struct salixp *ts, u8 *raw, u8 *status)
+ 	return 0;
+ }
+ 
++/*
++ * Framebuffer read, SPI: opcode 0xa7, then the 16-bit address in
++ * big-endian, then a one-byte dummy, then the payload. Chip select
++ * stays asserted across the two transfers. The reply half clocks
++ * zeros, as in the hardware-register read.
++ */
++static int salixp_read_framebuffer(struct salixp *ts, u16 addr, u8 *buf,
++				   size_t len)
++{
++	struct spi_transfer xfer[] = {
++		{
++			.tx_buf = ts->fb_tx,
++			.len = sizeof(ts->fb_tx),
++		},
++		{
++			.tx_buf = ts->fb_reply_tx,
++			.rx_buf = ts->fb_rx,
++			.len = len + 1,
++			.delay = {
++				.value = SALIXP_CS_DELAY_US,
++				.unit = SPI_DELAY_UNIT_USECS,
++			},
++		},
++	};
++	int ret;
++
++	if (len + 1 > sizeof(ts->fb_rx))
++		return -EINVAL;
++
++	ts->fb_tx[0] = SALIXP_CMD_FRAMEBUFFER_R;
++	ts->fb_tx[1] = addr >> 8;
++	ts->fb_tx[2] = addr & 0xff;
++	memset(ts->fb_reply_tx, 0, len + 1);
++
++	ret = spi_sync_transfer(ts->spi, xfer, ARRAY_SIZE(xfer));
++	if (ret)
++		return ret;
++
++	memcpy(buf, &ts->fb_rx[1], len);
++	return 0;
++}
++
++/*
++ * readSysInfo with request 0. This read does not send the load
++ * command. A header other than 0xa5 0x01 fails probe. Firmware and
++ * CX versions are little-endian u16s at the offsets readSysInfo
++ * parses. The three AFE version bytes follow the CX project id. An
++ * AFE mismatch, or an MP flag stock would panel-init, also fails
++ * probe. The rest of the block, including die info, is not logged.
++ */
++static int salixp_read_sysinfo(struct salixp *ts)
++{
++	struct device *dev = &ts->spi->dev;
++	u8 data[SALIXP_SYSINFO_SIZE] = {};
++	u16 fw, cx;
++	int ret;
++
++	ret = salixp_read_framebuffer(ts, SALIXP_ADDR_FRAMEBUFFER, data,
++				      sizeof(data));
++	if (ret)
++		return ret;
++
++	dev_info(dev, "sysinfo header %02x id %02x\n", data[0], data[1]);
++	if (data[0] != SALIXP_SYSINFO_SIG || data[1] != SALIXP_SYSINFO_ID) {
++		dev_info(dev, "sysinfo not loaded\n");
++		return -ENODEV;
++	}
++
++	fw = get_unaligned_le16(data + SALIXP_SYSINFO_FW_OFF);
++	cx = get_unaligned_le16(data + SALIXP_SYSINFO_CX_OFF);
++	dev_info(dev, "sysinfo fw %04x cxver %04x\n", fw, cx);
++	dev_info(dev, "sysinfo afe cfg %02x cx %02x panel %02x\n",
++		 data[SALIXP_SYSINFO_CFG_AFE], data[SALIXP_SYSINFO_CX_AFE],
++		 data[SALIXP_SYSINFO_PANEL_AFE]);
++	dev_info(dev, "sysinfo mp flag %02x\n", data[SALIXP_SYSINFO_MP_FLAG]);
++
++	/*
++	 * fts_fw_update under COMPUTE_INIT_METHOD selects a full panel
++	 * init when the config AFE differs from the CX AFE, or when the
++	 * MP flag is not factory (0xa5), boot (0x5a), or need-FPI (0xdf).
++	 * A config AFE that differs from the panel AFE selects a panel
++	 * init (fts.c:4330-4361). Felix does not set
++	 * st,skip-fpi-for-unset-mpflag, so an unset flag is included.
++	 * Those paths write the controller. Do not scan.
++	 */
++	if (data[SALIXP_SYSINFO_CFG_AFE] != data[SALIXP_SYSINFO_CX_AFE] ||
++	    data[SALIXP_SYSINFO_CFG_AFE] != data[SALIXP_SYSINFO_PANEL_AFE] ||
++	    (data[SALIXP_SYSINFO_MP_FLAG] != SALIXP_MP_FACTORY &&
++	     data[SALIXP_SYSINFO_MP_FLAG] != SALIXP_MP_BOOT &&
++	     data[SALIXP_SYSINFO_MP_FLAG] != SALIXP_MP_NEED_FPI))
++		return -ENODEV;
++
++	return 0;
++}
++
++/* SPI FIFO read: opcode 0x87, one dummy byte, then one 8-byte event. */
++static int salixp_read_fifo(struct salixp *ts, u8 event[SALIXP_EVT_SIZE])
++{
++	struct spi_transfer xfer[] = {
++		{
++			.tx_buf = ts->fifo_tx,
++			.len = sizeof(ts->fifo_tx),
++		},
++		{
++			.tx_buf = ts->fifo_reply_tx,
++			.rx_buf = ts->fifo_rx,
++			.len = SALIXP_EVT_SIZE + 1,
++			.delay = {
++				.value = SALIXP_CS_DELAY_US,
++				.unit = SPI_DELAY_UNIT_USECS,
++			},
++		},
++	};
++	int ret;
++
++	ts->fifo_tx[0] = SALIXP_CMD_FIFO_READ;
++	memset(ts->fifo_reply_tx, 0, SALIXP_EVT_SIZE + 1);
++
++	ret = spi_sync_transfer(ts->spi, xfer, ARRAY_SIZE(xfer));
++	if (ret)
++		return ret;
++
++	memcpy(event, &ts->fifo_rx[1], SALIXP_EVT_SIZE);
++	return 0;
++}
++
++static bool salixp_cfg_crc_type(u8 type)
++{
++	return type == SALIXP_CRC_CFG_HEAD || type == SALIXP_CRC_CFG;
++}
++
++static bool salixp_cx_crc_type(u8 type)
++{
++	return type == SALIXP_CRC_CX_HEAD || type == SALIXP_CRC_CX ||
++	       type == SALIXP_CRC_CX_SUB_HEAD || type == SALIXP_CRC_CX_SUB;
++}
++
++static bool salixp_panel_crc_type(u8 type)
++{
++	return type == SALIXP_CRC_PANEL_HEAD || type == SALIXP_CRC_PANEL;
++}
++
++/*
++ * GPIO reset, then read FIFO events for 100 ms. On this board
++ * fts_system_reset toggles the reset pin and waits for
++ * controller-ready. A config CRC error is event 0xf3 with type
++ * 0x20 or 0x21. Stock polls those first after a clear CRC register
++ * (ftsCore.c:957, 979-982). A hit returns CRC_CONFIG, and
++ * fts_fw_update sets reflash_fw (fts.c:4224). A CX CRC error is
++ * type 0xa0, 0xa1, 0xa5, or 0xa6. Under COMPUTE_INIT_METHOD that
++ * hit selects a full panel init (fts.c:4307-4321). A panel CRC
++ * error is type 0x22 or 0x23 (ftsSoftware.h:460-463). Stock polls
++ * those when the CX poll finds nothing and selects a panel init
++ * (fts.c:4293-4304). No controller-ready means the system reset
++ * failed. Stock skips initialisation then because the state is
++ * unknown (fts.c:4325), not because that miss is the full panel
++ * init. A hit, or no controller-ready, fails probe. This does not
++ * write the flash, send a scan command, or request attention.
++ */
++static int salixp_poll_cx(struct salixp *ts)
++{
++	struct device *dev = &ts->spi->dev;
++	ktime_t deadline;
++	u8 event[SALIXP_EVT_SIZE];
++	unsigned int n = 0;
++	bool ready = false;
++	bool cfg = false;
++	bool cx = false;
++	bool panel = false;
++	int ret;
++
++	gpiod_set_value_cansleep(ts->reset, 1);
++	msleep(SALIXP_RESET_HOLD_MS);
++	gpiod_set_value_cansleep(ts->reset, 0);
++
++	deadline = ktime_add_ms(ktime_get(), SALIXP_POLL_MS);
++	while (ktime_before(ktime_get(), deadline) && n < SALIXP_POLL_MAX_EVT) {
++		ret = salixp_read_fifo(ts, event);
++		if (ret)
++			return ret;
++
++		if (event[0] == SALIXP_EVT_EMPTY ||
++		    event[0] == SALIXP_EVT_NO_RESP) {
++			msleep(SALIXP_POLL_SLEEP_MS);
++			continue;
++		}
++
++		n++;
++		dev_info(dev, "cx poll event %02x type %02x\n",
++			 event[0], event[1]);
++		if (event[0] == SALIXP_EVT_READY)
++			ready = true;
++		if (event[0] == SALIXP_EVT_ERROR &&
++		    salixp_cfg_crc_type(event[1])) {
++			cfg = true;
++			dev_info(dev, "cx poll config-crc %02x\n", event[1]);
++		}
++		if (event[0] == SALIXP_EVT_ERROR &&
++		    salixp_cx_crc_type(event[1])) {
++			cx = true;
++			dev_info(dev, "cx poll cx-crc %02x\n", event[1]);
++		}
++		if (event[0] == SALIXP_EVT_ERROR &&
++		    salixp_panel_crc_type(event[1])) {
++			panel = true;
++			dev_info(dev, "cx poll panel-crc %02x\n", event[1]);
++		}
++	}
++
++	dev_info(dev,
++		 "cx poll ready %s config-crc %s cx-crc %s panel-crc %s events %u\n",
++		 ready ? "yes" : "no", cfg ? "yes" : "no",
++		 cx ? "yes" : "no", panel ? "yes" : "no", n);
++	if (!ready || cfg || cx || panel)
++		return -ENODEV;
++	return 0;
++}
++
++/*
++ * senseOn is scan command 0xa0, mode 0, settings 0xff. Google writes
++ * a hardware-register preamble first. That preamble is opcode 0xfa
++ * and address 0x20000000, the same prefix as the flash commands, so
++ * this does not send it. The echo is 0x43 0x01 followed by the
++ * command. Stock treats a missing echo as failure after retries
++ * (ftsIO.c:523-547). This sends the scan command once and fails
++ * probe if the echo does not arrive. It does not send it again.
++ * No interrupt is requested.
++ */
++static int salixp_sense_on(struct salixp *ts)
++{
++	struct device *dev = &ts->spi->dev;
++	struct spi_transfer xfer = {
++		.tx_buf = ts->cmd_tx,
++		.len = sizeof(ts->cmd_tx),
++		.delay = {
++			.value = SALIXP_CS_DELAY_US,
++			.unit = SPI_DELAY_UNIT_USECS,
++		},
++	};
++	ktime_t deadline;
++	u8 event[SALIXP_EVT_SIZE];
++	unsigned int n = 0;
++	bool echo = false;
++	int ret;
++
++	ts->cmd_tx[0] = SALIXP_CMD_SCAN;
++	ts->cmd_tx[1] = SALIXP_SCAN_ACTIVE;
++	ts->cmd_tx[2] = SALIXP_SCAN_ALL;
++	ret = spi_sync_transfer(ts->spi, &xfer, 1);
++	if (ret)
++		return ret;
++
++	deadline = ktime_add_ms(ktime_get(), SALIXP_ECHO_MS);
++	while (ktime_before(ktime_get(), deadline) && n < SALIXP_POLL_MAX_EVT) {
++		ret = salixp_read_fifo(ts, event);
++		if (ret)
++			return ret;
++
++		if (event[0] == SALIXP_EVT_EMPTY ||
++		    event[0] == SALIXP_EVT_NO_RESP) {
++			msleep(SALIXP_POLL_SLEEP_MS);
++			continue;
++		}
++
++		n++;
++		dev_info(dev, "sense event %02x type %02x\n",
++			 event[0], event[1]);
++		if (event[0] == SALIXP_EVT_STATUS)
++			dev_info(dev,
++				 "status %02x %02x %02x %02x %02x %02x %02x %02x\n",
++				 event[0], event[1], event[2], event[3],
++				 event[4], event[5], event[6], event[7]);
++		if (event[0] == SALIXP_EVT_STATUS &&
++		    event[1] == SALIXP_ECHO_TYPE &&
++		    event[2] == SALIXP_CMD_SCAN &&
++		    event[3] == SALIXP_SCAN_ACTIVE &&
++		    event[4] == SALIXP_SCAN_ALL)
++			echo = true;
++	}
++
++	dev_info(dev, "sense echo %s events %u\n",
++		 echo ? "yes" : "no", n);
++	if (!echo)
++		return -ENODEV;
++	return 0;
++}
++
+ /*
+  * One FIFO report from the felix ftm5 driver. The slot is the high
+  * nibble of event[1]. X and Y are packed in event[2..4]. Pressure is
+  * event[5]. Enter, motion, and leave are compared after masking the
+- * size bits in event[0]. Nothing in this driver calls this until
+- * attention is requested, and this driver does not request it.
++ * size bits in event[0]. The poll below calls this. The driver
++ * does not request attention.
+  */
+-static void __maybe_unused salixp_report_event(struct salixp *ts,
+-					       const u8 *event)
++static void salixp_report_event(struct salixp *ts, const u8 *event)
+ {
+ 	u8 type = event[0] & SALIXP_EVT_TYPE_MASK;
+ 	u8 slot = event[1] >> 4;
+@@ -168,6 +524,10 @@ static void __maybe_unused salixp_report_event(struct salixp *ts,
+ 
+ 	x = ((event[3] & 0x0f) << 8) | event[2];
+ 	y = (event[4] << 4) | ((event[3] & 0xf0) >> 4);
++	if (x > ts->max_x)
++		x = ts->max_x;
++	if (y > ts->max_y)
++		y = ts->max_y;
+ 
+ 	input_mt_report_slot_state(ts->input, MT_TOOL_FINGER, true);
+ 	touchscreen_report_pos(ts->input, &ts->prop, x, y, true);
+@@ -176,15 +536,109 @@ static void __maybe_unused salixp_report_event(struct salixp *ts,
+ 	input_sync(ts->input);
+ }
+ 
++static bool salixp_touch_event(u8 id)
++{
++	u8 type = id & SALIXP_EVT_TYPE_MASK;
++
++	return type == SALIXP_EVT_ENTER || type == SALIXP_EVT_MOTION ||
++	       type == SALIXP_EVT_LEAVE;
++}
++
++/*
++ * Read the FIFO on a timer. A touch report is the same 8-byte read as
++ * the CX poll. This does not request the interrupt. disable on remove
++ * stops a reschedule.
++ */
++static void salixp_poll_work(struct work_struct *work)
++{
++	struct salixp *ts = container_of(to_delayed_work(work), struct salixp,
++					 poll_work);
++	struct device *dev = &ts->spi->dev;
++	u8 event[SALIXP_EVT_SIZE];
++	unsigned int n = 0;
++	int ret;
++
++	do {
++		ret = salixp_read_fifo(ts, event);
++		if (ret) {
++			dev_err(dev, "touch poll read failed: %d\n", ret);
++			return;
++		}
++
++		if (event[0] == SALIXP_EVT_EMPTY ||
++		    event[0] == SALIXP_EVT_NO_RESP)
++			break;
++
++		n++;
++		if (event[0] == SALIXP_EVT_STATUS)
++			dev_info(dev,
++				 "status %02x %02x %02x %02x %02x %02x %02x %02x\n",
++				 event[0], event[1], event[2], event[3],
++				 event[4], event[5], event[6], event[7]);
++		if (!salixp_touch_event(event[0]))
++			continue;
++
++		if (ts->touch_logged < SALIXP_TOUCH_LOG_MAX) {
++			dev_info(dev, "touch event %02x slot %u\n",
++				 event[0], event[1] >> 4);
++			ts->touch_logged++;
++		}
++		salixp_report_event(ts, event);
++	} while (n < SALIXP_POLL_MAX_EVT);
++
++	queue_delayed_work(system_freezable_wq, &ts->poll_work,
++			   msecs_to_jiffies(SALIXP_TOUCH_POLL_MS));
++}
++
++static void salixp_stop_poll(void *data)
++{
++	struct salixp *ts = data;
++
++	disable_delayed_work_sync(&ts->poll_work);
++}
++
++static int salixp_start_poll(struct salixp *ts)
++{
++	int ret;
++
++	INIT_DELAYED_WORK(&ts->poll_work, salixp_poll_work);
++	ret = devm_add_action_or_reset(&ts->spi->dev, salixp_stop_poll, ts);
++	if (ret)
++		return ret;
++
++	queue_delayed_work(system_freezable_wq, &ts->poll_work, 0);
++	return 0;
++}
++
++static int salixp_suspend(struct device *dev)
++{
++	struct salixp *ts = spi_get_drvdata(to_spi_device(dev));
++
++	disable_delayed_work_sync(&ts->poll_work);
++	return 0;
++}
++
++static int salixp_resume(struct device *dev)
++{
++	struct salixp *ts = spi_get_drvdata(to_spi_device(dev));
++
++	enable_delayed_work(&ts->poll_work);
++	queue_delayed_work(system_freezable_wq, &ts->poll_work, 0);
++	return 0;
++}
++
++static DEFINE_SIMPLE_DEV_PM_OPS(salixp_pm_ops, salixp_suspend, salixp_resume);
++
+ static int salixp_register_input(struct salixp *ts)
+ {
+ 	struct device *dev = &ts->spi->dev;
+ 	struct input_dev *input;
+-	u32 size;
++	u32 size_x, size_y;
+ 	int ret;
+ 
+-	if (device_property_read_u32(dev, "touchscreen-size-x", &size) ||
+-	    device_property_read_u32(dev, "touchscreen-size-y", &size))
++	if (device_property_read_u32(dev, "touchscreen-size-x", &size_x) ||
++	    device_property_read_u32(dev, "touchscreen-size-y", &size_y) ||
++	    size_x < 2 || size_y < 2)
+ 		return dev_err_probe(dev, -EINVAL, "missing touchscreen size\n");
+ 
+ 	input = devm_input_allocate_device(dev);
+@@ -194,6 +648,15 @@ static int salixp_register_input(struct salixp *ts)
+ 	input->name = "SALIXP Touchscreen";
+ 	input->id.bustype = BUS_SPI;
+ 
++	/*
++	 * Position axes have to exist before the properties are parsed,
++	 * and before registration. Without them udev does not tag the
++	 * device as a touchscreen, and libinput ignores it.
++	 */
++	ts->max_x = size_x - 1;
++	ts->max_y = size_y - 1;
++	input_set_abs_params(input, ABS_MT_POSITION_X, 0, ts->max_x, 0, 0);
++	input_set_abs_params(input, ABS_MT_POSITION_Y, 0, ts->max_y, 0, 0);
+ 	input_set_abs_params(input, ABS_MT_PRESSURE, 0, 255, 0, 0);
+ 	touchscreen_parse_properties(input, true, &ts->prop);
+ 
+@@ -268,7 +731,23 @@ static int salixp_probe(struct spi_device *spi)
+ 				return dev_err_probe(dev, ret, "reading crc status\n");
+ 			dev_info(dev, "crc status %02x raw %02x\n",
+ 				 crc_status, crc_raw);
+-			return salixp_register_input(ts);
++			if (crc_status)
++				return dev_err_probe(dev, -ENODEV,
++						     "crc status nonzero\n");
++			ret = salixp_read_sysinfo(ts);
++			if (ret)
++				return dev_err_probe(dev, ret,
++						     "system info would repair\n");
++			ret = salixp_poll_cx(ts);
++			if (ret)
++				return dev_err_probe(dev, ret, "cx poll would repair\n");
++			ret = salixp_sense_on(ts);
++			if (ret)
++				return dev_err_probe(dev, ret, "turning sensing on\n");
++			ret = salixp_register_input(ts);
++			if (ret)
++				return ret;
++			return salixp_start_poll(ts);
+ 		}
+ 		msleep(SALIXP_ID_INTERVAL_MS);
+ 	} while (ktime_before(ktime_get(), deadline));
+@@ -297,6 +776,7 @@ static struct spi_driver salixp_driver = {
+ 	.driver = {
+ 		.name = "salixp",
+ 		.of_match_table = salixp_of_match,
++		.pm = pm_sleep_ptr(&salixp_pm_ops),
+ 	},
+ 	.probe = salixp_probe,
+ 	.id_table = salixp_id,

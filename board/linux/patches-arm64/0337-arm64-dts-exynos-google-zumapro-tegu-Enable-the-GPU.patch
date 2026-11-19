@@ -1,0 +1,113 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Tue, 27 Oct 2026 11:37:17 -0647
+Subject: [PATCH] arm64: dts: exynos: google: zumapro-tegu: Enable the GPU
+
+Turn on CMU_G3D and the Mali-G715 for the Pixel 9a, with its core clock
+on ACPM's paired "gpu" clock (index 17), which sets the shader (G3D) and
+L2 (G3DL2) domains together, and coregroup and stacks on CMU_G3D's gates.
+
+The operating points are the shader rates of the 9a's GPU DVFS table up
+to 649 MHz. The levels above it, to 940 MHz, wait for a GPU thermal
+zone, since nothing throttles the GPU yet.
+
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ .../boot/dts/exynos/google/zumapro-tegu.dts   | 63 +++++++++++++++++++
+ 1 file changed, 63 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/zumapro-tegu.dts b/arch/arm64/boot/dts/exynos/google/zumapro-tegu.dts
+index c8e150e52..95dfe0fbd 100644
+--- a/arch/arm64/boot/dts/exynos/google/zumapro-tegu.dts
++++ b/arch/arm64/boot/dts/exynos/google/zumapro-tegu.dts
+@@ -8,6 +8,7 @@
+ 
+ /dts-v1/;
+ 
++#include <dt-bindings/clock/google,zumapro-acpm.h>
+ #include <dt-bindings/gpio/gpio.h>
+ #include <dt-bindings/input/linux-event-codes.h>
+ #include "../exynos-pinctrl.h"
+@@ -73,6 +74,51 @@ key-volume-up {
+ 		};
+ 	};
+ 
++	/*
++	 * The GPU's levels: the shader rates of the Pixel 9a's GPU DVFS table
++	 * up to 649 MHz, each with its paired L2 rate through the ACPM "gpu"
++	 * clock. The levels above, to 940 MHz, wait for a GPU thermal zone.
++	 */
++	gpu_opp: opp-table-gpu {
++		compatible = "operating-points-v2";
++
++		opp-150000000 {
++			opp-hz = /bits/ 64 <150000000>;
++		};
++
++		opp-302000000 {
++			opp-hz = /bits/ 64 <302000000>;
++		};
++
++		opp-337000000 {
++			opp-hz = /bits/ 64 <337000000>;
++		};
++
++		opp-376000000 {
++			opp-hz = /bits/ 64 <376000000>;
++		};
++
++		opp-419000000 {
++			opp-hz = /bits/ 64 <419000000>;
++		};
++
++		opp-467000000 {
++			opp-hz = /bits/ 64 <467000000>;
++		};
++
++		opp-521000000 {
++			opp-hz = /bits/ 64 <521000000>;
++		};
++
++		opp-580000000 {
++			opp-hz = /bits/ 64 <580000000>;
++		};
++
++		opp-649000000 {
++			opp-hz = /bits/ 64 <649000000>;
++		};
++	};
++
+ 	/* UFS VCC, switched by gpp0-1 as on stock. */
+ 	ufs_vcc: regulator-ufs-vcc {
+ 		compatible = "regulator-fixed";
+@@ -135,6 +181,10 @@ &cmu_apm {
+ 	status = "okay";
+ };
+ 
++&cmu_g3d {
++	status = "okay";
++};
++
+ &cmu_hsi0 {
+ 	status = "okay";
+ };
+@@ -188,6 +238,19 @@ &gpn0 {
+ 	interrupts = <GIC_SPI 0 IRQ_TYPE_LEVEL_HIGH>;
+ };
+ 
++/*
++ * The GPU's core clock is ACPM's paired "gpu" clock, which sets the shader
++ * (G3D) and L2 (G3DL2) domains together; coregroup and stacks stay on
++ * CMU_G3D's gates.
++ */
++&gpu {
++	clocks = <&acpm_ipc ZUMAPRO_CLK_ACPM_GPU>,
++		 <&cmu_g3d CLK_GOUT_G3D_COREGROUP>,
++		 <&cmu_g3d CLK_GOUT_G3D_STACKS>;
++	operating-points-v2 = <&gpu_opp>;
++	status = "okay";
++};
++
+ &pinctrl_alive {
+ 	status = "okay";
+ };

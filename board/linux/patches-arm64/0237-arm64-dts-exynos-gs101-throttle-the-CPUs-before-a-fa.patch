@@ -1,0 +1,133 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: saiththerobo <the.tom.sharp@gmail.com>
+Date: Thu, 15 Oct 2026 19:23:06 +0100
+Subject: [PATCH] arm64: dts: exynos: gs101: throttle the CPUs before a fast
+ burst trips
+
+On raven the big cluster went from 51 to over 110 C within six seconds
+of the UI starting, and the kernel powered the phone off at the critical
+trip in three boots out of four: step_wise adds one cooling state per
+passive poll (250 ms), and the big cluster has 16. Poll faster (250 ms,
+100 ms when passive) and add a second passive trip at 95 C that drops
+each cluster at once to a deep state (big 10, mid 8, little 6).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Signed-off-by: saiththerobo <the.tom.sharp@gmail.com>
+---
+ arch/arm64/boot/dts/exynos/google/gs101.dtsi | 53 +++++++++++++++++---
+ 1 file changed, 47 insertions(+), 6 deletions(-)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/gs101.dtsi b/arch/arm64/boot/dts/exynos/google/gs101.dtsi
+index 9a0f45530..ff9018c20 100644
+--- a/arch/arm64/boot/dts/exynos/google/gs101.dtsi
++++ b/arch/arm64/boot/dts/exynos/google/gs101.dtsi
+@@ -2105,8 +2105,8 @@ apm_sram: sram@2039000 {
+ 
+ 	thermal-zones {
+ 		big-thermal {
+-			polling-delay-passive = <250>;
+-			polling-delay = <1000>;
++			polling-delay-passive = <100>;
++			polling-delay = <250>;
+ 			thermal-sensors = <&acpm_tmu 0>;
+ 
+ 			trips {
+@@ -2116,6 +2116,13 @@ big_hot: big-hot {
+ 					type = "passive";
+ 				};
+ 
++				/* a fast burst outruns step_wise: throttle deep at once */
++				big_hotter: big-hotter {
++					temperature = <95000>;
++					hysteresis = <5000>;
++					type = "passive";
++				};
++
+ 				big_crit: big-crit {
+ 					temperature = <110000>;
+ 					hysteresis = <0>;
+@@ -2129,12 +2136,18 @@ map0 {
+ 					cooling-device = <&cpu6 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+ 							 <&cpu7 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
+ 				};
++
++				map1 {
++					trip = <&big_hotter>;
++					cooling-device = <&cpu6 10 THERMAL_NO_LIMIT>,
++							 <&cpu7 10 THERMAL_NO_LIMIT>;
++				};
+ 			};
+ 		};
+ 
+ 		mid-thermal {
+-			polling-delay-passive = <250>;
+-			polling-delay = <1000>;
++			polling-delay-passive = <100>;
++			polling-delay = <250>;
+ 			thermal-sensors = <&acpm_tmu 1>;
+ 
+ 			trips {
+@@ -2144,6 +2157,13 @@ mid_hot: mid-hot {
+ 					type = "passive";
+ 				};
+ 
++				/* a fast burst outruns step_wise: throttle deep at once */
++				mid_hotter: mid-hotter {
++					temperature = <95000>;
++					hysteresis = <5000>;
++					type = "passive";
++				};
++
+ 				mid_crit: mid-crit {
+ 					temperature = <110000>;
+ 					hysteresis = <0>;
+@@ -2157,12 +2177,18 @@ map0 {
+ 					cooling-device = <&cpu4 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+ 							 <&cpu5 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
+ 				};
++
++				map1 {
++					trip = <&mid_hotter>;
++					cooling-device = <&cpu4 8 THERMAL_NO_LIMIT>,
++							 <&cpu5 8 THERMAL_NO_LIMIT>;
++				};
+ 			};
+ 		};
+ 
+ 		little-thermal {
+-			polling-delay-passive = <250>;
+-			polling-delay = <1000>;
++			polling-delay-passive = <100>;
++			polling-delay = <250>;
+ 			thermal-sensors = <&acpm_tmu 2>;
+ 
+ 			trips {
+@@ -2172,6 +2198,13 @@ little_hot: little-hot {
+ 					type = "passive";
+ 				};
+ 
++				/* a fast burst outruns step_wise: throttle deep at once */
++				little_hotter: little-hotter {
++					temperature = <95000>;
++					hysteresis = <5000>;
++					type = "passive";
++				};
++
+ 				little_crit: little-crit {
+ 					temperature = <110000>;
+ 					hysteresis = <0>;
+@@ -2187,6 +2220,14 @@ map0 {
+ 							 <&cpu2 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+ 							 <&cpu3 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
+ 				};
++
++				map1 {
++					trip = <&little_hotter>;
++					cooling-device = <&cpu0 6 THERMAL_NO_LIMIT>,
++							 <&cpu1 6 THERMAL_NO_LIMIT>,
++							 <&cpu2 6 THERMAL_NO_LIMIT>,
++							 <&cpu3 6 THERMAL_NO_LIMIT>;
++				};
+ 			};
+ 		};
+ 

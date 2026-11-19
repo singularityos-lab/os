@@ -1,0 +1,50 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Mon, 12 Oct 2026 12:56:28 -0400
+Subject: [PATCH] dt-bindings: soc: google: gs201-gsa: add the GSA's S2MPU
+
+The GSA reads firmware image headers by DMA through its stage-2 MPU. On
+stock Android the hypervisor opens that S2MPU each time the GSA core
+powers up; without a hypervisor the kernel has to, so describe its
+registers as an optional second range.
+
+Assisted-by: LLM
+Signed-off-by: Derek Ross <derekross@gmail.com>
+---
+ .../bindings/soc/google/google,gs201-gsa.yaml   | 17 +++++++++++++++--
+ 1 file changed, 15 insertions(+), 2 deletions(-)
+
+diff --git a/Documentation/devicetree/bindings/soc/google/google,gs201-gsa.yaml b/Documentation/devicetree/bindings/soc/google/google,gs201-gsa.yaml
+index 69200f837..5868df472 100644
+--- a/Documentation/devicetree/bindings/soc/google/google,gs201-gsa.yaml
++++ b/Documentation/devicetree/bindings/soc/google/google,gs201-gsa.yaml
+@@ -20,7 +20,19 @@ properties:
+     const: google,gs201-gsa
+ 
+   reg:
+-    maxItems: 1
++    minItems: 1
++    items:
++      - description: mailbox registers
++      - description:
++          the GSA's stage-2 MPU. Without a hypervisor to program it, the
++          driver turns its checks off (CTRL0 only) while the GSA reads an
++          image by DMA.
++
++  reg-names:
++    minItems: 1
++    items:
++      - const: mbox
++      - const: s2mpu
+ 
+   interrupts:
+     maxItems: 1
+@@ -37,6 +49,7 @@ examples:
+     #include <dt-bindings/interrupt-controller/arm-gic.h>
+     gsa@17c90000 {
+         compatible = "google,gs201-gsa";
+-        reg = <0x17c90000 0x1000>;
++        reg = <0x17c90000 0x1000>, <0x17c60000 0x10000>;
++        reg-names = "mbox", "s2mpu";
+         interrupts = <GIC_SPI 363 IRQ_TYPE_LEVEL_HIGH>;
+     };

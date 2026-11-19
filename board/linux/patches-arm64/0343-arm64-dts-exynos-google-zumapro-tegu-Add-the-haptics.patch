@@ -1,0 +1,148 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Tue, 27 Oct 2026 12:37:19 -0647
+Subject: [PATCH] arm64: dts: exynos: google: zumapro-tegu: Add the haptics and
+ the torch
+
+Add the Pixel 9a's haptics, a Cirrus Logic CS40L26 on USI9's I2C bus
+(0x43, interrupt on gpa6-3, reset on gph2-3), with Google's limits for
+its LRA (2.5 A boost peak, 10 V boost, 162 Hz, ReDC 14.1 ohm) and VP
+brownout prevention at 3.008 V, and its torch, a TI LM3644 on USI4's
+I2C bus (0x63, enable on gpp24-1) driving one white LED from both
+outputs, limited to 75 mA.
+
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ .../boot/dts/exynos/google/zumapro-tegu.dts   | 84 +++++++++++++++++++
+ 1 file changed, 84 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/zumapro-tegu.dts b/arch/arm64/boot/dts/exynos/google/zumapro-tegu.dts
+index 5f2a479c3..20e72a61a 100644
+--- a/arch/arm64/boot/dts/exynos/google/zumapro-tegu.dts
++++ b/arch/arm64/boot/dts/exynos/google/zumapro-tegu.dts
+@@ -11,6 +11,7 @@
+ #include <dt-bindings/clock/google,zumapro-acpm.h>
+ #include <dt-bindings/gpio/gpio.h>
+ #include <dt-bindings/input/linux-event-codes.h>
++#include <dt-bindings/leds/common.h>
+ #include "../exynos-pinctrl.h"
+ #include "zumapro.dtsi"
+ #include "zumapro-reserved-memory.dtsi"
+@@ -308,6 +309,53 @@ &gpu {
+ 	status = "okay";
+ };
+ 
++/* The torch: a TI LM3644 flash driver, both LED outputs on one white LED. */
++&hsi2c4 {
++	clock-frequency = <100000>;
++	pinctrl-names = "default";
++	pinctrl-0 = <&hsi2c4_bus>;
++	status = "okay";
++
++	led-controller@63 {
++		compatible = "ti,lm3644";
++		reg = <0x63>;
++		enable-gpios = <&gpp24 1 GPIO_ACTIVE_HIGH>;
++		pinctrl-names = "default";
++		pinctrl-0 = <&torch_enable>;
++
++		led {
++			function = LED_FUNCTION_TORCH;
++			color = <LED_COLOR_ID_WHITE>;
++			led-sources = <1 2>;
++			/* A dim flashlight, far below the part's and the LED's limits. */
++			led-max-microamp = <75000>;
++		};
++	};
++};
++
++/* The haptics: a CS40L26 on the 9a's LRA, with Google's limits for it. */
++&hsi2c9 {
++	clock-frequency = <100000>;
++	pinctrl-names = "default";
++	pinctrl-0 = <&hsi2c9_bus>;
++	status = "okay";
++
++	haptic-driver@43 {
++		compatible = "cirrus,cs40l26a";
++		reg = <0x43>;
++		interrupt-parent = <&gpa6>;
++		interrupts = <3 IRQ_TYPE_LEVEL_LOW>;
++		reset-gpios = <&gph2 3 GPIO_ACTIVE_LOW>;
++		pinctrl-names = "default";
++		pinctrl-0 = <&haptic_reset>;
++		cirrus,boost-peak-microamp = <2500000>;
++		cirrus,boost-ctl-microvolt = <10000000>;
++		cirrus,lra-f0-hz = <162>;
++		cirrus,lra-redc-micro-ohms = <14100007>;
++		cirrus,vpbr-threshold-microvolt = <3008000>;
++	};
++};
++
+ &pinctrl_alive {
+ 	status = "okay";
+ };
+@@ -322,6 +370,13 @@ &pinctrl_far_alive {
+ 
+ &pinctrl_hsi1 {
+ 	status = "okay";
++
++	haptic_reset: haptic-reset-pins {
++		samsung,pins = "gph2-3";
++		samsung,pin-function = <EXYNOS_PIN_FUNC_OUTPUT>;
++		samsung,pin-pud = <EXYNOS_PIN_PULL_NONE>;
++		samsung,pin-drv = <0>;
++	};
+ };
+ 
+ &pinctrl_hsi2 {
+@@ -335,6 +390,13 @@ &pinctrl_hsi2ufs {
+ &pinctrl_peric0 {
+ 	status = "okay";
+ 
++	hsi2c4_bus: hsi2c4-bus-pins {
++		samsung,pins = "gpp8-0", "gpp8-1";
++		samsung,pin-function = <EXYNOS_PIN_FUNC_3>;
++		samsung,pin-pud = <EXYNOS_PIN_PULL_NONE>;
++		samsung,pin-drv = <0>;
++	};
++
+ 	touch_reset_held: touch-reset-held-pins {
+ 		samsung,pins = "gpp1-1";
+ 		samsung,pin-function = <EXYNOS_PIN_FUNC_OUTPUT>;
+@@ -344,6 +406,20 @@ touch_reset_held: touch-reset-held-pins {
+ 
+ &pinctrl_peric1 {
+ 	status = "okay";
++
++	hsi2c9_bus: hsi2c9-bus-pins {
++		samsung,pins = "gpp19-4", "gpp19-5";
++		samsung,pin-function = <EXYNOS_PIN_FUNC_2>;
++		samsung,pin-pud = <EXYNOS_PIN_PULL_NONE>;
++		samsung,pin-drv = <0>;
++	};
++
++	torch_enable: torch-enable-pins {
++		samsung,pins = "gpp24-1";
++		samsung,pin-function = <EXYNOS_PIN_FUNC_OUTPUT>;
++		samsung,pin-pud = <EXYNOS_PIN_PULL_NONE>;
++		samsung,pin-drv = <0>;
++	};
+ };
+ 
+ &pmu_system_controller {
+@@ -441,6 +517,14 @@ &usi2_hsi0 {
+ 	status = "okay";
+ };
+ 
++&usi4 {
++	status = "okay";
++};
++
++&usi9 {
++	status = "okay";
++};
++
+ &watchdog_cl0 {
+ 	status = "okay";
+ };

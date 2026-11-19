@@ -1,0 +1,35 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: David Heidelberg <david@ixit.cz>
+Date: Tue, 15 Sep 2026 16:32:24 +0200
+Subject: [PATCH] dt-bindings: arm: qcom: Add Xiaomi Mi 8 family compatibles
+
+This smartphone codenamed dipper is now supported by this series,
+variants such as ursa and equuleus just documented.
+
+Signed-off-by: David Heidelberg <david@ixit.cz>
+Link: https://lore.kernel.org/linux-arm-msm/20260915-dipper-v2-1-cbade54919ee@ixit.cz/
+Signed-off-by: quatrixone <quatrix1@gmail.com>
+---
+ Documentation/devicetree/bindings/arm/qcom.yaml | 9 +++++++++
+ 1 file changed, 9 insertions(+)
+
+diff --git a/Documentation/devicetree/bindings/arm/qcom.yaml b/Documentation/devicetree/bindings/arm/qcom.yaml
+index ff8a35df7..c3491630e 100644
+--- a/Documentation/devicetree/bindings/arm/qcom.yaml
++++ b/Documentation/devicetree/bindings/arm/qcom.yaml
+@@ -950,6 +950,15 @@ properties:
+           - const: google,bonito
+           - const: qcom,sdm670
+ 
++      - description: Xiaomi Mi 8 family
++        items:
++          - enum:
++              - xiaomi,dipper
++              - xiaomi,equuleus
++              - xiaomi,ursa
++          - const: xiaomi,dipper-common
++          - const: qcom,sdm845
++
+       - description: Xiaomi Poco F1
+         items:
+           - enum:

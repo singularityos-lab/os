@@ -1,0 +1,206 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Chris Gray <chrisgray70@gmail.com>
+Date: Wed, 11 Nov 2026 12:22:43 -0600
+Subject: [PATCH] arm64: dts: exynos: google: bluejay: describe disabled PCIe
+ Wi-Fi
+
+Describe the GS101 PCIe1/PHY path, restricted DMA pool and BCM4389
+endpoint. All new hardware and the WL_REG_ON regulator remain disabled.
+PCI power control consumes the root-port regulator and its 200 ms delay;
+the host no longer owns an endpoint enable GPIO. The endpoint requests
+the confined DMA path, packet limit and provisioned ASCII MAC explicitly.
+
+Depends on the GS101 PCIe/PHY and brcmfmac policy topics. The current
+source is not the exact tested development stack and has not been
+booted. A future gated overlay must also enable the WL_REG_ON regulator.
+
+Assisted-by: LLM
+Signed-off-by: Chris Gray <chrisgray70@gmail.com>
+---
+ .../dts/exynos/google/gs101-bluejay-wifi.dtsi | 141 ++++++++++++++++++
+ .../boot/dts/exynos/google/gs101-bluejay.dts  |   1 +
+ .../dts/exynos/google/gs101-pixel-common.dtsi |   4 +-
+ 3 files changed, 144 insertions(+), 2 deletions(-)
+ create mode 100644 arch/arm64/boot/dts/exynos/google/gs101-bluejay-wifi.dtsi
+
+diff --git a/arch/arm64/boot/dts/exynos/google/gs101-bluejay-wifi.dtsi b/arch/arm64/boot/dts/exynos/google/gs101-bluejay-wifi.dtsi
+new file mode 100644
+index 000000000..a52a6fd29
+--- /dev/null
++++ b/arch/arm64/boot/dts/exynos/google/gs101-bluejay-wifi.dtsi
+@@ -0,0 +1,141 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/* Bluejay Wi-Fi preparation: every new device and the DMA pool stay off. */
++
++/ {
++	bluejay_wlan_pwr: regulator-wlan {
++		compatible = "regulator-fixed";
++		regulator-name = "wlan-reg-on";
++		regulator-min-microvolt = <3300000>;
++		regulator-max-microvolt = <3300000>;
++		gpio = <&gpp14 2 GPIO_ACTIVE_HIGH>;
++		enable-active-high;
++		startup-delay-us = <200000>;
++		pinctrl-names = "default";
++		pinctrl-0 = <&bluejay_wlan_en &bluejay_wlan_host_wake
++			     &bluejay_wlan_dev_wake>;
++		status = "disabled";
++	};
++};
++
++&reserved_memory {
++	bluejay_wifi_dma: dma-pool@c4000000 {
++		compatible = "restricted-dma-pool";
++		reg = <0x0 0xc4000000 0x04000000>;
++		status = "disabled";
++	};
++};
++
++&soc {
++	/* Include PCI MEM and config windows in the parent translation. */
++	ranges = <0x0 0x0 0x0 0x80000000>;
++
++	bluejay_pcie1_phy: phy@14550000 {
++		compatible = "google,gs101-pcie-phy";
++		reg = <0x14550000 0x2000>, <0x14540000 0x1000>,
++		      <0x14521400 0x10>, <0x14560000 0xd000>;
++		reg-names = "pma", "pcs", "rst", "udbg";
++		clocks = <&cmu_hsi2 CLK_GOUT_HSI2_PCIE_GEN4_1_PCS_PMA_PHY_UDBG_I_APB_PCLK>,
++			 <&cmu_hsi2 CLK_GOUT_HSI2_PCIE_GEN4_1_PCS_PMA_PIPE_PAL_PCIE_I_APB_PCLK>,
++			 <&cmu_hsi2 CLK_GOUT_HSI2_PCIE_GEN4_1_PCS_PMA_PCIEPHY210X2_QCH_I_APB_PCLK>,
++			 <&cmu_hsi2 CLK_GOUT_HSI2_PCIE_GEN4_1_PCIE_003_PHY_REFCLK_IN>;
++		samsung,pmu-syscon = <&pmu_system_controller 0x3ec4>;
++		#phy-cells = <0>;
++		status = "disabled";
++	};
++
++	bluejay_pcie1: pcie@14520000 {
++		compatible = "google,gs101-pcie";
++		reg = <0x14520000 0x1400>, <0x14800000 0x301000>,
++		      <0x60ffe000 0x2000>, <0x14500000 0x1000>;
++		reg-names = "elbi", "dbi", "config", "ia";
++		#address-cells = <3>;
++		#size-cells = <2>;
++		device_type = "pci";
++		ranges = <0x82000000 0x0 0x60000000 0x60000000 0x0 0xff0000>;
++		bus-range = <0x00 0xff>;
++		interrupts = <GIC_SPI 509 IRQ_TYPE_LEVEL_HIGH 0>;
++		#interrupt-cells = <1>;
++		interrupt-map-mask = <0 0 0 7>;
++		interrupt-map = <0 0 0 1 &bluejay_pcie1_intc 1>,
++				<0 0 0 2 &bluejay_pcie1_intc 2>,
++				<0 0 0 3 &bluejay_pcie1_intc 3>,
++				<0 0 0 4 &bluejay_pcie1_intc 4>;
++		clocks = <&cmu_hsi2 CLK_GOUT_HSI2_PCIE_GEN4_1_PCIE_003_DBI_ACLK_UG>,
++			 <&cmu_hsi2 CLK_GOUT_HSI2_PCIE_GEN4_1_PCIE_003_MSTR_ACLK_UG>,
++			 <&cmu_hsi2 CLK_GOUT_HSI2_PCIE_GEN4_1_PCIE_003_SLV_ACLK_UG>,
++			 <&cmu_hsi2 CLK_GOUT_HSI2_PCIE_GEN4_1_PCIE_003_I_DRIVER_APB_CLK>,
++			 <&cmu_hsi2 CLK_GOUT_HSI2_PCIE_IA_GEN4A_1_I_CLK>,
++			 <&cmu_hsi2 CLK_GOUT_HSI2_QE_PCIE_GEN4A_HSI2_ACLK>,
++			 <&cmu_hsi2 CLK_GOUT_HSI2_QE_PCIE_GEN4A_HSI2_PCLK>;
++		phys = <&bluejay_pcie1_phy>;
++		phy-names = "pcie";
++		reset-gpios = <&gph2 0 GPIO_ACTIVE_LOW>;
++		vpcie0v85-supply = <&s2mpg10_ldo17m>;
++		vpcie1v8-supply = <&s2mpg10_ldo19m>;
++		pinctrl-names = "default";
++		pinctrl-0 = <&pcie1_clkreq &pcie1_perst>;
++		num-lanes = <1>;
++		max-link-speed = <2>;
++		status = "disabled";
++
++		bluejay_pcie1_intc: legacy-interrupt-controller {
++			#address-cells = <0>;
++			interrupt-controller;
++			#interrupt-cells = <1>;
++		};
++
++		/* Root port 00:00.0, endpoint on its secondary bus at 01:00.0. */
++		pcie@0,0 {
++			compatible = "pciclass,0604";
++			vpcie3v3-supply = <&bluejay_wlan_pwr>;
++			device_type = "pci";
++			bus-range = <0x01 0xff>;
++			reg = <0x0000 0 0 0 0>;
++			#address-cells = <3>;
++			#size-cells = <2>;
++			ranges;
++
++			bluejay_wifi: wifi@0,0 {
++				compatible = "pci14e4,4441", "brcm,bcm4329-fmac";
++				reg = <0x10000 0 0 0 0>;
++				memory-region = <&bluejay_wifi_dma>;
++				brcm,requires-restricted-dma;
++				brcm,max-dma-buffer-size = <8192>;
++				brcm,mac-address-from-chosen;
++				status = "disabled";
++			};
++		};
++	};
++};
++
++/* Define pin states now; Samsung pinctrl cannot add groups at runtime. */
++&pinctrl_peric0 {
++	bluejay_wlan_en: wlan-en-pins {
++		samsung,pins = "gpp14-2";
++		samsung,pin-function = <GS101_PIN_FUNC_OUTPUT>;
++		samsung,pin-pud = <GS101_PIN_PULL_NONE>;
++		samsung,pin-drv = <GS101_PIN_DRV_2_5_MA>;
++		samsung,pin-con-pdn = <GS101_PIN_PDN_PREV>;
++		samsung,pin-pud-pdn = <GS101_PIN_PULL_UP>;
++	};
++};
++
++&pinctrl_far_alive {
++	bluejay_wlan_host_wake: wlan-host-wake-pins {
++		samsung,pins = "gpa7-0";
++		samsung,pin-function = <GS101_PIN_FUNC_EINT>;
++		samsung,pin-pud = <GS101_PIN_PULL_DOWN>;
++		samsung,pin-drv = <GS101_PIN_DRV_2_5_MA>;
++	};
++};
++
++&pinctrl_hsi2 {
++	bluejay_wlan_dev_wake: wlan-dev-wake-pins {
++		samsung,pins = "gph2-5";
++		samsung,pin-function = <GS101_PIN_FUNC_INPUT>;
++		samsung,pin-pud = <GS101_PIN_PULL_DOWN>;
++		samsung,pin-drv = <GS101_PIN_DRV_2_5_MA>;
++		samsung,pin-con-pdn = <GS101_PIN_PDN_PREV>;
++		samsung,pin-pud-pdn = <GS101_PIN_PULL_DOWN>;
++	};
++};
+diff --git a/arch/arm64/boot/dts/exynos/google/gs101-bluejay.dts b/arch/arm64/boot/dts/exynos/google/gs101-bluejay.dts
+index e1ae087fe..32732f58d 100644
+--- a/arch/arm64/boot/dts/exynos/google/gs101-bluejay.dts
++++ b/arch/arm64/boot/dts/exynos/google/gs101-bluejay.dts
+@@ -10,6 +10,7 @@
+ 
+ #include "gs101-pixel-common.dtsi"
+ #include "gs101-bluejay-input.dtsi"
++#include "gs101-bluejay-wifi.dtsi"
+ 
+ / {
+ 	model = "Bluejay";
+diff --git a/arch/arm64/boot/dts/exynos/google/gs101-pixel-common.dtsi b/arch/arm64/boot/dts/exynos/google/gs101-pixel-common.dtsi
+index c5529e449..ebbfab09e 100644
+--- a/arch/arm64/boot/dts/exynos/google/gs101-pixel-common.dtsi
++++ b/arch/arm64/boot/dts/exynos/google/gs101-pixel-common.dtsi
+@@ -365,7 +365,7 @@ ldo16m {
+ 				regulator-max-microvolt = <1300000>;
+ 			};
+ 
+-			ldo17m {
++			s2mpg10_ldo17m: ldo17m {
+ 				regulator-name = "vdd085_pcie1";
+ 				regulator-min-microvolt = <725000>;
+ 				regulator-max-microvolt = <1300000>;
+@@ -377,7 +377,7 @@ ldo18m {
+ 				regulator-max-microvolt = <1950000>;
+ 			};
+ 
+-			ldo19m {
++			s2mpg10_ldo19m: ldo19m {
+ 				regulator-name = "vdd18_pcie1";
+ 				regulator-min-microvolt = <1600000>;
+ 				regulator-max-microvolt = <1950000>;

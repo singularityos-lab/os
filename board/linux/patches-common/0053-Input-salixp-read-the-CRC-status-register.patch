@@ -1,0 +1,153 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: boozedog <code@booze.dog>
+Date: Mon, 26 Oct 2026 07:33:21 -0400
+Subject: [PATCH] Input: salixp: read the CRC status register
+
+After the chip id matches, read the one-byte status at 0x20000078.
+The value of interest is the low two bits. A non-zero status is
+logged and probe continues. This commit does not reset the
+controller and does not write the flash. Attention stays
+unrequested.
+
+Signed-off-by: boozedog <code@booze.dog>
+Assisted-by: LLM
+---
+ drivers/input/touchscreen/Kconfig  |  7 ++--
+ drivers/input/touchscreen/salixp.c | 57 +++++++++++++++++++++++-------
+ 2 files changed, 49 insertions(+), 15 deletions(-)
+
+diff --git a/drivers/input/touchscreen/Kconfig b/drivers/input/touchscreen/Kconfig
+index adcc49466..af1c9fe59 100644
+--- a/drivers/input/touchscreen/Kconfig
++++ b/drivers/input/touchscreen/Kconfig
+@@ -1256,9 +1256,10 @@ config TOUCHSCREEN_SALIXP
+ 	depends on SPI
+ 	help
+ 	  Say Y here for the STMicroelectronics SALIXP touch controller
+-	  (chip id 36 40) over SPI. After the chip id matches, the
+-	  driver registers a touchscreen. It does not read the FIFO,
+-	  send a scan command, or request the interrupt.
++	  (chip id 36 40) over SPI. The driver reads the chip id and
++	  the CRC status register, then registers a touchscreen. A
++	  non-zero status is logged. It does not send a scan command
++	  or request the interrupt.
+ 
+ 	  To compile this driver as a module, choose M here: the
+ 	  module will be called salixp.
+diff --git a/drivers/input/touchscreen/salixp.c b/drivers/input/touchscreen/salixp.c
+index 498a9fc90..2791035e7 100644
+--- a/drivers/input/touchscreen/salixp.c
++++ b/drivers/input/touchscreen/salixp.c
+@@ -6,10 +6,11 @@
+  * driver (kernel/google-modules/touch/fts_touch), Copyright (C) 2016
+  * STMicroelectronics, calls that id SALIXP. Chip id 36 48 is ALIX and is
+  * not this part. This reader resets the controller, reads the id, and
+- * registers an input device. It can decode one 8-byte report. It does
+- * not load firmware. Attention is level low and this driver does not
+- * request it. After reset is released the line falls and stays low, so
+- * a level interrupt would storm before any firmware handshake.
++ * registers an input device, and reads the CRC status register. It can
++ * decode one 8-byte report. It does not load firmware or reset the
++ * controller after that read. Attention is level low and this driver
++ * does not request it. After reset is released the line falls and stays
++ * low, so a level interrupt would storm before any firmware handshake.
+  *
+  * Hardware register read, SPI: opcode 0xfb, then the 32-bit address in
+  * big-endian, then a one-byte dummy, then the payload. Chip id is at
+@@ -38,6 +39,8 @@
+ 
+ #define SALIXP_CMD_HW_REG_R	0xfb
+ #define SALIXP_ADDR_DCHIP_ID	0x20000000
++#define SALIXP_ADDR_CRC		0x20000078
++#define SALIXP_CRC_MASK		0x03
+ #define SALIXP_CS_DELAY_US	10
+ #define SALIXP_VDD_DELAY_US	1000
+ #define SALIXP_AVDD_DELAY_US	15000
+@@ -75,7 +78,7 @@ static void salixp_assert_reset(void *data)
+ 	gpiod_set_value_cansleep(ts->reset, 1);
+ }
+ 
+-static int salixp_read_id(struct salixp *ts, u8 id[2])
++static int salixp_read_hw(struct salixp *ts, u32 addr, u8 *buf, size_t len)
+ {
+ 	struct spi_transfer xfer[] = {
+ 		{
+@@ -85,7 +88,7 @@ static int salixp_read_id(struct salixp *ts, u8 id[2])
+ 		{
+ 			.tx_buf = ts->reply_tx,
+ 			.rx_buf = ts->rx,
+-			.len = sizeof(ts->rx),
++			.len = len + 1,
+ 			.delay = {
+ 				.value = SALIXP_CS_DELAY_US,
+ 				.unit = SPI_DELAY_UNIT_USECS,
+@@ -94,19 +97,43 @@ static int salixp_read_id(struct salixp *ts, u8 id[2])
+ 	};
+ 	int ret;
+ 
++	if (len + 1 > sizeof(ts->rx))
++		return -EINVAL;
++
+ 	ts->tx[0] = SALIXP_CMD_HW_REG_R;
+-	ts->tx[1] = (SALIXP_ADDR_DCHIP_ID >> 24) & 0xff;
+-	ts->tx[2] = (SALIXP_ADDR_DCHIP_ID >> 16) & 0xff;
+-	ts->tx[3] = (SALIXP_ADDR_DCHIP_ID >> 8) & 0xff;
+-	ts->tx[4] = SALIXP_ADDR_DCHIP_ID & 0xff;
++	ts->tx[1] = (addr >> 24) & 0xff;
++	ts->tx[2] = (addr >> 16) & 0xff;
++	ts->tx[3] = (addr >> 8) & 0xff;
++	ts->tx[4] = addr & 0xff;
+ 
+ 	ret = spi_sync_transfer(ts->spi, xfer, ARRAY_SIZE(xfer));
+ 	if (ret)
+ 		return ret;
+ 
+ 	/* First received byte is the SPI dummy. */
+-	id[0] = ts->rx[1];
+-	id[1] = ts->rx[2];
++	memcpy(buf, &ts->rx[1], len);
++	return 0;
++}
++
++static int salixp_read_id(struct salixp *ts, u8 id[2])
++{
++	return salixp_read_hw(ts, SALIXP_ADDR_DCHIP_ID, id, 2);
++}
++
++/*
++ * The status register at 0x20000078. The decision uses the low two
++ * bits. Zero is clear. This stops before the system reset that
++ * fts_crc_check runs only after a clear read.
++ */
++static int salixp_read_crc(struct salixp *ts, u8 *raw, u8 *status)
++{
++	int ret;
++
++	ret = salixp_read_hw(ts, SALIXP_ADDR_CRC, raw, 1);
++	if (ret)
++		return ret;
++
++	*status = *raw & SALIXP_CRC_MASK;
+ 	return 0;
+ }
+ 
+@@ -185,6 +212,7 @@ static int salixp_probe(struct spi_device *spi)
+ 	struct salixp *ts;
+ 	ktime_t deadline;
+ 	u8 id[2] = {};
++	u8 crc_raw, crc_status;
+ 	int ret;
+ 
+ 	info = device_get_match_data(dev);
+@@ -235,6 +263,11 @@ static int salixp_probe(struct spi_device *spi)
+ 		ret = salixp_read_id(ts, id);
+ 		if (!ret && id[0] == info->id[0] && id[1] == info->id[1]) {
+ 			dev_info(dev, "chip id %02x %02x\n", id[0], id[1]);
++			ret = salixp_read_crc(ts, &crc_raw, &crc_status);
++			if (ret)
++				return dev_err_probe(dev, ret, "reading crc status\n");
++			dev_info(dev, "crc status %02x raw %02x\n",
++				 crc_status, crc_raw);
+ 			return salixp_register_input(ts);
+ 		}
+ 		msleep(SALIXP_ID_INTERVAL_MS);

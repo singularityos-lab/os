@@ -1,0 +1,84 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: saiththerobo <the.tom.sharp@gmail.com>
+Date: Tue, 20 Oct 2026 08:00:31 +0100
+Subject: [PATCH] arm64: dts: exynos: gs101: cool the GPU
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Under a busy shell the Pixel 6 Pro's big cluster reached the 110 °C
+critical trip and the phone shut down, and nothing slowed the GPU, which
+heats the whole die.
+
+Make the GPU a cooling device, give gpu-thermal passive trips at 80 and
+90 °C bound to it, and let the big cluster's second trip slow the GPU
+too.
+
+Assisted-by: Claude Opus 5.5
+Signed-off-by: saiththerobo <the.tom.sharp@gmail.com>
+---
+ arch/arm64/boot/dts/exynos/google/gs101.dtsi | 31 ++++++++++++++++++++
+ 1 file changed, 31 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/gs101.dtsi b/arch/arm64/boot/dts/exynos/google/gs101.dtsi
+index 29a8272e9..ad1816b74 100644
+--- a/arch/arm64/boot/dts/exynos/google/gs101.dtsi
++++ b/arch/arm64/boot/dts/exynos/google/gs101.dtsi
+@@ -2130,6 +2130,7 @@ gpu: gpu@1c500000 {
+ 			clocks = <&acpm_ipc GS101_CLK_ACPM_GPU>;
+ 			clock-names = "core";
+ 			operating-points-v2 = <&gpu_opp_table>;
++			#cooling-cells = <2>;
+ 			interrupt-names = "job", "mmu", "gpu";
+ 			interrupts = <GIC_SPI 420 IRQ_TYPE_LEVEL_HIGH 0>,
+ 				     <GIC_SPI 421 IRQ_TYPE_LEVEL_HIGH 0>,
+@@ -2194,6 +2195,12 @@ map1 {
+ 					cooling-device = <&cpu6 10 THERMAL_NO_LIMIT>,
+ 							 <&cpu7 10 THERMAL_NO_LIMIT>;
+ 				};
++
++				/* the GPU heats the whole die: slow it too */
++				map2 {
++					trip = <&big_hotter>;
++					cooling-device = <&gpu THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
++				};
+ 			};
+ 		};
+ 
+@@ -2289,12 +2296,36 @@ gpu-thermal {
+ 			thermal-sensors = <&acpm_tmu 3>;
+ 
+ 			trips {
++				gpu_hot: gpu-hot {
++					temperature = <80000>;
++					hysteresis = <5000>;
++					type = "passive";
++				};
++
++				gpu_hotter: gpu-hotter {
++					temperature = <90000>;
++					hysteresis = <5000>;
++					type = "passive";
++				};
++
+ 				gpu_crit: gpu-crit {
+ 					temperature = <110000>;
+ 					hysteresis = <0>;
+ 					type = "critical";
+ 				};
+ 			};
++
++			cooling-maps {
++				map0 {
++					trip = <&gpu_hot>;
++					cooling-device = <&gpu THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
++				};
++
++				map1 {
++					trip = <&gpu_hotter>;
++					cooling-device = <&gpu 5 THERMAL_NO_LIMIT>;
++				};
++			};
+ 		};
+ 
+ 		isp-thermal {

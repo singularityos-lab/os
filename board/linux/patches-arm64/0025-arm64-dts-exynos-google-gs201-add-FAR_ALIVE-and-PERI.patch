@@ -1,0 +1,291 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Sun, 11 Oct 2026 19:35:50 -0400
+Subject: [PATCH] arm64: dts: exynos: google: gs201: add FAR_ALIVE and PERIC1
+ pinctrl, USI0 SPI
+
+Add the FAR_ALIVE and PERIC1 pin controllers with their GPIO banks, the
+PERIC1 sysreg, and the PERIC1 USI0 block with its SPI controller, which
+the Pixel 7 and 7 Pro use for the touchscreen.
+
+The FAR_ALIVE wake-up interrupts are wired straight to the GIC. Note
+that gs201 skips EINT19 in its interrupt map, so the GIC numbers differ
+from gs101 by one. The FAR_ALIVE bus clock comes from CMU_APM, which
+has no driver yet.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ .../boot/dts/exynos/google/gs201-pinctrl.dtsi | 158 ++++++++++++++++++
+ arch/arm64/boot/dts/exynos/google/gs201.dtsi  |  67 +++++++-
+ 2 files changed, 222 insertions(+), 3 deletions(-)
+ create mode 100644 arch/arm64/boot/dts/exynos/google/gs201-pinctrl.dtsi
+
+diff --git a/arch/arm64/boot/dts/exynos/google/gs201-pinctrl.dtsi b/arch/arm64/boot/dts/exynos/google/gs201-pinctrl.dtsi
+new file mode 100644
+index 000000000..ff36f0aa7
+--- /dev/null
++++ b/arch/arm64/boot/dts/exynos/google/gs201-pinctrl.dtsi
+@@ -0,0 +1,158 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * Google GS201 (Tensor G2) SoC pin-mux and pin-config device tree source
++ *
++ * Bank layout and wake-up interrupt numbers from Google's GPL gs201 device
++ * tree. Note that the ALIVE wake-up interrupts skip EINT19, so from EINT20
++ * on the GIC number is the EINT number minus one.
++ */
++
++#include "gs101-pinctrl.h"
++
++&pinctrl_far_alive {
++	gpa6: gpa6-gpio-bank {
++		gpio-controller;
++		#gpio-cells = <2>;
++		interrupt-controller;
++		#interrupt-cells = <2>;
++		interrupt-parent = <&gic>;
++		interrupts = <GIC_SPI 44 IRQ_TYPE_LEVEL_HIGH>,
++			     <GIC_SPI 45 IRQ_TYPE_LEVEL_HIGH>,
++			     <GIC_SPI 46 IRQ_TYPE_LEVEL_HIGH>,
++			     <GIC_SPI 47 IRQ_TYPE_LEVEL_HIGH>,
++			     <GIC_SPI 48 IRQ_TYPE_LEVEL_HIGH>,
++			     <GIC_SPI 49 IRQ_TYPE_LEVEL_HIGH>,
++			     <GIC_SPI 50 IRQ_TYPE_LEVEL_HIGH>,
++			     <GIC_SPI 51 IRQ_TYPE_LEVEL_HIGH>;
++	};
++
++	gpa7: gpa7-gpio-bank {
++		gpio-controller;
++		#gpio-cells = <2>;
++		interrupt-controller;
++		#interrupt-cells = <2>;
++		interrupt-parent = <&gic>;
++		interrupts = <GIC_SPI 52 IRQ_TYPE_LEVEL_HIGH>,
++			     <GIC_SPI 53 IRQ_TYPE_LEVEL_HIGH>,
++			     <GIC_SPI 54 IRQ_TYPE_LEVEL_HIGH>,
++			     <GIC_SPI 55 IRQ_TYPE_LEVEL_HIGH>;
++	};
++
++	gpa8: gpa8-gpio-bank {
++		gpio-controller;
++		#gpio-cells = <2>;
++		interrupt-controller;
++		#interrupt-cells = <2>;
++		interrupt-parent = <&gic>;
++		interrupts = <GIC_SPI 56 IRQ_TYPE_LEVEL_HIGH>,
++			     <GIC_SPI 57 IRQ_TYPE_LEVEL_HIGH>,
++			     <GIC_SPI 58 IRQ_TYPE_LEVEL_HIGH>,
++			     <GIC_SPI 59 IRQ_TYPE_LEVEL_HIGH>,
++			     <GIC_SPI 60 IRQ_TYPE_LEVEL_HIGH>,
++			     <GIC_SPI 61 IRQ_TYPE_LEVEL_HIGH>,
++			     <GIC_SPI 62 IRQ_TYPE_LEVEL_HIGH>,
++			     <GIC_SPI 63 IRQ_TYPE_LEVEL_HIGH>;
++	};
++
++	gpa11: gpa11-gpio-bank {
++		gpio-controller;
++		#gpio-cells = <2>;
++		interrupt-controller;
++		#interrupt-cells = <2>;
++		interrupt-parent = <&gic>;
++		interrupts = <GIC_SPI 64 IRQ_TYPE_LEVEL_HIGH>,
++			     <GIC_SPI 65 IRQ_TYPE_LEVEL_HIGH>;
++	};
++
++	ts_irq: ts-irq-pins {
++		samsung,pins = "gpa7-0";
++		samsung,pin-function = <GS101_PIN_FUNC_EINT>;
++		samsung,pin-pud = <GS101_PIN_PULL_NONE>;
++		samsung,pin-drv = <GS101_PIN_DRV_2_5_MA>;
++	};
++};
++
++&pinctrl_peric1 {
++	gpp20: gpp20-gpio-bank {
++		gpio-controller;
++		#gpio-cells = <2>;
++		interrupt-controller;
++		#interrupt-cells = <2>;
++	};
++
++	gpp21: gpp21-gpio-bank {
++		gpio-controller;
++		#gpio-cells = <2>;
++		interrupt-controller;
++		#interrupt-cells = <2>;
++	};
++
++	gpp22: gpp22-gpio-bank {
++		gpio-controller;
++		#gpio-cells = <2>;
++		interrupt-controller;
++		#interrupt-cells = <2>;
++	};
++
++	gpp23: gpp23-gpio-bank {
++		gpio-controller;
++		#gpio-cells = <2>;
++		interrupt-controller;
++		#interrupt-cells = <2>;
++	};
++
++	gpp24: gpp24-gpio-bank {
++		gpio-controller;
++		#gpio-cells = <2>;
++		interrupt-controller;
++		#interrupt-cells = <2>;
++	};
++
++	gpp25: gpp25-gpio-bank {
++		gpio-controller;
++		#gpio-cells = <2>;
++		interrupt-controller;
++		#interrupt-cells = <2>;
++	};
++
++	gpp26: gpp26-gpio-bank {
++		gpio-controller;
++		#gpio-cells = <2>;
++		interrupt-controller;
++		#interrupt-cells = <2>;
++	};
++
++	gpp27: gpp27-gpio-bank {
++		gpio-controller;
++		#gpio-cells = <2>;
++		interrupt-controller;
++		#interrupt-cells = <2>;
++	};
++
++	spi0_bus: spi0-bus-pins {
++		samsung,pins = "gpp20-0", "gpp20-1";
++		samsung,pin-function = <GS101_PIN_FUNC_3>;
++		samsung,pin-pud = <GS101_PIN_PULL_NONE>;
++		samsung,pin-drv = <GS101_PIN_DRV_2_5_MA>;
++	};
++
++	spi0_miso: spi0-miso-pins {
++		samsung,pins = "gpp20-2";
++		samsung,pin-function = <GS101_PIN_FUNC_3>;
++		samsung,pin-pud = <GS101_PIN_PULL_DOWN>;
++		samsung,pin-drv = <GS101_PIN_DRV_2_5_MA>;
++	};
++
++	spi0_cs_gpio: spi0-cs-gpio-pins {
++		samsung,pins = "gpp20-3";
++		samsung,pin-function = <GS101_PIN_FUNC_OUTPUT>;
++		samsung,pin-pud = <GS101_PIN_PULL_NONE>;
++		samsung,pin-drv = <GS101_PIN_DRV_2_5_MA>;
++	};
++
++	ts_reset: ts-reset-pins {
++		samsung,pins = "gpp23-2";
++		samsung,pin-function = <GS101_PIN_FUNC_OUTPUT>;
++		samsung,pin-pud = <GS101_PIN_PULL_NONE>;
++	};
++};
+diff --git a/arch/arm64/boot/dts/exynos/google/gs201.dtsi b/arch/arm64/boot/dts/exynos/google/gs201.dtsi
+index 016154862..d11f3a9bc 100644
+--- a/arch/arm64/boot/dts/exynos/google/gs201.dtsi
++++ b/arch/arm64/boot/dts/exynos/google/gs201.dtsi
+@@ -6,6 +6,7 @@
+ #include <dt-bindings/clock/google,gs201.h>
+ #include <dt-bindings/gpio/gpio.h>
+ #include <dt-bindings/interrupt-controller/arm-gic.h>
++#include <dt-bindings/interrupt-controller/irq.h>
+ 
+ / {
+ 	compatible = "google,gs201";
+@@ -13,6 +14,11 @@ / {
+ 	#size-cells = <1>;
+ 	interrupt-parent = <&gic>;
+ 
++	aliases {
++		pinctrl1 = &pinctrl_far_alive;
++		pinctrl5 = &pinctrl_peric1;
++	};
++
+ 	/* Required by the Pixel bootloader (ABL). */
+ 	ect { };
+ 
+@@ -168,9 +174,6 @@ soc: soc@0 {
+ 		 *                   CLK_GOUT_HSI0_USB31DRD_I_USB31DRD_SUSPEND_CLK_26,
+ 		 *                   CLK_GOUT_HSI0_UASC_HSI0_LINK_{ACLK,PCLK},
+ 		 *                   CLK_GOUT_HSI0_USB31DRD_I_USB31DRD_REF_CLK_40
+-		 *   touch SPI (PERIC1 USI0 @ 0x10d10000):
+-		 *                   CLK_GOUT_PERIC1_USI0_USI_{PCLK,IPCLK}
+-		 *                   (rate set on CLK_DOUT_PERIC1_USI0_USI)
+ 		 */
+ 		cmu_misc: clock-controller@10010000 {
+ 			compatible = "google,gs201-cmu-misc";
+@@ -201,6 +204,47 @@ cmu_peric1: clock-controller@10c00000 {
+ 			clock-names = "oscclk", "bus", "ip";
+ 		};
+ 
++		sysreg_peric1: syscon@10c20000 {
++			compatible = "google,gs201-peric1-sysreg", "syscon";
++			reg = <0x10c20000 0x10000>;
++			clocks = <&cmu_peric1 CLK_GOUT_PERIC1_SYSREG_PERIC1_PCLK>;
++		};
++
++		pinctrl_peric1: pinctrl@10c40000 {
++			compatible = "google,gs201-pinctrl";
++			reg = <0x10c40000 0x1000>;
++			clocks = <&cmu_peric1 CLK_GOUT_PERIC1_GPIO_PERIC1_PCLK>;
++			clock-names = "pclk";
++			interrupts = <GIC_SPI 683 IRQ_TYPE_LEVEL_HIGH>;
++		};
++
++		usi0: usi@10d100c0 {
++			compatible = "google,gs201-usi", "samsung,exynos850-usi";
++			reg = <0x10d100c0 0x20>;
++			ranges;
++			#address-cells = <1>;
++			#size-cells = <1>;
++			clocks = <&cmu_peric1 CLK_GOUT_PERIC1_USI0_USI_PCLK>,
++				 <&cmu_peric1 CLK_GOUT_PERIC1_USI0_USI_IPCLK>;
++			clock-names = "pclk", "ipclk";
++			samsung,sysreg = <&sysreg_peric1 0x1000>;
++			status = "disabled";
++
++			spi_0: spi@10d10000 {
++				compatible = "google,gs201-spi", "google,gs101-spi";
++				reg = <0x10d10000 0x30>;
++				#address-cells = <1>;
++				#size-cells = <0>;
++				clocks = <&cmu_peric1 CLK_GOUT_PERIC1_USI0_USI_PCLK>,
++					 <&cmu_peric1 CLK_GOUT_PERIC1_USI0_USI_IPCLK>;
++				clock-names = "spi", "spi_busclk0";
++				interrupts = <GIC_SPI 690 IRQ_TYPE_LEVEL_HIGH>;
++				pinctrl-0 = <&spi0_bus &spi0_miso>;
++				pinctrl-names = "default";
++				status = "disabled";
++			};
++		};
++
+ 		cmu_hsi0: clock-controller@11000000 {
+ 			compatible = "google,gs201-cmu-hsi0";
+ 			reg = <0x11000000 0x10000>;
+@@ -377,5 +421,22 @@ pmu_intr_gen: syscon@18070000 {
+ 			compatible = "google,gs201-pmu-intr-gen", "syscon";
+ 			reg = <0x18070000 0x10000>;
+ 		};
++
++		pinctrl_far_alive: pinctrl@180e0000 {
++			compatible = "google,gs201-pinctrl";
++			reg = <0x180e0000 0x1000>;
++			/* TODO: CMU_APM gate, once there is a driver for it */
++			clocks = <0>;
++			clock-names = "pclk";
++
++			wakeup-interrupt-controller {
++				compatible = "google,gs201-wakeup-eint",
++					     "google,gs101-wakeup-eint",
++					     "samsung,exynos850-wakeup-eint",
++					     "samsung,exynos7-wakeup-eint";
++			};
++		};
+ 	};
+ };
++
++#include "gs201-pinctrl.dtsi"

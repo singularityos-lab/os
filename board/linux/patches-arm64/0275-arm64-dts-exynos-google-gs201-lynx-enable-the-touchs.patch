@@ -1,0 +1,107 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Chris Gray <chrisgray70@gmail.com>
+Date: Sat, 24 Oct 2026 10:22:31 -0500
+Subject: [PATCH] arm64: dts: exynos: google: gs201-lynx: enable the
+ touchscreen
+
+The touchscreen is a Goodix GT9895 on USI0's SPI, with the interrupt,
+reset and chip select on the same pins as on cheetah. Unlike cheetah,
+the bootloader leaves its supplies (S2MPG12 LDO25M and LDO26M) off, so
+describe the main PMIC with those two rails and let the driver enable
+them. LDO25M is the 1.8 V I/O rail (PP1800_L25M_TSP_DVDD), so it is
+fixed at 1.8 V rather than the LDO's 1.6-1.95 V range; LDO26M is fixed
+at 3.0 V as in stock's lynx PMIC description. The PMIC's RTC now sets
+the clock at boot.
+
+Tested on a Pixel 7a from slot B: the controller identifies, and
+touch input works in the desktop session.
+
+Assisted-by: LLM
+Signed-off-by: Chris Gray <chrisgray70@gmail.com>
+---
+ .../boot/dts/exynos/google/gs201-lynx.dts     | 61 ++++++++++++++++++-
+ 1 file changed, 59 insertions(+), 2 deletions(-)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/gs201-lynx.dts b/arch/arm64/boot/dts/exynos/google/gs201-lynx.dts
+index b02f97f8a..5c0bfb1bc 100644
+--- a/arch/arm64/boot/dts/exynos/google/gs201-lynx.dts
++++ b/arch/arm64/boot/dts/exynos/google/gs201-lynx.dts
+@@ -3,8 +3,8 @@
+  * Google Pixel 7a (lynx) - M1 bring-up board file.
+  *
+  * USB (NCM + ACM), the cluster watchdogs from gs201.dtsi, a
+- * simple-framebuffer on the buffer ABL leaves DPP0 scanning out, and UFS.
+- * The panel driver, touch and the GPU stay disabled.
++ * simple-framebuffer on the buffer ABL leaves DPP0 scanning out, UFS and
++ * the touchscreen. The panel driver and the GPU stay disabled.
+  */
+ 
+ /dts-v1/;
+@@ -94,6 +94,58 @@ cont_splash_mem: splash@fac00000 {
+ 	};
+ };
+ 
++&acpm_ipc {
++	/*
++	 * Main PMIC, touch rails only. LDO25M is L25M_TSP_DVDD and LDO26M is
++	 * L26M_TS_AVDD, with stock's ranges; nothing else on the stock board
++	 * consumes them. Unlike on cheetah, the bootloader leaves both off.
++	 * The sub-PMIC is not described.
++	 */
++	pmic-1 {
++		compatible = "samsung,s2mpg12-pmic";
++		interrupts = <GIC_SPI 72 IRQ_TYPE_LEVEL_HIGH>;
++		google,vgpio2ap-sysreg = <&sysreg_vgpio2ap>;
++		wakeup-source;
++
++		regulators {
++			ldo25m: ldo25m {
++				regulator-name = "vddio-ts";
++				regulator-min-microvolt = <1800000>;
++				regulator-max-microvolt = <1800000>;
++			};
++
++			ldo26m: ldo26m {
++				regulator-name = "avdd-ts";
++				regulator-min-microvolt = <3000000>;
++				regulator-max-microvolt = <3000000>;
++			};
++		};
++	};
++};
++
++/* Touchscreen: Goodix GT9895 (Berlin) on USI0 SPI, wired as on cheetah */
++&spi_0 {
++	pinctrl-0 = <&spi0_bus &spi0_miso &spi0_cs_gpio>;
++	cs-gpios = <&gpp20 3 GPIO_ACTIVE_LOW>;
++	num-cs = <1>;
++	status = "okay";
++
++	touchscreen@0 {
++		compatible = "goodix,gt9895";
++		reg = <0>;
++		spi-max-frequency = <10000000>;
++		interrupt-parent = <&gpa7>;
++		interrupts = <0 IRQ_TYPE_EDGE_FALLING>;
++		reset-gpios = <&gpp23 2 GPIO_ACTIVE_LOW>;
++		pinctrl-0 = <&ts_irq &ts_reset>;
++		pinctrl-names = "default";
++		avdd-supply = <&ldo26m>;
++		vddio-supply = <&ldo25m>;
++		touchscreen-size-x = <1080>;
++		touchscreen-size-y = <2400>;
++	};
++};
++
+ &usbdrd31_phy {
+ 	status = "okay";
+ };
+@@ -110,3 +162,8 @@ &ufs_0 {
+ &ufs_0_phy {
+ 	status = "okay";
+ };
++
++&usi0 {
++	samsung,mode = <USI_MODE_SPI>;
++	status = "okay";
++};

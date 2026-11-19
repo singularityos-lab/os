@@ -1,0 +1,163 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Brett-Michael Green <brett@bmgvisualtech.com>
+Date: Sat, 31 Oct 2026 11:45:09 -0400
+Subject: [PATCH] wifi: brcmfmac: fall back to event_msgs_ext
+
+The BCM4398's 24.100 firmware has dropped the "event_msgs" iovar
+(getting it fails, and brcmfmac stopped there: "Get event_msgs error
+(-52)"). Broadcom's driver uses "event_msgs_ext", whose mask is preceded
+by a small header, as brcmfmac's Cypress code already sends it.
+
+When the firmware rejects "event_msgs", read the mask with
+"event_msgs_ext" and keep using it to set the mask.
+
+Assisted-by: LLM
+Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
+---
+ .../broadcom/brcm80211/brcmfmac/common.c      |  6 +-
+ .../broadcom/brcm80211/brcmfmac/fweh.c        | 78 ++++++++++++++++++-
+ .../broadcom/brcm80211/brcmfmac/fweh.h        |  4 +
+ 3 files changed, 82 insertions(+), 6 deletions(-)
+
+diff --git a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/common.c b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/common.c
+index b6027d83e..f7165dfc3 100644
+--- a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/common.c
++++ b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/common.c
+@@ -412,8 +412,7 @@ int brcmf_c_preinit_dcmds(struct brcmf_if *ifp)
+ 	brcmf_c_set_joinpref_default(ifp);
+ 
+ 	/* Setup event_msgs, enable E_IF */
+-	err = brcmf_fil_iovar_data_get(ifp, "event_msgs", fweh->event_mask,
+-				       fweh->event_mask_len);
++	err = brcmf_fweh_get_event_mask(ifp);
+ 	if (err) {
+ 		bphy_err(drvr, "Get event_msgs error (%d)\n", err);
+ 		goto done;
+@@ -425,8 +424,7 @@ int brcmf_c_preinit_dcmds(struct brcmf_if *ifp)
+ 	 * that all vendors have.
+ 	 */
+ 	setbit(fweh->event_mask, BRCMF_E_IF);
+-	err = brcmf_fil_iovar_data_set(ifp, "event_msgs", fweh->event_mask,
+-				       fweh->event_mask_len);
++	err = brcmf_fweh_set_event_mask(ifp);
+ 	if (err) {
+ 		bphy_err(drvr, "Set event_msgs error (%d)\n", err);
+ 		goto done;
+diff --git a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/fweh.c b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/fweh.c
+index 1cff4ba76..f6de0f0f3 100644
+--- a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/fweh.c
++++ b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/fweh.c
+@@ -430,6 +430,81 @@ void brcmf_fweh_unregister(struct brcmf_pub *drvr,
+ 	drvr->fweh->evt_handler[evt_handler_idx] = NULL;
+ }
+ 
++/*
++ * Newer firmware (the BCM4398's 24.100) has dropped the "event_msgs" iovar
++ * for "event_msgs_ext", whose mask is preceded by a small header, as
++ * Broadcom's driver and the Cypress vendor code use it.
++ */
++struct brcmf_fweh_eventmsgs_ext {
++	u8 ver;
++	u8 command;
++	u8 len;
++	u8 maxgetsize;
++	u8 mask[];
++};
++
++#define BRCMF_EVENTMSGS_EXT_VER		1
++#define BRCMF_EVENTMSGS_EXT_SET_MASK	3
++
++int brcmf_fweh_get_event_mask(struct brcmf_if *ifp)
++{
++	struct brcmf_fweh_info *fweh = ifp->drvr->fweh;
++	struct brcmf_fweh_eventmsgs_ext *msg;
++	u32 msglen;
++	int err;
++
++	err = brcmf_fil_iovar_data_get(ifp, "event_msgs", fweh->event_mask,
++				       fweh->event_mask_len);
++	if (err != -EBADE)
++		return err;
++
++	msglen = sizeof(*msg) + fweh->event_mask_len;
++	msg = kzalloc(msglen, GFP_KERNEL);
++	if (!msg)
++		return -ENOMEM;
++	msg->ver = BRCMF_EVENTMSGS_EXT_VER;
++	msg->len = fweh->event_mask_len;
++	msg->maxgetsize = fweh->event_mask_len;
++
++	err = brcmf_fil_iovar_data_get(ifp, "event_msgs_ext", msg, msglen);
++	if (!err) {
++		memcpy(fweh->event_mask, msg->mask,
++		       min_t(uint, msg->len, fweh->event_mask_len));
++		fweh->event_msgs_ext = true;
++		brcmf_dbg(EVENT, "using event_msgs_ext (%u bytes)\n", msg->len);
++	}
++	kfree(msg);
++
++	return err;
++}
++
++int brcmf_fweh_set_event_mask(struct brcmf_if *ifp)
++{
++	struct brcmf_fweh_info *fweh = ifp->drvr->fweh;
++	struct brcmf_fweh_eventmsgs_ext *msg;
++	u32 msglen;
++	int err;
++
++	if (!fweh->event_msgs_ext)
++		return brcmf_fil_iovar_data_set(ifp, "event_msgs",
++						fweh->event_mask,
++						fweh->event_mask_len);
++
++	msglen = sizeof(*msg) + fweh->event_mask_len;
++	msg = kzalloc(msglen, GFP_KERNEL);
++	if (!msg)
++		return -ENOMEM;
++	msg->ver = BRCMF_EVENTMSGS_EXT_VER;
++	msg->command = BRCMF_EVENTMSGS_EXT_SET_MASK;
++	msg->len = fweh->event_mask_len;
++	memcpy(msg->mask, fweh->event_mask, fweh->event_mask_len);
++
++	err = brcmf_fil_iovar_data_set(ifp, "event_msgs_ext", msg, msglen);
++	kfree(msg);
++
++	return err;
++}
++
+ /**
+  * brcmf_fweh_activate_events() - enables firmware events registered.
+  *
+@@ -459,8 +534,7 @@ int brcmf_fweh_activate_events(struct brcmf_if *ifp)
+ 	if (!brcmf_fwvid_activate_events(ifp))
+ 		return 0;
+ 
+-	err = brcmf_fil_iovar_data_set(ifp, "event_msgs", fweh->event_mask,
+-				       fweh->event_mask_len);
++	err = brcmf_fweh_set_event_mask(ifp);
+ 	if (err)
+ 		bphy_err(fweh->drvr, "Set event_msgs error (%d)\n", err);
+ 	return err;
+diff --git a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/fweh.h b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/fweh.h
+index e327dd58d..7dc26ab18 100644
+--- a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/fweh.h
++++ b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/fweh.h
+@@ -336,6 +336,8 @@ struct brcmf_fweh_event_map {
+ struct brcmf_fweh_info {
+ 	struct brcmf_pub *drvr;
+ 	bool p2pdev_setup_ongoing;
++	/* the firmware takes "event_msgs_ext" rather than "event_msgs" */
++	bool event_msgs_ext;
+ 	struct work_struct event_work;
+ 	spinlock_t evt_q_lock;
+ 	struct list_head event_q;
+@@ -357,6 +359,8 @@ int brcmf_fweh_register(struct brcmf_pub *drvr, enum brcmf_fweh_event_code code,
+ void brcmf_fweh_unregister(struct brcmf_pub *drvr,
+ 			   enum brcmf_fweh_event_code code);
+ int brcmf_fweh_activate_events(struct brcmf_if *ifp);
++int brcmf_fweh_get_event_mask(struct brcmf_if *ifp);
++int brcmf_fweh_set_event_mask(struct brcmf_if *ifp);
+ void brcmf_fweh_process_event(struct brcmf_pub *drvr,
+ 			      struct brcmf_event *event_packet,
+ 			      u32 packet_len, gfp_t gfp);

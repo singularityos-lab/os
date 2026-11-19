@@ -1,0 +1,24 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Sun, 11 Oct 2026 16:32:07 -0400
+Subject: [PATCH] soc: samsung: exynos-chipid: add Google gs201
+
+gs201 reports product ID 0x9855000.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ drivers/soc/samsung/exynos-chipid.c | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/drivers/soc/samsung/exynos-chipid.c b/drivers/soc/samsung/exynos-chipid.c
+index 6ef9751e2..c86a3130b 100644
+--- a/drivers/soc/samsung/exynos-chipid.c
++++ b/drivers/soc/samsung/exynos-chipid.c
+@@ -74,6 +74,7 @@ static const struct exynos_soc_id {
+ 	{ "EXYNOSAUTOV920", 0x0A920000 },
+ 	/* Compatible with: google,gs101-otp */
+ 	{ "GS101", 0x9845000 },
++	{ "GS201", 0x9855000 },
+ };
+ 
+ static const char *exynos_product_id_to_name(unsigned int product_id)

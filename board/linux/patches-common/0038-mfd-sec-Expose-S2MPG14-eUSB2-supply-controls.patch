@@ -1,0 +1,96 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Thu, 22 Oct 2026 22:00:02 -0700
+Subject: [PATCH] mfd: sec: Expose S2MPG14 eUSB2 supply controls
+
+Add the exact LDO8M, LDO9M and LDO19M USB-supply control addresses.
+LDO8M's voltage selector is in its own register; its two-bit enable
+field shares LDO_CTRL1 with LDO11M and LDO12M (CPU cluster rails) and
+LDO13M (TPU) in Google's board description.
+
+Keep the selector-only LDO8M register outside the bulk-write table and
+retain narrow read/write ranges. The existing uncached ACPM regmap uses
+the firmware masked-update command for enable changes, preserving the
+other fields in the shared enable register.
+
+Link: https://android.googlesource.com/kernel/google-modules/soc/gs/+/204078758737776959ecc85c527a00fd2cabb62f/include/linux/mfd/samsung/s2mpg14-register.h
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ drivers/mfd/sec-acpm.c              | 32 +++++++++++++++++++++--------
+ include/linux/mfd/samsung/s2mpg14.h |  4 ++++
+ 2 files changed, 27 insertions(+), 9 deletions(-)
+
+diff --git a/drivers/mfd/sec-acpm.c b/drivers/mfd/sec-acpm.c
+index f5f1a66ae..05efc8cf5 100644
+--- a/drivers/mfd/sec-acpm.c
++++ b/drivers/mfd/sec-acpm.c
+@@ -563,7 +563,7 @@ static const struct regmap_config s2mpg13_regmap_config_gpio = {
+ 	.cache_type = REGCACHE_NONE,
+ };
+ 
+-/* S2MPG14 support deliberately exposes only the qualified touch LDOs. */
++/* Expose only the touchscreen and eUSB2 supply controls. */
+ static const struct regmap_range s2mpg14_common_registers[] = {
+ 	regmap_reg_range(S2MPG14_COMMON_CHIPID, S2MPG14_COMMON_CHIPID),
+ };
+@@ -591,23 +591,37 @@ static const struct regmap_config s2mpg14_regmap_config_common = {
+ 	.wr_table = &s2mpg14_common_wr_table,
+ };
+ 
+-static const struct regmap_range s2mpg14_pmic_registers[] = {
++static const struct regmap_range s2mpg14_pmic_rd_registers[] = {
+ 	regmap_reg_range(S2MPG14_PMIC_L4M_CTRL, S2MPG14_PMIC_L4M_CTRL),
+-	regmap_reg_range(S2MPG14_PMIC_L25M_CTRL, S2MPG14_PMIC_L25M_CTRL),
++	regmap_reg_range(S2MPG14_PMIC_L8M_CTRL, S2MPG14_PMIC_L9M_CTRL),
++	regmap_reg_range(S2MPG14_PMIC_L19M_CTRL, S2MPG14_PMIC_L19M_CTRL),
++	regmap_reg_range(S2MPG14_PMIC_L25M_CTRL, S2MPG14_PMIC_LDO_CTRL1),
+ };
+ 
+-static const struct regmap_access_table s2mpg14_pmic_table = {
+-	.yes_ranges = s2mpg14_pmic_registers,
+-	.n_yes_ranges = ARRAY_SIZE(s2mpg14_pmic_registers),
++static const struct regmap_range s2mpg14_pmic_wr_registers[] = {
++	regmap_reg_range(S2MPG14_PMIC_L4M_CTRL, S2MPG14_PMIC_L4M_CTRL),
++	regmap_reg_range(S2MPG14_PMIC_L9M_CTRL, S2MPG14_PMIC_L9M_CTRL),
++	regmap_reg_range(S2MPG14_PMIC_L19M_CTRL, S2MPG14_PMIC_L19M_CTRL),
++	regmap_reg_range(S2MPG14_PMIC_L25M_CTRL, S2MPG14_PMIC_LDO_CTRL1),
++};
++
++static const struct regmap_access_table s2mpg14_pmic_rd_table = {
++	.yes_ranges = s2mpg14_pmic_rd_registers,
++	.n_yes_ranges = ARRAY_SIZE(s2mpg14_pmic_rd_registers),
++};
++
++static const struct regmap_access_table s2mpg14_pmic_wr_table = {
++	.yes_ranges = s2mpg14_pmic_wr_registers,
++	.n_yes_ranges = ARRAY_SIZE(s2mpg14_pmic_wr_registers),
+ };
+ 
+ static const struct regmap_config s2mpg14_regmap_config_pmic = {
+ 	.name = "pmic",
+ 	.reg_bits = ACPM_ADDR_BITS,
+ 	.val_bits = 8,
+-	.max_register = S2MPG14_PMIC_L25M_CTRL,
+-	.rd_table = &s2mpg14_pmic_table,
+-	.wr_table = &s2mpg14_pmic_table,
++	.max_register = S2MPG14_PMIC_LDO_CTRL1,
++	.rd_table = &s2mpg14_pmic_rd_table,
++	.wr_table = &s2mpg14_pmic_wr_table,
+ };
+ 
+ struct sec_pmic_acpm_shared_bus_context {
+diff --git a/include/linux/mfd/samsung/s2mpg14.h b/include/linux/mfd/samsung/s2mpg14.h
+index 5c17a761d..f553fac55 100644
+--- a/include/linux/mfd/samsung/s2mpg14.h
++++ b/include/linux/mfd/samsung/s2mpg14.h
+@@ -8,6 +8,10 @@
+ 
+ #define S2MPG14_COMMON_CHIPID		0x0b
+ #define S2MPG14_PMIC_L4M_CTRL		0x2e
++#define S2MPG14_PMIC_L8M_CTRL		0x32
++#define S2MPG14_PMIC_L9M_CTRL		0x33
++#define S2MPG14_PMIC_L19M_CTRL		0x3d
+ #define S2MPG14_PMIC_L25M_CTRL		0x43
++#define S2MPG14_PMIC_LDO_CTRL1		0x44
+ 
+ #endif /* __LINUX_MFD_S2MPG14_H */

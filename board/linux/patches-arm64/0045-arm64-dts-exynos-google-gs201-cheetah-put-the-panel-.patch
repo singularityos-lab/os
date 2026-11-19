@@ -1,0 +1,70 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Sun, 11 Oct 2026 22:23:23 -0400
+Subject: [PATCH] arm64: dts: exynos: google: gs201-cheetah: put the panel on
+ DSIM0
+
+Move the S6E3HC4 node under DSIM0 with its DSI channel and reset line
+(gpa7-1, high while the panel runs). simplefb still reads the panel
+size through the same label, and DSIM0 stays disabled, so nothing
+probes yet.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ .../boot/dts/exynos/google/gs201-cheetah.dts  | 33 ++++++++++++-------
+ 1 file changed, 22 insertions(+), 11 deletions(-)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts b/arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts
+index e8bd7bd6d..550f79923 100644
+--- a/arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts
++++ b/arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts
+@@ -39,20 +39,14 @@ framebuffer0: framebuffer@fac00000 {
+ 			stride = <(1440 * 4)>;
+ 			format = "a8r8g8b8";
+ 			panel = <&panel>;
++			/*
++			 * Only the panel's size is read; simplefb must not wait for
++			 * the panel device (it appears with the DSI host driver).
++			 */
++			post-init-providers = <&panel>;
+ 		};
+ 	};
+ 
+-	/*
+-	 * The Samsung S6E3HC4 command-mode OLED. No driver yet: the bootloader
+-	 * leaves it running for simplefb, which reads its physical size here.
+-	 */
+-	panel: panel {
+-		compatible = "samsung,s6e3hc4";
+-		width-mm = <71>;
+-		height-mm = <155>;
+-		status = "disabled";
+-	};
+-
+ 	gpio-keys {
+ 		compatible = "gpio-keys";
+ 		pinctrl-0 = <&key_voldown>, <&key_volup>, <&key_power>;
+@@ -121,6 +115,23 @@ cont_splash_mem: splash@fac00000 {
+ 	};
+ };
+ 
++&dsi0 {
++	/*
++	 * The bootloader leaves DECON0 -> DSIM0 -> panel running in command
++	 * mode; simplefb scans out its framebuffer and reads the panel size
++	 * here. Enabled only for display bring-up (DISPLAY-PLAN.md, gate D1).
++	 */
++	panel: panel@0 {
++		compatible = "samsung,s6e3hc4";
++		reg = <0>;
++		/* high = running; the bootloader leaves it high */
++		reset-gpios = <&gpa7 1 GPIO_ACTIVE_LOW>;
++		/* vddi (S2MPG13 BUCKA), vddd (S2MPG12 LDO28), vci (LDO27): no driver yet */
++		width-mm = <71>;
++		height-mm = <155>;
++	};
++};
++
+ &gpu {
+ 	/* No mali-supply: the G3D rails follow the PMU power domain and ACPM. */
+ 	status = "okay";

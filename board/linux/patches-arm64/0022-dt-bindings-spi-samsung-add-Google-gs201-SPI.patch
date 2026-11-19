@@ -1,0 +1,28 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Sun, 11 Oct 2026 19:04:24 -0400
+Subject: [PATCH] dt-bindings: spi: samsung: add Google gs201 SPI
+
+The SPI controllers in the gs201 (Tensor G2) USI blocks are the same as
+on gs101 (64-byte FIFOs, 32-bit register access only), so use
+google,gs101-spi as the fallback compatible.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ Documentation/devicetree/bindings/spi/samsung,spi.yaml | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/Documentation/devicetree/bindings/spi/samsung,spi.yaml b/Documentation/devicetree/bindings/spi/samsung,spi.yaml
+index 1ce8b2770..2c31335ed 100644
+--- a/Documentation/devicetree/bindings/spi/samsung,spi.yaml
++++ b/Documentation/devicetree/bindings/spi/samsung,spi.yaml
+@@ -30,6 +30,9 @@ properties:
+               - samsung,exynos8895-spi
+               - samsung,exynosautov920-spi
+           - const: samsung,exynos850-spi
++      - items:
++          - const: google,gs201-spi
++          - const: google,gs101-spi
+       - const: samsung,exynos7-spi
+         deprecated: true
+ 

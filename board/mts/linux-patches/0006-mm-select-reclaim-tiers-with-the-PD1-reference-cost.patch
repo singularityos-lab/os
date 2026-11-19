@@ -1,7 +1,7 @@
-From 0d0ee9164cdbd0de976c6edbafbf0c9d2ded05a4 Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Mirko Brombin <9479903+mirkobrombin@users.noreply.github.com>
 Date: Sat, 18 Jul 2026 20:02:07 +0100
-Subject: [PATCH 6/6] mm: select reclaim tiers with the PD1 reference cost
+Subject: [PATCH 06/11] mm: select reclaim tiers with the PD1 reference cost
 
 Expose the calibrated per-folio ISO16 probability to the placement path and rank every admitted active tier with recovery, transfer, write, capacity, bandwidth, and queue-price terms.
 
@@ -16,7 +16,7 @@ Signed-off-by: Mirko Brombin <9479903+mirkobrombin@users.noreply.github.com>
  3 files changed, 121 insertions(+), 5 deletions(-)
 
 diff --git a/include/linux/mts.h b/include/linux/mts.h
-index c90ab70..5b83394 100644
+index c90ab70e5..5b8339456 100644
 --- a/include/linux/mts.h
 +++ b/include/linux/mts.h
 @@ -22,9 +22,11 @@ extern struct page_ext_operations mts_page_ext_ops;
@@ -32,7 +32,7 @@ index c90ab70..5b83394 100644
  
  #ifdef CONFIG_MTS_TIER
 diff --git a/mm/mts.c b/mm/mts.c
-index b4e1bdf..c1af235 100644
+index b4e1bdffe..c1af23592 100644
 --- a/mm/mts.c
 +++ b/mm/mts.c
 @@ -104,6 +104,21 @@ static u64 mts_update_page(struct page *page, bool accessed)
@@ -58,7 +58,7 @@ index b4e1bdf..c1af235 100644
  {
  	struct mts_sample *sample = &mts_samples[hash_long(pfn, MTS_SAMPLE_BITS)];
 diff --git a/mm/mts_tier.c b/mm/mts_tier.c
-index 9274804..350b6fc 100644
+index 189a750a9..b3d13014c 100644
 --- a/mm/mts_tier.c
 +++ b/mm/mts_tier.c
 @@ -8,6 +8,7 @@
@@ -252,6 +252,3 @@ index 9274804..350b6fc 100644
  		mutex_unlock(&tier->lock);
  		mts_tier_put(tier);
  	}
--- 
-2.51.1
-

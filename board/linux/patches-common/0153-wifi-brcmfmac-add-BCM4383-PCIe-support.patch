@@ -1,0 +1,129 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Mon, 26 Oct 2026 10:28:51 -0647
+Subject: [PATCH] wifi: brcmfmac: add BCM4383 PCIe support
+
+The BCM4383 (PCI 14e4:4449, chip id 0x4383, rev 2) is the Wi-Fi chip in
+the Pixel 9a. Add its ids, its SYSMEM base (0x6e0000, from the firmware's
+load address) and the firmware name "brcmfmac4383-pcie" with the CLM
+blob, and two firmware-keyed quirks for its 20.123.13 firmware:
+
+ - it takes only the versioned "join" parameters: the unversioned iovar
+   and SET_SSID both fail with -52, so enable BRCMF_FEAT_JOIN_V1 by the
+   same WLC version test as for the BCM4389;
+ - it advertises the supplicant offload but refuses the key
+   ("failed to change PSK in firmware"), so leave FWSUP, SAE and FWAUTH
+   off and let the host do the handshakes.
+
+Tested on the Pixel 9a with the owner's firmware set: wlan0 comes up,
+scans, joins a WPA2 network through iwd and passes traffic, with no
+module parameters.
+
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ .../broadcom/brcm80211/brcmfmac/chip.c        |  2 ++
+ .../broadcom/brcm80211/brcmfmac/feature.c     | 19 ++++++++++++++++---
+ .../broadcom/brcm80211/brcmfmac/pcie.c        |  4 ++++
+ .../broadcom/brcm80211/include/brcm_hw_ids.h  |  2 ++
+ 4 files changed, 24 insertions(+), 3 deletions(-)
+
+diff --git a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/chip.c b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/chip.c
+index e2a628dc3..d0fed7b6a 100644
+--- a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/chip.c
++++ b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/chip.c
+@@ -784,6 +784,8 @@ static u32 brcmf_chip_tcm_rambase(struct brcmf_chip_priv *ci)
+ 		return 0x170000;
+ 	case BRCM_CC_4378_CHIP_ID:
+ 		return 0x352000;
++	case BRCM_CC_4383_CHIP_ID:
++		return 0x6e0000;
+ 	case BRCM_CC_4387_CHIP_ID:
+ 		return 0x740000;
+ 	default:
+diff --git a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/feature.c b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/feature.c
+index bff2f5c62..145b57639 100644
+--- a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/feature.c
++++ b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/feature.c
+@@ -161,10 +161,13 @@ static void brcmf_feat_wlc_version_overrides(struct brcmf_pub *drv)
+ 	 * Versioned "join" parameters (wl_extjoin_params_v1_t), by the
+ 	 * same WLC version test as Broadcom's driver (bcmdhd
+ 	 * wl_cfg80211.c, MIN_JOINEXT_V1_*): 14.2 or 14.4, 16.1 and later
+-	 * on 16, or 17 and later. Only the BCM4389 for now; its 20.101.90
+-	 * firmware reports 14.4 and rejects the unversioned layout.
++	 * on 16, or 17 and later. The BCM4389 (its 20.101.90 firmware
++	 * reports 14.4 and rejects the unversioned layout) and the Pixel
++	 * 9a's BCM4383 (20.123.13: the unversioned "join" and SET_SSID
++	 * both fail with -52).
+ 	 */
+-	if (drv->bus_if->chip == BRCM_CC_4389_CHIP_ID &&
++	if ((drv->bus_if->chip == BRCM_CC_4389_CHIP_ID ||
++	     drv->bus_if->chip == BRCM_CC_4383_CHIP_ID) &&
+ 	    ((major == 14 && (minor == 2 || minor == 4)) ||
+ 	     (major == 16 && minor >= 1) || major >= 17))
+ 		feat_flags |= BIT(BRCMF_FEAT_JOIN_V1);
+@@ -363,6 +366,16 @@ void brcmf_feat_attach(struct brcmf_pub *drvr)
+ 	if (drvr->bus_if->chip != BRCM_CC_4389_CHIP_ID)
+ 		drvr->feat_flags &= ~BIT(BRCMF_FEAT_HOST_SFHLLC);
+ 
++	/*
++	 * The BCM4383's firmware (20.123.13 on the Pixel 9a) advertises the
++	 * supplicant offload but refuses the key: brcmf_set_wsec() fails with
++	 * "failed to change PSK in firmware" and the join never gets past
++	 * authentication. Leave the handshakes to the host.
++	 */
++	if (drvr->bus_if->chip == BRCM_CC_4383_CHIP_ID)
++		drvr->feat_flags &= ~(BIT(BRCMF_FEAT_FWSUP) | BIT(BRCMF_FEAT_SAE) |
++				      BIT(BRCMF_FEAT_FWAUTH));
++
+ 	if (drvr->settings->feature_disable) {
+ 		brcmf_dbg(INFO, "Features: 0x%02x, disable: 0x%02x\n",
+ 			  ifp->drvr->feat_flags,
+diff --git a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/pcie.c b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/pcie.c
+index 98671bf53..785a8f13c 100644
+--- a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/pcie.c
++++ b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/pcie.c
+@@ -74,6 +74,8 @@ BRCMF_FW_CLM_DEF(4378B1, "brcmfmac4378b1-pcie");
+ BRCMF_FW_CLM_DEF(4378B3, "brcmfmac4378b3-pcie");
+ BRCMF_FW_CLM_DEF(4387C2, "brcmfmac4387c2-pcie");
+ BRCMF_FW_CLM_DEF(4389C1, "brcmfmac4389c1-pcie");
++/* BCM4383 rev 2 (Pixel 9a): the owner's firmware set, with CLM and TXCAP blobs */
++BRCMF_FW_CLM_DEF(4383, "brcmfmac4383-pcie");
+ BRCMF_FW_CLM_DEF(54591, "brcmfmac54591-pcie");
+ 
+ /* firmware config files */
+@@ -116,6 +118,7 @@ static const struct brcmf_firmware_mapping brcmf_pcie_fwnames[] = {
+ 	BRCMF_FW_ENTRY(BRCM_CC_4378_CHIP_ID, 0xFFFFFFE0, 4378B3), /* revision ID 5 */
+ 	BRCMF_FW_ENTRY(BRCM_CC_4387_CHIP_ID, 0xFFFFFFFF, 4387C2), /* revision ID 7 */
+ 	BRCMF_FW_ENTRY(BRCM_CC_4389_CHIP_ID, 0xFFFFFFFF, 4389C1),
++	BRCMF_FW_ENTRY(BRCM_CC_4383_CHIP_ID, 0xFFFFFFFF, 4383),
+ };
+ 
+ #define BRCMF_PCIE_FW_UP_TIMEOUT		5000 /* msec */
+@@ -3515,6 +3518,7 @@ static const struct pci_device_id brcmf_pcie_devid_table[] = {
+ 	BRCMF_PCIE_DEVICE(BRCM_PCIE_4378_DEVICE_ID, WCC_SEED),
+ 	BRCMF_PCIE_DEVICE(BRCM_PCIE_4387_DEVICE_ID, WCC_SEED),
+ 	BRCMF_PCIE_DEVICE(BRCM_PCIE_4389_DEVICE_ID, WCC_SEED),
++	BRCMF_PCIE_DEVICE(BRCM_PCIE_4383_DEVICE_ID, WCC_SEED),
+ 	BRCMF_PCIE_DEVICE(BRCM_PCIE_43752_DEVICE_ID, WCC_SEED),
+ 	BRCMF_PCIE_DEVICE(CY_PCIE_54591_DEVICE_ID, CYW),
+ 	{ /* end: all zeroes */ }
+diff --git a/drivers/net/wireless/broadcom/brcm80211/include/brcm_hw_ids.h b/drivers/net/wireless/broadcom/brcm80211/include/brcm_hw_ids.h
+index bcb68ae6b..7cbe571c3 100644
+--- a/drivers/net/wireless/broadcom/brcm80211/include/brcm_hw_ids.h
++++ b/drivers/net/wireless/broadcom/brcm80211/include/brcm_hw_ids.h
+@@ -56,6 +56,7 @@
+ #define BRCM_CC_43752_CHIP_ID		43752
+ #define BRCM_CC_4377_CHIP_ID		0x4377
+ #define BRCM_CC_4378_CHIP_ID		0x4378
++#define BRCM_CC_4383_CHIP_ID		0x4383
+ #define BRCM_CC_4387_CHIP_ID		0x4387
+ #define BRCM_CC_4389_CHIP_ID		0x4389
+ #define CY_CC_4373_CHIP_ID		0x4373
+@@ -99,6 +100,7 @@
+ #define BRCM_PCIE_43752_DEVICE_ID	0x449d
+ #define BRCM_PCIE_4377_DEVICE_ID	0x4488
+ #define BRCM_PCIE_4378_DEVICE_ID	0x4425
++#define BRCM_PCIE_4383_DEVICE_ID	0x4449
+ #define BRCM_PCIE_4387_DEVICE_ID	0x4433
+ #define BRCM_PCIE_4389_DEVICE_ID	0x4441
+ #define CY_PCIE_54591_DEVICE_ID		0x4417

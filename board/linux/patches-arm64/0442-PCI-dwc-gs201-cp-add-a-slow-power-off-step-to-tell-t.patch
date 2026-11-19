@@ -1,0 +1,104 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Mon, 12 Oct 2026 20:13:12 -0400
+Subject: [PATCH] PCI: dwc: gs201-cp: add a slow power-off step to tell the
+ edges apart
+
+The UFS error that follows a modem power-off shows up 80-150 ms after
+the sequence starts, while stock's edges come 10-40 ms apart, so the
+timestamps cannot say which edge disturbs the UFS link. "cp_off_slow"
+drives the same lines in the same order with one second between edges;
+with trace_lines=1 each edge is logged, and the UFS error lines up with
+one of them.
+
+It is a diagnostic for a modem without firmware; cp_off stays stock's
+sequence.
+
+Assisted-by: LLM
+Signed-off-by: Derek Ross <derekross@gmail.com>
+---
+ drivers/pci/controller/dwc/pcie-gs201-cp.c | 28 ++++++++++++++--------
+ 1 file changed, 18 insertions(+), 10 deletions(-)
+
+diff --git a/drivers/pci/controller/dwc/pcie-gs201-cp.c b/drivers/pci/controller/dwc/pcie-gs201-cp.c
+index 6b79e7951..ffefa42b6 100644
+--- a/drivers/pci/controller/dwc/pcie-gs201-cp.c
++++ b/drivers/pci/controller/dwc/pcie-gs201-cp.c
+@@ -26,6 +26,9 @@
+  *   cp_on      modem power-on sequence on its control lines
+  *   cp_off     modem power-off sequence, as stock's (ap2cp-pda-active
+  *              stays as it is)
++ *   cp_off_slow
++ *              the same edges in the same order, 1 s apart, to tell which
++ *              one disturbs other links (UFS errors in M2.5)
+  *   pda_off    ap2cp-pda-active low, the level the bootloader leaves
+  *              (cp_on, cp_off and pda_off only while the "modem" child node is available; when
+  *              it is disabled, the modem driver owns the lines)
+@@ -142,6 +145,7 @@ MODULE_PARM_DESC(watch_lines, "Log every edge on the modem's cp2ap lines, with i
+ #define CP_LINK_TIMEOUT_US		48000
+ #define CP_LINK_TRIES			3
+ #define CP_SPEED_SETTLE_US		3000	/* Gen1 -> Gen3 change */
++#define CP_OFF_SLOW_GAP_MS		1000	/* cp_off_slow: between edges */
+ #define CP_L2_POLL_US			10
+ #define CP_L2_TIMEOUT_US		20000
+ 
+@@ -261,14 +265,15 @@ static void cp_line(struct gs201_pcie_cp *cp, enum cp_line l, int val,
+  * pda_off. M2.5 found every power-off followed by one recovered UFS error;
+  * this sequence used to end with pda-active low as well.
+  */
+-static void cp_power_off(struct gs201_pcie_cp *cp)
++static void cp_power_off(struct gs201_pcie_cp *cp, unsigned int gap_ms)
+ {
+-	dev_info(cp->dev, "modem power-off sequence\n");
++	dev_info(cp->dev, "modem power-off sequence%s\n",
++		 gap_ms ? " (slow)" : "");
+ 	cp_line(cp, CP_WAKEUP, 1, 10);
+-	cp_line(cp, CP_WAKEUP, 0, 0);
+-	cp_line(cp, CP_NRESET, 0, 0);
+-	cp_line(cp, CP_WRST_N, 0, 0);
+-	cp_line(cp, CP_PWR_ON, 0, 30);
++	cp_line(cp, CP_WAKEUP, 0, gap_ms);
++	cp_line(cp, CP_NRESET, 0, gap_ms);
++	cp_line(cp, CP_WRST_N, 0, gap_ms);
++	cp_line(cp, CP_PWR_ON, 0, gap_ms ?: 30);
+ 	cp_line(cp, CP_PM_WRST_N, 0, 50);
+ 	cp->cp_powered = false;
+ }
+@@ -278,7 +283,7 @@ static void cp_power_on(struct gs201_pcie_cp *cp)
+ {
+ 	cp_line(cp, CP_PDA_ACTIVE, 1, 0);
+ 	cp_line(cp, CP_DUMP_NOTI, 0, 0);
+-	cp_power_off(cp);
++	cp_power_off(cp, 0);
+ 	cp_line(cp, CP_PDA_ACTIVE, 1, 0);
+ 	dev_info(cp->dev, "modem power-on sequence\n");
+ 	cp_line(cp, CP_PM_WRST_N, 1, 10);
+@@ -1217,14 +1222,17 @@ static ssize_t cp_ctl_write(struct file *file, const char __user *ubuf,
+ 
+ 	mutex_lock(&cp->lock);
+ 	if (!strcmp(cmd, "cp_on") || !strcmp(cmd, "cp_off") ||
+-	    !strcmp(cmd, "pda_off")) {
++	    !strcmp(cmd, "cp_off_slow") || !strcmp(cmd, "pda_off")) {
+ 		if (!cp->has_lines) {
+ 			ret = -ENODEV;	/* the modem driver owns the lines */
+ 		} else if (!strcmp(cmd, "cp_on")) {
+ 			cp_power_on(cp);
+ 		} else if (!strcmp(cmd, "cp_off")) {
+ 			cp_link_down(cp);
+-			cp_power_off(cp);
++			cp_power_off(cp, 0);
++		} else if (!strcmp(cmd, "cp_off_slow")) {
++			cp_link_down(cp);
++			cp_power_off(cp, CP_OFF_SLOW_GAP_MS);
+ 		} else if (cp->cp_powered) {
+ 			ret = -EBUSY;	/* pda_off is for a modem that is off */
+ 		} else {
+@@ -1526,7 +1534,7 @@ static void gs201_pcie_cp_remove(struct platform_device *pdev)
+ 		cp->msi_ready = false;
+ 	}
+ 	if (cp->cp_powered)
+-		cp_power_off(cp);
++		cp_power_off(cp, 0);
+ 	if (cp->has_lines)
+ 		cp_line(cp, CP_PDA_ACTIVE, 0, 0);
+ 	mutex_unlock(&cp->lock);

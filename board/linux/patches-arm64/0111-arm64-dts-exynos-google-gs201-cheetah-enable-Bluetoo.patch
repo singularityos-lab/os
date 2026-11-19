@@ -1,0 +1,88 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Wed, 14 Oct 2026 21:05:26 -0400
+Subject: [PATCH] arm64: dts: exynos: google: gs201-cheetah: enable Bluetooth
+
+The BCM4389's Bluetooth core sits on the APM USI1 UART. BT_REG_ON is
+gpp16-2 and BT_DEV_WAKE gpp16-3, both active high; HOST_WAKE is gpa6-6,
+active high (rising edge to hci_bcm). BT_REG_ON is separate from Wi-Fi's
+WL_REG_ON (gph2-4), so Bluetooth powers up on its own. Run the link at
+3 Mbaud. Pins and polarities are from the stock device tree.
+
+Tested on the phone: the CMU_APM UART clocks, the UART at 3 Mbaud, the
+firmware patch and a scan all work. Enable the clock controller, the
+USI, the UART and the controller node.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ .../boot/dts/exynos/google/gs201-cheetah.dts  | 57 +++++++++++++++++++
+ 1 file changed, 57 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts b/arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts
+index f94dbf485..8a87ffc50 100644
+--- a/arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts
++++ b/arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts
+@@ -529,6 +529,63 @@ typec_int: typec-int-pins {
+ 	};
+ };
+ 
++/*
++ * Bluetooth: the BCM4389 BT core on the APM USI1 UART (ttySAC18 in
++ * Google's kernel). Tested on the phone (BLUETOOTH-PLAN.md BT1-BT3): the
++ * UART clocks come from a read-only CMU_APM subset, and BT_REG_ON and
++ * BT_DEV_WAKE are on PERIC0's gpp16. BT_REG_ON is separate from Wi-Fi's
++ * WL_REG_ON (gph2-4), so Bluetooth powers up alone.
++ */
++&cmu_apm {
++	status = "okay";
++};
++
++&usi_apm1 {
++	status = "okay";
++};
++
++&serial_apm1 {
++	status = "okay";
++
++	bluetooth {
++		compatible = "brcm,bcm4389-bt";
++		shutdown-gpios = <&gpp16 2 GPIO_ACTIVE_HIGH>;
++		device-wakeup-gpios = <&gpp16 3 GPIO_ACTIVE_HIGH>;
++		interrupts-extended = <&gpa6 6 IRQ_TYPE_EDGE_RISING>;
++		interrupt-names = "host-wakeup";
++		pinctrl-0 = <&bt_reg_on &bt_dev_wake &bt_host_wake>;
++		pinctrl-names = "default";
++		max-speed = <3000000>;
++	};
++};
++
++&pinctrl_peric0 {
++	status = "okay";
++
++	bt_reg_on: bt-reg-on-pins {
++		samsung,pins = "gpp16-2";
++		samsung,pin-function = <GS101_PIN_FUNC_OUTPUT>;
++		samsung,pin-pud = <GS101_PIN_PULL_NONE>;
++		samsung,pin-drv = <GS101_PIN_DRV_2_5_MA>;
++	};
++
++	bt_dev_wake: bt-dev-wake-pins {
++		samsung,pins = "gpp16-3";
++		samsung,pin-function = <GS101_PIN_FUNC_OUTPUT>;
++		samsung,pin-pud = <GS101_PIN_PULL_NONE>;
++		samsung,pin-drv = <GS101_PIN_DRV_2_5_MA>;
++	};
++};
++
++&pinctrl_far_alive {
++	bt_host_wake: bt-host-wake-pins {
++		samsung,pins = "gpa6-6";
++		samsung,pin-function = <GS101_PIN_FUNC_EINT>;
++		samsung,pin-pud = <GS101_PIN_PULL_DOWN>;
++		samsung,pin-drv = <GS101_PIN_DRV_2_5_MA>;
++	};
++};
++
+ /*
+  * Camera power (CAMERA-PLAN.md 1.2), from Google's GPL pantah camera PMIC
+  * device tree: two fixed supplies switched by S2MPG13 GPIOs feed the

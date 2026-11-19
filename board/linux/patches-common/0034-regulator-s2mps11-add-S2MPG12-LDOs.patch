@@ -1,0 +1,126 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: boozedog <code@booze.dog>
+Date: Thu, 22 Oct 2026 21:35:08 -0400
+Subject: [PATCH] regulator: s2mps11: add S2MPG12 LDOs
+
+Describe the 28 LDOs of the gs201 main PMIC, from Google's GPL
+s2mpg12-regulator.c. Most enable from their own control register.
+LDO7M, LDO11M-LDO13M, LDO15M, LDO17M, LDO19M and LDO22M enable from
+LDO_CTRL1 or LDO_CTRL2. A two-bit enable field is an operating mode,
+and on is 0b11.
+
+A rail without a device tree node gets no constraints, so the core
+never switches it.
+
+Signed-off-by: boozedog <code@booze.dog>
+---
+ drivers/regulator/s2mps11.c | 75 +++++++++++++++++++++++++++++++++++++
+ 1 file changed, 75 insertions(+)
+
+diff --git a/drivers/regulator/s2mps11.c b/drivers/regulator/s2mps11.c
+index 84a32854d..872ea1693 100644
+--- a/drivers/regulator/s2mps11.c
++++ b/drivers/regulator/s2mps11.c
+@@ -19,6 +19,7 @@
+ #include <linux/mfd/samsung/core.h>
+ #include <linux/mfd/samsung/s2mpg10.h>
+ #include <linux/mfd/samsung/s2mpg11.h>
++#include <linux/mfd/samsung/s2mpg12.h>
+ #include <linux/mfd/samsung/s2mpg13.h>
+ #include <linux/mfd/samsung/s2mps11.h>
+ #include <linux/mfd/samsung/s2mps13.h>
+@@ -2169,6 +2170,74 @@ static const struct regulator_desc s2mpg13_regulators[] = {
+ 	regulator_desc_s2mpg13_ldo_own(28, 7, BIT(7)),
+ };
+ 
++/*
++ * S2MPG12 (gs201 main PMIC) LDOs, from Google's GPL s2mpg12-regulator.c.
++ * Bucks are not described. Most LDOs enable from their own control
++ * register. LDO7M, LDO11M-LDO13M, LDO15M, LDO17M, LDO19M and LDO22M
++ * enable from LDO_CTRL1 or LDO_CTRL2. A two-bit enable field is an
++ * operating mode, and "on" is 0b11. Rails with no DT node get no
++ * constraints, so the core never switches them.
++ */
++static const struct regulator_ops s2mpg12_ldo_ops = {
++	.list_voltage		= regulator_list_voltage_linear,
++	.map_voltage		= regulator_map_voltage_linear,
++	.is_enabled		= regulator_is_enabled_regmap,
++	.enable			= regulator_enable_regmap,
++	.disable		= regulator_disable_regmap,
++	.get_voltage_sel	= regulator_get_voltage_sel_regmap,
++	.set_voltage_sel	= regulator_set_voltage_sel_regmap,
++};
++
++#define regulator_desc_s2mpg12_ldo(_num, _g, _nvolt, _vsel, _en, _en_mask) { \
++	.name		= "ldo"#_num"m",					\
++	.id		= S2MPG12_LDO##_num,					\
++	.of_match	= of_match_ptr("ldo"#_num"m"),				\
++	.regulators_node = of_match_ptr("regulators"),				\
++	.ops		= &s2mpg12_ldo_ops,					\
++	.type		= REGULATOR_VOLTAGE,					\
++	.owner		= THIS_MODULE,						\
++	.min_uV		= S2MPG12_LDO_MIN_G##_g,				\
++	.uV_step	= S2MPG12_LDO_STEP_G##_g,				\
++	.n_voltages	= _nvolt,						\
++	.vsel_reg	= S2MPG12_PMIC_##_vsel,					\
++	.vsel_mask	= (_nvolt) - 1,						\
++	.enable_reg	= S2MPG12_PMIC_##_en,					\
++	.enable_mask	= _en_mask,						\
++	.enable_val	= _en_mask,						\
++	.enable_time	= S2MPG12_LDO_ENABLE_TIME,				\
++}
++
++static const struct regulator_desc s2mpg12_regulators[] = {
++	regulator_desc_s2mpg12_ldo(1, 2, 128, L1M_CTRL, L1M_CTRL, BIT(7)),
++	regulator_desc_s2mpg12_ldo(2, 4, 64, L2M_CTRL, L2M_CTRL, BIT(7)),
++	regulator_desc_s2mpg12_ldo(3, 2, 128, L3M_CTRL, L3M_CTRL, BIT(7)),
++	regulator_desc_s2mpg12_ldo(4, 4, 64, L4M_CTRL, L4M_CTRL, GENMASK(7, 6)),
++	regulator_desc_s2mpg12_ldo(5, 3, 64, L5M_CTRL, L5M_CTRL, GENMASK(7, 6)),
++	regulator_desc_s2mpg12_ldo(6, 3, 64, L6M_CTRL, L6M_CTRL, GENMASK(7, 6)),
++	regulator_desc_s2mpg12_ldo(7, 2, 128, L7M_CTRL, LDO_CTRL1, GENMASK(1, 0)),
++	regulator_desc_s2mpg12_ldo(8, 3, 64, L8M_CTRL, L8M_CTRL, GENMASK(7, 6)),
++	regulator_desc_s2mpg12_ldo(9, 4, 64, L9M_CTRL, L9M_CTRL, GENMASK(7, 6)),
++	regulator_desc_s2mpg12_ldo(10, 5, 64, L10M_CTRL, L10M_CTRL, GENMASK(7, 6)),
++	regulator_desc_s2mpg12_ldo(11, 2, 128, L11M_CTRL1, LDO_CTRL1, GENMASK(3, 2)),
++	regulator_desc_s2mpg12_ldo(12, 2, 128, L12M_CTRL1, LDO_CTRL1, GENMASK(5, 4)),
++	regulator_desc_s2mpg12_ldo(13, 2, 128, L13M_CTRL1, LDO_CTRL1, GENMASK(7, 6)),
++	regulator_desc_s2mpg12_ldo(14, 4, 64, L14M_CTRL, L14M_CTRL, GENMASK(7, 6)),
++	regulator_desc_s2mpg12_ldo(15, 2, 128, L15M_CTRL1, LDO_CTRL2, GENMASK(1, 0)),
++	regulator_desc_s2mpg12_ldo(16, 3, 64, L16M_CTRL, L16M_CTRL, GENMASK(7, 6)),
++	regulator_desc_s2mpg12_ldo(17, 2, 128, L17M_CTRL, LDO_CTRL2, GENMASK(3, 2)),
++	regulator_desc_s2mpg12_ldo(18, 4, 64, L18M_CTRL, L18M_CTRL, GENMASK(7, 6)),
++	regulator_desc_s2mpg12_ldo(19, 2, 128, L19M_CTRL, LDO_CTRL2, GENMASK(5, 4)),
++	regulator_desc_s2mpg12_ldo(20, 4, 64, L20M_CTRL, L20M_CTRL, GENMASK(7, 6)),
++	regulator_desc_s2mpg12_ldo(21, 5, 64, L21M_CTRL, L21M_CTRL, BIT(7)),
++	regulator_desc_s2mpg12_ldo(22, 2, 128, L22M_CTRL, LDO_CTRL2, GENMASK(7, 6)),
++	regulator_desc_s2mpg12_ldo(23, 4, 64, L23M_CTRL, L23M_CTRL, GENMASK(7, 6)),
++	regulator_desc_s2mpg12_ldo(24, 4, 64, L24M_CTRL, L24M_CTRL, BIT(7)),
++	regulator_desc_s2mpg12_ldo(25, 4, 64, L25M_CTRL, L25M_CTRL, BIT(7)),
++	regulator_desc_s2mpg12_ldo(26, 5, 64, L26M_CTRL, L26M_CTRL, GENMASK(7, 6)),
++	regulator_desc_s2mpg12_ldo(27, 5, 64, L27M_CTRL, L27M_CTRL, BIT(7)),
++	regulator_desc_s2mpg12_ldo(28, 3, 64, L28M_CTRL, L28M_CTRL, BIT(7)),
++};
++
+ static const struct regulator_desc s2mpu05_regulators[] = {
+ 	regulator_desc_s2mpu05_ldo4(1, CTRL),
+ 	regulator_desc_s2mpu05_ldo3(2, CTRL),
+@@ -2259,6 +2328,11 @@ static int s2mps11_pmic_probe(struct platform_device *pdev)
+ 		s2mpg1x_regulators = s2mpg11_regulators;
+ 		BUILD_BUG_ON(ARRAY_SIZE(s2mpg11_regulators) > S2MPS_REGULATOR_MAX);
+ 		break;
++	case S2MPG12:
++		rdev_num = ARRAY_SIZE(s2mpg12_regulators);
++		regulators = s2mpg12_regulators;
++		BUILD_BUG_ON(ARRAY_SIZE(s2mpg12_regulators) > S2MPS_REGULATOR_MAX);
++		break;
+ 	case S2MPG13:
+ 		rdev_num = ARRAY_SIZE(s2mpg13_regulators);
+ 		regulators = s2mpg13_regulators;
+@@ -2345,6 +2419,7 @@ static int s2mps11_pmic_probe(struct platform_device *pdev)
+ static const struct platform_device_id s2mps11_pmic_id[] = {
+ 	{ .name = "s2mpg10-regulator", .driver_data = S2MPG10 },
+ 	{ .name = "s2mpg11-regulator", .driver_data = S2MPG11 },
++	{ .name = "s2mpg12-regulator", .driver_data = S2MPG12 },
+ 	{ .name = "s2mpg13-regulator", .driver_data = S2MPG13 },
+ 	{ .name = "s2mps11-regulator", .driver_data = S2MPS11X },
+ 	{ .name = "s2mps13-regulator", .driver_data = S2MPS13X },

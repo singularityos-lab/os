@@ -1,0 +1,27 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Mon, 12 Oct 2026 13:59:15 -0400
+Subject: [PATCH] dt-bindings: soc: samsung: exynos-sysreg: add gs201 HSI1
+
+The HSI1 system registers of Google's gs201 hold the PCIe GEN4A_0
+shareability (I/O coherency) control. There is no CMU_HSI1 driver yet, so
+it is listed without a required bus clock.
+
+Assisted-by: LLM
+Signed-off-by: Derek Ross <derekross@gmail.com>
+---
+ .../devicetree/bindings/soc/samsung/samsung,exynos-sysreg.yaml   | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/Documentation/devicetree/bindings/soc/samsung/samsung,exynos-sysreg.yaml b/Documentation/devicetree/bindings/soc/samsung/samsung,exynos-sysreg.yaml
+index 8cb6ce85d..6c33a6194 100644
+--- a/Documentation/devicetree/bindings/soc/samsung/samsung,exynos-sysreg.yaml
++++ b/Documentation/devicetree/bindings/soc/samsung/samsung,exynos-sysreg.yaml
+@@ -23,6 +23,7 @@ properties:
+               - google,gs101-peric1-sysreg
+               - google,gs201-apm-sysreg
+               - google,gs201-csis-sysreg
++              - google,gs201-hsi1-sysreg
+               - google,gs201-hsi2-sysreg
+               - google,gs201-peric0-sysreg
+               - google,gs201-peric1-sysreg

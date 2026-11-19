@@ -1,0 +1,206 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: saiththerobo <the.tom.sharp@gmail.com>
+Date: Wed, 14 Oct 2026 22:18:19 +0100
+Subject: [PATCH] thermal: samsung: add gs101 sensors read through ACPM
+
+On gs101 the TMU belongs to the APM, and the kernel reads temperatures
+from the ACPM firmware on its TMU channel (9). The firmware operations
+are upstream (exynos-acpm-tmu.c) but nothing used them. Register an OF
+thermal zone for each of the six sensors (BIG, MID, LITTLE, G3D, ISP,
+TPU; numbering from Google's gs101 device tree) and poll them. No
+thresholds or interrupts are programmed: the firmware's own hardware
+trips stay as the bootloader set them.
+
+What the firmware's ACPM_TMU_INIT does to those trips was checked on raven
+(7.3.0-rc6-omamobile-push1-g1de37d2bef30, a NOT FOR MERGE debug build
+adding Google's TMU_IPC_REG_READ): both TMUs' CONTROL, CONTROL1,
+PROBE_EN_CON, SAMPLING_INTERVAL and EMUL_CON, and every probe's
+THRESHOLD_TEMP_RISE and INTEN registers, 170 in all, read back identical
+before and after INIT, every read through the firmware succeeding. INIT
+leaves the bootloader's trip setup alone.
+
+The channel comes from match data: gs201's ACPM serves its TMU on
+channel 9 too, so another SoC needs only an entry.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Signed-off-by: saiththerobo <the.tom.sharp@gmail.com>
+---
+ MAINTAINERS                              |   1 +
+ drivers/thermal/samsung/Kconfig          |  13 +++
+ drivers/thermal/samsung/Makefile         |   1 +
+ drivers/thermal/samsung/gs101_acpm_tmu.c | 124 +++++++++++++++++++++++
+ 4 files changed, 139 insertions(+)
+ create mode 100644 drivers/thermal/samsung/gs101_acpm_tmu.c
+
+diff --git a/MAINTAINERS b/MAINTAINERS
+index 8a5eef8c2..9b42349d3 100644
+--- a/MAINTAINERS
++++ b/MAINTAINERS
+@@ -11172,6 +11172,7 @@ F:	drivers/phy/phy-google-usb.c
+ F:	drivers/soc/samsung/gs101-pmu.c
+ F:	drivers/phy/samsung/phy-gs101-ufs.c
+ F:	drivers/phy/samsung/phy-zumapro-ufs.c
++F:	drivers/thermal/samsung/gs101_acpm_tmu.c
+ F:	drivers/usb/dwc3/dwc3-google.c
+ F:	include/dt-bindings/clock/google,gs101*
+ F:	include/dt-bindings/clock/google,gs201*
+diff --git a/drivers/thermal/samsung/Kconfig b/drivers/thermal/samsung/Kconfig
+index e1e8035d2..0ec58c797 100644
+--- a/drivers/thermal/samsung/Kconfig
++++ b/drivers/thermal/samsung/Kconfig
+@@ -10,3 +10,16 @@ config EXYNOS_THERMAL
+ 	  the TMU, reports temperature and handles cooling action if defined.
+ 	  This driver uses the Exynos core thermal APIs and TMU configuration
+ 	  data from the supported SoCs.
++
++config GS101_ACPM_THERMAL
++	tristate "Google gs101 thermal sensors through ACPM"
++	depends on THERMAL_OF
++	depends on EXYNOS_ACPM_PROTOCOL
++	help
++	  Thermal zones for the gs101 TMU sensors (CPU clusters, GPU, ISP,
++	  TPU), read from the ACPM firmware that owns the TMU. On gs101 the
++	  APM owns the TMU registers, so the temperatures come from ACPM's
++	  TMU channel. The driver only reads; the firmware's own hardware
++	  trips stay as the bootloader left them.
++
++	  Say Y or M here on Google gs101 (Pixel 6) devices.
+diff --git a/drivers/thermal/samsung/Makefile b/drivers/thermal/samsung/Makefile
+index f13940715..ec312f206 100644
+--- a/drivers/thermal/samsung/Makefile
++++ b/drivers/thermal/samsung/Makefile
+@@ -4,3 +4,4 @@
+ #
+ obj-$(CONFIG_EXYNOS_THERMAL)			+= exynos_thermal.o
+ exynos_thermal-y				:= exynos_tmu.o
++obj-$(CONFIG_GS101_ACPM_THERMAL)		+= gs101_acpm_tmu.o
+diff --git a/drivers/thermal/samsung/gs101_acpm_tmu.c b/drivers/thermal/samsung/gs101_acpm_tmu.c
+new file mode 100644
+index 000000000..82a391657
+--- /dev/null
++++ b/drivers/thermal/samsung/gs101_acpm_tmu.c
+@@ -0,0 +1,124 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * Google gs101 thermal sensors through the ACPM firmware (APM).
++ *
++ * On gs101 the TMU belongs to the APM: the kernel asks the ACPM firmware for
++ * temperatures over its TMU channel instead of touching the TMU registers.
++ * This driver only reads and polls; it programs no thresholds and no
++ * interrupts, so the firmware's own hardware trips stay as the bootloader
++ * left them.
++ */
++
++#include <linux/err.h>
++#include <linux/firmware/samsung/exynos-acpm-protocol.h>
++#include <linux/module.h>
++#include <linux/of.h>
++#include <linux/platform_device.h>
++#include <linux/thermal.h>
++
++/* The sensors: BIG, MID, LITTLE, G3D, ISP, TPU */
++#define GS101_ACPM_TMU_SENSORS	6
++
++struct gs101_tmu_data {
++	unsigned int acpm_chan;		/* ACPM channel of the TMU service */
++};
++
++struct gs101_tmu;
++
++struct gs101_tmu_sensor {
++	struct gs101_tmu *tmu;
++	u8 id;
++};
++
++struct gs101_tmu {
++	struct acpm_handle *handle;
++	unsigned int acpm_chan;
++	struct gs101_tmu_sensor sensors[GS101_ACPM_TMU_SENSORS];
++};
++
++static int gs101_tmu_get_temp(struct thermal_zone_device *tz, int *temp)
++{
++	struct gs101_tmu_sensor *sensor = thermal_zone_device_priv(tz);
++	struct acpm_handle *handle = sensor->tmu->handle;
++	int celsius, ret;
++
++	ret = handle->ops->tmu.read_temp(handle, sensor->tmu->acpm_chan,
++					 sensor->id, &celsius);
++	if (ret)
++		return ret;
++
++	*temp = celsius * 1000;
++	return 0;
++}
++
++static const struct thermal_zone_device_ops gs101_tmu_ops = {
++	.get_temp = gs101_tmu_get_temp,
++};
++
++static int gs101_tmu_probe(struct platform_device *pdev)
++{
++	struct device *dev = &pdev->dev;
++	const struct gs101_tmu_data *data;
++	struct thermal_zone_device *tz;
++	struct gs101_tmu *tmu;
++	int i, ret, zones = 0;
++
++	data = of_device_get_match_data(dev);
++	if (!data)
++		return -ENODEV;
++
++	tmu = devm_kzalloc(dev, sizeof(*tmu), GFP_KERNEL);
++	if (!tmu)
++		return -ENOMEM;
++	tmu->acpm_chan = data->acpm_chan;
++
++	tmu->handle = devm_acpm_get_by_node(dev, dev->parent->of_node);
++	if (IS_ERR(tmu->handle))
++		return dev_err_probe(dev, PTR_ERR(tmu->handle),
++				     "failed to get the ACPM handle\n");
++
++	ret = tmu->handle->ops->tmu.init(tmu->handle, tmu->acpm_chan);
++	if (ret)
++		return dev_err_probe(dev, ret, "ACPM TMU init failed\n");
++
++	for (i = 0; i < GS101_ACPM_TMU_SENSORS; i++) {
++		tmu->sensors[i].tmu = tmu;
++		tmu->sensors[i].id = i;
++
++		tz = devm_thermal_of_zone_register(dev, i, &tmu->sensors[i],
++						   &gs101_tmu_ops);
++		if (IS_ERR(tz)) {
++			/* A sensor without a thermal zone in the DT */
++			if (PTR_ERR(tz) == -ENODEV)
++				continue;
++			return dev_err_probe(dev, PTR_ERR(tz),
++					     "sensor %d: no thermal zone\n", i);
++		}
++		zones++;
++	}
++
++	dev_info(dev, "%d thermal zones\n", zones);
++	return 0;
++}
++
++static const struct gs101_tmu_data gs101_tmu_data = {
++	.acpm_chan = 9,
++};
++
++static const struct of_device_id gs101_tmu_of_match[] = {
++	{ .compatible = "google,gs101-acpm-tmu", .data = &gs101_tmu_data },
++	{ }
++};
++MODULE_DEVICE_TABLE(of, gs101_tmu_of_match);
++
++static struct platform_driver gs101_tmu_driver = {
++	.probe = gs101_tmu_probe,
++	.driver = {
++		.name = "gs101-acpm-tmu",
++		.of_match_table = gs101_tmu_of_match,
++	},
++};
++module_platform_driver(gs101_tmu_driver);
++
++MODULE_DESCRIPTION("Google gs101 thermal sensors through ACPM");
++MODULE_LICENSE("GPL");

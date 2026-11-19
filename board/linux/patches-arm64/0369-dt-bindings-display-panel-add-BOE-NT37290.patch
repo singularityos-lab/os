@@ -1,0 +1,92 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Adrian Schupp <as@satware.com>
+Date: Sun, 1 Nov 2026 17:54:19 +0100
+Subject: [PATCH] dt-bindings: display: panel: add BOE NT37290
+
+checkpatch flags the boe,nt37290 compatible as undocumented. Add the
+schema, modeled on samsung,s6e3hc4: the same Pixel 7 Pro panel hardware
+(1440x3120 command-mode AMOLED, four DSI lanes, TE line), BOE DDIC
+variant. The panel variant on a device is named by the bootloader on
+the kernel command line, not by the DT.
+
+Signed-off-by: Adrian Schupp <as@satware.com>
+Assisted-by: LLM opencode
+---
+ .../bindings/display/panel/boe,nt37290.yaml   | 68 +++++++++++++++++++
+ 1 file changed, 68 insertions(+)
+ create mode 100644 Documentation/devicetree/bindings/display/panel/boe,nt37290.yaml
+
+diff --git a/Documentation/devicetree/bindings/display/panel/boe,nt37290.yaml b/Documentation/devicetree/bindings/display/panel/boe,nt37290.yaml
+new file mode 100644
+index 000000000..e4e3971d7
+--- /dev/null
++++ b/Documentation/devicetree/bindings/display/panel/boe,nt37290.yaml
+@@ -0,0 +1,68 @@
++# SPDX-License-Identifier: GPL-2.0-only OR BSD-2-Clause
++%YAML 1.2
++---
++$id: http://devicetree.org/schemas/display/panel/boe,nt37290.yaml#
++$schema: http://devicetree.org/meta-schemas/core.yaml#
++
++title: BOE NT37290 AMOLED DSI panel
++
++description:
++  The NT37290 is a display driver IC from BOE Technology Group, driving
++  the 1440x3120 command-mode AMOLED panel of BOE-variant Google Pixel 7
++  Pro units. The panel takes DSC-compressed pixel data over four MIPI
++  DSI lanes and reports its refresh timing on a tearing effect (TE)
++  line. The panel variant on a given device is named by the bootloader
++  on the kernel command line.
++
++maintainers:
++  - Derek Ross <derekross@gmail.com>
++
++allOf:
++  - $ref: panel-common.yaml#
++
++properties:
++  compatible:
++    const: boe,nt37290
++
++  reg:
++    maxItems: 1
++
++  reset-gpios: true
++
++  vddi-supply:
++    description: I/O supply (1.8 V)
++
++  vddd-supply:
++    description: Digital core supply (1.125 V)
++
++  vci-supply:
++    description: Analog supply (3.0 V)
++
++required:
++  - compatible
++  - reg
++  - reset-gpios
++
++unevaluatedProperties: false
++
++examples:
++  - |
++    #include <dt-bindings/gpio/gpio.h>
++
++    dsi {
++        #address-cells = <1>;
++        #size-cells = <0>;
++
++        panel@0 {
++            compatible = "boe,nt37290";
++            reg = <0>;
++            reset-gpios = <&gpa7 1 GPIO_ACTIVE_LOW>;
++            vddi-supply = <&vddi>;
++            vddd-supply = <&vddd>;
++            vci-supply = <&vci>;
++            width-mm = <71>;
++            height-mm = <155>;
++        };
++    };
++
++...

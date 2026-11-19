@@ -1,0 +1,72 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: saiththerobo <the.tom.sharp@gmail.com>
+Date: Wed, 28 Oct 2026 07:13:01 +0000
+Subject: [PATCH] arm64: dts: exynos: google: gs101-raven: describe the battery
+ for the charger
+
+The MAX77759 charger cell takes its float voltage and fast charge
+current from the PMIC's monitored-battery. Without one it uses its
+defaults, 4.3 V and 2.27 A: below the 4.45 V the battery is charged to
+on the stock phone, and above the 0.3 C (1.47 A) the stock step-charging
+table allows at 10-20 degC.
+
+Add a simple-battery with the stock values: the capacity from
+google,chg-battery-capacity (4905 mAh), the float voltage from
+google,fv-max-uv (4.45 V, the top of google,chg-cv-limits), and as the
+fast charge current the lowest google,chg-cc-limits entry from 10 to
+46 degC, 0.3 C, rounded down to a charger selector (1466730 uA). This
+is what gs201-cheetah does.
+
+The bootloader leaves the charger at 4.35 V and 1.93 A (read on raven,
+CHG_CNFG_04 0x23, CHG_CNFG_02 0x1d), so the battery stopped charging
+short of full.
+
+Tested on raven (7.3.0-rc6) with max77759_charger loaded with
+default_ilim_ua=500000 temp_guard=1: the charger probed at 4450 mV and
+1466730 uA from this node, and a wall charger still charged at 1.2-1.4 A
+into the battery (the chip keeps choosing its own input current). The
+guard read the gauge (band 20-42 C) and stopped charging within its 30 s
+check when the gauge's reading went away. The phone loads it this way
+at every boot since 2026-10-28.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Signed-off-by: saiththerobo <the.tom.sharp@gmail.com>
+---
+ .../boot/dts/exynos/google/gs101-raven.dts    | 20 +++++++++++++++++++
+ 1 file changed, 20 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/gs101-raven.dts b/arch/arm64/boot/dts/exynos/google/gs101-raven.dts
+index 7d1de1105..1f4f95779 100644
+--- a/arch/arm64/boot/dts/exynos/google/gs101-raven.dts
++++ b/arch/arm64/boot/dts/exynos/google/gs101-raven.dts
+@@ -28,6 +28,21 @@ chosen {
+ 		 */
+ 		bootargs = "console=tty0 panic=10 clk_ignore_unused rdinit=/init";
+ 	};
++
++	battery: battery {
++		compatible = "simple-battery";
++		/* google,chg-battery-capacity */
++		charge-full-design-microamp-hours = <4905000>;
++		/*
++		 * Charger limits without Google's step charging: the float
++		 * voltage is google,fv-max-uv, the top of google,chg-cv-limits
++		 * (4.2/4.3/4.45 V). The fast charge current is 0.3 C, the
++		 * lowest google,chg-cc-limits entry at any voltage tier from
++		 * 10 to 46 degC, rounded down to a charger selector (0x16).
++		 */
++		constant-charge-voltage-max-microvolt = <4450000>;
++		constant-charge-current-max-microamp = <1466730>;
++	};
+ };
+ 
+ &acpm_ipc {
+@@ -277,3 +292,8 @@ ramoops@fd3ff000 {
+ 		pmsg-size = <0x200000>;
+ 	};
+ };
++
++&pmic {
++	/* for the charger cell */
++	monitored-battery = <&battery>;
++};

@@ -1,0 +1,80 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Sun, 18 Oct 2026 21:17:36 -0400
+Subject: [PATCH] power: supply: max17042_battery: infer the status when no
+ supplier is described
+
+When no power supply is described as supplying the battery,
+power_supply_am_i_supplied() returns -ENODEV and the driver reports
+POWER_SUPPLY_STATUS_UNKNOWN, even though the gauge measures the battery
+current itself.
+
+That is the case on the Pixel 7 Pro, where the charger is left running
+by the bootloader and no charger driver is bound yet. The battery read
+"Unknown" while taking in 1.2 A, so the desktop showed no charging
+indicator and upower treated the phone as discharging: at its critical
+percentage it put a charging phone to sleep.
+
+When no supplier is described and current sense is enabled, take the
+status from the measured current: charging while current flows into the
+battery, full when the gauge reports end of charge and no current flows,
+discharging otherwise. A described supplier keeps the existing logic, and
+without current sense the status stays unknown.
+---
+ drivers/power/supply/max17042_battery.c | 21 ++++++++++++++++-----
+ 1 file changed, 16 insertions(+), 5 deletions(-)
+
+diff --git a/drivers/power/supply/max17042_battery.c b/drivers/power/supply/max17042_battery.c
+index 50b735c4f..78482ef18 100644
+--- a/drivers/power/supply/max17042_battery.c
++++ b/drivers/power/supply/max17042_battery.c
+@@ -198,18 +198,26 @@ static int max17042_get_status(struct max17042_chip *chip, int *status)
+ {
+ 	int ret, charge_full, charge_now;
+ 	int current_now;
++	bool supplied, full;
+ 	u32 data;
+ 
+ 	ret = power_supply_am_i_supplied(chip->battery);
+-	if (ret < 0) {
+-		*status = POWER_SUPPLY_STATUS_UNKNOWN;
+-		return 0;
+-	}
+ 	if (ret == 0) {
+ 		*status = POWER_SUPPLY_STATUS_DISCHARGING;
+ 		return 0;
+ 	}
+ 
++	/*
++	 * A negative value means no supplier is described, e.g. a charger the
++	 * bootloader left running that no driver owns. The gauge's own current
++	 * sense still tells which way charge flows, so use it when it's there.
++	 */
++	supplied = ret > 0;
++	if (!supplied && !chip->enable_current_sense) {
++		*status = POWER_SUPPLY_STATUS_UNKNOWN;
++		return 0;
++	}
++
+ 	/*
+ 	 * The MAX170xx has builtin end-of-charge detection and will update
+ 	 * FullCAP to match RepCap when it detects end of charging.
+@@ -228,7 +236,8 @@ static int max17042_get_status(struct max17042_chip *chip, int *status)
+ 	if (ret < 0)
+ 		return ret;
+ 
+-	if ((charge_full - charge_now) <= MAX17042_FULL_THRESHOLD) {
++	full = (charge_full - charge_now) <= MAX17042_FULL_THRESHOLD;
++	if (supplied && full) {
+ 		*status = POWER_SUPPLY_STATUS_FULL;
+ 		return 0;
+ 	}
+@@ -250,6 +259,8 @@ static int max17042_get_status(struct max17042_chip *chip, int *status)
+ 
+ 	if (current_now > 0)
+ 		*status = POWER_SUPPLY_STATUS_CHARGING;
++	else if (full && current_now == 0)
++		*status = POWER_SUPPLY_STATUS_FULL;
+ 	else
+ 		*status = POWER_SUPPLY_STATUS_DISCHARGING;
+ 

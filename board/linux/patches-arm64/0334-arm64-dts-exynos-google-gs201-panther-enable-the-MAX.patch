@@ -1,0 +1,70 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Alejandro Garcia <skipper.pelygro@gmail.com>
+Date: Thu, 29 Oct 2026 04:58:02 -0700
+Subject: [PATCH] arm64: dts: exynos: google: gs201-panther: enable the
+ MAX77759's I2C bus
+
+Enable USI13 as I2C at 400 kHz, as the Pixel 7 Pro does: the MAX77759
+(Type-C port controller at 0x25, PMIC at 0x66, fuel gauge at 0x36,
+charger at 0x69) sits there, on gpp25-0/1, in the Pixel 7's live device
+tree too. Its devices stay undescribed for now: the Type-C port
+controller would take over VBUS and the data role from the forced-VBUS
+setup the USB PHY uses, and the USB link is the only way into the
+phone.
+
+With the bus up, user space can close the MAX77759's USB2 data switch
+after a replug (TCPC vendor register 0x93), which the chip opens on
+unplug; until a Type-C driver owns it, nothing else does, and the phone
+stays off the bus.
+
+Tested on a Pixel 7 from slot B (7.3.0-rc6), with the touchscreen, GPU
+and haptics: the bus probes as i2c-1, the TCPC's USBSW_CTRL reads 0x09
+and the charger's CHG_DETAILS_00 0x60 (VBUS valid). After an unplug the
+switch read 0x00; omamobile-usb-rescue set it back to 0x09 and USB
+networking came back by itself, with no I2C errors.
+
+Assisted-by: Claude Opus 5.5
+Signed-off-by: Alejandro Garcia <skipper.pelygro@gmail.com>
+---
+ .../boot/dts/exynos/google/gs201-panther.dts  | 21 +++++++++++++++++--
+ 1 file changed, 19 insertions(+), 2 deletions(-)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/gs201-panther.dts b/arch/arm64/boot/dts/exynos/google/gs201-panther.dts
+index 8763b7b5b..6fef68870 100644
+--- a/arch/arm64/boot/dts/exynos/google/gs201-panther.dts
++++ b/arch/arm64/boot/dts/exynos/google/gs201-panther.dts
+@@ -4,8 +4,8 @@
+  *
+  * USB (NCM + ACM), the cluster watchdogs from gs201.dtsi, a
+  * simple-framebuffer on the buffer ABL leaves DPP0 scanning out, UFS, the
+- * three keys, the touchscreen with its rails on the main PMIC, the GPU and
+- * the haptics. The panel driver stays disabled.
++ * three keys, the touchscreen with its rails on the main PMIC, the GPU, the
++ * haptics and the MAX77759's I2C bus. The panel driver stays disabled.
+  */
+ 
+ /dts-v1/;
+@@ -173,6 +173,23 @@ &ufs_0_phy {
+ 	status = "okay";
+ };
+ 
++/*
++ * MAX77759 (charger, Type-C port controller, fuel gauge) on USI13, as on
++ * the Pixel 7 Pro: TCPC 0x25, PMIC 0x66, fuel gauge 0x36, charger 0x69,
++ * bus pins gpp25-0/1. Its devices are not described yet: the Type-C port
++ * controller would take over VBUS and the data role from the forced-VBUS
++ * setup the USB PHY uses, and the USB link is our only way into the phone.
++ */
++&usi13 {
++	samsung,mode = <USI_MODE_I2C>;
++	status = "okay";
++};
++
++&hsi2c_13 {
++	clock-frequency = <400000>;
++	status = "okay";
++};
++
+ /*
+  * Haptics: Cirrus Logic CS40L26A at 0x43 on PERIC0 USI8 (Google's I2C bus
+  * 8), INTb on gpa8-1, RESET on gpp24-3, as on the Pixel 7 Pro. Boost and

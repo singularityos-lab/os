@@ -1,0 +1,265 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Lef <me@lefteros.com>
+Date: Wed, 4 Nov 2026 22:55:42 +0200
+Subject: [PATCH] arm64: dts: exynos: google: zuma-husky: add the CS40L26A
+ haptics on USI0
+
+Add usi0 and hsi2c_0 (0x10c80000, IRQ 656) and the HSI1 pin controller
+(pinctrl_hsi1 at 0x12040000, IRQ 413, gph0 to gph2, alias pinctrl8) to
+zuma.dtsi; the pin controller is disabled there and the board enables
+it, as HSI1 is the PCIe block and every zuma board would otherwise
+probe it. The board file gets the CS40L26A at 0x43 with the stock
+boost, actuator and brownout values from Google's
+zuma-shusky-haptics.dtsi (2.5 A, 11 V, 145 Hz, 13 ohm, 3.008 V), INTb
+on gpa6-3 and RESET on gph2-3.
+
+USI0 sits on CMU_PERIC1 and SYSREG_PERIC1, which the board file enables
+since the hsi2c_11 change.
+
+Tested on a Pixel 8 Pro with 7.3.0-rc6: the chip answers (ID 0x40a260,
+revision 0xa1), firmware 7.2.91 runs from cs40l26.wmfw and cs40l26.bin
+(taken from the owner's own image, not in the repo), and a
+force-feedback rumble effect vibrates the phone.
+
+Signed-off-by: Lef <me@lefteros.com>
+---
+ .../boot/dts/exynos/google/zuma-husky.dts     | 39 ++++++++
+ .../boot/dts/exynos/google/zuma-pinctrl.dtsi  | 48 ++++++++++
+ arch/arm64/boot/dts/exynos/google/zuma.dtsi   | 89 +++++++++++++++++++
+ 3 files changed, 176 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/zuma-husky.dts b/arch/arm64/boot/dts/exynos/google/zuma-husky.dts
+index 9cf4a9f5a..a7fcee3e1 100644
+--- a/arch/arm64/boot/dts/exynos/google/zuma-husky.dts
++++ b/arch/arm64/boot/dts/exynos/google/zuma-husky.dts
+@@ -382,3 +382,42 @@ bluetooth {
+ 		interrupt-names = "host-wakeup";
+ 	};
+ };
++
++/*
++ * Haptics: Cirrus Logic CS40L26A at 0x43 on PERIC1 USI0 (Google's I2C bus 0,
++ * 1 MHz in stock, 400 kHz here), INTb on gpa6-3, RESET on gph2-3 (the
++ * trigger line gph2-0 is claimed but unused). Boost and actuator values are
++ * the stock ones from Google's zuma-shusky-haptics.dtsi, as on the 7 Pro.
++ */
++/*
++ * The HSI1 pin controller is off in zuma.dtsi (HSI1 is the PCIe block, and
++ * reading a pin controller Linux does not own has aborted the SoC on gs101),
++ * so this board enables it for the haptics' reset and trigger lines. The
++ * interrupt, gpa6-3, is on an alive bank.
++ */
++&pinctrl_hsi1 {
++	status = "okay";
++};
++
++&usi0 {
++	status = "okay";
++};
++
++&hsi2c_0 {
++	clock-frequency = <400000>;
++	status = "okay";
++
++	haptics: haptic-driver@43 {
++		compatible = "cirrus,cs40l26a";
++		reg = <0x43>;
++		interrupts-extended = <&gpa6 3 IRQ_TYPE_LEVEL_LOW>;
++		reset-gpios = <&gph2 3 GPIO_ACTIVE_LOW>;
++		pinctrl-0 = <&hapt_amp1_irq &hapt_amp1_rst &hapt_amp_trig>;
++		pinctrl-names = "default";
++		cirrus,boost-peak-microamp = <2500000>;
++		cirrus,boost-ctl-microvolt = <11000000>;
++		cirrus,lra-f0-hz = <145>;
++		cirrus,lra-redc-micro-ohms = <13000000>;
++		cirrus,vpbr-threshold-microvolt = <3008000>;
++	};
++};
+diff --git a/arch/arm64/boot/dts/exynos/google/zuma-pinctrl.dtsi b/arch/arm64/boot/dts/exynos/google/zuma-pinctrl.dtsi
+index 69c1a1999..ada6e943f 100644
+--- a/arch/arm64/boot/dts/exynos/google/zuma-pinctrl.dtsi
++++ b/arch/arm64/boot/dts/exynos/google/zuma-pinctrl.dtsi
+@@ -191,6 +191,14 @@ typec_int: typec-int-pins {
+ 		samsung,pin-pud = <GS101_PIN_PULL_UP>;
+ 		samsung,pin-drv = <GS101_PIN_DRV_2_5_MA>;
+ 	};
++
++	/* Haptics INTb: gpa6-3 (XEINT_11), as stock. */
++	hapt_amp1_irq: hapt-amp1-irq-pins {
++		samsung,pins = "gpa6-3";
++		samsung,pin-function = <GS101_PIN_FUNC_EINT>;
++		samsung,pin-pud = <GS101_PIN_PULL_NONE>;
++		samsung,pin-drv = <GS101_PIN_DRV_2_5_MA>;
++	};
+ };
+ 
+ &pinctrl_custom_alive {
+@@ -439,7 +447,47 @@ gpp16: gpp16-gpio-bank {
+ 	};
+ };
+ 
++&pinctrl_hsi1 {
++	gph0: gph0-gpio-bank {
++		gpio-controller;
++		#gpio-cells = <2>;
++	};
++
++	gph1: gph1-gpio-bank {
++		gpio-controller;
++		#gpio-cells = <2>;
++	};
++
++	gph2: gph2-gpio-bank {
++		gpio-controller;
++		#gpio-cells = <2>;
++	};
++
++	/* Haptics (CS40L26A): RESET gph2-3, TRIG gph2-0, from Google's zuma-shusky-haptics.dtsi. */
++	hapt_amp1_rst: hapt-amp1-rst-pins {
++		samsung,pins = "gph2-3";
++		samsung,pin-function = <GS101_PIN_FUNC_OUTPUT>;
++		samsung,pin-pud = <GS101_PIN_PULL_NONE>;
++		samsung,pin-drv = <GS101_PIN_DRV_2_5_MA>;
++	};
++
++	hapt_amp_trig: hapt-amp-trig-pins {
++		samsung,pins = "gph2-0";
++		samsung,pin-function = <GS101_PIN_FUNC_OUTPUT>;
++		samsung,pin-pud = <GS101_PIN_PULL_NONE>;
++		samsung,pin-drv = <GS101_PIN_DRV_2_5_MA>;
++	};
++};
++
+ &pinctrl_peric1 {
++	/* USI0, the haptics driver's bus: gpp19-0/1 in function 3, as stock. */
++	hsi2c0_bus: hsi2c0-bus-pins {
++		samsung,pins = "gpp19-0", "gpp19-1";
++		samsung,pin-function = <GS101_PIN_FUNC_3>;
++		samsung,pin-pud = <GS101_PIN_PULL_NONE>;
++		samsung,pin-drv = <GS101_PIN_DRV_2_5_MA>;
++	};
++
+ 	gpp19: gpp19-gpio-bank {
+ 		gpio-controller;
+ 		#gpio-cells = <2>;
+diff --git a/arch/arm64/boot/dts/exynos/google/zuma.dtsi b/arch/arm64/boot/dts/exynos/google/zuma.dtsi
+index bd28448a3..b4416d2b8 100644
+--- a/arch/arm64/boot/dts/exynos/google/zuma.dtsi
++++ b/arch/arm64/boot/dts/exynos/google/zuma.dtsi
+@@ -26,6 +26,7 @@ / {
+ 	aliases {
+ 		pinctrl0 = &pinctrl_gpio_alive;
+ 		pinctrl1 = &pinctrl_custom_alive;
++		pinctrl8 = &pinctrl_hsi1;
+ 		pinctrl10 = &pinctrl_hsi2ufs;
+ 		pinctrl11 = &pinctrl_peric0;
+ 		pinctrl12 = &pinctrl_peric1;
+@@ -347,6 +348,15 @@ pinctrl_peric0: pinctrl@10840000 {
+ 			interrupts = <GIC_SPI 634 IRQ_TYPE_LEVEL_HIGH>;
+ 		};
+ 
++		pinctrl_hsi1: pinctrl@12040000 {
++			compatible = "google,zuma-pinctrl";
++			reg = <0x12040000 0x1000>;
++			clocks = <&clk_gpio_stub>;
++			clock-names = "pclk";
++			interrupts = <GIC_SPI 413 IRQ_TYPE_LEVEL_HIGH>;
++			status = "disabled";
++		};
++
+ 		pinctrl_peric1: pinctrl@10c40000 {
+ 			compatible = "google,zuma-pinctrl";
+ 			reg = <0x10c40000 0x1000>;
+@@ -360,6 +370,54 @@ pinctrl_peric1: pinctrl@10c40000 {
+ 		 * charger and Type-C controller. Firmware leaves them running;
+ 		 * board files enable them.
+ 		 */
++		/* CMU_PERIC0 and USI14, the I2C bus of the rear flash LED. */
++		cmu_peric0: clock-controller@10800000 {
++			compatible = "google,zuma-cmu-peric0";
++			reg = <0x10800000 0x8000>;
++			#clock-cells = <1>;
++			clocks = <&oscclk>, <&cmu_top CLK_DOUT_PERIC0_NOC>,
++				 <&cmu_top CLK_DOUT_PERIC0_IP>;
++			clock-names = "oscclk", "bus", "ip";
++			status = "disabled";
++		};
++
++		sysreg_peric0: syscon@10821000 {
++			compatible = "google,zuma-peric0-sysreg", "syscon";
++			reg = <0x10821000 0x1000>;
++			clocks = <&cmu_peric0 CLK_GOUT_PERIC0_SYSREG>;
++			status = "disabled";
++		};
++
++		usi14: usi@109800c0 {
++			compatible = "google,zuma-usi", "samsung,exynos850-usi";
++			reg = <0x109800c0 0x20>;
++			clocks = <&cmu_peric0 CLK_GOUT_PERIC0_USI14_PCLK>,
++				 <&cmu_peric0 CLK_GOUT_PERIC0_USI14_IPCLK>;
++			clock-names = "pclk", "ipclk";
++			samsung,sysreg = <&sysreg_peric0 0x28>;
++			samsung,mode = <USI_MODE_I2C>;
++			#address-cells = <1>;
++			#size-cells = <1>;
++			ranges;
++			status = "disabled";
++
++			hsi2c_14: i2c@10980000 {
++				compatible = "google,zuma-hsi2c",
++					     "samsung,exynosautov9-hsi2c";
++				/* USI control starts at 0xc0; do not claim it twice. */
++				reg = <0x10980000 0xc0>;
++				interrupts = <GIC_SPI 648 IRQ_TYPE_LEVEL_HIGH>;
++				clocks = <&cmu_peric0 CLK_GOUT_PERIC0_USI14_IPCLK>,
++					 <&cmu_peric0 CLK_GOUT_PERIC0_USI14_PCLK>;
++				clock-names = "hsi2c", "hsi2c_pclk";
++				pinctrl-0 = <&hsi2c14_bus>;
++				pinctrl-names = "default";
++				#address-cells = <1>;
++				#size-cells = <0>;
++				status = "disabled";
++			};
++		};
++
+ 		cmu_peric1: clock-controller@10c00000 {
+ 			compatible = "google,zuma-cmu-peric1";
+ 			reg = <0x10c00000 0x8000>;
+@@ -407,6 +465,37 @@ hsi2c_9: i2c@10c90000 {
+ 			};
+ 		};
+ 
++		/* USI0 on PERIC1: the haptics driver's I2C bus on the 8 Pro. */
++		usi0: usi@10c800c0 {
++			compatible = "google,zuma-usi", "samsung,exynos850-usi";
++			reg = <0x10c800c0 0x20>;
++			clocks = <&cmu_peric1 CLK_GOUT_PERIC1_USI0_PCLK>,
++				 <&cmu_peric1 CLK_GOUT_PERIC1_USI0_IPCLK>;
++			clock-names = "pclk", "ipclk";
++			samsung,sysreg = <&sysreg_peric1 0x0>;
++			samsung,mode = <USI_MODE_I2C>;
++			#address-cells = <1>;
++			#size-cells = <1>;
++			ranges;
++			status = "disabled";
++
++			hsi2c_0: i2c@10c80000 {
++				compatible = "google,zuma-hsi2c",
++					     "samsung,exynosautov9-hsi2c";
++				/* USI control starts at 0xc0; do not claim it twice. */
++				reg = <0x10c80000 0xc0>;
++				interrupts = <GIC_SPI 656 IRQ_TYPE_LEVEL_HIGH>;
++				clocks = <&cmu_peric1 CLK_GOUT_PERIC1_USI0_IPCLK>,
++					 <&cmu_peric1 CLK_GOUT_PERIC1_USI0_PCLK>;
++				clock-names = "hsi2c", "hsi2c_pclk";
++				pinctrl-0 = <&hsi2c0_bus>;
++				pinctrl-names = "default";
++				#address-cells = <1>;
++				#size-cells = <0>;
++				status = "disabled";
++			};
++		};
++
+ 		usi11: usi@10cb00c0 {
+ 			compatible = "google,zuma-usi", "samsung,exynos850-usi";
+ 			reg = <0x10cb00c0 0x20>;

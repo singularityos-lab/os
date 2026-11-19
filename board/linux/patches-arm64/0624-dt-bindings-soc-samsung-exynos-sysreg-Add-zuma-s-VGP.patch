@@ -1,0 +1,30 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Colin Lundholm <265166644+gitColinX@users.noreply.github.com>
+Date: Wed, 11 Nov 2026 01:40:35 -0700
+Subject: [PATCH] dt-bindings: soc: samsung: exynos-sysreg: Add zuma's VGPIO2AP
+ sysreg
+
+Tensor G3 (zuma) latches the main PMIC's in-band interrupt in a VGPIO2AP
+system register block at 0x15090000, as zumapro does at the same address
+and gs201 at 0x182f0000; the PMIC driver reads it through the
+google,vgpio2ap-sysreg phandle of the samsung,s2mpg14-pmic binding. Add
+the compatible, with no clock, as theirs.
+
+Co-Authored-By: Claude Fable 5.2 <noreply@anthropic.com>
+Signed-off-by: Colin Lundholm <265166644+gitColinX@users.noreply.github.com>
+---
+ .../devicetree/bindings/soc/samsung/samsung,exynos-sysreg.yaml   | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/Documentation/devicetree/bindings/soc/samsung/samsung,exynos-sysreg.yaml b/Documentation/devicetree/bindings/soc/samsung/samsung,exynos-sysreg.yaml
+index bf2da8416..6c3733b5a 100644
+--- a/Documentation/devicetree/bindings/soc/samsung/samsung,exynos-sysreg.yaml
++++ b/Documentation/devicetree/bindings/soc/samsung/samsung,exynos-sysreg.yaml
+@@ -33,6 +33,7 @@ properties:
+               - google,zuma-peric0-sysreg
+               - google,zuma-peric1-sysreg
+               - google,zuma-ufs-sysreg
++              - google,zuma-vgpio2ap-sysreg
+               - google,zumapro-apm-sysreg
+               - google,zumapro-hsi0-sysreg
+               - google,zumapro-peric0-sysreg

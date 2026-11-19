@@ -1,0 +1,26 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Chris Gray <chrisgray70@gmail.com>
+Date: Fri, 23 Oct 2026 22:57:04 -0500
+Subject: [PATCH] dt-bindings: arm: google: Add Pixel 7a (lynx)
+
+The Pixel 7a (lynx) is a gs201 (Tensor G2) board like the Pixel 7 Pro
+and Pixel Fold. Add its compatible to the gs201 board list.
+
+Assisted-by: LLM
+Signed-off-by: Chris Gray <chrisgray70@gmail.com>
+---
+ Documentation/devicetree/bindings/arm/google.yaml | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/Documentation/devicetree/bindings/arm/google.yaml b/Documentation/devicetree/bindings/arm/google.yaml
+index b32987199..063aa60cc 100644
+--- a/Documentation/devicetree/bindings/arm/google.yaml
++++ b/Documentation/devicetree/bindings/arm/google.yaml
+@@ -45,6 +45,7 @@ properties:
+           - enum:
+               - google,gs201-cheetah
+               - google,gs201-felix
++              - google,gs201-lynx
+           - const: google,gs201
+ 
+   # Bootloader requires empty ect node to be present

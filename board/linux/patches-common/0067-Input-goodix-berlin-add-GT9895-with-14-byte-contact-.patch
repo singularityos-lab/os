@@ -1,0 +1,177 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Chris Gray <chrisgray70@gmail.com>
+Date: Sat, 24 Oct 2026 10:22:31 -0500
+Subject: [PATCH] Input: goodix-berlin - add GT9895 with 14-byte contact
+ records
+
+The GT9895 in the Pixel 7a uses the GT9916's register map, but its
+firmware reports 14 bytes per contact instead of 8: the usual status,
+x, y and width, then a pressure byte, both axes and an orientation.
+The checksum follows the last record as before. With 8-byte records
+every touch fails the checksum.
+
+Make the record size part of the per-chip data, keep 8 bytes as the
+default, and add a GT9895 entry that uses 14. The extra fields are not
+reported yet.
+
+Tested on a Pixel 7a: touches report with no checksum errors, and
+touch input works in the desktop session.
+
+Assisted-by: LLM
+Signed-off-by: Chris Gray <chrisgray70@gmail.com>
+---
+ drivers/input/touchscreen/goodix_berlin.h     |  2 ++
+ .../input/touchscreen/goodix_berlin_core.c    | 24 ++++++++++++-------
+ drivers/input/touchscreen/goodix_berlin_spi.c | 10 ++++++++
+ 3 files changed, 27 insertions(+), 9 deletions(-)
+
+diff --git a/drivers/input/touchscreen/goodix_berlin.h b/drivers/input/touchscreen/goodix_berlin.h
+index d8bbd4853..e2ac4fc21 100644
+--- a/drivers/input/touchscreen/goodix_berlin.h
++++ b/drivers/input/touchscreen/goodix_berlin.h
+@@ -23,6 +23,8 @@ struct goodix_berlin_ic_data {
+ 	int ic_info_addr;
+ 	ssize_t read_dummy_len;
+ 	ssize_t read_prefix_len;
++	/* Size of one contact record, 0 for the 8-byte default */
++	size_t touch_size;
+ };
+ 
+ struct device;
+diff --git a/drivers/input/touchscreen/goodix_berlin_core.c b/drivers/input/touchscreen/goodix_berlin_core.c
+index b0938a4f3..ff3534de4 100644
+--- a/drivers/input/touchscreen/goodix_berlin_core.c
++++ b/drivers/input/touchscreen/goodix_berlin_core.c
+@@ -144,6 +144,11 @@ struct goodix_berlin_touch {
+ 	__le16 w;
+ };
+ #define GOODIX_BERLIN_TOUCH_SIZE	sizeof(struct goodix_berlin_touch)
++/*
++ * Some firmware appends pressure, both axes and an orientation to each
++ * record. The first GOODIX_BERLIN_TOUCH_SIZE bytes keep the layout above.
++ */
++#define GOODIX_BERLIN_TOUCH_SIZE_MAX	14
+ 
+ struct goodix_berlin_header {
+ 	u8 status;
+@@ -157,7 +162,7 @@ struct goodix_berlin_header {
+ struct goodix_berlin_event {
+ 	struct goodix_berlin_header hdr;
+ 	/* The data below is u16/__le16 aligned */
+-	u8 data[GOODIX_BERLIN_TOUCH_SIZE * GOODIX_BERLIN_MAX_TOUCH +
++	u8 data[GOODIX_BERLIN_TOUCH_SIZE_MAX * GOODIX_BERLIN_MAX_TOUCH +
+ 		GOODIX_BERLIN_CHECKSUM_SIZE];
+ };
+ 
+@@ -176,6 +181,7 @@ struct goodix_berlin_core {
+ 	u32 touch_data_addr;
+ 
+ 	const struct goodix_berlin_ic_data *ic_data;
++	size_t touch_size;
+ 
+ 	struct goodix_berlin_event event;
+ };
+@@ -416,14 +422,14 @@ static int goodix_berlin_get_ic_info(struct goodix_berlin_core *cd)
+ static int goodix_berlin_get_remaining_contacts(struct goodix_berlin_core *cd,
+ 						int n)
+ {
+-	size_t offset = 2 * GOODIX_BERLIN_TOUCH_SIZE +
++	size_t offset = 2 * cd->touch_size +
+ 				GOODIX_BERLIN_CHECKSUM_SIZE;
+ 	u32 addr = cd->touch_data_addr + GOODIX_BERLIN_HEADER_SIZE + offset;
+ 	int error;
+ 
+ 	error = regmap_raw_read(cd->regmap, addr,
+ 				&cd->event.data[offset],
+-				(n - 2) * GOODIX_BERLIN_TOUCH_SIZE);
++				(n - 2) * cd->touch_size);
+ 	if (error) {
+ 		dev_err_ratelimited(cd->dev, "failed to get touch data, %d\n",
+ 				    error);
+@@ -435,14 +441,12 @@ static int goodix_berlin_get_remaining_contacts(struct goodix_berlin_core *cd,
+ 
+ static void goodix_berlin_report_state(struct goodix_berlin_core *cd, int n)
+ {
+-	struct goodix_berlin_touch *touch_data =
+-			(struct goodix_berlin_touch *)cd->event.data;
+ 	struct goodix_berlin_touch *t;
+ 	int i;
+ 	u8 type, id;
+ 
+ 	for (i = 0; i < n; i++) {
+-		t = &touch_data[i];
++		t = (struct goodix_berlin_touch *)&cd->event.data[i * cd->touch_size];
+ 
+ 		type = FIELD_GET(GOODIX_BERLIN_POINT_TYPE_MASK, t->status);
+ 		if (type == GOODIX_BERLIN_POINT_TYPE_STYLUS ||
+@@ -491,7 +495,7 @@ static void goodix_berlin_touch_handler(struct goodix_berlin_core *cd)
+ 	}
+ 
+ 	if (touch_num) {
+-		int len = touch_num * GOODIX_BERLIN_TOUCH_SIZE +
++		int len = touch_num * cd->touch_size +
+ 			  GOODIX_BERLIN_CHECKSUM_SIZE;
+ 		if (!goodix_berlin_checksum_valid(cd->event.data, len)) {
+ 			dev_err(cd->dev, "touch data checksum error: %*ph\n",
+@@ -524,7 +528,8 @@ static irqreturn_t goodix_berlin_irq(int irq, void *data)
+ 	 * - GOODIX_BERLIN_HEADER_SIZE = 8 bytes
+ 	 * - GOODIX_BERLIN_TOUCH_SIZE * 2 = 16 bytes
+ 	 * - GOODIX_BERLIN_CHECKLSUM_SIZE = 2 bytes
+-	 * For a total of 26 bytes.
++	 * For a total of 26 bytes. The layout below is for 8-byte records;
++	 * with a larger touch_size the same reads cover touch_size per finger.
+ 	 *
+ 	 * If only a single finger is reported, we will read 8 bytes more than
+ 	 * needed:
+@@ -557,7 +562,7 @@ static irqreturn_t goodix_berlin_irq(int irq, void *data)
+ 	error = regmap_raw_read(cd->regmap, cd->touch_data_addr,
+ 				&cd->event,
+ 				GOODIX_BERLIN_HEADER_SIZE +
+-					2 * GOODIX_BERLIN_TOUCH_SIZE +
++					2 * cd->touch_size +
+ 					GOODIX_BERLIN_CHECKSUM_SIZE);
+ 	if (error) {
+ 		dev_warn_ratelimited(cd->dev,
+@@ -745,6 +750,7 @@ int goodix_berlin_probe(struct device *dev, int irq, const struct input_id *id,
+ 	cd->regmap = regmap;
+ 	cd->irq = irq;
+ 	cd->ic_data = ic_data;
++	cd->touch_size = ic_data->touch_size ?: GOODIX_BERLIN_TOUCH_SIZE;
+ 
+ 	cd->reset_gpio = devm_gpiod_get_optional(dev, "reset", GPIOD_OUT_HIGH);
+ 	if (IS_ERR(cd->reset_gpio))
+diff --git a/drivers/input/touchscreen/goodix_berlin_spi.c b/drivers/input/touchscreen/goodix_berlin_spi.c
+index 01f850f48..2616afe30 100644
+--- a/drivers/input/touchscreen/goodix_berlin_spi.c
++++ b/drivers/input/touchscreen/goodix_berlin_spi.c
+@@ -158,6 +158,14 @@ static int goodix_berlin_spi_probe(struct spi_device *spi)
+ 	return 0;
+ }
+ 
++static const struct goodix_berlin_ic_data gt9895_data = {
++	.fw_version_info_addr = GOODIX_BERLIN_FW_VERSION_INFO_ADDR_D,
++	.ic_info_addr = GOODIX_BERLIN_IC_INFO_ADDR_D,
++	.read_dummy_len = GOODIX_BERLIN_SPI_READ_DUMMY_LEN_D,
++	.read_prefix_len = GOODIX_BERLIN_SPI_READ_PREFIX_LEN_D,
++	.touch_size = 14,
++};
++
+ static const struct goodix_berlin_ic_data gt9897_data = {
+ 	.fw_version_info_addr = GOODIX_BERLIN_FW_VERSION_INFO_ADDR_A,
+ 	.ic_info_addr = GOODIX_BERLIN_IC_INFO_ADDR_A,
+@@ -173,6 +181,7 @@ static const struct goodix_berlin_ic_data gt9916_data = {
+ };
+ 
+ static const struct spi_device_id goodix_berlin_spi_ids[] = {
++	{ .name = "gt9895", .driver_data = (long)&gt9895_data },
+ 	{ .name = "gt9897", .driver_data = (long)&gt9897_data },
+ 	{ .name = "gt9916", .driver_data = (long)&gt9916_data },
+ 	{ },
+@@ -180,6 +189,7 @@ static const struct spi_device_id goodix_berlin_spi_ids[] = {
+ MODULE_DEVICE_TABLE(spi, goodix_berlin_spi_ids);
+ 
+ static const struct of_device_id goodix_berlin_spi_of_match[] = {
++	{ .compatible = "goodix,gt9895", .data = &gt9895_data },
+ 	{ .compatible = "goodix,gt9897", .data = &gt9897_data },
+ 	{ .compatible = "goodix,gt9916", .data = &gt9916_data },
+ 	{ }

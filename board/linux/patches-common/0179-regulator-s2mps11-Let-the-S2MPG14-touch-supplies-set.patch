@@ -1,0 +1,88 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: DarekM <149845949+aninmucek@users.noreply.github.com>
+Date: Wed, 11 Nov 2026 00:24:50 +0000
+Subject: [PATCH] regulator: s2mps11: Let the S2MPG14 touch supplies set their
+ voltage
+
+ABL can leave LDO4M at another voltage than the touch controller needs:
+on a Pixel 8a it leaves 3.3 V, read back through the driver's own
+get_voltage_sel, while the stock phone runs the Goodix GT9895 there at
+3.0 V (its live device tree). With voltage selectors firmware-owned, a
+board that fixes 3.0 V fails to probe ("failed to apply
+3000000-3000000uV constraint: -EINVAL"), and one without a constraint
+would power the controller at ABL's 3.3 V.
+
+Give LDO4M and LDO25M a set_voltage_sel through the regmap, which goes
+to the PMIC through ACPM as enable does. The selector tables are
+Google's: s2mpg14-regulator.c puts LDO4M in voltage group 5 (1.8 V
+minimum) and LDO25M in group 4 (0.7 V), each with 64 steps of 25 mV
+(s2mpg14-register.h), and writes the selector into the low six bits of
+the control register (0x2e and 0x43), as the descriptors here already
+read it. The other S2MPG14 outputs keep firmware-owned selectors.
+
+The core calls the setter only to bring a voltage into the board's
+constraints, so a board without voltage constraints (zumapro-tegu), or
+whose constraint already matches what ABL left (zuma-husky's fixed
+3.3 V, which probes today without a setter), sees no write.
+
+Tested on a Pixel 8a from slot B (7.3.0-rc6), with LDO4M fixed at
+3.0 V and LDO25M at 1.8 V in the board file and nothing consuming them:
+the core logs "touch-avdd: Bringing 3300000uV into 3000000-3000000uV";
+both rails then read back 3000000 and 1800000 uV (the PMIC regmap has
+no cache, so that is the register through ACPM), disabled, with no
+users, and stay so past the unused-regulator cleanup. Nothing enabled
+them in that boot.
+
+Link: https://android.googlesource.com/kernel/google-modules/soc/gs/+/204078758737776959ecc85c527a00fd2cabb62f/drivers/regulator/s2mpg14-regulator.c
+Link: https://android.googlesource.com/kernel/google-modules/soc/gs/+/204078758737776959ecc85c527a00fd2cabb62f/include/linux/mfd/samsung/s2mpg14-register.h
+Assisted-by: Claude Opus 5.5
+Signed-off-by: DarekM <149845949+aninmucek@users.noreply.github.com>
+---
+ drivers/regulator/s2mps11.c | 21 +++++++++++++++++++--
+ 1 file changed, 19 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/regulator/s2mps11.c b/drivers/regulator/s2mps11.c
+index 647b46c75..2839998df 100644
+--- a/drivers/regulator/s2mps11.c
++++ b/drivers/regulator/s2mps11.c
+@@ -2282,13 +2282,30 @@ static const struct regulator_ops s2mpg14_ldo_ops = {
+ 	.disable		= regulator_disable_regmap,
+ };
+ 
++/*
++ * The touchscreen supplies can also be set: ABL may leave them at another
++ * voltage than the board's controller needs (3.3 V on LDO4M where the
++ * Pixel 8a's runs at 3.0 V). The selector tables are Google's
++ * (s2mpg14-regulator.c: LDO4M group 5, LDO25M group 4, 64 steps of 25 mV)
++ * and set the low six bits of the control register, as there.
++ */
++static const struct regulator_ops s2mpg14_ldo_vsel_ops = {
++	.list_voltage		= regulator_list_voltage_linear,
++	.map_voltage		= regulator_map_voltage_linear,
++	.get_voltage_sel	= regulator_get_voltage_sel_regmap,
++	.set_voltage_sel	= regulator_set_voltage_sel_regmap,
++	.is_enabled		= regulator_is_enabled_regmap,
++	.enable			= regulator_enable_regmap,
++	.disable		= regulator_disable_regmap,
++};
++
+ static const struct regulator_desc s2mpg14_regulators[] = {
+ 	{
+ 		.name = "ldo4m",
+ 		.id = 3,
+ 		.of_match = of_match_ptr("ldo4m"),
+ 		.regulators_node = of_match_ptr("regulators"),
+-		.ops = &s2mpg14_ldo_ops,
++		.ops = &s2mpg14_ldo_vsel_ops,
+ 		.type = REGULATOR_VOLTAGE,
+ 		.owner = THIS_MODULE,
+ 		.min_uV = 1800000,
+@@ -2352,7 +2369,7 @@ static const struct regulator_desc s2mpg14_regulators[] = {
+ 		.id = 24,
+ 		.of_match = of_match_ptr("ldo25m"),
+ 		.regulators_node = of_match_ptr("regulators"),
+-		.ops = &s2mpg14_ldo_ops,
++		.ops = &s2mpg14_ldo_vsel_ops,
+ 		.type = REGULATOR_VOLTAGE,
+ 		.owner = THIS_MODULE,
+ 		.min_uV = 700000,

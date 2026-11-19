@@ -1,0 +1,48 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Mon, 26 Oct 2026 13:43:40 -0647
+Subject: [PATCH] pinctrl: samsung: zumapro: accept wake requests on the
+ wake-up EINTs
+
+The google,zumapro-wakeup-eint chip has no irq_set_wake, so a
+wake-enabled consumer such as gpio-keys fails its suspend callback with
+-ENXIO ("failed to configure IRQ 47 as wakeup source: -6" on the Pixel
+9a) and the whole suspend aborts.
+
+The wake-up EINTs are chained on GIC SPIs, which suspend_device_irqs()
+leaves enabled, so for s2idle the pin only has to stay unmasked: reuse
+gs101_wkup_irq_set_wake(), which records the request and writes no PMU
+register. The G4 PMU system-wakeup masks remain unimplemented, and the
+comment says so.
+
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ drivers/pinctrl/samsung/pinctrl-exynos.c | 8 +++++++-
+ 1 file changed, 7 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/pinctrl/samsung/pinctrl-exynos.c b/drivers/pinctrl/samsung/pinctrl-exynos.c
+index eae185d85..959cf0a2e 100644
+--- a/drivers/pinctrl/samsung/pinctrl-exynos.c
++++ b/drivers/pinctrl/samsung/pinctrl-exynos.c
+@@ -673,7 +673,12 @@ static const struct exynos_irq_chip gs101_wkup_irq_chip __initconst = {
+ 	.set_eint_wakeup_mask = gs101_pinctrl_set_eint_wakeup_mask,
+ };
+ 
+-/* Runtime EINT handling only; G4 system-wakeup masks are not implemented. */
++/*
++ * Runtime EINT handling and s2idle wake: the wake-up EINTs are chained
++ * on GIC SPIs that stay enabled through s2idle, so a wake-enabled pin
++ * only has to stay unmasked. The G4 PMU system-wakeup masks are not
++ * implemented, so deeper system sleep states cannot wake from these pins.
++ */
+ static const struct exynos_irq_chip zumapro_wkup_irq_chip __initconst = {
+ 	.chip = {
+ 		.name = "zumapro_wkup_irq_chip",
+@@ -681,6 +686,7 @@ static const struct exynos_irq_chip zumapro_wkup_irq_chip __initconst = {
+ 		.irq_mask = exynos_irq_mask,
+ 		.irq_ack = exynos_irq_ack,
+ 		.irq_set_type = exynos_irq_set_type,
++		.irq_set_wake = gs101_wkup_irq_set_wake,
+ 		.irq_request_resources = exynos_irq_request_resources,
+ 		.irq_release_resources = exynos_irq_release_resources,
+ 	},

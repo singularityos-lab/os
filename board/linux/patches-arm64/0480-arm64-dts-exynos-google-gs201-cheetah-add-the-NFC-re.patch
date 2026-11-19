@@ -1,0 +1,28 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Mon, 12 Oct 2026 17:19:55 -0400
+Subject: [PATCH] arm64: dts: exynos: google: gs201-cheetah: add the NFC
+ reference clock
+
+The ST54J's NFC controller takes its reference clock from the PMU's
+CLKOUT1 pad (stock device tree: clocks = <&clock CLKOUT1> and
+pmu_clk_pad = <0x3e84> on st21nfc@8).
+
+Assisted-by: LLM
+Signed-off-by: Derek Ross <derekross@gmail.com>
+---
+ arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts b/arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts
+index fa30e17bb..33d449e5c 100644
+--- a/arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts
++++ b/arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts
+@@ -704,6 +704,7 @@ haptics: haptic-driver@43 {
+ 	nfc@8 {
+ 		compatible = "st,st54j-i2c", "st,st21nfcc-i2c";
+ 		reg = <0x08>;
++		clocks = <&pmu_system_controller 1>;	/* CLKOUT1 */
+ 		interrupts-extended = <&gpa9 1 IRQ_TYPE_LEVEL_HIGH>;
+ 		reset-gpios = <&gph1 5 GPIO_ACTIVE_HIGH>;
+ 		pinctrl-0 = <&nfc_rst>;

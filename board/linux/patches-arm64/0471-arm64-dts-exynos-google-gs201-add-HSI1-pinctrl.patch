@@ -1,0 +1,83 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Mon, 12 Oct 2026 12:07:02 -0400
+Subject: [PATCH] arm64: dts: exynos: google: gs201: add HSI1 pinctrl
+
+Describe the HSI1 pin controller at 0x11840000 (banks gph0 and gph1,
+wake-up interrupt GIC SPI 387, from Google's gs201 device tree). It
+carries the modem's PCIe GEN4A_0 CLKREQ#/PERST# and control lines, and
+the NFC controller's reset and power-idle lines. The driver already has
+the bank data (gs201 reuses gs101's HSI1 table); only the node was
+missing.
+
+As on gs101 there is no CMU_HSI1 driver yet, so the bus clock is left
+empty. The node is disabled until a board enables it.
+
+Assisted-by: LLM
+Signed-off-by: Derek Ross <derekross@gmail.com>
+---
+ .../boot/dts/exynos/google/gs201-pinctrl.dtsi   | 17 +++++++++++++++++
+ arch/arm64/boot/dts/exynos/google/gs201.dtsi    | 15 +++++++++++++++
+ 2 files changed, 32 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/gs201-pinctrl.dtsi b/arch/arm64/boot/dts/exynos/google/gs201-pinctrl.dtsi
+index 8611f491f..8d9ae7957 100644
+--- a/arch/arm64/boot/dts/exynos/google/gs201-pinctrl.dtsi
++++ b/arch/arm64/boot/dts/exynos/google/gs201-pinctrl.dtsi
+@@ -512,6 +512,23 @@ ts_reset: ts-reset-pins {
+ 	};
+ };
+ 
++&pinctrl_hsi1 {
++	gph0: gph0-gpio-bank {
++		gpio-controller;
++		#gpio-cells = <2>;
++		interrupt-controller;
++		#interrupt-cells = <2>;
++	};
++
++	gph1: gph1-gpio-bank {
++		gpio-controller;
++		#gpio-cells = <2>;
++		interrupt-controller;
++		#interrupt-cells = <2>;
++	};
++
++};
++
+ &pinctrl_hsi2 {
+ 	gph2: gph2-gpio-bank {
+ 		gpio-controller;
+diff --git a/arch/arm64/boot/dts/exynos/google/gs201.dtsi b/arch/arm64/boot/dts/exynos/google/gs201.dtsi
+index 6e8a9a38d..07ffed7d7 100644
+--- a/arch/arm64/boot/dts/exynos/google/gs201.dtsi
++++ b/arch/arm64/boot/dts/exynos/google/gs201.dtsi
+@@ -22,6 +22,7 @@ aliases {
+ 		pinctrl1 = &pinctrl_far_alive;
+ 		pinctrl4 = &pinctrl_peric0;
+ 		pinctrl5 = &pinctrl_peric1;
++		pinctrl6 = &pinctrl_hsi1;
+ 		pinctrl7 = &pinctrl_hsi2;
+ 	};
+ 
+@@ -1406,6 +1407,20 @@ usb_dwc3: usb@11210000 {
+ 			status = "disabled";
+ 		};
+ 
++		/*
++		 * HSI1 pins: the modem's PCIe GEN4A_0 (CLKREQ#, PERST#), its control
++		 * lines and the NFC controller's reset and power-idle lines.
++		 */
++		pinctrl_hsi1: pinctrl@11840000 {
++			compatible = "google,gs201-pinctrl";
++			reg = <0x11840000 0x1000>;
++			/* TODO: update once support for this CMU exists */
++			clocks = <0>;
++			clock-names = "pclk";
++			interrupts = <GIC_SPI 387 IRQ_TYPE_LEVEL_HIGH>;
++			status = "disabled";
++		};
++
+ 		sysreg_hsi2: syscon@14420000 {
+ 			compatible = "google,gs201-hsi2-sysreg", "syscon";
+ 			reg = <0x14420000 0x10000>;

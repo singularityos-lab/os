@@ -1,0 +1,111 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Brett-Michael Green <brett@bmgvisualtech.com>
+Date: Sat, 31 Oct 2026 12:46:07 -0400
+Subject: [PATCH] arm64: dts: exynos: google: zuma-husky: enable the GPU
+
+Turn on CMU_G3D and the Mali-G715 on the Pixel 8 Pro:
+
+- core is ACPM's paired gpu clock (ZUMA_CLK_ACPM_GPU), which sets G3D
+  and G3DL2 together through the GPU DVFS pairs;
+- coregroup and stacks stay on CMU_G3D's gates;
+- an OPP table with the shader rates 150-649 MHz.
+
+Stock goes up to 890 MHz. The levels from 723 MHz on are left out until
+a GPU thermal zone is in the device tree, as on the Pixel 9a, because
+nothing upstream throttles the GPU yet.
+
+Assisted-by: LLM
+Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
+---
+ .../boot/dts/exynos/google/zuma-husky.dts     | 64 +++++++++++++++++++
+ 1 file changed, 64 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/zuma-husky.dts b/arch/arm64/boot/dts/exynos/google/zuma-husky.dts
+index 1cc364743..54135a89c 100644
+--- a/arch/arm64/boot/dts/exynos/google/zuma-husky.dts
++++ b/arch/arm64/boot/dts/exynos/google/zuma-husky.dts
+@@ -5,6 +5,7 @@
+ 
+ /dts-v1/;
+ 
++#include <dt-bindings/clock/google,zuma-acpm.h>
+ #include <dt-bindings/gpio/gpio.h>
+ #include <dt-bindings/input/input.h>
+ #include <dt-bindings/leds/common.h>
+@@ -161,6 +162,52 @@ battery: battery {
+ 		constant-charge-current-max-microamp = <1485000>;
+ 	};
+ 
++	/*
++	 * The GPU's levels: the shader rates of the Pixel 8 Pro's GPU DVFS
++	 * table up to 649 MHz, each with its paired L2 rate through the ACPM
++	 * "gpu" clock. The levels above, to 890 MHz, wait for a GPU thermal
++	 * zone.
++	 */
++	gpu_opp: opp-table-gpu {
++		compatible = "operating-points-v2";
++
++		opp-150000000 {
++			opp-hz = /bits/ 64 <150000000>;
++		};
++
++		opp-302000000 {
++			opp-hz = /bits/ 64 <302000000>;
++		};
++
++		opp-337000000 {
++			opp-hz = /bits/ 64 <337000000>;
++		};
++
++		opp-376000000 {
++			opp-hz = /bits/ 64 <376000000>;
++		};
++
++		opp-419000000 {
++			opp-hz = /bits/ 64 <419000000>;
++		};
++
++		opp-467000000 {
++			opp-hz = /bits/ 64 <467000000>;
++		};
++
++		opp-521000000 {
++			opp-hz = /bits/ 64 <521000000>;
++		};
++
++		opp-580000000 {
++			opp-hz = /bits/ 64 <580000000>;
++		};
++
++		opp-649000000 {
++			opp-hz = /bits/ 64 <649000000>;
++		};
++	};
++
+ 	reserved-memory {
+ 		#address-cells = <2>;
+ 		#size-cells = <1>;
+@@ -259,6 +306,23 @@ ldo11s: ldo11s {
+ 	};
+ };
+ 
++&cmu_g3d {
++	status = "okay";
++};
++
++/*
++ * The GPU's core clock is ACPM's paired "gpu" clock, which sets the shader
++ * (G3D) and L2 (G3DL2) domains together; coregroup and stacks stay on
++ * CMU_G3D's gates.
++ */
++&gpu {
++	clocks = <&acpm_ipc ZUMA_CLK_ACPM_GPU>,
++		 <&cmu_g3d CLK_GOUT_G3D_COREGROUP>,
++		 <&cmu_g3d CLK_GOUT_G3D_STACKS>;
++	operating-points-v2 = <&gpu_opp>;
++	status = "okay";
++};
++
+ /*
+  * DECON0 takes the display over from simple-framebuffer and flips DPP0
+  * between scanout buffers. It scans out to DSIM0, so gs-decon can switch

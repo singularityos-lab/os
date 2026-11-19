@@ -1,0 +1,46 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Sun, 11 Oct 2026 23:58:26 -0400
+Subject: [PATCH] scsi: ufs: exynos: don't enable auto-hibernate on gs201
+
+gs201 uses software Hibern8 on clock gating
+(UFSHCD_CAP_HIBERN8_WITH_CLK_GATING, set by gs101_ufs_drv_init()). If the
+controller also advertises auto-hibernate, ufshcd_init() programs a
+150 ms auto-hibernate timer on top, and the clock-gating work then sends
+DME_HIBERNATE_ENTER for a link the controller may already have put into
+Hibern8 itself.
+
+Google's driver for this SoC (ufs-exynos.c, exynos_ufs_set_features())
+sets UFSHCD_QUIRK_BROKEN_AUTO_HIBERN8 unconditionally and keeps
+HIBERN8_WITH_CLK_GATING; its gs201 calibration code has no auto-hibernate
+timer setup (only the later Zuma code programs one). Do the same, so the
+link only ever enters Hibern8 through the clock-gating path, whose PHY
+sequences (post_h8_enter/pre_h8_exit) already match Google's gs201 tables.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ drivers/ufs/host/ufs-exynos.c | 7 +++++++
+ 1 file changed, 7 insertions(+)
+
+diff --git a/drivers/ufs/host/ufs-exynos.c b/drivers/ufs/host/ufs-exynos.c
+index 033d6c419..eb352f56e 100644
+--- a/drivers/ufs/host/ufs-exynos.c
++++ b/drivers/ufs/host/ufs-exynos.c
+@@ -2309,10 +2309,17 @@ static const struct exynos_ufs_drv_data gs101_ufs_drvs = {
+ /*
+  * gs201 fixed the PRDT, request list clear and OCS issues of gs101: its UTRD
+  * offsets and lengths follow the UFSHCI specification.
++ *
++ * Idle power management is software Hibern8 on clock gating
++ * (UFSHCD_CAP_HIBERN8_WITH_CLK_GATING), as in the vendor driver: it always
++ * marks auto-hibernate broken on this SoC, and only its later SoCs program
++ * the host timers that auto-hibernate needs. Don't let the core enable the
++ * auto-hibernate timer as well, so the two don't race for the link.
+  */
+ static const struct exynos_ufs_drv_data gs201_ufs_drvs = {
+ 	.uic_attr		= &gs101_uic_attr,
+ 	.quirks			= UFSHCI_QUIRK_SKIP_MANUAL_WB_FLUSH_CTRL |
++				  UFSHCD_QUIRK_BROKEN_AUTO_HIBERN8 |
+ 				  UFSHCD_QUIRK_SKIP_DEF_UNIPRO_TIMEOUT_SETTING,
+ 	.opts			= EXYNOS_UFS_OPT_SKIP_CONFIG_PHY_ATTR |
+ 				  EXYNOS_UFS_OPT_UFSPR_SECURE |

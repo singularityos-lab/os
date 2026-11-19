@@ -1,0 +1,128 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Chris Gray <chrisgray70@gmail.com>
+Date: Fri, 23 Oct 2026 22:57:04 -0500
+Subject: [PATCH] arm64: dts: exynos: google: Add Pixel 7a (lynx) first-light
+ board
+
+Add a first-light board file for the Pixel 7a: USB (NCM and ACM
+gadget) and the cluster watchdogs from gs201.dtsi. UFS, the panel,
+touch and the GPU stay disabled.
+
+lynx has the IPOP package of gs201 (ro.boot.hw.soc.pkg_mode is 1).
+Stock's vendor_kernel_boot carries three DTBs: soc_id 0x9855000,
+soc_id 0x9855001, and one matched by /soc_compatible/B0_IPOP. The live
+tree on the phone is the IPOP one, so this DTB carries the same
+/soc_compatible node and no soc_id. ABL accepted it.
+
+ABL adds sec_dram, sec_pt and pkvm_guest_firmware to the tree it hands
+over. Stock's other carve-outs (tui, mfc_fw, famodel) are pools the
+kernel places at boot, with a size and alloc-ranges but no fixed
+address, so none of them is reserved here. ramoops uses stock's
+address and layout so a log from this kernel can be read after a warm
+reboot into stock on slot A.
+
+The board dtbo for ABL (board_id 0x30506, board_rev 0x10000) and the
+image packing live in the omarchy-mobile repository (device/lynx).
+
+Tested on a Pixel 7a (MP1.0, bootloader lynx-17.0-15199429) from slot
+B: the kernel boots, both watchdogs are stopped at probe, and SSH over
+the USB NCM gadget works.
+
+Assisted-by: LLM
+Signed-off-by: Chris Gray <chrisgray70@gmail.com>
+---
+ arch/arm64/boot/dts/exynos/google/Makefile    |  4 +-
+ .../boot/dts/exynos/google/gs201-lynx.dts     | 66 +++++++++++++++++++
+ 2 files changed, 69 insertions(+), 1 deletion(-)
+ create mode 100644 arch/arm64/boot/dts/exynos/google/gs201-lynx.dts
+
+diff --git a/arch/arm64/boot/dts/exynos/google/Makefile b/arch/arm64/boot/dts/exynos/google/Makefile
+index 813411f51..24c983edb 100644
+--- a/arch/arm64/boot/dts/exynos/google/Makefile
++++ b/arch/arm64/boot/dts/exynos/google/Makefile
+@@ -4,10 +4,12 @@ dtb-$(CONFIG_ARCH_EXYNOS) += \
+ 	gs101-oriole.dtb \
+ 	gs101-raven.dtb \
+ 	gs201-cheetah.dtb \
+-	gs201-felix.dtb
++	gs201-felix.dtb \
++	gs201-lynx.dtb
+ 
+ # ABL applies board overlays, so keep symbols for labels
+ DTC_FLAGS_gs101-oriole += -@
+ DTC_FLAGS_gs101-raven += -@
+ DTC_FLAGS_gs201-cheetah += -@
+ DTC_FLAGS_gs201-felix += -@
++DTC_FLAGS_gs201-lynx += -@
+diff --git a/arch/arm64/boot/dts/exynos/google/gs201-lynx.dts b/arch/arm64/boot/dts/exynos/google/gs201-lynx.dts
+new file mode 100644
+index 000000000..eb0c0e8ec
+--- /dev/null
++++ b/arch/arm64/boot/dts/exynos/google/gs201-lynx.dts
+@@ -0,0 +1,66 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * Google Pixel 7a (lynx) - M1 bring-up board file.
++ *
++ * First light only: USB (NCM + ACM) and the cluster watchdogs from
++ * gs201.dtsi. UFS, the panel, touch and the GPU stay disabled, and there
++ * is no simple-framebuffer yet, so the screen keeps the bootloader logo.
++ */
++
++/dts-v1/;
++
++#include "gs201.dtsi"
++
++/ {
++	model = "Google Pixel 7a";
++	compatible = "google,gs201-lynx", "google,gs201";
++
++	/*
++	 * lynx's SoC is the IPOP package (ro.boot.hw.soc.pkg_mode 1). ABL picks
++	 * its base DTB on /soc_compatible, not /soc_id: stock's
++	 * vendor_kernel_boot carries a0 and b0 (soc_id) and b0_v2-ipop, and the
++	 * live tree on this phone is the IPOP one.
++	 */
++	soc_compatible {
++		B0_IPOP {
++			description = "B0,IPOP";
++			product_id = <0x9855>;
++			major = <0x1>;
++			minor = <0x0>;
++			pkg_mode = <0x1>;
++		};
++	};
++
++	chosen {
++		/* ABL requires bootargs to exist; it appends its own after these. */
++		bootargs = "console=tty0 panic=10 clk_ignore_unused pd_ignore_unused rdinit=/init";
++	};
++
++	/*
++	 * ABL adds sec_dram, sec_pt and pkvm_guest_firmware to this tree
++	 * itself. Stock's tui, mfc_fw and famodel are pools the kernel
++	 * places at boot (size and alloc-ranges, no fixed address), so
++	 * nothing reserves them here. ramoops keeps stock's layout so a log
++	 * survives a warm reboot into slot A.
++	 */
++	reserved-memory {
++		#address-cells = <2>;
++		#size-cells = <1>;
++		ranges;
++
++		ramoops@fd3ff000 {
++			compatible = "ramoops";
++			reg = <0x0 0xfd3ff000 0x400000>;
++			console-size = <0x200000>;
++			pmsg-size = <0x200000>;
++		};
++	};
++};
++
++&usbdrd31_phy {
++	status = "okay";
++};
++
++&usb_dwc3 {
++	status = "okay";
++};

@@ -1,0 +1,98 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?=C3=81ngel=20Ren=C3=A9?=
+ <17342133+angelrenefm@users.noreply.github.com>
+Date: Sat, 14 Nov 2026 19:27:02 +0100
+Subject: [PATCH] media: s5p-mfc: flag the last buffer of an encoder drain
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+After V4L2_ENC_CMD_STOP the encoder returns an empty CAPTURE buffer
+without V4L2_BUF_FLAG_LAST, so clients that wait for that flag (as the
+stateful encoder interface asks) never see the end of the drain. And
+when no CAPTURE buffer is queued at that moment, nothing is returned at
+all.
+
+Set V4L2_BUF_FLAG_LAST on that buffer and, when none is queued, return
+the next queued one empty with the flag.
+
+Assisted-by: LLM
+Signed-off-by: Ángel René <17342133+angelrenefm@users.noreply.github.com>
+---
+ drivers/media/platform/samsung/s5p-mfc/s5p_mfc.c       |  5 +++++
+ .../media/platform/samsung/s5p-mfc/s5p_mfc_common.h    |  3 +++
+ drivers/media/platform/samsung/s5p-mfc/s5p_mfc_enc.c   | 10 ++++++++++
+ 3 files changed, 18 insertions(+)
+
+diff --git a/drivers/media/platform/samsung/s5p-mfc/s5p_mfc.c b/drivers/media/platform/samsung/s5p-mfc/s5p_mfc.c
+index df170e29b..1a0b56454 100644
+--- a/drivers/media/platform/samsung/s5p-mfc/s5p_mfc.c
++++ b/drivers/media/platform/samsung/s5p-mfc/s5p_mfc.c
+@@ -653,13 +653,18 @@ static void s5p_mfc_handle_stream_complete(struct s5p_mfc_ctx *ctx)
+ 
+ 	ctx->state = MFCINST_FINISHED;
+ 
++	/* Called from the interrupt handler, under dev->irqlock */
+ 	if (!list_empty(&ctx->dst_queue)) {
+ 		mb_entry = list_entry(ctx->dst_queue.next, struct s5p_mfc_buf,
+ 									list);
+ 		list_del(&mb_entry->list);
+ 		ctx->dst_queue_cnt--;
+ 		vb2_set_plane_payload(&mb_entry->b->vb2_buf, 0, 0);
++		/* Tell the client that the drain is done */
++		mb_entry->b->flags |= V4L2_BUF_FLAG_LAST;
+ 		vb2_buffer_done(&mb_entry->b->vb2_buf, VB2_BUF_STATE_DONE);
++	} else {
++		ctx->last_pending = true;
+ 	}
+ 
+ 	clear_work_bit(ctx);
+diff --git a/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_common.h b/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_common.h
+index 8abf5104e..551a47100 100644
+--- a/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_common.h
++++ b/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_common.h
+@@ -573,6 +573,8 @@ struct s5p_mfc_codec_ops {
+  * @dst_queue_cnt:	number of buffers queued on the dest internal queue
+  * @type:		type of the instance - decoder or encoder
+  * @state:		state of the context
++ * @last_pending:	the encoder drained with no capture buffer queued: the
++ *			next one is returned empty with V4L2_BUF_FLAG_LAST
+  * @inst_no:		number of hw instance associated with the context
+  * @img_width:		width of the image that is decoded or encoded
+  * @img_height:		height of the image that is decoded or encoded
+@@ -662,6 +664,7 @@ struct s5p_mfc_ctx {
+ 
+ 	enum s5p_mfc_inst_type type;
+ 	enum s5p_mfc_inst_state state;
++	bool last_pending;
+ 	int inst_no;
+ 
+ 	/* Image parameters */
+diff --git a/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_enc.c b/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_enc.c
+index 8acde744f..2c605f8dd 100644
+--- a/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_enc.c
++++ b/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_enc.c
+@@ -2608,6 +2608,7 @@ static void s5p_mfc_stop_streaming(struct vb2_queue *q)
+ 	}
+ 	ctx->state = MFCINST_FINISHED;
+ 	spin_lock_irqsave(&dev->irqlock, flags);
++	ctx->last_pending = false;
+ 	if (q->type == V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE) {
+ 		s5p_mfc_cleanup_queue(&ctx->dst_queue, &ctx->vq_dst);
+ 		INIT_LIST_HEAD(&ctx->dst_queue);
+@@ -2640,6 +2641,15 @@ static void s5p_mfc_buf_queue(struct vb2_buffer *vb)
+ 		mfc_buf->flags &= ~MFC_BUF_FLAG_USED;
+ 		/* Mark destination as available for use by MFC */
+ 		spin_lock_irqsave(&dev->irqlock, flags);
++		if (ctx->last_pending) {
++			/* The drain ended while no buffer was queued */
++			ctx->last_pending = false;
++			spin_unlock_irqrestore(&dev->irqlock, flags);
++			vb2_set_plane_payload(vb, 0, 0);
++			to_vb2_v4l2_buffer(vb)->flags |= V4L2_BUF_FLAG_LAST;
++			vb2_buffer_done(vb, VB2_BUF_STATE_DONE);
++			return;
++		}
+ 		list_add_tail(&mfc_buf->list, &ctx->dst_queue);
+ 		ctx->dst_queue_cnt++;
+ 		spin_unlock_irqrestore(&dev->irqlock, flags);

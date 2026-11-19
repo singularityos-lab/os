@@ -1,0 +1,134 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Tue, 27 Oct 2026 08:21:27 -0647
+Subject: [PATCH] dt-bindings: clock: google,zumapro: Add CMU_G3D
+
+CMU_G3D clocks the Tensor G4's Mali GPU: two PLLs (the stacks' and the
+L2's), user muxes for CMU_TOP's G3D NoC, global and switch clocks, and
+the GPU's core, coregroup and stacks clocks. Describe it in the common
+Tensor G4 clock binding with its four inputs, and add CMU_TOP's three
+G3D branches (mux, gate and divider each) and the SHARED0 and SHARED1
+halves and thirds those branches select at the end of the TOP block
+and the 19 CMU_G3D identifiers in a new block, leaving the existing ones
+unchanged.
+
+Link: https://android.googlesource.com/kernel/google-modules/soc/gs/+/204078758737776959ecc85c527a00fd2cabb62f/drivers/soc/google/cal-if/zuma/cmucal-node.c
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ .../bindings/clock/google,zumapro-clock.yaml  | 31 ++++++++++++++++-
+ include/dt-bindings/clock/google,zumapro.h    | 34 +++++++++++++++++++
+ 2 files changed, 64 insertions(+), 1 deletion(-)
+
+diff --git a/Documentation/devicetree/bindings/clock/google,zumapro-clock.yaml b/Documentation/devicetree/bindings/clock/google,zumapro-clock.yaml
+index 88938509f..3c2ff4cb7 100644
+--- a/Documentation/devicetree/bindings/clock/google,zumapro-clock.yaml
++++ b/Documentation/devicetree/bindings/clock/google,zumapro-clock.yaml
+@@ -15,6 +15,8 @@ description: |
+   CMU_MISC supplies the firmware-owned watchdog bus clock paths.
+   CMU_HSI0 supplies the USB, eUSB2 PHY and touchscreen USI2 clocks; its
+   ALT and TCXO inputs are board-level fixed clocks.
++  CMU_G3D supplies the GPU's core, coregroup and stacks clocks from its two
++  PLLs and CMU_TOP's G3D NoC, global and switch clocks.
+   The external oscillator supplies the PLL reference and oscillator mux
+   paths.
+   Clock identifiers are defined in dt-bindings/clock/google,zumapro.h.
+@@ -23,6 +25,7 @@ properties:
+   compatible:
+     enum:
+       - google,zumapro-cmu-top
++      - google,zumapro-cmu-g3d
+       - google,zumapro-cmu-hsi0
+       - google,zumapro-cmu-hsi2
+       - google,zumapro-cmu-peric0
+@@ -88,6 +91,24 @@ allOf:
+     else:
+       properties:
+         power-domains: false
++  - if:
++      properties:
++        compatible:
++          const: google,zumapro-cmu-g3d
++    then:
++      properties:
++        clocks:
++          items:
++            - description: External oscillator reference clock
++            - description: G3D NoC clock from CMU_TOP
++            - description: G3D global clock from CMU_TOP
++            - description: G3D switch clock from CMU_TOP
++        clock-names:
++          items:
++            - const: oscclk
++            - const: bus
++            - const: glb
++            - const: switch
+   - if:
+       properties:
+         compatible:
+@@ -171,5 +192,13 @@ examples:
+         clocks = <&oscclk>, <&cmu_top CLK_DOUT_PERIC0_NOC>;
+         clock-names = "oscclk", "bus";
+     };
+-...
+ 
++    clock-controller@1ee00000 {
++        compatible = "google,zumapro-cmu-g3d";
++        reg = <0x1ee00000 0x8000>;
++        #clock-cells = <1>;
++        clocks = <&oscclk>, <&cmu_top CLK_DOUT_G3D_NOCD>,
++                 <&cmu_top CLK_DOUT_G3D_GLB>, <&cmu_top CLK_DOUT_G3D_SWITCH>;
++        clock-names = "oscclk", "bus", "glb", "switch";
++    };
++...
+diff --git a/include/dt-bindings/clock/google,zumapro.h b/include/dt-bindings/clock/google,zumapro.h
+index 875b3ed74..e80a48eae 100644
+--- a/include/dt-bindings/clock/google,zumapro.h
++++ b/include/dt-bindings/clock/google,zumapro.h
+@@ -34,6 +34,19 @@
+ #define CLK_DOUT_MISC_NOC		28
+ #define CLK_GOUT_HSI0_NOC		29
+ #define CLK_GOUT_HSI0_PERI	30
++#define CLK_MOUT_G3D_GLB		31
++#define CLK_MOUT_G3D_NOCD		32
++#define CLK_MOUT_G3D_SWITCH		33
++#define CLK_GOUT_G3D_GLB		34
++#define CLK_GOUT_G3D_NOCD		35
++#define CLK_GOUT_G3D_SWITCH		36
++#define CLK_DOUT_G3D_GLB		37
++#define CLK_DOUT_G3D_NOCD		38
++#define CLK_DOUT_G3D_SWITCH		39
++#define CLK_SHARED0_D2		40
++#define CLK_SHARED0_D3		41
++#define CLK_SHARED1_D2		42
++#define CLK_SHARED1_D3		43
+ 
+ /* CMU_HSI0. */
+ #define CLK_FOUT_HSI0_USB		1
+@@ -59,6 +72,27 @@
+ #define CLK_GOUT_HSI0_USB_LINK		21
+ #define CLK_GOUT_HSI0_USB_SUSPEND	22
+ 
++/* CMU_G3D. */
++#define CLK_FOUT_G3D			1
++#define CLK_FOUT_G3D_L2			2
++#define CLK_MOUT_G3D_SWITCH_USER	3
++#define CLK_MOUT_G3D_GLB_USER		4
++#define CLK_MOUT_G3D_NOCD_USER		5
++#define CLK_MOUT_G3D_L2_GLB		6
++#define CLK_MOUT_G3D_STACKS		7
++#define CLK_MOUT_G3D_TOP		8
++#define CLK_DOUT_G3D_L2_GLB		9
++#define CLK_DOUT_G3D_STACKS		10
++#define CLK_DOUT_G3D_TOP		11
++#define CLK_MOUT_G3D_COREGROUP_USER	12
++#define CLK_MOUT_G3D_STACKS_USER	13
++#define CLK_MOUT_G3D_TOP_USER		14
++#define CLK_DOUT_G3D_NOCP		15
++#define CLK_GOUT_G3D_CMU		16
++#define CLK_GOUT_G3D_CORE		17
++#define CLK_GOUT_G3D_COREGROUP		18
++#define CLK_GOUT_G3D_STACKS		19
++
+ /* CMU_HSI2. */
+ #define CLK_MOUT_HSI2_NOC_USER	1
+ #define CLK_MOUT_HSI2_UFS_USER	2

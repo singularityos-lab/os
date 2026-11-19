@@ -1,0 +1,204 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Adrian Schupp <as@satware.com>
+Date: Sun, 1 Nov 2026 11:18:58 +0100
+Subject: [PATCH] drm/panel: select the Pixel 7 Pro panel by ABL panel_name at
+ probe
+
+One DTB ships for every Pixel 7 Pro and the reference DT names the
+Samsung panel, so neither driver can bind by compatible alone. The
+bootloader knows the panel: Google's ABL sets exynos_drm.panel_name=
+per device (boe-nt37290 on BOE units). Bind this driver when the DT
+names it explicitly or the command line names nt37290; the Samsung
+driver bails when the command line names the BOE panel. The driver
+core then tries the next matching driver (-ENODEV fall-through).
+
+Selecting by the DDIC id (panel_id_reg 0xac, Google's approach) needs
+BTA and the RX FIFO in the DSI host, which gs-dsim-cmd does not
+implement (-EOPNOTSUPP); revisit when it does. The per-driver
+command-line parsers are interim for this tree: upstream will want
+the selection in the DSI host, where Google does it.
+
+Signed-off-by: Adrian Schupp <as@satware.com>
+Assisted-by: LLM opencode
+---
+ drivers/gpu/drm/panel/panel-boe-nt37290.c     | 67 ++++++++++++++++++-
+ drivers/gpu/drm/panel/panel-samsung-s6e3hc4.c | 37 ++++++++++
+ 2 files changed, 102 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/gpu/drm/panel/panel-boe-nt37290.c b/drivers/gpu/drm/panel/panel-boe-nt37290.c
+index 22af9652d..e7d1fbce2 100644
+--- a/drivers/gpu/drm/panel/panel-boe-nt37290.c
++++ b/drivers/gpu/drm/panel/panel-boe-nt37290.c
+@@ -30,7 +30,9 @@
+ #include <linux/module.h>
+ #include <linux/mod_devicetable.h>
+ #include <linux/mutex.h>
++#include <linux/of.h>
+ #include <linux/regulator/consumer.h>
++#include <linux/string.h>
+ #include <linux/sysfs.h>
+ #include <linux/workqueue.h>
+ 
+@@ -62,6 +64,16 @@ MODULE_PARM_DESC(allow_lhbm,
+ 
+ #define NT37290_DDIC_ID_REG		0xac
+ 
++/*
++ * The vendor driver reads this many bytes from panel_id_reg (0xAC) and
++ * uses bytes 6..12 as the panel id (panel-samsung-drv.c,
++ * exynos_panel_read_id()).
++ */
++#define NT37290_PANEL_ID_LEN		7
++#define NT37290_PANEL_ID_OFFSET		6
++#define NT37290_PANEL_ID_READ_SIZE	(NT37290_PANEL_ID_LEN + \
++					 NT37290_PANEL_ID_OFFSET)
++
+ /* Frame-rate control (2Fh): mode in bits 7:4, OSC2 FCON in bits 2:0. */
+ #define NT37290_DFC_MANUAL_120		0x00
+ #define NT37290_DFC_PANEL_LP		0x30
+@@ -689,6 +701,46 @@ static const struct backlight_ops nt37290_bl_ops = {
+ 	.update_status = nt37290_bl_update_status,
+ };
+ 
++/*
++ * One DTB ships for every Pixel 7 Pro and the reference DT names the
++ * Samsung panel, so the compatible cannot decide which panel is
++ * attached. The bootloader knows: Google's ABL names the panel in the
++ * kernel command line (exynos_drm.panel_name=, per device). Bind only
++ * when it names this panel, or when the DT names it explicitly (local
++ * builds); otherwise leave the device to the Samsung driver.
++ *
++ * Selecting by the DDIC id (panel_id_reg 0xac) like Google's driver
++ * does needs BTA and the RX FIFO, which the gs-dsim-cmd host does not
++ * implement (-EOPNOTSUPP); revisit when it does.
++ *
++ * The command-line part is the same parser as cmdline_names_boe_panel()
++ * in panel-samsung-s6e3hc4.c; keep the two in sync. Interim for this
++ * tree: upstream will want the selection in the DSI host.
++ */
++static bool nt37290_panel_selected(struct device *dev)
++{
++	struct device_node *chosen;
++	const char *bootargs, *p;
++	bool selected = false;
++
++	if (of_device_is_compatible(dev->of_node, "boe,nt37290"))
++		return true;
++
++	chosen = of_find_node_by_path("/chosen");
++	if (!chosen)
++		return false;
++	/* /chosen/bootargs is the command line on this DT boot */
++	if (!of_property_read_string(chosen, "bootargs", &bootargs)) {
++		p = strstr(bootargs, "exynos_drm.panel_name=");
++		selected = p &&
++			str_has_prefix(p + sizeof("exynos_drm.panel_name=") - 1,
++				       "boe-nt37290");
++	}
++	of_node_put(chosen);
++
++	return selected;
++}
++
+ static int nt37290_probe(struct mipi_dsi_device *dsi)
+ {
+ 	struct device *dev = &dsi->dev;
+@@ -703,6 +755,10 @@ static int nt37290_probe(struct mipi_dsi_device *dsi)
+ 	bool handover;
+ 	int ret;
+ 
++	/* the ABL named the panel; Samsung phones get the Samsung driver */
++	if (!nt37290_panel_selected(dev))
++		return -ENODEV;
++
+ 	ctx = devm_drm_panel_alloc(dev, struct nt37290, panel,
+ 				   &nt37290_panel_funcs,
+ 				   DRM_MODE_CONNECTOR_DSI);
+@@ -799,8 +855,9 @@ static int nt37290_probe(struct mipi_dsi_device *dsi)
+ 
+ 	/*
+ 	 * Google's driver reads the DDIC ID (panel_id_reg 0xac) to pick the
+-	 * panel revision; a phone always carries a production panel, and the
+-	 * wrong panel answers nothing, so the DT compatible decides here.
++	 * panel revision; the gs-dsim-cmd host cannot serve reads (no
++	 * BTA/RX yet), so the command line decides here (see
++	 * nt37290_panel_selected()).
+ 	 */
+ 	dev_info(dev, "%s\n", handover ? "taken over from the bootloader" :
+ 		 "held in reset");
+@@ -826,6 +883,12 @@ static void nt37290_remove(struct mipi_dsi_device *dsi)
+ 
+ static const struct of_device_id nt37290_of_match[] = {
+ 	{ .compatible = "boe,nt37290" },
++	/*
++	 * One DTB for both Pixel 7 Pro panel variants: the reference DT
++	 * names the Samsung panel and the command line selects us (see
++	 * nt37290_panel_selected()).
++	 */
++	{ .compatible = "samsung,s6e3hc4" },
+ 	{ /* sentinel */ }
+ };
+ MODULE_DEVICE_TABLE(of, nt37290_of_match);
+diff --git a/drivers/gpu/drm/panel/panel-samsung-s6e3hc4.c b/drivers/gpu/drm/panel/panel-samsung-s6e3hc4.c
+index 71be1595e..165f7143e 100644
+--- a/drivers/gpu/drm/panel/panel-samsung-s6e3hc4.c
++++ b/drivers/gpu/drm/panel/panel-samsung-s6e3hc4.c
+@@ -17,7 +17,9 @@
+ #include <linux/module.h>
+ #include <linux/mod_devicetable.h>
+ #include <linux/mutex.h>
++#include <linux/of.h>
+ #include <linux/regulator/consumer.h>
++#include <linux/string.h>
+ 
+ #include <video/mipi_display.h>
+ 
+@@ -477,6 +479,38 @@ static const struct backlight_ops s6e3hc4_bl_ops = {
+ 	.update_status = s6e3hc4_bl_update_status,
+ };
+ 
++/*
++ * One DTB ships for every Pixel 7 Pro; the bootloader names the panel
++ * in the kernel command line (exynos_drm.panel_name=, Google's ABL
++ * sets it per device). If it names the BOE variant, the BOE driver
++ * takes the device.
++ *
++ * This is the same exynos_drm.panel_name= parser as
++ * nt37290_panel_selected() in panel-boe-nt37290.c; keep the two in
++ * sync. Interim for this tree: upstream will want the selection in the
++ * DSI host, where Google's driver does it.
++ */
++static bool cmdline_names_boe_panel(void)
++{
++	struct device_node *chosen;
++	const char *bootargs, *p;
++	bool boe = false;
++
++	chosen = of_find_node_by_path("/chosen");
++	if (!chosen)
++		return false;
++	/* /chosen/bootargs is the command line on this DT boot */
++	if (!of_property_read_string(chosen, "bootargs", &bootargs)) {
++		p = strstr(bootargs, "exynos_drm.panel_name=");
++		boe = p &&
++			str_has_prefix(p + sizeof("exynos_drm.panel_name=") - 1,
++				       "boe-nt37290");
++	}
++	of_node_put(chosen);
++
++	return boe;
++}
++
+ static int s6e3hc4_probe(struct mipi_dsi_device *dsi)
+ {
+ 	struct device *dev = &dsi->dev;
+@@ -491,6 +525,9 @@ static int s6e3hc4_probe(struct mipi_dsi_device *dsi)
+ 	bool handover;
+ 	int ret;
+ 
++	if (cmdline_names_boe_panel())
++		return -ENODEV;
++
+ 	ctx = devm_drm_panel_alloc(dev, struct s6e3hc4, panel,
+ 				   &s6e3hc4_panel_funcs,
+ 				   DRM_MODE_CONNECTOR_DSI);

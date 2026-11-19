@@ -1,0 +1,25 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Lef <me@lefteros.com>
+Date: Fri, 6 Nov 2026 06:45:36 +0200
+Subject: [PATCH] dt-bindings: serial: samsung: add google,zuma-uart
+
+The zuma UART, for the APM USI1 UART that the Pixel 8 Pro's Bluetooth
+chip sits on (0x155d0000).
+
+Signed-off-by: Lef <me@lefteros.com>
+---
+ Documentation/devicetree/bindings/serial/samsung_uart.yaml | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/Documentation/devicetree/bindings/serial/samsung_uart.yaml b/Documentation/devicetree/bindings/serial/samsung_uart.yaml
+index e85a83e57..e07a3266e 100644
+--- a/Documentation/devicetree/bindings/serial/samsung_uart.yaml
++++ b/Documentation/devicetree/bindings/serial/samsung_uart.yaml
+@@ -31,6 +31,7 @@ properties:
+       - items:
+           - enum:
+               - google,gs201-uart
++              - google,zuma-uart
+               - google,zumapro-uart
+               - samsung,exynos2200-uart
+           - const: google,gs101-uart

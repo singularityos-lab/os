@@ -1,0 +1,106 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Alejandro Garcia <skipper.pelygro@gmail.com>
+Date: Sun, 1 Nov 2026 14:03:23 -0800
+Subject: [PATCH] arm64: dts: exynos: google: gs201-panther: add Bluetooth
+
+Enable the BCM4389's Bluetooth core on the APM USI1 UART, as on the
+Pixel 7 Pro: CMU_APM for the UART clocks, USI_APM1 and its UART, and the
+controller with BT_REG_ON and BT_DEV_WAKE on gpp16-2 and gpp16-3 and its
+host wake on gpa6-6, rising edge. The pins and their pulls are those of
+the Pixel 7's live device tree (goog,nitrous: shutdown, device-wakeup and
+host-wakeup GPIOs), which match the Pixel 7 Pro's.
+
+Assisted-by: Claude Opus 5.5
+Signed-off-by: Alejandro Garcia <skipper.pelygro@gmail.com>
+---
+ .../boot/dts/exynos/google/gs201-panther.dts  | 56 ++++++++++++++++++-
+ 1 file changed, 54 insertions(+), 2 deletions(-)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/gs201-panther.dts b/arch/arm64/boot/dts/exynos/google/gs201-panther.dts
+index 97bc57450..ead243b11 100644
+--- a/arch/arm64/boot/dts/exynos/google/gs201-panther.dts
++++ b/arch/arm64/boot/dts/exynos/google/gs201-panther.dts
+@@ -5,8 +5,9 @@
+  * USB (NCM + ACM), the cluster watchdogs from gs201.dtsi, a
+  * simple-framebuffer on the buffer ABL leaves DPP0 scanning out, UFS, the
+  * three keys, the touchscreen with its rails on the main PMIC, the GPU, the
+- * haptics, the MAX77759's I2C bus with its fuel gauge and the DSI command
+- * path to the panel. The display itself stays on simple-framebuffer.
++ * haptics, the MAX77759's I2C bus with its fuel gauge, Bluetooth and the
++ * DSI command path to the panel. The display itself stays on
++ * simple-framebuffer.
+  */
+ 
+ /dts-v1/;
+@@ -161,6 +162,36 @@ ldo26m: ldo26m {
+ 	};
+ };
+ 
++/*
++ * Bluetooth: the BCM4389 BT core on the APM USI1 UART, wired as on the
++ * Pixel 7 Pro: BT_REG_ON and BT_DEV_WAKE on PERIC0's gpp16-2/3, the host
++ * wake on gpa6-6, as in the Pixel 7's live device tree. The UART clocks
++ * come from the read-only CMU_APM subset. BT_REG_ON is separate from
++ * Wi-Fi's WL_REG_ON (gph2-4), so Bluetooth powers up alone.
++ */
++&cmu_apm {
++	status = "okay";
++};
++
++&usi_apm1 {
++	status = "okay";
++};
++
++&serial_apm1 {
++	status = "okay";
++
++	bluetooth {
++		compatible = "brcm,bcm4389-bt";
++		shutdown-gpios = <&gpp16 2 GPIO_ACTIVE_HIGH>;
++		device-wakeup-gpios = <&gpp16 3 GPIO_ACTIVE_HIGH>;
++		interrupts-extended = <&gpa6 6 IRQ_TYPE_EDGE_RISING>;
++		interrupt-names = "host-wakeup";
++		pinctrl-0 = <&bt_reg_on &bt_dev_wake &bt_host_wake>;
++		pinctrl-names = "default";
++		max-speed = <3000000>;
++	};
++};
++
+ /*
+  * Display bring-up, gate D1 (device/panther/DISPLAY-PLAN.md): the DPU and
+  * DISP clock controllers, and DSIM0 with the panel, so the panel driver can
+@@ -294,6 +325,13 @@ fuel-gauge@36 {
+  * The bus pins are on PERIC0 (gpp16-0/1).
+  */
+ &pinctrl_far_alive {
++	bt_host_wake: bt-host-wake-pins {
++		samsung,pins = "gpa6-6";
++		samsung,pin-function = <GS101_PIN_FUNC_EINT>;
++		samsung,pin-pud = <GS101_PIN_PULL_DOWN>;
++		samsung,pin-drv = <GS101_PIN_DRV_2_5_MA>;
++	};
++
+ 	hapt_amp_irq: hapt-amp-irq-pins {
+ 		samsung,pins = "gpa8-1";
+ 		samsung,pin-function = <GS101_PIN_FUNC_EINT>;
+@@ -313,6 +351,20 @@ if_pmic_fg_int: if-pmic-fg-int-pins {
+ 
+ &pinctrl_peric0 {
+ 	status = "okay";
++
++	bt_reg_on: bt-reg-on-pins {
++		samsung,pins = "gpp16-2";
++		samsung,pin-function = <GS101_PIN_FUNC_OUTPUT>;
++		samsung,pin-pud = <GS101_PIN_PULL_NONE>;
++		samsung,pin-drv = <GS101_PIN_DRV_2_5_MA>;
++	};
++
++	bt_dev_wake: bt-dev-wake-pins {
++		samsung,pins = "gpp16-3";
++		samsung,pin-function = <GS101_PIN_FUNC_OUTPUT>;
++		samsung,pin-pud = <GS101_PIN_PULL_NONE>;
++		samsung,pin-drv = <GS101_PIN_DRV_2_5_MA>;
++	};
+ };
+ 
+ &pinctrl_peric1 {

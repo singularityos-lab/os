@@ -1,0 +1,40 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?=C3=81ngel=20Ren=C3=A9?=
+ <17342133+angelrenefm@users.noreply.github.com>
+Date: Fri, 13 Nov 2026 21:06:23 +0100
+Subject: [PATCH] dt-bindings: media: s5p-mfc: Add the Google GS201 MFC
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The Google GS201 SoC (Pixel 7) has an MFC v15.6 (MFC_VERSION reads
+0x15060000). Like the Tesla FSD one it takes a single "mfc" clock and
+sits behind up to two System MMUs. On GS201 that clock is the ACPM
+firmware's MFC DVFS domain, which sets the voltage with the rate.
+
+Assisted-by: LLM
+Signed-off-by: Ángel René <17342133+angelrenefm@users.noreply.github.com>
+---
+ Documentation/devicetree/bindings/media/samsung,s5p-mfc.yaml | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/Documentation/devicetree/bindings/media/samsung,s5p-mfc.yaml b/Documentation/devicetree/bindings/media/samsung,s5p-mfc.yaml
+index b46cc7807..41f05d7ce 100644
+--- a/Documentation/devicetree/bindings/media/samsung,s5p-mfc.yaml
++++ b/Documentation/devicetree/bindings/media/samsung,s5p-mfc.yaml
+@@ -18,6 +18,7 @@ properties:
+   compatible:
+     oneOf:
+       - enum:
++          - google,gs201-mfc              # Google GS201 (MFC v15)
+           - samsung,exynos5433-mfc        # Exynos5433
+           - samsung,mfc-v5                # Exynos4
+           - samsung,mfc-v6                # Exynos5
+@@ -164,6 +165,7 @@ allOf:
+         compatible:
+           contains:
+             enum:
++              - google,gs201-mfc
+               - tesla,fsd-mfc
+     then:
+       properties:

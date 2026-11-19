@@ -1,0 +1,89 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Brett-Michael Green <brett@bmgvisualtech.com>
+Date: Fri, 30 Oct 2026 16:19:47 -0400
+Subject: [PATCH] arm64: dts: exynos: google: zuma: add CMU_TOP and CMU_HSI0
+
+Add the 24.576 MHz oscillator, HSI0's ALT input at the CAL's nominal
+213 MHz, and the TOP and HSI0 clock controllers. Nothing consumes them
+yet; the touchscreen's SPI will.
+
+Assisted-by: LLM
+Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
+---
+ arch/arm64/boot/dts/exynos/google/zuma.dtsi | 40 +++++++++++++++++++--
+ 1 file changed, 37 insertions(+), 3 deletions(-)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/zuma.dtsi b/arch/arm64/boot/dts/exynos/google/zuma.dtsi
+index 92bef7f97..f76de50ad 100644
+--- a/arch/arm64/boot/dts/exynos/google/zuma.dtsi
++++ b/arch/arm64/boot/dts/exynos/google/zuma.dtsi
+@@ -5,11 +5,13 @@
+  * Addresses, interrupts and reservations are the ones a retail Pixel 8 Pro
+  * (husky) runs with: its live device tree and Google's GPL zuma tree
+  * (android-gs-shusky-6.1-android16). Nothing here is copied from gs101 or
+- * gs201. No clock, pinctrl or power-domain providers yet: the bootloader
+- * leaves what first light needs running, and the board's bootargs carry
+- * clk_ignore_unused and pd_ignore_unused.
++ * gs201. The clock providers describe only the touchscreen SPI's path, and
++ * there are no power-domain providers yet: the bootloader leaves what the
++ * rest needs running, and the board's bootargs carry clk_ignore_unused and
++ * pd_ignore_unused.
+  */
+ 
++#include <dt-bindings/clock/google,zuma.h>
+ #include <dt-bindings/interrupt-controller/arm-gic.h>
+ #include <dt-bindings/interrupt-controller/irq.h>
+ 
+@@ -269,6 +271,21 @@ clk_ufs_ref_stub: clock-ufs-ref-stub {
+ 		clock-output-names = "ufs_ref_stub";
+ 	};
+ 
++	oscclk: clock-oscclk {
++		compatible = "fixed-clock";
++		#clock-cells = <0>;
++		clock-frequency = <24576000>;
++		clock-output-names = "oscclk";
++	};
++
++	/* The CAL's nominal I_CLK_HSI0_ALT rate. */
++	hsi0_alt: clock-hsi0-alt {
++		compatible = "fixed-clock";
++		#clock-cells = <0>;
++		clock-frequency = <213000000>;
++		clock-output-names = "hsi0-alt";
++	};
++
+ 	soc: soc@0 {
+ 		compatible = "simple-bus";
+ 		#address-cells = <1>;
+@@ -318,6 +335,15 @@ pinctrl_peric0: pinctrl@10840000 {
+ 			interrupts = <GIC_SPI 634 IRQ_TYPE_LEVEL_HIGH>;
+ 		};
+ 
++		cmu_hsi0: clock-controller@11000000 {
++			compatible = "google,zuma-cmu-hsi0";
++			reg = <0x11000000 0x8000>;
++			#clock-cells = <1>;
++			clocks = <&oscclk>, <&cmu_top CLK_DOUT_HSI0_NOC>,
++				 <&cmu_top CLK_DOUT_HSI0_PERI>, <&hsi0_alt>;
++			clock-names = "oscclk", "bus", "peri", "alt";
++		};
++
+ 		/*
+ 		 * USB control block: Exynos 2200's link registers, with the
+ 		 * eUSB2 PHY below as its high-speed PHY. The USB3/DP combo PHY
+@@ -443,6 +469,14 @@ wakeup-interrupt-controller {
+ 					     "google,zumapro-wakeup-eint";
+ 			};
+ 		};
++
++		cmu_top: clock-controller@26040000 {
++			compatible = "google,zuma-cmu-top";
++			reg = <0x26040000 0x8000>;
++			#clock-cells = <1>;
++			clocks = <&oscclk>;
++			clock-names = "oscclk";
++		};
+ 	};
+ };
+ 

@@ -1,0 +1,81 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Fri, 13 Nov 2026 07:11:10 -0644
+Subject: [PATCH] clk: samsung: zumapro: Keep the HSI0 USI2 and USI3 clocks on
+
+The gates of USI2 and USI3 in the HSI0 block (the bus, function and
+source clock of each) are writable and in manual mode, and nothing holds
+them while the SPI controllers behind them are idle. A register access
+to the USI in the first microseconds after its gates are opened never
+returns: the CPU sits in the access, takes no tick and answers no IPI.
+
+The USI driver does that in its noirq resume (clk_bulk_prepare_enable(),
+then USI_CON read and written), and so on the Pixel 9a a sleep now and
+then never woke. Two such hangs were caught with the device callback
+trace events on. In the first, at the 41st sleep of a boot, the suspend
+task's last event is device_pm_callback_start for the USI at 111d00c0
+(USI2, the touchscreen's SPI), with no end. In the second, on a kernel
+that kept only the two bus clocks on, USI2's callback returns and the
+last event is the start of USI3's, at 111e00c0, at the 227th sleep. The
+USIs resumed before them, in PERIC0 and PERIC1, have read-only gates,
+and so has USI4 in HSI0.
+
+It reproduces awake in under a second. A test module that repeats the
+driver's sequence on USI3 (clocks on, USI_CON read and written, 1 us,
+clocks off), with the bus clock already on and only the function clock
+switched, hung the SoC within its first thousand rounds, twice of twice,
+until the watchdog reset it. With 10 us between the clocks and the
+access, two million rounds passed, and so did two million rounds that
+switched the clocks and touched no register.
+
+Mark the six gates critical, as the PERIC0 and HSI2 GPIO gates are, so
+the clock framework never closes them. With that, on the published tree
+with nothing else added, two million rounds of the same module passed on
+each USI with the gates never closed. Before it, with a module holding
+the two USIs' clocks on, 300 of 300 sleeps of 60 s woke on the build
+that had hung at the 70th and the 41st.
+
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ drivers/clk/samsung/clk-zumapro.c | 19 +++++++++++++------
+ 1 file changed, 13 insertions(+), 6 deletions(-)
+
+diff --git a/drivers/clk/samsung/clk-zumapro.c b/drivers/clk/samsung/clk-zumapro.c
+index d813b970b..56dd307be 100644
+--- a/drivers/clk/samsung/clk-zumapro.c
++++ b/drivers/clk/samsung/clk-zumapro.c
+@@ -664,21 +664,28 @@ static const struct samsung_div_clock hsi0_dividers[] __initconst = {
+ 	      0x1824, 0, 4, 0, CLK_DIVIDER_READ_ONLY),
+ };
+ 
++/*
++ * The USI2 and USI3 gates are in manual mode and stay on. A register access
++ * in the first microseconds after one of them is opened never returns, and
++ * the USI driver's resume and the SPI controllers' runtime PM open them
++ * right before theirs: on the Pixel 9a that hung the noirq resume now and
++ * then.
++ */
+ static const struct samsung_gate_clock hsi0_gates[] __initconst = {
+ 	GATE(CLK_GOUT_HSI0_USI2_SOURCE, "zumapro_gout_hsi0_usi2_source",
+ 	     "zumapro_mout_hsi0_usi2_local",
+-	     0x2120, 21, CLK_IGNORE_UNUSED, 0),
++	     0x2120, 21, CLK_IS_CRITICAL, 0),
+ 	GATE(CLK_GOUT_HSI0_USI2_IP, "zumapro_gout_hsi0_usi2_ip", "zumapro_dout_hsi0_usi2",
+-	     0x20fc, 21, CLK_IGNORE_UNUSED | CLK_SET_RATE_PARENT, 0),
++	     0x20fc, 21, CLK_IS_CRITICAL | CLK_SET_RATE_PARENT, 0),
+ 	GATE(CLK_GOUT_HSI0_USI2_PCLK, "zumapro_gout_hsi0_usi2_pclk", "zumapro_mout_hsi0_noc_local",
+-	     0x2100, 21, CLK_IGNORE_UNUSED, 0),
++	     0x2100, 21, CLK_IS_CRITICAL, 0),
+ 	GATE(CLK_GOUT_HSI0_USI3_SOURCE, "zumapro_gout_hsi0_usi3_source",
+ 	     "zumapro_mout_hsi0_usi3_local",
+-	     0x2124, 21, CLK_IGNORE_UNUSED | CLK_SET_RATE_PARENT, 0),
++	     0x2124, 21, CLK_IS_CRITICAL | CLK_SET_RATE_PARENT, 0),
+ 	GATE(CLK_GOUT_HSI0_USI3_IP, "zumapro_gout_hsi0_usi3_ip", "zumapro_dout_hsi0_usi3",
+-	     0x2104, 21, CLK_IGNORE_UNUSED | CLK_SET_RATE_PARENT, 0),
++	     0x2104, 21, CLK_IS_CRITICAL | CLK_SET_RATE_PARENT, 0),
+ 	GATE(CLK_GOUT_HSI0_USI3_PCLK, "zumapro_gout_hsi0_usi3_pclk", "zumapro_mout_hsi0_noc_local",
+-	     0x2108, 21, CLK_IGNORE_UNUSED, 0),
++	     0x2108, 21, CLK_IS_CRITICAL, 0),
+ };
+ 
+ /*

@@ -1,0 +1,865 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Sun, 11 Oct 2026 16:42:56 -0400
+Subject: [PATCH] dt-bindings: clock: google: add gs201 clock IDs and binding
+
+Add a binding for the Google gs201 (Tensor G2) CMUs needed for early
+bring-up (TOP, MISC, HSI0, HSI2, PERIC0, PERIC1) and the clock IDs
+consumers use.
+
+The binding follows google,gs101-clock.yaml. It is a separate document
+because the gs201 clock IDs differ and samsung,sysreg is optional: the
+dynamic root clock gating sysreg registers are not described for gs201
+yet. IDs follow the google,gs101.h conventions, with names derived from
+the CMU register names in Google's GPL-2.0 gs201 CMUCAL tables.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ .../bindings/clock/google,gs201-clock.yaml    | 190 ++++++
+ MAINTAINERS                                   |   2 +
+ include/dt-bindings/clock/google,gs201.h      | 619 ++++++++++++++++++
+ 3 files changed, 811 insertions(+)
+ create mode 100644 Documentation/devicetree/bindings/clock/google,gs201-clock.yaml
+ create mode 100644 include/dt-bindings/clock/google,gs201.h
+
+diff --git a/Documentation/devicetree/bindings/clock/google,gs201-clock.yaml b/Documentation/devicetree/bindings/clock/google,gs201-clock.yaml
+new file mode 100644
+index 000000000..5d97fea34
+--- /dev/null
++++ b/Documentation/devicetree/bindings/clock/google,gs201-clock.yaml
+@@ -0,0 +1,190 @@
++# SPDX-License-Identifier: GPL-2.0-only
++%YAML 1.2
++---
++$id: http://devicetree.org/schemas/clock/google,gs201-clock.yaml#
++$schema: http://devicetree.org/meta-schemas/core.yaml#
++
++title: Google GS201 SoC clock controller
++
++maintainers:
++  - Derek Ross <derekross@gmail.com>
++
++description: |
++  The Google GS201 (Tensor G2) clock controller is made of several CMU units,
++  each generating clocks for one domain. The CMU units are modelled as
++  separate device tree nodes and may depend on each other. The root clock of
++  the tree is OSCCLK (24.576 MHz), which must be described as a fixed-rate
++  clock in the dts.
++
++  CMU_TOP is the top-level CMU: it prepares the base clocks with PLLs and
++  dividers. The other CMUs take their bus and IP clocks from CMU_TOP.
++
++  Each clock is assigned an identifier and client nodes use this identifier
++  to name the clock they consume. The identifiers are defined as preprocessor
++  macros in 'include/dt-bindings/clock/google,gs201.h'.
++
++properties:
++  compatible:
++    enum:
++      - google,gs201-cmu-top
++      - google,gs201-cmu-hsi0
++      - google,gs201-cmu-hsi2
++      - google,gs201-cmu-misc
++      - google,gs201-cmu-peric0
++      - google,gs201-cmu-peric1
++
++  clocks:
++    minItems: 1
++    maxItems: 5
++
++  clock-names:
++    minItems: 1
++    maxItems: 5
++
++  "#clock-cells":
++    const: 1
++
++  power-domains:
++    maxItems: 1
++
++  reg:
++    maxItems: 1
++
++  samsung,sysreg:
++    $ref: /schemas/types.yaml#/definitions/phandle
++    description:
++      Phandle to the system registers interface of this CMU's block.
++
++required:
++  - compatible
++  - "#clock-cells"
++  - clocks
++  - clock-names
++  - reg
++
++allOf:
++  - if:
++      properties:
++        compatible:
++          contains:
++            const: google,gs201-cmu-top
++    then:
++      properties:
++        clocks:
++          items:
++            - description: External reference clock (24.576 MHz)
++
++        clock-names:
++          items:
++            - const: oscclk
++
++        samsung,sysreg: false
++
++  - if:
++      properties:
++        compatible:
++          contains:
++            const: google,gs201-cmu-hsi0
++    then:
++      properties:
++        clocks:
++          items:
++            - description: External reference clock (24.576 MHz)
++            - description: HSI0 bus clock (from CMU_TOP)
++            - description: DPGTC (from CMU_TOP)
++            - description: USB DRD controller clock (from CMU_TOP)
++            - description: USB Display Port debug clock (from CMU_TOP)
++
++        clock-names:
++          items:
++            - const: oscclk
++            - const: bus
++            - const: dpgtc
++            - const: usb31drd
++            - const: usbdpdbg
++
++  - if:
++      properties:
++        compatible:
++          contains:
++            const: google,gs201-cmu-hsi2
++    then:
++      properties:
++        clocks:
++          items:
++            - description: External reference clock (24.576 MHz)
++            - description: High Speed Interface bus clock (from CMU_TOP)
++            - description: High Speed Interface pcie clock (from CMU_TOP)
++            - description: High Speed Interface ufs clock (from CMU_TOP)
++            - description: High Speed Interface mmc clock (from CMU_TOP)
++
++        clock-names:
++          items:
++            - const: oscclk
++            - const: bus
++            - const: pcie
++            - const: ufs
++            - const: mmc
++
++  - if:
++      properties:
++        compatible:
++          contains:
++            const: google,gs201-cmu-misc
++    then:
++      properties:
++        clocks:
++          items:
++            - description: Misc bus clock (from CMU_TOP)
++            - description: Misc sss clock (from CMU_TOP)
++
++        clock-names:
++          items:
++            - const: bus
++            - const: sss
++
++  - if:
++      properties:
++        compatible:
++          contains:
++            enum:
++              - google,gs201-cmu-peric0
++              - google,gs201-cmu-peric1
++    then:
++      properties:
++        clocks:
++          items:
++            - description: External reference clock (24.576 MHz)
++            - description: Connectivity Peripheral 0/1 bus clock (from CMU_TOP)
++            - description: Connectivity Peripheral 0/1 IP clock (from CMU_TOP)
++
++        clock-names:
++          items:
++            - const: oscclk
++            - const: bus
++            - const: ip
++
++additionalProperties: false
++
++examples:
++  - |
++    #include <dt-bindings/clock/google,gs201.h>
++
++    cmu_top: clock-controller@1e080000 {
++        compatible = "google,gs201-cmu-top";
++        reg = <0x1e080000 0x10000>;
++        #clock-cells = <1>;
++        clocks = <&oscclk>;
++        clock-names = "oscclk";
++    };
++
++    clock-controller@10010000 {
++        compatible = "google,gs201-cmu-misc";
++        reg = <0x10010000 0x10000>;
++        #clock-cells = <1>;
++        clocks = <&cmu_top CLK_DOUT_CMU_MISC_NOC>,
++                 <&cmu_top CLK_DOUT_CMU_MISC_SSS>;
++        clock-names = "bus", "sss";
++    };
++
++...
+diff --git a/MAINTAINERS b/MAINTAINERS
+index 782389bd5..3983ca502 100644
+--- a/MAINTAINERS
++++ b/MAINTAINERS
+@@ -11157,6 +11157,7 @@ S:	Maintained
+ P:	Documentation/process/maintainer-soc-clean-dts.rst
+ C:	irc://irc.oftc.net/pixel6-kernel-dev
+ F:	Documentation/devicetree/bindings/clock/google,gs101-clock.yaml
++F:	Documentation/devicetree/bindings/clock/google,gs201-clock.yaml
+ F:	Documentation/devicetree/bindings/phy/google,lga-usb-phy.yaml
+ F:	Documentation/devicetree/bindings/soc/google/google,gs101-pmu-intr-gen.yaml
+ F:	Documentation/devicetree/bindings/usb/google,lga-dwc3.yaml
+@@ -11167,6 +11168,7 @@ F:	drivers/soc/samsung/gs101-pmu.c
+ F:	drivers/phy/samsung/phy-gs101-ufs.c
+ F:	drivers/usb/dwc3/dwc3-google.c
+ F:	include/dt-bindings/clock/google,gs101*
++F:	include/dt-bindings/clock/google,gs201*
+ K:	[gG]oogle.?[tT]ensor
+ 
+ GPD FAN DRIVER
+diff --git a/include/dt-bindings/clock/google,gs201.h b/include/dt-bindings/clock/google,gs201.h
+new file mode 100644
+index 000000000..40ae86ea8
+--- /dev/null
++++ b/include/dt-bindings/clock/google,gs201.h
+@@ -0,0 +1,619 @@
++/* SPDX-License-Identifier: GPL-2.0-only */
++/*
++ * Device Tree binding constants for the Google gs201 clock controller.
++ *
++ * IDs follow the google,gs101.h conventions; names are derived from the
++ * CMU register names in Google's GPL-2.0 gs201 CMUCAL tables.
++ */
++
++#ifndef _DT_BINDINGS_CLOCK_GOOGLE_GS201_H
++#define _DT_BINDINGS_CLOCK_GOOGLE_GS201_H
++
++/* CMU_TOP */
++#define CLK_FOUT_LF_MIF_PLL					1
++#define CLK_FOUT_SHARED0_PLL					2
++#define CLK_FOUT_SHARED1_PLL					3
++#define CLK_FOUT_SHARED2_PLL					4
++#define CLK_FOUT_SHARED3_PLL					5
++#define CLK_FOUT_SPARE_PLL					6
++#define CLK_MOUT_PLL_LF_MIF					7
++#define CLK_MOUT_PLL_SHARED0					8
++#define CLK_MOUT_PLL_SHARED1					9
++#define CLK_MOUT_PLL_SHARED2					10
++#define CLK_MOUT_PLL_SHARED3					11
++#define CLK_MOUT_PLL_SPARE					12
++#define CLK_MOUT_CMU_AUR_AUR					13
++#define CLK_MOUT_CMU_AUR_AURCTL					14
++#define CLK_MOUT_CMU_AUR_NOC					15
++#define CLK_MOUT_CMU_BO_NOC					16
++#define CLK_MOUT_CMU_CIS_CLK0					17
++#define CLK_MOUT_CMU_CIS_CLK1					18
++#define CLK_MOUT_CMU_CIS_CLK2					19
++#define CLK_MOUT_CMU_CIS_CLK3					20
++#define CLK_MOUT_CMU_CIS_CLK4					21
++#define CLK_MOUT_CMU_CIS_CLK5					22
++#define CLK_MOUT_CMU_CIS_CLK6					23
++#define CLK_MOUT_CMU_CIS_CLK7					24
++#define CLK_MOUT_CMU_CMU_BOOST					25
++#define CLK_MOUT_CMU_CMU_BOOST_OPTION1				26
++#define CLK_MOUT_CMU_CPUCL0_DBG					27
++#define CLK_MOUT_CMU_CPUCL0_SWITCH				28
++#define CLK_MOUT_CMU_CPUCL1_SWITCH				29
++#define CLK_MOUT_CMU_CPUCL2_SWITCH				30
++#define CLK_MOUT_CMU_CSIS_NOC					31
++#define CLK_MOUT_CMU_DISP_NOC					32
++#define CLK_MOUT_CMU_DNS_NOC					33
++#define CLK_MOUT_CMU_DPU_NOC					34
++#define CLK_MOUT_CMU_EH_NOC					35
++#define CLK_MOUT_CMU_G2D_G2D					36
++#define CLK_MOUT_CMU_G2D_MSCL					37
++#define CLK_MOUT_CMU_G3AA_G3AA					38
++#define CLK_MOUT_CMU_G3D_GLB					39
++#define CLK_MOUT_CMU_G3D_NOCD					40
++#define CLK_MOUT_CMU_G3D_SWITCH					41
++#define CLK_MOUT_CMU_GDC_GDC0					42
++#define CLK_MOUT_CMU_GDC_GDC1					43
++#define CLK_MOUT_CMU_GDC_SCSC					44
++#define CLK_MOUT_CMU_HPM					45
++#define CLK_MOUT_CMU_HSI0_DPGTC					46
++#define CLK_MOUT_CMU_HSI0_NOC					47
++#define CLK_MOUT_CMU_HSI0_USB31DRD				48
++#define CLK_MOUT_CMU_HSI0_USBDPDBG				49
++#define CLK_MOUT_CMU_HSI1_NOC					50
++#define CLK_MOUT_CMU_HSI1_PCIE					51
++#define CLK_MOUT_CMU_HSI2_MMC_CARD				52
++#define CLK_MOUT_CMU_HSI2_NOC					53
++#define CLK_MOUT_CMU_HSI2_PCIE					54
++#define CLK_MOUT_CMU_HSI2_UFS_EMBD				55
++#define CLK_MOUT_CMU_IPP_NOC					56
++#define CLK_MOUT_CMU_ITP_NOC					57
++#define CLK_MOUT_CMU_MCSC_ITSC					58
++#define CLK_MOUT_CMU_MCSC_MCSC					59
++#define CLK_MOUT_CMU_MFC_MFC					60
++#define CLK_MOUT_CMU_MIF_NOCP					61
++#define CLK_MOUT_CMU_MIF_SWITCH					62
++#define CLK_MOUT_CMU_MISC_NOC					63
++#define CLK_MOUT_CMU_MISC_SSS					64
++#define CLK_MOUT_CMU_NOCL0_NOC					65
++#define CLK_MOUT_CMU_NOCL1A_NOC					66
++#define CLK_MOUT_CMU_NOCL1B_NOC					67
++#define CLK_MOUT_CMU_NOCL2A_NOC					68
++#define CLK_MOUT_CMU_PDP_NOC					69
++#define CLK_MOUT_CMU_PDP_VRA					70
++#define CLK_MOUT_CMU_PERIC0_IP					71
++#define CLK_MOUT_CMU_PERIC0_NOC					72
++#define CLK_MOUT_CMU_PERIC1_IP					73
++#define CLK_MOUT_CMU_PERIC1_NOC					74
++#define CLK_MOUT_CMU_TNR_NOC					75
++#define CLK_MOUT_CMU_TOP_BOOST_OPTION1				76
++#define CLK_MOUT_CMU_TOP_CMUREF					77
++#define CLK_MOUT_CMU_TPU_NOC					78
++#define CLK_MOUT_CMU_TPU_TPU					79
++#define CLK_MOUT_CMU_TPU_TPUCTL					80
++#define CLK_MOUT_CMU_TPU_UART					81
++#define CLK_MOUT_CMU_CMUREF					82
++#define CLK_DOUT_CMU_AUR_AUR					83
++#define CLK_DOUT_CMU_AUR_AURCTL					84
++#define CLK_DOUT_CMU_AUR_NOC					85
++#define CLK_DOUT_CMU_BO_NOC					86
++#define CLK_DOUT_CMU_CIS_CLK0					87
++#define CLK_DOUT_CMU_CIS_CLK1					88
++#define CLK_DOUT_CMU_CIS_CLK2					89
++#define CLK_DOUT_CMU_CIS_CLK3					90
++#define CLK_DOUT_CMU_CIS_CLK4					91
++#define CLK_DOUT_CMU_CIS_CLK5					92
++#define CLK_DOUT_CMU_CIS_CLK6					93
++#define CLK_DOUT_CMU_CIS_CLK7					94
++#define CLK_DOUT_CMU_CPUCL0_DBG					95
++#define CLK_DOUT_CMU_CPUCL0_SWITCH				96
++#define CLK_DOUT_CMU_CPUCL1_SWITCH				97
++#define CLK_DOUT_CMU_CPUCL2_SWITCH				98
++#define CLK_DOUT_CMU_CSIS_NOC					99
++#define CLK_DOUT_CMU_DISP_NOC					100
++#define CLK_DOUT_CMU_DNS_NOC					101
++#define CLK_DOUT_CMU_DPU_NOC					102
++#define CLK_DOUT_CMU_EH_NOC					103
++#define CLK_DOUT_CMU_G2D_G2D					104
++#define CLK_DOUT_CMU_G2D_MSCL					105
++#define CLK_DOUT_CMU_G3AA_G3AA					106
++#define CLK_DOUT_CMU_G3D_GLB					107
++#define CLK_DOUT_CMU_G3D_NOCD					108
++#define CLK_DOUT_CMU_G3D_SWITCH					109
++#define CLK_DOUT_CMU_GDC_GDC0					110
++#define CLK_DOUT_CMU_GDC_GDC1					111
++#define CLK_DOUT_CMU_GDC_SCSC					112
++#define CLK_DOUT_CMU_HPM					113
++#define CLK_DOUT_CMU_HSI0_DPGTC					114
++#define CLK_DOUT_CMU_HSI0_NOC					115
++#define CLK_DOUT_CMU_HSI0_USB31DRD				116
++#define CLK_DOUT_CMU_HSI1_NOC					117
++#define CLK_DOUT_CMU_HSI1_PCIE					118
++#define CLK_DOUT_CMU_HSI2_MMC_CARD				119
++#define CLK_DOUT_CMU_HSI2_NOC					120
++#define CLK_DOUT_CMU_HSI2_PCIE					121
++#define CLK_DOUT_CMU_HSI2_UFS_EMBD				122
++#define CLK_DOUT_CMU_IPP_NOC					123
++#define CLK_DOUT_CMU_ITP_NOC					124
++#define CLK_DOUT_CMU_MCSC_ITSC					125
++#define CLK_DOUT_CMU_MCSC_MCSC					126
++#define CLK_DOUT_CMU_MFC_MFC					127
++#define CLK_DOUT_CMU_MIF_NOCP					128
++#define CLK_DOUT_CMU_MISC_NOC					129
++#define CLK_DOUT_CMU_MISC_SSS					130
++#define CLK_DOUT_CMU_NOCL0_NOC					131
++#define CLK_DOUT_CMU_NOCL1A_NOC					132
++#define CLK_DOUT_CMU_NOCL1B_NOC					133
++#define CLK_DOUT_CMU_NOCL2A_NOC					134
++#define CLK_DOUT_CMU_PDP_NOC					135
++#define CLK_DOUT_CMU_PDP_VRA					136
++#define CLK_DOUT_CMU_PERIC0_IP					137
++#define CLK_DOUT_CMU_PERIC0_NOC					138
++#define CLK_DOUT_CMU_PERIC1_IP					139
++#define CLK_DOUT_CMU_PERIC1_NOC					140
++#define CLK_DOUT_CMU_TNR_NOC					141
++#define CLK_DOUT_CMU_TPU_NOC					142
++#define CLK_DOUT_CMU_TPU_TPU					143
++#define CLK_DOUT_CMU_TPU_TPUCTL					144
++#define CLK_DOUT_CMU_TPU_UART					145
++#define CLK_DOUT_CMU_CMU_BOOST					146
++#define CLK_DOUT_CMU_CMUREF					147
++#define CLK_DOUT_CMU_SHARED0_DIV2				148
++#define CLK_DOUT_CMU_SHARED0_DIV3				149
++#define CLK_DOUT_CMU_SHARED0_DIV4				150
++#define CLK_DOUT_CMU_SHARED0_DIV5				151
++#define CLK_DOUT_CMU_SHARED1_DIV2				152
++#define CLK_DOUT_CMU_SHARED1_DIV3				153
++#define CLK_DOUT_CMU_SHARED1_DIV4				154
++#define CLK_DOUT_CMU_SHARED2_DIV2				155
++#define CLK_DOUT_CMU_SHARED3_DIV2				156
++#define CLK_DOUT_CMU_HSI0_USBDPDBG				157
++#define CLK_DOUT_CMU_OTP					158
++#define CLK_GOUT_CMU_CPUCL0_BOOST				159
++#define CLK_GOUT_CMU_CPUCL1_BOOST				160
++#define CLK_GOUT_CMU_CPUCL2_BOOST				161
++#define CLK_GOUT_CMU_MIF_BOOST					162
++#define CLK_GOUT_CMU_MIF_SWITCH					163
++#define CLK_GOUT_CMU_NOCL0_BOOST				164
++#define CLK_GOUT_CMU_NOCL1A_BOOST				165
++#define CLK_GOUT_CMU_NOCL1B_BOOST				166
++#define CLK_GOUT_CMU_NOCL2A_BOOST				167
++#define CLK_GOUT_CMU_AUR_AUR					168
++#define CLK_GOUT_CMU_AUR_AURCTL					169
++#define CLK_GOUT_CMU_AUR_NOC					170
++#define CLK_GOUT_CMU_BO_NOC					171
++#define CLK_GOUT_CMU_CIS_CLK0					172
++#define CLK_GOUT_CMU_CIS_CLK1					173
++#define CLK_GOUT_CMU_CIS_CLK2					174
++#define CLK_GOUT_CMU_CIS_CLK3					175
++#define CLK_GOUT_CMU_CIS_CLK4					176
++#define CLK_GOUT_CMU_CIS_CLK5					177
++#define CLK_GOUT_CMU_CIS_CLK6					178
++#define CLK_GOUT_CMU_CIS_CLK7					179
++#define CLK_GOUT_CMU_CMU_BOOST					180
++#define CLK_GOUT_CMU_CPUCL0_DBG_NOC				181
++#define CLK_GOUT_CMU_CPUCL0_SWITCH				182
++#define CLK_GOUT_CMU_CPUCL1_SWITCH				183
++#define CLK_GOUT_CMU_CPUCL2_SWITCH				184
++#define CLK_GOUT_CMU_CSIS_NOC					185
++#define CLK_GOUT_CMU_DISP_NOC					186
++#define CLK_GOUT_CMU_DNS_NOC					187
++#define CLK_GOUT_CMU_DPU_NOC					188
++#define CLK_GOUT_CMU_EH_NOC					189
++#define CLK_GOUT_CMU_G2D_G2D					190
++#define CLK_GOUT_CMU_G2D_MSCL					191
++#define CLK_GOUT_CMU_G3AA_G3AA					192
++#define CLK_GOUT_CMU_G3D_GLB					193
++#define CLK_GOUT_CMU_G3D_NOCD					194
++#define CLK_GOUT_CMU_G3D_SWITCH					195
++#define CLK_GOUT_CMU_GDC_GDC0					196
++#define CLK_GOUT_CMU_GDC_GDC1					197
++#define CLK_GOUT_CMU_GDC_SCSC					198
++#define CLK_GOUT_CMU_HPM					199
++#define CLK_GOUT_CMU_HSI0_DPGTC					200
++#define CLK_GOUT_CMU_HSI0_NOC					201
++#define CLK_GOUT_CMU_HSI0_USB31DRD				202
++#define CLK_GOUT_CMU_HSI0_USBDPDBG				203
++#define CLK_GOUT_CMU_HSI1_NOC					204
++#define CLK_GOUT_CMU_HSI1_PCIE					205
++#define CLK_GOUT_CMU_HSI2_MMCCARD				206
++#define CLK_GOUT_CMU_HSI2_NOC					207
++#define CLK_GOUT_CMU_HSI2_PCIE					208
++#define CLK_GOUT_CMU_HSI2_UFS_EMBD				209
++#define CLK_GOUT_CMU_IPP_NOC					210
++#define CLK_GOUT_CMU_ITP_NOC					211
++#define CLK_GOUT_CMU_MCSC_ITSC					212
++#define CLK_GOUT_CMU_MCSC_MCSC					213
++#define CLK_GOUT_CMU_MFC_MFC					214
++#define CLK_GOUT_CMU_MIF_NOCP					215
++#define CLK_GOUT_CMU_MISC_NOC					216
++#define CLK_GOUT_CMU_MISC_SSS					217
++#define CLK_GOUT_CMU_NOCL0_NOC					218
++#define CLK_GOUT_CMU_NOCL1A_NOC					219
++#define CLK_GOUT_CMU_NOCL1B_NOC					220
++#define CLK_GOUT_CMU_NOCL2A_NOC					221
++#define CLK_GOUT_CMU_PDP_NOC					222
++#define CLK_GOUT_CMU_PDP_VRA					223
++#define CLK_GOUT_CMU_PERIC0_IP					224
++#define CLK_GOUT_CMU_PERIC0_NOC					225
++#define CLK_GOUT_CMU_PERIC1_IP					226
++#define CLK_GOUT_CMU_PERIC1_NOC					227
++#define CLK_GOUT_CMU_TNR_NOC					228
++#define CLK_GOUT_CMU_TOP_CMUREF					229
++#define CLK_GOUT_CMU_TPU_NOC					230
++#define CLK_GOUT_CMU_TPU_TPU					231
++#define CLK_GOUT_CMU_TPU_TPUCTL					232
++#define CLK_GOUT_CMU_TPU_UART					233
++
++/* CMU_MISC */
++#define CLK_MOUT_MISC_NOC_USER					1
++#define CLK_MOUT_MISC_SSS_USER					2
++#define CLK_DOUT_MISC_GIC					3
++#define CLK_DOUT_MISC_GIC_LH					4
++#define CLK_DOUT_MISC_NOCP					5
++#define CLK_DOUT_MISC_NOCP_LH					6
++#define CLK_GOUT_MISC_LH_AST_MI_L_ICC_CLUSTER0_GIC_I_CLK	7
++#define CLK_GOUT_MISC_LH_AST_MI_L_IRI_GIC_CLUSTER0_CD_I_CLK	8
++#define CLK_GOUT_MISC_LH_AST_SI_L_ICC_CLUSTER0_GIC_CU_I_CLK	9
++#define CLK_GOUT_MISC_LH_AST_SI_L_IRI_GIC_CLUSTER0_I_CLK	10
++#define CLK_GOUT_MISC_LH_AXI_SI_P_GIC_CU_I_CLK			11
++#define CLK_GOUT_MISC_LH_AXI_SI_P_MISC_CU_I_CLK			12
++#define CLK_GOUT_MISC_MISC_CMU_MISC_PCLK			13
++#define CLK_GOUT_MISC_OTP_CON_BIRA_I_OSCCLK			14
++#define CLK_GOUT_MISC_OTP_CON_BISR_I_OSCCLK			15
++#define CLK_GOUT_MISC_OTP_CON_TOP_I_OSCCLK			16
++#define CLK_GOUT_MISC_PDMA1_ACLK				17
++#define CLK_GOUT_MISC_QE_PDMA1_ACLK				18
++#define CLK_GOUT_MISC_QE_PDMA1_PCLK				19
++#define CLK_GOUT_MISC_QE_SPDMA1_ACLK				20
++#define CLK_GOUT_MISC_QE_SPDMA1_PCLK				21
++#define CLK_GOUT_MISC_CLK_MISC_GIC_LH_CLK			22
++#define CLK_GOUT_MISC_CLK_MISC_NOCP_LH_CLK			23
++#define CLK_GOUT_MISC_CLK_MISC_OSCCLK_CLK			24
++#define CLK_GOUT_MISC_SLH_AXI_MI_P_GIC_I_CLK			25
++#define CLK_GOUT_MISC_SLH_AXI_MI_P_MISC_I_CLK			26
++#define CLK_GOUT_MISC_SPDMA1_ACLK				27
++#define CLK_GOUT_MISC_SSMT_PDMA1_ACLK				28
++#define CLK_GOUT_MISC_SSMT_PDMA1_PCLK				29
++#define CLK_GOUT_MISC_SSMT_SPDMA1_ACLK				30
++#define CLK_GOUT_MISC_SSMT_SPDMA1_PCLK				31
++#define CLK_GOUT_MISC_ADM_AHB_G_SSS_HCLKM			32
++#define CLK_GOUT_MISC_AD_APB_DIT_PCLKM				33
++#define CLK_GOUT_MISC_AD_APB_PUF_PCLKM				34
++#define CLK_GOUT_MISC_DIT_ICLKL2A				35
++#define CLK_GOUT_MISC_D_TZPC_MISC_PCLK				36
++#define CLK_GOUT_MISC_GIC_GICCLK				37
++#define CLK_GOUT_MISC_GPC_MISC_PCLK				38
++#define CLK_GOUT_MISC_LH_ACEL_SI_D_MISC_I_CLK			39
++#define CLK_GOUT_MISC_LH_AST_MI_L_ICC_CLUSTER0_GIC_CU_I_CLK	40
++#define CLK_GOUT_MISC_LH_AST_SI_L_IRI_GIC_CLUSTER0_CD_I_CLK	41
++#define CLK_GOUT_MISC_LH_AXI_MI_ID_SSS_I_CLK			42
++#define CLK_GOUT_MISC_LH_AXI_MI_P_GIC_CU_I_CLK			43
++#define CLK_GOUT_MISC_LH_AXI_MI_P_MISC_CU_I_CLK			44
++#define CLK_GOUT_MISC_LH_AXI_SI_ID_SSS_I_CLK			45
++#define CLK_GOUT_MISC_MCT_PCLK					46
++#define CLK_GOUT_MISC_OTP_CON_BIRA_PCLK				47
++#define CLK_GOUT_MISC_OTP_CON_BISR_PCLK				48
++#define CLK_GOUT_MISC_OTP_CON_TOP_PCLK				49
++#define CLK_GOUT_MISC_PDMA0_ACLK				50
++#define CLK_GOUT_MISC_PPMU_MISC_ACLK				51
++#define CLK_GOUT_MISC_PPMU_MISC_PCLK				52
++#define CLK_GOUT_MISC_PUF_I_CLK					53
++#define CLK_GOUT_MISC_QE_DIT_ACLK				54
++#define CLK_GOUT_MISC_QE_DIT_PCLK				55
++#define CLK_GOUT_MISC_QE_PDMA0_ACLK				56
++#define CLK_GOUT_MISC_QE_PDMA0_PCLK				57
++#define CLK_GOUT_MISC_QE_RTIC_ACLK				58
++#define CLK_GOUT_MISC_QE_RTIC_PCLK				59
++#define CLK_GOUT_MISC_QE_SPDMA0_ACLK				60
++#define CLK_GOUT_MISC_QE_SPDMA0_PCLK				61
++#define CLK_GOUT_MISC_QE_SSS_ACLK				62
++#define CLK_GOUT_MISC_QE_SSS_PCLK				63
++#define CLK_GOUT_MISC_CLK_MISC_GIC_CLK				64
++#define CLK_GOUT_MISC_CLK_MISC_NOCD_CLK				65
++#define CLK_GOUT_MISC_CLK_MISC_NOCP_CLK				66
++#define CLK_GOUT_MISC_CLK_MISC_SSS_CLK				67
++#define CLK_GOUT_MISC_RTIC_I_ACLK				68
++#define CLK_GOUT_MISC_RTIC_I_PCLK				69
++#define CLK_GOUT_MISC_SPDMA0_ACLK				70
++#define CLK_GOUT_MISC_SSMT_DIT_ACLK				71
++#define CLK_GOUT_MISC_SSMT_DIT_PCLK				72
++#define CLK_GOUT_MISC_SSMT_PDMA0_ACLK				73
++#define CLK_GOUT_MISC_SSMT_PDMA0_PCLK				74
++#define CLK_GOUT_MISC_SSMT_RTIC_ACLK				75
++#define CLK_GOUT_MISC_SSMT_RTIC_PCLK				76
++#define CLK_GOUT_MISC_SSMT_SPDMA0_ACLK				77
++#define CLK_GOUT_MISC_SSMT_SPDMA0_PCLK				78
++#define CLK_GOUT_MISC_SSMT_SSS_ACLK				79
++#define CLK_GOUT_MISC_SSMT_SSS_PCLK				80
++#define CLK_GOUT_MISC_SSS_I_ACLK				81
++#define CLK_GOUT_MISC_SSS_I_PCLK				82
++#define CLK_GOUT_MISC_SYSMMU_MISC_CLK_S2			83
++#define CLK_GOUT_MISC_SYSMMU_SSS_CLK_S1				84
++#define CLK_GOUT_MISC_SYSREG_MISC_PCLK				85
++#define CLK_GOUT_MISC_TMU_SUB_PCLK				86
++#define CLK_GOUT_MISC_TMU_TOP_PCLK				87
++#define CLK_GOUT_MISC_WDT_CLUSTER0_PCLK				88
++#define CLK_GOUT_MISC_WDT_CLUSTER1_PCLK				89
++#define CLK_GOUT_MISC_XIU_D_MISC_ACLK				90
++
++/* CMU_HSI0 */
++#define CLK_FOUT_USB_PLL					1
++#define CLK_MOUT_PLL_USB					2
++#define CLK_MOUT_HSI0_ALT_USER					3
++#define CLK_MOUT_HSI0_NOC_USER					4
++#define CLK_MOUT_HSI0_DPGTC_USER				5
++#define CLK_MOUT_HSI0_TCXO_USER					6
++#define CLK_MOUT_HSI0_USB20_USER				7
++#define CLK_MOUT_HSI0_USB31DRD_USER				8
++#define CLK_MOUT_HSI0_USBDPDBG_USER				9
++#define CLK_MOUT_HSI0_NOC					10
++#define CLK_MOUT_HSI0_USB20_REF					11
++#define CLK_MOUT_HSI0_USB31DRD					12
++#define CLK_DOUT_HSI0_NOC_LH					13
++#define CLK_DOUT_HSI0_USB					14
++#define CLK_DOUT_HSI0_USB31DRD					15
++#define CLK_GOUT_HSI0_HSI0_CMU_HSI0_PCLK			16
++#define CLK_GOUT_HSI0_LH_AXI_MI_LG_ETR_HSI0_CU_I_CLK		17
++#define CLK_GOUT_HSI0_LH_AXI_MI_LP1_AOC_CU_I_CLK		18
++#define CLK_GOUT_HSI0_LH_AXI_MI_P_HSI0_CU_I_CLK			19
++#define CLK_GOUT_HSI0_LH_AXI_SI_LG_ETR_HSI0_CU_I_CLK		20
++#define CLK_GOUT_HSI0_LH_AXI_SI_LP1_AOC_CU_I_CLK		21
++#define CLK_GOUT_HSI0_LH_AXI_SI_P_HSI0_CU_I_CLK			22
++#define CLK_GOUT_HSI0_CLK_HSI0_NOC_LH_CLK			23
++#define CLK_GOUT_HSI0_SLH_AXI_MI_LG_ETR_HSI0_I_CLK		24
++#define CLK_GOUT_HSI0_SLH_AXI_MI_LP1_AOC_I_CLK			25
++#define CLK_GOUT_HSI0_SLH_AXI_MI_P_HSI0_I_CLK			26
++#define CLK_GOUT_HSI0_SYSMMU_USB_CLK_S1				27
++#define CLK_GOUT_HSI0_USB31DRD_I_USB31DRD_SUSPEND_CLK_26	28
++#define CLK_GOUT_HSI0_CLK_HSI0_ALT				29
++#define CLK_GOUT_HSI0_DP_LINK_I_DP_GTC_CLK			30
++#define CLK_GOUT_HSI0_DP_LINK_I_PCLK				31
++#define CLK_GOUT_HSI0_D_TZPC_HSI0_PCLK				32
++#define CLK_GOUT_HSI0_ETR_MIU_I_ACLK				33
++#define CLK_GOUT_HSI0_ETR_MIU_I_PCLK				34
++#define CLK_GOUT_HSI0_GPC_HSI0_PCLK				35
++#define CLK_GOUT_HSI0_LH_ACEL_SI_D_HSI0_I_CLK			36
++#define CLK_GOUT_HSI0_LH_AXI_SI_LD_HSI0_AOC_I_CLK		37
++#define CLK_GOUT_HSI0_PPMU_HSI0_AOC_ACLK			38
++#define CLK_GOUT_HSI0_PPMU_HSI0_AOC_PCLK			39
++#define CLK_GOUT_HSI0_PPMU_HSI0_NOCL1B_ACLK			40
++#define CLK_GOUT_HSI0_PPMU_HSI0_NOCL1B_PCLK			41
++#define CLK_GOUT_HSI0_CLK_HSI0_NOC_CLK				42
++#define CLK_GOUT_HSI0_SSMT_USB_ACLK				43
++#define CLK_GOUT_HSI0_SSMT_USB_PCLK				44
++#define CLK_GOUT_HSI0_SYSMMU_USB_CLK_S2				45
++#define CLK_GOUT_HSI0_SYSREG_HSI0_PCLK				46
++#define CLK_GOUT_HSI0_UASC_HSI0_CTRL_ACLK			47
++#define CLK_GOUT_HSI0_UASC_HSI0_CTRL_PCLK			48
++#define CLK_GOUT_HSI0_UASC_HSI0_LINK_ACLK			49
++#define CLK_GOUT_HSI0_UASC_HSI0_LINK_PCLK			50
++#define CLK_GOUT_HSI0_USB31DRD_ACLK_PHYCTRL			51
++#define CLK_GOUT_HSI0_USB31DRD_BUS_CLK_EARLY			52
++#define CLK_GOUT_HSI0_USB31DRD_I_USB20_PHY_REFCLK_26		53
++#define CLK_GOUT_HSI0_USB31DRD_I_USB31DRD_REF_CLK_40		54
++#define CLK_GOUT_HSI0_USB31DRD_I_USBDPPHY_REF_SOC_PLL		55
++#define CLK_GOUT_HSI0_USB31DRD_I_USBDPPHY_SCL_APB_PCLK		56
++#define CLK_GOUT_HSI0_USB31DRD_I_USBPCS_APB_CLK			57
++#define CLK_GOUT_HSI0_USB31DRD_USBDPPHY_I_ACLK			58
++#define CLK_GOUT_HSI0_USB31DRD_USBDPPHY_UDBG_I_APB_PCLK		59
++#define CLK_GOUT_HSI0_XIU_D0_HSI0_ACLK				60
++#define CLK_GOUT_HSI0_XIU_D1_HSI0_ACLK				61
++#define CLK_GOUT_HSI0_XIU_P_HSI0_ACLK				62
++
++/* CMU_HSI2 */
++#define CLK_MOUT_HSI2_NOC_USER					1
++#define CLK_MOUT_HSI2_MMC_CARD_USER				2
++#define CLK_MOUT_HSI2_PCIE_USER					3
++#define CLK_MOUT_HSI2_UFS_EMBD_USER				4
++#define CLK_DOUT_HSI2_NOCP					5
++#define CLK_DOUT_HSI2_NOC_LH					6
++#define CLK_GOUT_HSI2_GPIO_HSI2UFS_PCLK				7
++#define CLK_GOUT_HSI2_LH_AXI_SI_P_HSI2_CU_I_CLK			8
++#define CLK_GOUT_HSI2_PCIE_GEN4_1_PCIE_003_PCIE_SUB_CTRL_INST_0_PHY_REFCLK_IN	9
++#define CLK_GOUT_HSI2_PCIE_GEN4_1_PCIE_004_PCIE_SUB_CTRL_INST_0_PHY_REFCLK_IN	10
++#define CLK_GOUT_HSI2_CLK_HSI2_NOC_LH_CLK			11
++#define CLK_GOUT_HSI2_SLH_AXI_MI_P_HSI2_I_CLK			12
++#define CLK_GOUT_HSI2_SSMT_PCIE_IA_GEN4A_1_ACLK			13
++#define CLK_GOUT_HSI2_SSMT_PCIE_IA_GEN4A_1_PCLK			14
++#define CLK_GOUT_HSI2_SSMT_PCIE_IA_GEN4B_1_ACLK			15
++#define CLK_GOUT_HSI2_SSMT_PCIE_IA_GEN4B_1_PCLK			16
++#define CLK_GOUT_HSI2_SYSMMU_HSI2_CLK_S1			17
++#define CLK_GOUT_HSI2_AS_APB_PCIEPHY_HSI2_PCLKM			18
++#define CLK_GOUT_HSI2_D_TZPC_HSI2_PCLK				19
++#define CLK_GOUT_HSI2_GPC_HSI2_PCLK				20
++#define CLK_GOUT_HSI2_GPIO_HSI2_PCLK				21
++#define CLK_GOUT_HSI2_HSI2_CMU_HSI2_PCLK			22
++#define CLK_GOUT_HSI2_LH_ACEL_SI_D_HSI2_I_CLK			23
++#define CLK_GOUT_HSI2_LH_AXI_MI_P_HSI2_CU_I_CLK			24
++#define CLK_GOUT_HSI2_MMC_CARD_I_ACLK				25
++#define CLK_GOUT_HSI2_MMC_CARD_SDCLKIN				26
++#define CLK_GOUT_HSI2_PCIE_GEN4_1_PCIE_003_G4X2_DWC_PCIE_CTL_INST_0_DBI_ACLK_UG	27
++#define CLK_GOUT_HSI2_PCIE_GEN4_1_PCIE_003_G4X2_DWC_PCIE_CTL_INST_0_MSTR_ACLK_UG	28
++#define CLK_GOUT_HSI2_PCIE_GEN4_1_PCIE_003_G4X2_DWC_PCIE_CTL_INST_0_SLV_ACLK_UG	29
++#define CLK_GOUT_HSI2_PCIE_GEN4_1_PCIE_003_PCIE_SUB_CTRL_INST_0_I_DRIVER_APB_CLK	30
++#define CLK_GOUT_HSI2_PCIE_GEN4_1_PCIE_004_G4X1_DWC_PCIE_CTL_INST_0_DBI_ACLK_UG	31
++#define CLK_GOUT_HSI2_PCIE_GEN4_1_PCIE_004_G4X1_DWC_PCIE_CTL_INST_0_MSTR_ACLK_UG	32
++#define CLK_GOUT_HSI2_PCIE_GEN4_1_PCIE_004_G4X1_DWC_PCIE_CTL_INST_0_SLV_ACLK_UG	33
++#define CLK_GOUT_HSI2_PCIE_GEN4_1_PCIE_004_PCIE_SUB_CTRL_INST_0_I_DRIVER_APB_CLK	34
++#define CLK_GOUT_HSI2_PCIE_GEN4_1_PCS_PMA_INST_0_PHY_UDBG_I_APB_PCLK	35
++#define CLK_GOUT_HSI2_PCIE_GEN4_1_PCS_PMA_INST_0_PIPE_PAL_PCIE_INST_0_I_APB_PCLK	36
++#define CLK_GOUT_HSI2_PCIE_GEN4_1_PCS_PMA_INST_0_SF_PCIEPHY210X2_LN05LPE_QCH_TM_WRAPPER_INST_0_I_APB_PCLK	37
++#define CLK_GOUT_HSI2_PCIE_IA_GEN4A_1_I_CLK			38
++#define CLK_GOUT_HSI2_PCIE_IA_GEN4B_1_I_CLK			39
++#define CLK_GOUT_HSI2_PPMU_HSI2_ACLK				40
++#define CLK_GOUT_HSI2_PPMU_HSI2_PCLK				41
++#define CLK_GOUT_HSI2_QE_MMC_CARD_HSI2_ACLK			42
++#define CLK_GOUT_HSI2_QE_MMC_CARD_HSI2_PCLK			43
++#define CLK_GOUT_HSI2_QE_PCIE_GEN4A_HSI2_ACLK			44
++#define CLK_GOUT_HSI2_QE_PCIE_GEN4A_HSI2_PCLK			45
++#define CLK_GOUT_HSI2_QE_PCIE_GEN4B_HSI2_ACLK			46
++#define CLK_GOUT_HSI2_QE_PCIE_GEN4B_HSI2_PCLK			47
++#define CLK_GOUT_HSI2_QE_UFS_EMBD_HSI2_ACLK			48
++#define CLK_GOUT_HSI2_QE_UFS_EMBD_HSI2_PCLK			49
++#define CLK_GOUT_HSI2_CLK_HSI2_NOCP_CLK				50
++#define CLK_GOUT_HSI2_CLK_HSI2_NOC_CLK				51
++#define CLK_GOUT_HSI2_CLK_HSI2_OSCCLK_CLK			52
++#define CLK_GOUT_HSI2_SSMT_HSI2_ACLK				53
++#define CLK_GOUT_HSI2_SSMT_HSI2_PCLK				54
++#define CLK_GOUT_HSI2_SYSMMU_HSI2_CLK_S2			55
++#define CLK_GOUT_HSI2_SYSREG_HSI2_PCLK				56
++#define CLK_GOUT_HSI2_UASC_PCIE_GEN4A_DBI_1_ACLK		57
++#define CLK_GOUT_HSI2_UASC_PCIE_GEN4A_DBI_1_PCLK		58
++#define CLK_GOUT_HSI2_UASC_PCIE_GEN4A_SLV_1_ACLK		59
++#define CLK_GOUT_HSI2_UASC_PCIE_GEN4A_SLV_1_PCLK		60
++#define CLK_GOUT_HSI2_UASC_PCIE_GEN4B_DBI_1_ACLK		61
++#define CLK_GOUT_HSI2_UASC_PCIE_GEN4B_DBI_1_PCLK		62
++#define CLK_GOUT_HSI2_UASC_PCIE_GEN4B_SLV_1_ACLK		63
++#define CLK_GOUT_HSI2_UASC_PCIE_GEN4B_SLV_1_PCLK		64
++#define CLK_GOUT_HSI2_UFS_EMBD_I_ACLK				65
++#define CLK_GOUT_HSI2_UFS_EMBD_I_CLK_UNIPRO			66
++#define CLK_GOUT_HSI2_UFS_EMBD_I_FMP_CLK			67
++#define CLK_GOUT_HSI2_XIU_D_HSI2_ACLK				68
++#define CLK_GOUT_HSI2_XIU_P_HSI2_ACLK				69
++
++/* CMU_PERIC0 */
++#define CLK_MOUT_PERIC0_NOC_USER				1
++#define CLK_MOUT_PERIC0_I3C_USER				2
++#define CLK_MOUT_PERIC0_USI0_UART_USER				3
++#define CLK_MOUT_PERIC0_USI14_USI_USER				4
++#define CLK_MOUT_PERIC0_USI1_USI_USER				5
++#define CLK_MOUT_PERIC0_USI2_USI_USER				6
++#define CLK_MOUT_PERIC0_USI3_USI_USER				7
++#define CLK_MOUT_PERIC0_USI4_USI_USER				8
++#define CLK_MOUT_PERIC0_USI5_USI_USER				9
++#define CLK_MOUT_PERIC0_USI6_USI_USER				10
++#define CLK_MOUT_PERIC0_USI7_USI_USER				11
++#define CLK_MOUT_PERIC0_USI8_USI_USER				12
++#define CLK_DOUT_PERIC0_I3C					13
++#define CLK_DOUT_PERIC0_NOCP_LH					14
++#define CLK_DOUT_PERIC0_USI0_UART				15
++#define CLK_DOUT_PERIC0_USI14_USI				16
++#define CLK_DOUT_PERIC0_USI1_USI				17
++#define CLK_DOUT_PERIC0_USI2_USI				18
++#define CLK_DOUT_PERIC0_USI3_USI				19
++#define CLK_DOUT_PERIC0_USI4_USI				20
++#define CLK_DOUT_PERIC0_USI5_USI				21
++#define CLK_DOUT_PERIC0_USI6_USI				22
++#define CLK_DOUT_PERIC0_USI7_USI				23
++#define CLK_DOUT_PERIC0_USI8_USI				24
++#define CLK_GOUT_PERIC0_I3C1_I_PCLK				25
++#define CLK_GOUT_PERIC0_I3C1_I_SCLK				26
++#define CLK_GOUT_PERIC0_I3C2_I_PCLK				27
++#define CLK_GOUT_PERIC0_I3C2_I_SCLK				28
++#define CLK_GOUT_PERIC0_I3C3_I_PCLK				29
++#define CLK_GOUT_PERIC0_I3C3_I_SCLK				30
++#define CLK_GOUT_PERIC0_I3C4_I_PCLK				31
++#define CLK_GOUT_PERIC0_I3C4_I_SCLK				32
++#define CLK_GOUT_PERIC0_I3C5_I_PCLK				33
++#define CLK_GOUT_PERIC0_I3C5_I_SCLK				34
++#define CLK_GOUT_PERIC0_I3C6_I_PCLK				35
++#define CLK_GOUT_PERIC0_I3C6_I_SCLK				36
++#define CLK_GOUT_PERIC0_I3C7_I_PCLK				37
++#define CLK_GOUT_PERIC0_I3C7_I_SCLK				38
++#define CLK_GOUT_PERIC0_I3C8_I_PCLK				39
++#define CLK_GOUT_PERIC0_I3C8_I_SCLK				40
++#define CLK_GOUT_PERIC0_LH_AXI_SI_P_PERIC0_CU_I_CLK		41
++#define CLK_GOUT_PERIC0_PERIC0_CMU_PERIC0_PCLK			42
++#define CLK_GOUT_PERIC0_CLK_PERIC0_NOCP_LH_CLK			43
++#define CLK_GOUT_PERIC0_CLK_PERIC0_OSCCLK_CLK			44
++#define CLK_GOUT_PERIC0_SLH_AXI_MI_P_PERIC0_I_CLK		45
++#define CLK_GOUT_PERIC0_USI0_UART_IPCLK				46
++#define CLK_GOUT_PERIC0_USI0_UART_PCLK				47
++#define CLK_GOUT_PERIC0_USI14_USI_IPCLK				48
++#define CLK_GOUT_PERIC0_USI14_USI_PCLK				49
++#define CLK_GOUT_PERIC0_USI1_USI_IPCLK				50
++#define CLK_GOUT_PERIC0_USI1_USI_PCLK				51
++#define CLK_GOUT_PERIC0_USI2_USI_IPCLK				52
++#define CLK_GOUT_PERIC0_USI2_USI_PCLK				53
++#define CLK_GOUT_PERIC0_USI3_USI_IPCLK				54
++#define CLK_GOUT_PERIC0_USI3_USI_PCLK				55
++#define CLK_GOUT_PERIC0_USI4_USI_IPCLK				56
++#define CLK_GOUT_PERIC0_USI4_USI_PCLK				57
++#define CLK_GOUT_PERIC0_USI5_USI_IPCLK				58
++#define CLK_GOUT_PERIC0_USI5_USI_PCLK				59
++#define CLK_GOUT_PERIC0_USI6_USI_IPCLK				60
++#define CLK_GOUT_PERIC0_USI6_USI_PCLK				61
++#define CLK_GOUT_PERIC0_USI7_USI_IPCLK				62
++#define CLK_GOUT_PERIC0_USI7_USI_PCLK				63
++#define CLK_GOUT_PERIC0_USI8_USI_IPCLK				64
++#define CLK_GOUT_PERIC0_USI8_USI_PCLK				65
++#define CLK_GOUT_PERIC0_D_TZPC_PERIC0_PCLK			66
++#define CLK_GOUT_PERIC0_GPC_PERIC0_PCLK				67
++#define CLK_GOUT_PERIC0_GPIO_PERIC0_PCLK			68
++#define CLK_GOUT_PERIC0_LH_AXI_MI_P_PERIC0_CU_I_CLK		69
++#define CLK_GOUT_PERIC0_CLK_PERIC0_I3C_CLK			70
++#define CLK_GOUT_PERIC0_CLK_PERIC0_NOCP_CLK			71
++#define CLK_GOUT_PERIC0_CLK_PERIC0_USI0_UART_CLK		72
++#define CLK_GOUT_PERIC0_CLK_PERIC0_USI14_USI_CLK		73
++#define CLK_GOUT_PERIC0_CLK_PERIC0_USI1_USI_CLK			74
++#define CLK_GOUT_PERIC0_CLK_PERIC0_USI2_USI_CLK			75
++#define CLK_GOUT_PERIC0_CLK_PERIC0_USI3_USI_CLK			76
++#define CLK_GOUT_PERIC0_CLK_PERIC0_USI4_USI_CLK			77
++#define CLK_GOUT_PERIC0_CLK_PERIC0_USI5_USI_CLK			78
++#define CLK_GOUT_PERIC0_CLK_PERIC0_USI6_USI_CLK			79
++#define CLK_GOUT_PERIC0_CLK_PERIC0_USI7_USI_CLK			80
++#define CLK_GOUT_PERIC0_CLK_PERIC0_USI8_USI_CLK			81
++#define CLK_GOUT_PERIC0_SYSREG_PERIC0_PCLK			82
++
++/* CMU_PERIC1 */
++#define CLK_MOUT_PERIC1_I3C_USER				1
++#define CLK_MOUT_PERIC1_NOC_USER				2
++#define CLK_MOUT_PERIC1_USI0_USI_USER				3
++#define CLK_MOUT_PERIC1_USI10_USI_USER				4
++#define CLK_MOUT_PERIC1_USI11_USI_USER				5
++#define CLK_MOUT_PERIC1_USI12_USI_USER				6
++#define CLK_MOUT_PERIC1_USI13_USI_USER				7
++#define CLK_MOUT_PERIC1_USI15_USI_USER				8
++#define CLK_MOUT_PERIC1_USI16_USI_USER				9
++#define CLK_MOUT_PERIC1_USI9_USI_USER				10
++#define CLK_DOUT_PERIC1_I3C					11
++#define CLK_DOUT_PERIC1_NOCP_LH					12
++#define CLK_DOUT_PERIC1_USI0_USI				13
++#define CLK_DOUT_PERIC1_USI10_USI				14
++#define CLK_DOUT_PERIC1_USI11_USI				15
++#define CLK_DOUT_PERIC1_USI12_USI				16
++#define CLK_DOUT_PERIC1_USI13_USI				17
++#define CLK_DOUT_PERIC1_USI15_USI				18
++#define CLK_DOUT_PERIC1_USI16_USI				19
++#define CLK_DOUT_PERIC1_USI9_USI				20
++#define CLK_GOUT_PERIC1_I3C0_I_PCLK				21
++#define CLK_GOUT_PERIC1_I3C0_I_SCLK				22
++#define CLK_GOUT_PERIC1_LH_AXI_SI_P_PERIC1_CU_I_CLK		23
++#define CLK_GOUT_PERIC1_PERIC1_CMU_PERIC1_PCLK			24
++#define CLK_GOUT_PERIC1_PWM_I_PCLK_S0				25
++#define CLK_GOUT_PERIC1_CLK_PERIC1_I3C_CLK			26
++#define CLK_GOUT_PERIC1_CLK_PERIC1_NOCP_LH_CLK			27
++#define CLK_GOUT_PERIC1_CLK_PERIC1_OSCCLK_CLK			28
++#define CLK_GOUT_PERIC1_CLK_PERIC1_USI15_USI_CLK		29
++#define CLK_GOUT_PERIC1_CLK_PERIC1_USI16_USI_CLK		30
++#define CLK_GOUT_PERIC1_SLH_AXI_MI_P_PERIC1_I_CLK		31
++#define CLK_GOUT_PERIC1_USI0_USI_IPCLK				32
++#define CLK_GOUT_PERIC1_USI0_USI_PCLK				33
++#define CLK_GOUT_PERIC1_USI10_USI_IPCLK				34
++#define CLK_GOUT_PERIC1_USI10_USI_PCLK				35
++#define CLK_GOUT_PERIC1_USI11_USI_IPCLK				36
++#define CLK_GOUT_PERIC1_USI11_USI_PCLK				37
++#define CLK_GOUT_PERIC1_USI12_USI_IPCLK				38
++#define CLK_GOUT_PERIC1_USI12_USI_PCLK				39
++#define CLK_GOUT_PERIC1_USI13_USI_IPCLK				40
++#define CLK_GOUT_PERIC1_USI13_USI_PCLK				41
++#define CLK_GOUT_PERIC1_USI15_USI_IPCLK				42
++#define CLK_GOUT_PERIC1_USI15_USI_PCLK				43
++#define CLK_GOUT_PERIC1_USI16_USI_IPCLK				44
++#define CLK_GOUT_PERIC1_USI16_USI_PCLK				45
++#define CLK_GOUT_PERIC1_USI9_USI_IPCLK				46
++#define CLK_GOUT_PERIC1_USI9_USI_PCLK				47
++#define CLK_GOUT_PERIC1_D_TZPC_PERIC1_PCLK			48
++#define CLK_GOUT_PERIC1_GPC_PERIC1_PCLK				49
++#define CLK_GOUT_PERIC1_GPIO_PERIC1_PCLK			50
++#define CLK_GOUT_PERIC1_LH_AXI_MI_P_PERIC1_CU_I_CLK		51
++#define CLK_GOUT_PERIC1_CLK_PERIC1_NOCP_CLK			52
++#define CLK_GOUT_PERIC1_CLK_PERIC1_USI0_USI_CLK			53
++#define CLK_GOUT_PERIC1_CLK_PERIC1_USI10_USI_CLK		54
++#define CLK_GOUT_PERIC1_CLK_PERIC1_USI11_USI_CLK		55
++#define CLK_GOUT_PERIC1_CLK_PERIC1_USI12_USI_CLK		56
++#define CLK_GOUT_PERIC1_CLK_PERIC1_USI13_USI_CLK		57
++#define CLK_GOUT_PERIC1_CLK_PERIC1_USI9_USI_CLK			58
++#define CLK_GOUT_PERIC1_SYSREG_PERIC1_PCLK			59
++
++#endif /* _DT_BINDINGS_CLOCK_GOOGLE_GS201_H */

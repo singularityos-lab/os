@@ -1,0 +1,65 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?=C3=81ngel=20Ren=C3=A9?=
+ <17342133+angelrenefm@users.noreply.github.com>
+Date: Sat, 14 Nov 2026 16:03:30 +0100
+Subject: [PATCH] media: s5p-mfc: give MFC v15 the context buffer sizes of
+ Google's driver
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+MFC v15 reused v12's instance context sizes, among them 30 KiB for the
+decoders other than H.264 and HEVC. Google's exynos-mfc driver for gs201
+gives those 60 KiB, and 50 KiB to the HEVC and other encoders. With 30
+KiB the firmware refuses to open an MPEG-2, VP8 or VP9 instance
+(OPEN_INSTANCE returns error 0x35).
+
+Use Google's sizes on v15. On the Pixel 7 those instances then open.
+
+Assisted-by: LLM
+Signed-off-by: Ángel René <17342133+angelrenefm@users.noreply.github.com>
+---
+ .../media/platform/samsung/s5p-mfc/regs-mfc-v15.h    |  3 +++
+ drivers/media/platform/samsung/s5p-mfc/s5p_mfc.c     | 12 +++++++++++-
+ 2 files changed, 14 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/media/platform/samsung/s5p-mfc/regs-mfc-v15.h b/drivers/media/platform/samsung/s5p-mfc/regs-mfc-v15.h
+index 4c4a8fe37..84d756a3f 100644
+--- a/drivers/media/platform/samsung/s5p-mfc/regs-mfc-v15.h
++++ b/drivers/media/platform/samsung/s5p-mfc/regs-mfc-v15.h
+@@ -33,6 +33,9 @@
+ #define MFC_NUM_PORTS_V15		1
+ #define MAX_FW_SIZE_V15			(SZ_1M)
+ #define MAX_CPB_SIZE_V15		(7 * SZ_1M)
++#define MFC_OTHER_DEC_CTX_BUF_SIZE_V15	(60 * SZ_1K)
++#define MFC_HEVC_ENC_CTX_BUF_SIZE_V15	(50 * SZ_1K)
++#define MFC_OTHER_ENC_CTX_BUF_SIZE_V15	(50 * SZ_1K)
+ 
+ /*
+  * The firmware rejects every buffer below its own base address, so the
+diff --git a/drivers/media/platform/samsung/s5p-mfc/s5p_mfc.c b/drivers/media/platform/samsung/s5p-mfc/s5p_mfc.c
+index f7a98e149..abe54f036 100644
+--- a/drivers/media/platform/samsung/s5p-mfc/s5p_mfc.c
++++ b/drivers/media/platform/samsung/s5p-mfc/s5p_mfc.c
+@@ -1761,10 +1761,20 @@ static struct s5p_mfc_variant mfc_drvdata_v12 = {
+ 	.num_clocks	= 1,
+ };
+ 
++/* Google's gs201 sizes (mfc_ctx_buf_size in its exynos-mfc driver) */
++static const struct s5p_mfc_buf_size_v6 mfc_buf_size_v15 = {
++	.dev_ctx        = MFC_CTX_BUF_SIZE_V12,
++	.h264_dec_ctx   = MFC_H264_DEC_CTX_BUF_SIZE_V12,
++	.other_dec_ctx  = MFC_OTHER_DEC_CTX_BUF_SIZE_V15,
++	.h264_enc_ctx   = MFC_H264_ENC_CTX_BUF_SIZE_V12,
++	.hevc_enc_ctx   = MFC_HEVC_ENC_CTX_BUF_SIZE_V15,
++	.other_enc_ctx  = MFC_OTHER_ENC_CTX_BUF_SIZE_V15,
++};
++
+ static const struct s5p_mfc_buf_size buf_size_v15 = {
+ 	.fw     = MAX_FW_SIZE_V15,
+ 	.cpb    = MAX_CPB_SIZE_V15,
+-	.priv   = &mfc_buf_size_v12,
++	.priv   = &mfc_buf_size_v15,
+ };
+ 
+ static const struct s5p_mfc_variant mfc_drvdata_v15 = {

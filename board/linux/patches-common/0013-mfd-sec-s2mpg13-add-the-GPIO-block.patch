@@ -1,0 +1,177 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Mon, 12 Oct 2026 19:04:38 -0400
+Subject: [PATCH] mfd: sec: s2mpg13: add the GPIO block
+
+The S2MPG13's GPIOs live in ACPM register block 0x0c: an input status
+register and, per pin, a control register with the output level (bit 5)
+and output enable (bit 6), as in Google's GPL s2mpg13 register header.
+
+Add a "gpio" regmap for that block, readable from the interrupt masks
+to the monitor selects and writable only in the eight pin control
+registers, so the clear-on-read interrupt status is never touched, and
+an s2mpg13-gpio cell bound to a samsung,s2mpg13-gpio child node.
+---
+ drivers/mfd/sec-acpm.c              | 47 ++++++++++++++++++++++++++---
+ drivers/mfd/sec-common.c            |  3 +-
+ include/linux/mfd/samsung/s2mpg13.h | 31 ++++++++++++++++++-
+ 3 files changed, 75 insertions(+), 6 deletions(-)
+
+diff --git a/drivers/mfd/sec-acpm.c b/drivers/mfd/sec-acpm.c
+index c32745314..0b850433e 100644
+--- a/drivers/mfd/sec-acpm.c
++++ b/drivers/mfd/sec-acpm.c
+@@ -37,6 +37,7 @@ struct sec_pmic_acpm_platform_data {
+ 	const struct regmap_config *regmap_cfg_pmic;
+ 	const struct regmap_config *regmap_cfg_rtc;
+ 	const struct regmap_config *regmap_cfg_meter;
++	const struct regmap_config *regmap_cfg_gpio;
+ 
+ 	/* No interrupt line is wired up for this PMIC (yet). */
+ 	bool no_irq;
+@@ -469,10 +470,11 @@ static const struct regmap_config s2mpg12_regmap_config_meter = {
+ };
+ 
+ /*
+- * S2MPG13 (gs201 sub-PMIC): only its LDOs so far. The common block is read
+- * only. In the PM block only the LDO control registers can be written, and
+- * the interrupt status registers (clear on read) are never read, so nothing
+- * here can touch a buck converter or lose an interrupt. No caching.
++ * S2MPG13 (gs201 sub-PMIC): only its LDOs and GPIOs so far. The common block
++ * is read only. In the PM block only the LDO control registers can be
++ * written, and in the GPIO block only the per-pin control registers. The
++ * interrupt status registers (clear on read) are never read, so nothing here
++ * can touch a buck converter or lose an interrupt. No caching.
+  */
+ static const struct regmap_range s2mpg13_common_registers[] = {
+ 	regmap_reg_range(S2MPG13_COMMON_VGPIO0, S2MPG13_COMMON_IBIM2),
+@@ -524,6 +526,34 @@ static const struct regmap_config s2mpg13_regmap_config_pmic = {
+ 	.cache_type = REGCACHE_NONE,
+ };
+ 
++static const struct regmap_range s2mpg13_gpio_rd_registers[] = {
++	regmap_reg_range(S2MPG13_GPIO_INT1M, S2MPG13_GPIO_7_MONSEL),
++};
++
++static const struct regmap_range s2mpg13_gpio_wr_registers[] = {
++	regmap_reg_range(S2MPG13_GPIO_0_SET, S2MPG13_GPIO_7_SET),
++};
++
++static const struct regmap_access_table s2mpg13_gpio_rd_table = {
++	.yes_ranges = s2mpg13_gpio_rd_registers,
++	.n_yes_ranges = ARRAY_SIZE(s2mpg13_gpio_rd_registers),
++};
++
++static const struct regmap_access_table s2mpg13_gpio_wr_table = {
++	.yes_ranges = s2mpg13_gpio_wr_registers,
++	.n_yes_ranges = ARRAY_SIZE(s2mpg13_gpio_wr_registers),
++};
++
++static const struct regmap_config s2mpg13_regmap_config_gpio = {
++	.name = "gpio",
++	.reg_bits = ACPM_ADDR_BITS,
++	.val_bits = 8,
++	.max_register = S2MPG13_GPIO_7_MONSEL,
++	.wr_table = &s2mpg13_gpio_wr_table,
++	.rd_table = &s2mpg13_gpio_rd_table,
++	.cache_type = REGCACHE_NONE,
++};
++
+ struct sec_pmic_acpm_shared_bus_context {
+ 	struct acpm_handle *acpm;
+ 	unsigned int acpm_chan_id;
+@@ -536,6 +566,7 @@ enum sec_pmic_acpm_accesstype {
+ 	SEC_PMIC_ACPM_ACCESSTYPE_RTC = 0x02,
+ 	SEC_PMIC_ACPM_ACCESSTYPE_METER = 0x0a,
+ 	SEC_PMIC_ACPM_ACCESSTYPE_WLWP = 0x0b,
++	SEC_PMIC_ACPM_ACCESSTYPE_GPIO = 0x0c,
+ 	SEC_PMIC_ACPM_ACCESSTYPE_TRIM = 0x0f,
+ };
+ 
+@@ -690,6 +721,13 @@ static int sec_pmic_acpm_probe(struct platform_device *pdev)
+ 			return PTR_ERR(regmap);
+ 	}
+ 
++	if (pdata->regmap_cfg_gpio) {
++		regmap = sec_pmic_acpm_regmap_init(dev, shared_ctx, SEC_PMIC_ACPM_ACCESSTYPE_GPIO,
++						   pdata->regmap_cfg_gpio, true);
++		if (IS_ERR(regmap))
++			return PTR_ERR(regmap);
++	}
++
+ 	ret = sec_pmic_probe(dev, pdata->device_type, irq, regmap_pmic, NULL);
+ 	if (ret)
+ 		return ret;
+@@ -740,6 +778,7 @@ static const struct sec_pmic_acpm_platform_data s2mpg13_data = {
+ 	.speedy_channel = 1,
+ 	.regmap_cfg_common = &s2mpg13_regmap_config_common,
+ 	.regmap_cfg_pmic = &s2mpg13_regmap_config_pmic,
++	.regmap_cfg_gpio = &s2mpg13_regmap_config_gpio,
+ 	.no_irq = true,
+ };
+ 
+diff --git a/drivers/mfd/sec-common.c b/drivers/mfd/sec-common.c
+index 81046f981..94a01f362 100644
+--- a/drivers/mfd/sec-common.c
++++ b/drivers/mfd/sec-common.c
+@@ -65,9 +65,10 @@ static const struct mfd_cell s2mpg12_devs[] = {
+ 	MFD_CELL_RES("s2mpg12-rtc", s2mpg12_rtc_resources),
+ };
+ 
+-/* Only the LDOs so far: no interrupt, no RTC, no GPIOs on this PMIC yet. */
++/* Only the LDOs and GPIOs so far: no interrupt, no RTC on this PMIC yet. */
+ static const struct mfd_cell s2mpg13_devs[] = {
+ 	MFD_CELL_NAME("s2mpg13-regulator"),
++	MFD_CELL_OF("s2mpg13-gpio", NULL, NULL, 0, 0, "samsung,s2mpg13-gpio"),
+ };
+ 
+ static const struct resource s2mps11_rtc_resources[] = {
+diff --git a/include/linux/mfd/samsung/s2mpg13.h b/include/linux/mfd/samsung/s2mpg13.h
+index 8ca5b4a9e..89f36b442 100644
+--- a/include/linux/mfd/samsung/s2mpg13.h
++++ b/include/linux/mfd/samsung/s2mpg13.h
+@@ -3,7 +3,7 @@
+  * Copyright 2015 Samsung Electronics
+  *
+  * Registers of the Samsung S2MPG13 PMIC, the sub-PMIC used with Google's
+- * gs201 SoC. Only what the LDO regulators need so far.
++ * gs201 SoC. Only what the LDO regulators and the GPIOs need so far.
+  */
+ 
+ #ifndef __LINUX_MFD_S2MPG13_H
+@@ -72,6 +72,35 @@ enum s2mpg13_pmic_reg {
+ 	S2MPG13_PMIC_LDO_CTRL2,
+ };
+ 
++/* GPIO registers (type 0x00c) */
++enum s2mpg13_gpio_reg {
++	S2MPG13_GPIO_INT1,
++	S2MPG13_GPIO_INT2,
++	S2MPG13_GPIO_INT1M,
++	S2MPG13_GPIO_INT2M,
++	S2MPG13_GPIO_STATUS,
++	S2MPG13_GPIO_0_SET,
++	S2MPG13_GPIO_1_SET,
++	S2MPG13_GPIO_2_SET,
++	S2MPG13_GPIO_3_SET,
++	S2MPG13_GPIO_4_SET,
++	S2MPG13_GPIO_5_SET,
++	S2MPG13_GPIO_6_SET,
++	S2MPG13_GPIO_7_SET,
++	S2MPG13_GPIO_0_MONSEL,
++	S2MPG13_GPIO_7_MONSEL = S2MPG13_GPIO_0_MONSEL + 7,
++};
++
++#define S2MPG13_GPIO_NUM		8
++
++/* S2MPG13_GPIO_n_SET */
++#define S2MPG13_GPIO_SET_MODE		GENMASK(1, 0)	/* remote control source */
++#define S2MPG13_GPIO_SET_DRV_STR	BIT(2)
++#define S2MPG13_GPIO_SET_PULL_DOWN	BIT(3)
++#define S2MPG13_GPIO_SET_PULL_UP	BIT(4)
++#define S2MPG13_GPIO_SET_OUT		BIT(5)
++#define S2MPG13_GPIO_SET_OUT_EN		BIT(6)
++
+ /* LDO regulators */
+ enum s2mpg13_regulators {
+ 	S2MPG13_LDO1,

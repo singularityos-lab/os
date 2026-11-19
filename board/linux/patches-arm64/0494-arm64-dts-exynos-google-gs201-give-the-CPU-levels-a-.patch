@@ -1,0 +1,398 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Alejandro Garcia <skipper.pelygro@gmail.com>
+Date: Sun, 1 Nov 2026 17:10:24 -0800
+Subject: [PATCH] arm64: dts: exynos: google: gs201: give the CPU levels a
+ power model
+
+The CPU nodes have a dynamic-power-coefficient, but the operating points
+have no opp-microvolt, since the ACPM firmware sets the rail voltages.
+dev_pm_opp_of_register_em() then registers the energy model with
+dev_pm_opp_calc_power(), which fails on the first level's zero voltage,
+so every boot logs "EM: invalid perf. state: -22" once per cluster and
+no energy model exists (issue #182).
+
+Give every CPU level its power instead, with opp-microwatt, which
+dev_pm_opp_of_register_em() prefers. The values are the energy model
+Google ships for gs201's B0 IPOP package: the default profile of
+pixel_em_table in gs201-b0_v2-ipop.dts (kernel/devices/google/gs201,
+branch android-gs-pantah-6.1-android16), per CPU, at exactly these 11,
+15 and 18 levels. On the B0 package these phones use (gs201-b0.dtb),
+stock computes the model from the same coefficients and each chip's
+fused voltages, which the ACPM firmware reports, so these values are
+one chip's: a stand-in with the same shape as stock's model, until the
+voltages are read from the firmware. Drop dynamic-power-coefficient,
+which nothing reads then.
+
+With a valid energy model, asymmetric CPU capacities and schedutil, the
+scheduler turns energy-aware scheduling on, as stock runs.
+
+Assisted-by: Claude Opus 5.5
+Signed-off-by: Alejandro Garcia <skipper.pelygro@gmail.com>
+---
+ arch/arm64/boot/dts/exynos/google/gs201.dtsi | 61 +++++++++++++++++---
+ 1 file changed, 52 insertions(+), 9 deletions(-)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/gs201.dtsi b/arch/arm64/boot/dts/exynos/google/gs201.dtsi
+index 5fb030196..4f804ecbb 100644
+--- a/arch/arm64/boot/dts/exynos/google/gs201.dtsi
++++ b/arch/arm64/boot/dts/exynos/google/gs201.dtsi
+@@ -57,7 +57,6 @@ cpu0: cpu@0 {
+ 			enable-method = "psci";
+ 			cpu-idle-states = <&ananke_cpu_sleep>;
+ 			capacity-dmips-mhz = <250>;
+-			dynamic-power-coefficient = <89>;
+ 			operating-points-v2 = <&cpucl0_opp_table>;
+ 			#cooling-cells = <2>;
+ 		};
+@@ -69,7 +68,6 @@ cpu1: cpu@100 {
+ 			enable-method = "psci";
+ 			cpu-idle-states = <&ananke_cpu_sleep>;
+ 			capacity-dmips-mhz = <250>;
+-			dynamic-power-coefficient = <89>;
+ 			operating-points-v2 = <&cpucl0_opp_table>;
+ 			#cooling-cells = <2>;
+ 		};
+@@ -81,7 +79,6 @@ cpu2: cpu@200 {
+ 			enable-method = "psci";
+ 			cpu-idle-states = <&ananke_cpu_sleep>;
+ 			capacity-dmips-mhz = <250>;
+-			dynamic-power-coefficient = <89>;
+ 			operating-points-v2 = <&cpucl0_opp_table>;
+ 			#cooling-cells = <2>;
+ 		};
+@@ -93,7 +90,6 @@ cpu3: cpu@300 {
+ 			enable-method = "psci";
+ 			cpu-idle-states = <&ananke_cpu_sleep>;
+ 			capacity-dmips-mhz = <250>;
+-			dynamic-power-coefficient = <89>;
+ 			operating-points-v2 = <&cpucl0_opp_table>;
+ 			#cooling-cells = <2>;
+ 		};
+@@ -105,7 +101,6 @@ cpu4: cpu@400 {
+ 			enable-method = "psci";
+ 			cpu-idle-states = <&hercules_cpu_sleep>;
+ 			capacity-dmips-mhz = <927>;
+-			dynamic-power-coefficient = <513>;
+ 			operating-points-v2 = <&cpucl1_opp_table>;
+ 			#cooling-cells = <2>;
+ 		};
+@@ -117,7 +112,6 @@ cpu5: cpu@500 {
+ 			enable-method = "psci";
+ 			cpu-idle-states = <&hercules_cpu_sleep>;
+ 			capacity-dmips-mhz = <927>;
+-			dynamic-power-coefficient = <513>;
+ 			operating-points-v2 = <&cpucl1_opp_table>;
+ 			#cooling-cells = <2>;
+ 		};
+@@ -129,7 +123,6 @@ cpu6: cpu@600 {
+ 			enable-method = "psci";
+ 			cpu-idle-states = <&hera_cpu_sleep>;
+ 			capacity-dmips-mhz = <1024>;
+-			dynamic-power-coefficient = <757>;
+ 			operating-points-v2 = <&cpucl2_opp_table>;
+ 			#cooling-cells = <2>;
+ 		};
+@@ -141,7 +134,6 @@ cpu7: cpu@700 {
+ 			enable-method = "psci";
+ 			cpu-idle-states = <&hera_cpu_sleep>;
+ 			capacity-dmips-mhz = <1024>;
+-			dynamic-power-coefficient = <757>;
+ 			operating-points-v2 = <&cpucl2_opp_table>;
+ 			#cooling-cells = <2>;
+ 		};
+@@ -194,7 +186,14 @@ hera_cpu_sleep: cpu-hera-sleep {
+ 	 * pixel-em table), up to each cluster's max-freq in stock's
+ 	 * exynos-acme domains (Google's gs201-cpu.dtsi): 1803 MHz little,
+ 	 * 2348 MHz mid, 2850 MHz big. The firmware sets the rail voltages
+-	 * from its fused ASV tables, so there is no opp-microvolt.
++	 * from its fused ASV tables, so there is no opp-microvolt. Each level's
++	 * power, per CPU, is the energy model Google ships for gs201's B0 IPOP
++	 * package: the default profile of pixel_em_table in gs201-b0_v2-ipop.dts
++	 * (kernel/devices/google/gs201, android-gs-pantah-6.1-android16), which
++	 * lists exactly these levels. On the B0 package these phones use, stock
++	 * computes the model from the same coefficients and each chip's fused
++	 * voltages, so these values are one chip's: a stand-in until the
++	 * voltages are read from the firmware.
+ 	 *
+ 	 * Stock caps the mid and big clusters at 1999 and 2252 MHz whenever
+ 	 * its battery current limiter (BCL) sees the battery voltage droop
+@@ -210,57 +209,68 @@ cpucl0_opp_table: opp-table-0 {
+ 
+ 		opp-300000000 {
+ 			opp-hz = /bits/ 64 <300000000>;
++			opp-microwatt = <11000>;
+ 			clock-latency-ns = <500000>;
+ 		};
+ 
+ 		opp-574000000 {
+ 			opp-hz = /bits/ 64 <574000000>;
++			opp-microwatt = <21000>;
+ 			clock-latency-ns = <500000>;
+ 		};
+ 
+ 		opp-738000000 {
+ 			opp-hz = /bits/ 64 <738000000>;
++			opp-microwatt = <28000>;
+ 			clock-latency-ns = <500000>;
+ 		};
+ 
+ 		opp-930000000 {
+ 			opp-hz = /bits/ 64 <930000000>;
++			opp-microwatt = <38000>;
+ 			clock-latency-ns = <500000>;
+ 		};
+ 
+ 		opp-1098000000 {
+ 			opp-hz = /bits/ 64 <1098000000>;
++			opp-microwatt = <54000>;
+ 			clock-latency-ns = <500000>;
+ 		};
+ 
+ 		opp-1197000000 {
+ 			opp-hz = /bits/ 64 <1197000000>;
++			opp-microwatt = <61000>;
+ 			clock-latency-ns = <500000>;
+ 			opp-suspend;
+ 		};
+ 
+ 		opp-1328000000 {
+ 			opp-hz = /bits/ 64 <1328000000>;
++			opp-microwatt = <70000>;
+ 			clock-latency-ns = <500000>;
+ 		};
+ 
+ 		opp-1401000000 {
+ 			opp-hz = /bits/ 64 <1401000000>;
++			opp-microwatt = <79000>;
+ 			clock-latency-ns = <500000>;
+ 		};
+ 
+ 		opp-1598000000 {
+ 			opp-hz = /bits/ 64 <1598000000>;
++			opp-microwatt = <103000>;
+ 			clock-latency-ns = <500000>;
+ 		};
+ 
+ 		opp-1704000000 {
+ 			opp-hz = /bits/ 64 <1704000000>;
++			opp-microwatt = <118000>;
+ 			clock-latency-ns = <500000>;
+ 		};
+ 
+ 		opp-1803000000 {
+ 			opp-hz = /bits/ 64 <1803000000>;
++			opp-microwatt = <131000>;
+ 			clock-latency-ns = <500000>;
+ 		};
+ 
+@@ -273,79 +283,94 @@ cpucl1_opp_table: opp-table-1 {
+ 
+ 		opp-400000000 {
+ 			opp-hz = /bits/ 64 <400000000>;
++			opp-microwatt = <56000>;
+ 			clock-latency-ns = <500000>;
+ 		};
+ 
+ 		opp-553000000 {
+ 			opp-hz = /bits/ 64 <553000000>;
++			opp-microwatt = <85000>;
+ 			clock-latency-ns = <500000>;
+ 		};
+ 
+ 		opp-696000000 {
+ 			opp-hz = /bits/ 64 <696000000>;
++			opp-microwatt = <114000>;
+ 			clock-latency-ns = <500000>;
+ 		};
+ 
+ 		opp-799000000 {
+ 			opp-hz = /bits/ 64 <799000000>;
++			opp-microwatt = <138000>;
+ 			clock-latency-ns = <500000>;
+ 		};
+ 
+ 		opp-910000000 {
+ 			opp-hz = /bits/ 64 <910000000>;
++			opp-microwatt = <166000>;
+ 			clock-latency-ns = <500000>;
+ 		};
+ 
+ 		opp-1024000000 {
+ 			opp-hz = /bits/ 64 <1024000000>;
++			opp-microwatt = <203000>;
+ 			clock-latency-ns = <500000>;
+ 		};
+ 
+ 		opp-1197000000 {
+ 			opp-hz = /bits/ 64 <1197000000>;
++			opp-microwatt = <260000>;
+ 			clock-latency-ns = <500000>;
+ 		};
+ 
+ 		opp-1328000000 {
+ 			opp-hz = /bits/ 64 <1328000000>;
++			opp-microwatt = <308000>;
+ 			clock-latency-ns = <500000>;
+ 		};
+ 
+ 		opp-1491000000 {
+ 			opp-hz = /bits/ 64 <1491000000>;
++			opp-microwatt = <384000>;
+ 			clock-latency-ns = <500000>;
+ 			opp-suspend;
+ 		};
+ 
+ 		opp-1663000000 {
+ 			opp-hz = /bits/ 64 <1663000000>;
++			opp-microwatt = <510000>;
+ 			clock-latency-ns = <500000>;
+ 		};
+ 
+ 		opp-1836000000 {
+ 			opp-hz = /bits/ 64 <1836000000>;
++			opp-microwatt = <615000>;
+ 			clock-latency-ns = <500000>;
+ 		};
+ 
+ 		opp-1999000000 {
+ 			opp-hz = /bits/ 64 <1999000000>;
++			opp-microwatt = <757000>;
+ 			clock-latency-ns = <500000>;
+ 		};
+ 
+ 		opp-2130000000 {
+ 			opp-hz = /bits/ 64 <2130000000>;
++			opp-microwatt = <908000>;
+ 			clock-latency-ns = <500000>;
+ 			turbo-mode;
+ 		};
+ 
+ 		opp-2253000000 {
+ 			opp-hz = /bits/ 64 <2253000000>;
++			opp-microwatt = <1086000>;
+ 			clock-latency-ns = <500000>;
+ 			turbo-mode;
+ 		};
+ 
+ 		opp-2348000000 {
+ 			opp-hz = /bits/ 64 <2348000000>;
++			opp-microwatt = <1262000>;
+ 			clock-latency-ns = <500000>;
+ 			turbo-mode;
+ 		};
+@@ -359,97 +384,115 @@ cpucl2_opp_table: opp-table-2 {
+ 
+ 		opp-500000000 {
+ 			opp-hz = /bits/ 64 <500000000>;
++			opp-microwatt = <115000>;
+ 			clock-latency-ns = <500000>;
+ 		};
+ 
+ 		opp-851000000 {
+ 			opp-hz = /bits/ 64 <851000000>;
++			opp-microwatt = <194000>;
+ 			clock-latency-ns = <500000>;
+ 		};
+ 
+ 		opp-984000000 {
+ 			opp-hz = /bits/ 64 <984000000>;
++			opp-microwatt = <237000>;
+ 			clock-latency-ns = <500000>;
+ 		};
+ 
+ 		opp-1106000000 {
+ 			opp-hz = /bits/ 64 <1106000000>;
++			opp-microwatt = <283000>;
+ 			clock-latency-ns = <500000>;
+ 		};
+ 
+ 		opp-1277000000 {
+ 			opp-hz = /bits/ 64 <1277000000>;
++			opp-microwatt = <371000>;
+ 			clock-latency-ns = <500000>;
+ 		};
+ 
+ 		opp-1426000000 {
+ 			opp-hz = /bits/ 64 <1426000000>;
++			opp-microwatt = <464000>;
+ 			clock-latency-ns = <500000>;
+ 		};
+ 
+ 		opp-1582000000 {
+ 			opp-hz = /bits/ 64 <1582000000>;
++			opp-microwatt = <556000>;
+ 			clock-latency-ns = <500000>;
+ 		};
+ 
+ 		opp-1745000000 {
+ 			opp-hz = /bits/ 64 <1745000000>;
++			opp-microwatt = <682000>;
+ 			clock-latency-ns = <500000>;
+ 		};
+ 
+ 		opp-1826000000 {
+ 			opp-hz = /bits/ 64 <1826000000>;
++			opp-microwatt = <755000>;
+ 			clock-latency-ns = <500000>;
+ 			opp-suspend;
+ 		};
+ 
+ 		opp-2048000000 {
+ 			opp-hz = /bits/ 64 <2048000000>;
++			opp-microwatt = <960000>;
+ 			clock-latency-ns = <500000>;
+ 		};
+ 
+ 		opp-2188000000 {
+ 			opp-hz = /bits/ 64 <2188000000>;
++			opp-microwatt = <1116000>;
+ 			clock-latency-ns = <500000>;
+ 		};
+ 
+ 		opp-2252000000 {
+ 			opp-hz = /bits/ 64 <2252000000>;
++			opp-microwatt = <1219000>;
+ 			clock-latency-ns = <500000>;
+ 		};
+ 
+ 		opp-2401000000 {
+ 			opp-hz = /bits/ 64 <2401000000>;
++			opp-microwatt = <1495000>;
+ 			clock-latency-ns = <500000>;
+ 			turbo-mode;
+ 		};
+ 
+ 		opp-2507000000 {
+ 			opp-hz = /bits/ 64 <2507000000>;
++			opp-microwatt = <1721000>;
+ 			clock-latency-ns = <500000>;
+ 			turbo-mode;
+ 		};
+ 
+ 		opp-2630000000 {
+ 			opp-hz = /bits/ 64 <2630000000>;
++			opp-microwatt = <2034000>;
+ 			clock-latency-ns = <500000>;
+ 			turbo-mode;
+ 		};
+ 
+ 		opp-2704000000 {
+ 			opp-hz = /bits/ 64 <2704000000>;
++			opp-microwatt = <2247000>;
+ 			clock-latency-ns = <500000>;
+ 			turbo-mode;
+ 		};
+ 
+ 		opp-2802000000 {
+ 			opp-hz = /bits/ 64 <2802000000>;
++			opp-microwatt = <2598000>;
+ 			clock-latency-ns = <500000>;
+ 			turbo-mode;
+ 		};
+ 
+ 		opp-2850000000 {
+ 			opp-hz = /bits/ 64 <2850000000>;
++			opp-microwatt = <2774000>;
+ 			clock-latency-ns = <500000>;
+ 			turbo-mode;
+ 		};

@@ -1,0 +1,42 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Brett-Michael Green <brett@bmgvisualtech.com>
+Date: Thu, 22 Oct 2026 16:06:45 -0400
+Subject: [PATCH] arm64: dts: exynos: google: zuma-husky: reboot warm
+
+A cold PSCI SYSTEM_RESET clears the reason in SYSIP_DAT0 before ABL
+reads it, so the phone only boots the same slot again. With reboot=warm
+the kernel resets through SYSTEM_RESET2 (PSCI 1.1), which keeps it.
+
+This relies on restarts reaching PSCI with the zuma watchdog driver
+bound: its restart handler has priority 128 and PSCI's 129, so PSCI's
+runs first.
+
+Tested on a Pixel 8 Pro: reboot-to bootloader reaches fastboot in about
+20 s, where the cold reset booted slot B again.
+
+Assisted-by: LLM
+Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
+---
+ arch/arm64/boot/dts/exynos/google/zuma-husky.dts | 9 +++++++--
+ 1 file changed, 7 insertions(+), 2 deletions(-)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/zuma-husky.dts b/arch/arm64/boot/dts/exynos/google/zuma-husky.dts
+index 8aa0df30d..b7bf7e4bf 100644
+--- a/arch/arm64/boot/dts/exynos/google/zuma-husky.dts
++++ b/arch/arm64/boot/dts/exynos/google/zuma-husky.dts
+@@ -36,8 +36,13 @@ B1_FOPLP {
+ 	};
+ 
+ 	chosen {
+-		/* ABL requires bootargs to exist; it appends its own after these. */
+-		bootargs = "console=tty0 fbcon=font:TER16x32 panic=10 clk_ignore_unused pd_ignore_unused rdinit=/init";
++		/*
++		 * ABL requires bootargs to exist; it appends its own after these.
++		 * reboot=warm: a cold PSCI reset clears the reboot reason in
++		 * SYSIP_DAT0 before ABL reads it, so "reboot bootloader" would
++		 * only boot the slot again.
++		 */
++		bootargs = "console=tty0 fbcon=font:TER16x32 reboot=warm panic=10 clk_ignore_unused pd_ignore_unused rdinit=/init";
+ 		#address-cells = <2>;
+ 		#size-cells = <1>;
+ 		ranges;

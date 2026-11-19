@@ -1,0 +1,152 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Sun, 11 Oct 2026 23:59:34 -0400
+Subject: [PATCH] firmware: samsung: acpm: check the channel table read from
+ SRAM
+
+The channel count, the channel table and every queue offset come from
+the firmware's SRAM and are used as-is for MMIO and as a divisor. On a
+new SoC, or with a wrong initdata base, they are garbage, and the first
+transfer writes outside the SRAM mapping or divides by zero.
+
+Reject a channel count of 0 or above 64, a channel table or queue that
+does not fit in the SRAM, and a channel with messages but no queue.
+Print each channel at debug level and the channel count once, so that a
+bring-up can be checked before any message is sent.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ drivers/firmware/samsung/exynos-acpm.c | 52 ++++++++++++++++++++++++--
+ 1 file changed, 48 insertions(+), 4 deletions(-)
+
+diff --git a/drivers/firmware/samsung/exynos-acpm.c b/drivers/firmware/samsung/exynos-acpm.c
+index 942a2e9f0..d2061f313 100644
+--- a/drivers/firmware/samsung/exynos-acpm.c
++++ b/drivers/firmware/samsung/exynos-acpm.c
+@@ -41,6 +41,9 @@
+ 
+ #define ACPM_GS101_INITDATA_BASE	0xa000
+ 
++/* Sanity limit for the channel count read from SRAM. */
++#define ACPM_MAX_CHANS			64
++
+ /**
+  * struct acpm_shmem - shared memory configuration information.
+  * @reserved:	unused fields.
+@@ -165,6 +168,7 @@ struct acpm_chan {
+  * struct acpm_info - driver's private data.
+  * @shmem:	pointer to the SRAM configuration data.
+  * @sram_base:	base address of SRAM.
++ * @sram_size:	size of SRAM.
+  * @chans:	pointer to the ACPM channel parameters retrieved from SRAM.
+  * @dev:	pointer to the exynos-acpm device.
+  * @handle:	instance of acpm_handle to send to clients.
+@@ -173,6 +177,7 @@ struct acpm_chan {
+ struct acpm_info {
+ 	struct acpm_shmem __iomem *shmem;
+ 	void __iomem *sram_base;
++	resource_size_t sram_size;
+ 	struct acpm_chan *chans;
+ 	struct device *dev;
+ 	struct acpm_handle handle;
+@@ -546,12 +551,19 @@ void acpm_set_xfer(struct acpm_xfer *xfer, u32 *cmd, size_t cmdcnt,
+  * @achan:	ACPM channel info.
+  * @chan_shmem:	__iomem pointer to a channel described in shared memory.
+  */
+-static void acpm_chan_shmem_get_params(struct acpm_chan *achan,
++static int acpm_chan_shmem_get_params(struct acpm_chan *achan,
+ 				struct acpm_chan_shmem __iomem *chan_shmem)
+ {
+ 	void __iomem *base = achan->acpm->sram_base;
++	resource_size_t size = achan->acpm->sram_size;
+ 	struct acpm_queue *rx = &achan->rx;
+ 	struct acpm_queue *tx = &achan->tx;
++	u32 offs[] = {
++		readl(&chan_shmem->rx_base), readl(&chan_shmem->rx_rear),
++		readl(&chan_shmem->rx_front), readl(&chan_shmem->tx_base),
++		readl(&chan_shmem->tx_rear), readl(&chan_shmem->tx_front),
++	};
++	int i;
+ 
+ 	achan->mlen = readl(&chan_shmem->mlen);
+ 	achan->poll_completion = readl(&chan_shmem->poll_completion);
+@@ -566,8 +578,24 @@ static void acpm_chan_shmem_get_params(struct acpm_chan *achan,
+ 	rx->rear = base + readl(&chan_shmem->tx_rear);
+ 	rx->front = base + readl(&chan_shmem->tx_front);
+ 
+-	dev_vdbg(achan->acpm->dev, "ID = %d poll = %d, mlen = %d, qlen = %d\n",
+-		 achan->id, achan->poll_completion, achan->mlen, achan->qlen);
++	dev_dbg(achan->acpm->dev,
++		"chan %u: poll %d mlen %u qlen %u tx %#x/%#x/%#x rx %#x/%#x/%#x\n",
++		achan->id, achan->poll_completion, achan->mlen, achan->qlen,
++		offs[0], offs[1], offs[2], offs[3], offs[4], offs[5]);
++
++	if (achan->mlen && !achan->qlen)
++		return -EINVAL;
++
++	/* Every queue, and the messages in it, must lie inside the SRAM. */
++	for (i = 0; i < ARRAY_SIZE(offs); i++)
++		if (offs[i] >= size)
++			return -EINVAL;
++
++	if ((u64)offs[0] + (u64)achan->qlen * achan->mlen > size ||
++	    (u64)offs[3] + (u64)achan->qlen * achan->mlen > size)
++		return -EINVAL;
++
++	return 0;
+ }
+ 
+ /**
+@@ -630,6 +658,10 @@ static int acpm_channels_init(struct acpm_info *acpm)
+ 	int i, ret;
+ 
+ 	acpm->num_chans = readl(&shmem->num_chans);
++	if (!acpm->num_chans || acpm->num_chans > ACPM_MAX_CHANS)
++		return dev_err_probe(dev, -ENODEV,
++				     "Implausible channel count %u in SRAM.\n",
++				     acpm->num_chans);
+ 	acpm->chans = devm_kcalloc(dev, acpm->num_chans, sizeof(*acpm->chans),
+ 				   GFP_KERNEL);
+ 	if (!acpm->chans)
+@@ -639,6 +671,11 @@ static int acpm_channels_init(struct acpm_info *acpm)
+ 	if (ret)
+ 		return dev_err_probe(dev, ret, "Failed to add mbox free action.\n");
+ 
++	if ((u64)readl(&shmem->chans) +
++	    (u64)acpm->num_chans * sizeof(*chans_shmem) > acpm->sram_size)
++		return dev_err_probe(dev, -ENODEV,
++				     "Channel table outside the SRAM.\n");
++
+ 	chans_shmem = acpm->sram_base + readl(&shmem->chans);
+ 
+ 	for (i = 0; i < acpm->num_chans; i++) {
+@@ -648,7 +685,11 @@ static int acpm_channels_init(struct acpm_info *acpm)
+ 
+ 		achan->acpm = acpm;
+ 
+-		acpm_chan_shmem_get_params(achan, chan_shmem);
++		ret = acpm_chan_shmem_get_params(achan, chan_shmem);
++		if (ret)
++			return dev_err_probe(dev, ret,
++					     "Channel %d queues outside the SRAM.\n",
++					     i);
+ 
+ 		ret = acpm_achan_alloc_cmds(achan);
+ 		if (ret)
+@@ -725,6 +766,7 @@ static int acpm_probe(struct platform_device *pdev)
+ 	if (!acpm->sram_base)
+ 		return dev_err_probe(dev, -ENOMEM,
+ 				     "Failed to ioremap shared memory.\n");
++	acpm->sram_size = size;
+ 
+ 	match_data = of_device_get_match_data(dev);
+ 	if (!match_data)
+@@ -738,6 +780,8 @@ static int acpm_probe(struct platform_device *pdev)
+ 	if (ret)
+ 		return ret;
+ 
++	dev_info(dev, "%u channels\n", acpm->num_chans);
++
+ 	acpm->handle.ops = &exynos_acpm_driver_ops;
+ 
+ 	platform_set_drvdata(pdev, acpm);

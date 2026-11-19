@@ -1,0 +1,40 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Lef <me@lefteros.com>
+Date: Fri, 6 Nov 2026 06:45:36 +0200
+Subject: [PATCH] dt-bindings: clock: google,zuma-clock: add the CMU_APM USI1
+ UART and SYSREG clocks
+
+The Pixel 8 Pro's Bluetooth chip sits on the APM's USI1 UART at
+0x155d0000. Its divider and gates are at the same CMU_APM offsets as
+Google's GPL zuma cal-if (cmucal-sfr.c: DIV_CLK_APM_USI1_UART 0x1818,
+IPCLK 0x20f4, PCLK 0x20f8, RSTNSYNC 0x2148, SYSREG_APM 0x2168).
+
+Signed-off-by: Lef <me@lefteros.com>
+---
+ include/dt-bindings/clock/google,zuma.h | 7 ++++++-
+ 1 file changed, 6 insertions(+), 1 deletion(-)
+
+diff --git a/include/dt-bindings/clock/google,zuma.h b/include/dt-bindings/clock/google,zuma.h
+index 9047729c9..0f8b127ff 100644
+--- a/include/dt-bindings/clock/google,zuma.h
++++ b/include/dt-bindings/clock/google,zuma.h
+@@ -55,7 +55,7 @@
+ #define CLK_GOUT_PERIC1_USI9_PCLK	12
+ #define CLK_GOUT_PERIC1_USI9_RSTNSYNC	13
+ 
+-/* CMU_APM: the APM mailbox, its SRAM and the always-on GPIO banks. */
++/* CMU_APM: the APM mailbox, its SRAM, the always-on GPIO banks, the USI1 UART and the SYSREG. */
+ #define CLK_APM_PLL_ALV_DIV2		1
+ #define CLK_APM_PLL_ALV_DIV4		2
+ #define CLK_APM_PLL_ALV_DIV8		3
+@@ -70,5 +70,10 @@
+ #define CLK_GOUT_APM_GPIO_ALIVE		12
+ #define CLK_GOUT_APM_GPIO_FAR_ALIVE	13
+ #define CLK_GOUT_APM_GPIO_CUSTOM_ALIVE	14
++#define CLK_DOUT_APM_USI1_UART		15
++#define CLK_GOUT_APM_USI1_UART_IPCLK	16
++#define CLK_GOUT_APM_USI1_UART_PCLK	17
++#define CLK_GOUT_APM_USI1_UART_RSTNSYNC	18
++#define CLK_GOUT_APM_SYSREG		19
+ 
+ #endif /* _DT_BINDINGS_CLOCK_GOOGLE_ZUMA_H */

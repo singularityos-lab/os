@@ -1,0 +1,59 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Brett-Michael Green <brett@bmgvisualtech.com>
+Date: Sat, 31 Oct 2026 14:40:41 -0400
+Subject: [PATCH] arm64: dts: exynos: google: zuma-husky: enable DECON0
+
+Turn on DECON0 on the Pixel 8 Pro with a 64 MiB reusable scanout pool
+below 4 GiB, for DPP0's 32-bit DMA, in RAM that stock leaves free, and
+the bootloader's splash as its boot framebuffer. DPP0 already scans the
+splash out by its physical address (RDMA_BASEADDR_P0 reads 0xfac00000).
+There is no DSIM on its output port yet, so gs-decon stays at the
+bootloader's 60 Hz.
+
+Assisted-by: LLM
+Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
+---
+ .../boot/dts/exynos/google/zuma-husky.dts     | 23 +++++++++++++++++++
+ 1 file changed, 23 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/zuma-husky.dts b/arch/arm64/boot/dts/exynos/google/zuma-husky.dts
+index 5af39d62d..3b508eb2a 100644
+--- a/arch/arm64/boot/dts/exynos/google/zuma-husky.dts
++++ b/arch/arm64/boot/dts/exynos/google/zuma-husky.dts
+@@ -168,6 +168,18 @@ cont_splash_mem: splash@fac00000 {
+ 			no-map;
+ 		};
+ 
++		/*
++		 * DECON's scanout buffers, below 4 GiB for DPP0's 32-bit DMA,
++		 * in RAM that stock leaves free.
++		 */
++		display_pool: display-pool {
++			compatible = "shared-dma-pool";
++			reusable;
++			size = <0x04000000>;
++			alignment = <0x0 0x00200000>;
++			alloc-ranges = <0x0 0xc4000000 0x10000000>;
++		};
++
+ 		/*
+ 		 * All of the Wi-Fi chip's DMA buffers come from this pool, below
+ 		 * 4 GiB, as on the Pixel 7 Pro: it keeps driver bugs and stray
+@@ -241,6 +253,17 @@ ldo11s: ldo11s {
+ 	};
+ };
+ 
++/*
++ * DECON0 takes the display over from simple-framebuffer and flips DPP0
++ * between scanout buffers. Without a DSIM on its output port it stays at
++ * the bootloader's 60 Hz.
++ */
++&decon0 {
++	memory-region = <&display_pool>, <&cont_splash_mem>;
++	memory-region-names = "pool", "boot-framebuffer";
++	status = "okay";
++};
++
+ /*
+  * Wi-Fi: the BCM4398 on pcie_1, one Gen3 lane as on stock. Its DMA
+  * buffers come from wifi_dma_pool.

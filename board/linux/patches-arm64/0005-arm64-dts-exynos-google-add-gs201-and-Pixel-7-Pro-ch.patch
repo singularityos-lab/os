@@ -1,0 +1,367 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Sun, 11 Oct 2026 16:32:07 -0400
+Subject: [PATCH] arm64: dts: exynos: google: add gs201 and Pixel 7 Pro
+ (cheetah)
+
+Minimal description for early bring-up of the Pixel 7 Pro: CPUs, GIC,
+timer, PMU with reboot mode, both watchdogs, the USB DRD controller in
+peripheral mode, a ramoops region shared with stock Android, and the
+bootloader framebuffer as simple-framebuffer at 0xfac00000.
+
+The bootloader (ABL) selects the base DTB by /soc_id and applies board
+overlays from dtbo, so build with symbols. Clocks are placeholders until
+a gs201 clock driver exists, and the boot arguments carry
+clk_ignore_unused and pd_ignore_unused.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ arch/arm64/boot/dts/exynos/google/Makefile    |   6 +-
+ .../boot/dts/exynos/google/gs201-cheetah.dts  |  68 +++++
+ arch/arm64/boot/dts/exynos/google/gs201.dtsi  | 248 ++++++++++++++++++
+ 3 files changed, 321 insertions(+), 1 deletion(-)
+ create mode 100644 arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts
+ create mode 100644 arch/arm64/boot/dts/exynos/google/gs201.dtsi
+
+diff --git a/arch/arm64/boot/dts/exynos/google/Makefile b/arch/arm64/boot/dts/exynos/google/Makefile
+index 7385f82b0..da81c2dba 100644
+--- a/arch/arm64/boot/dts/exynos/google/Makefile
++++ b/arch/arm64/boot/dts/exynos/google/Makefile
+@@ -2,4 +2,8 @@
+ 
+ dtb-$(CONFIG_ARCH_EXYNOS) += \
+ 	gs101-oriole.dtb \
+-	gs101-raven.dtb
++	gs101-raven.dtb \
++	gs201-cheetah.dtb
++
++# ABL applies board overlays, so keep symbols for labels
++DTC_FLAGS_gs201-cheetah += -@
+diff --git a/arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts b/arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts
+new file mode 100644
+index 000000000..0beef155b
+--- /dev/null
++++ b/arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts
+@@ -0,0 +1,68 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * Google Pixel 7 Pro (cheetah) - M1 bring-up board file.
++ */
++
++/dts-v1/;
++
++#include "gs201.dtsi"
++
++/ {
++	model = "Google Pixel 7 Pro";
++	compatible = "google,gs201-cheetah", "google,gs201";
++
++	/*
++	 * ABL base-DTB match: (product id 0x09855000 | major rev). B0 = 1.
++	 * Ship a second copy with 0x09855000 in the dtb section to be safe.
++	 */
++	soc_id = <0x09855001 0x0>;
++
++	chosen {
++		/* ABL requires bootargs to exist; it appends its own after these. */
++		bootargs = "console=tty0 fbcon=font:TER16x32 clk_ignore_unused pd_ignore_unused rdinit=/init";
++		#address-cells = <2>;
++		#size-cells = <1>;
++		ranges;
++
++		framebuffer0: framebuffer@fac00000 {
++			compatible = "simple-framebuffer";
++			memory-region = <&cont_splash_mem>;
++			width = <1440>;
++			height = <3120>;
++			stride = <(1440 * 4)>;
++			format = "a8r8g8b8";
++		};
++	};
++
++	reserved-memory {
++		#address-cells = <2>;
++		#size-cells = <1>;
++		ranges;
++
++		/* [I] verify against the ABL-injected node in /sys/firmware/fdt */
++		/*
++		 * Same region and layout as stock Android, so a log written by
++		 * this kernel can be read from /sys/fs/pstore after a warm
++		 * reboot into the stock slot.
++		 */
++		ramoops@fd3ff000 {
++			compatible = "ramoops";
++			reg = <0x0 0xfd3ff000 0x400000>;
++			console-size = <0x200000>;
++			pmsg-size = <0x200000>;
++		};
++
++		cont_splash_mem: splash@fac00000 {
++			reg = <0x0 0xfac00000 (1440 * 3120 * 4)>;
++			no-map;
++		};
++	};
++};
++
++&usbdrd31_phy {
++	status = "okay";
++};
++
++&usb_dwc3 {
++	status = "okay";
++};
+diff --git a/arch/arm64/boot/dts/exynos/google/gs201.dtsi b/arch/arm64/boot/dts/exynos/google/gs201.dtsi
+new file mode 100644
+index 000000000..102be1138
+--- /dev/null
++++ b/arch/arm64/boot/dts/exynos/google/gs201.dtsi
+@@ -0,0 +1,248 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * Google GS201 (Tensor G2) SoC - minimal description for early bring-up.
++ */
++
++#include <dt-bindings/gpio/gpio.h>
++#include <dt-bindings/interrupt-controller/arm-gic.h>
++
++/ {
++	compatible = "google,gs201";
++	#address-cells = <2>;
++	#size-cells = <1>;
++	interrupt-parent = <&gic>;
++
++	/* Required by the Pixel bootloader (ABL). */
++	ect { };
++
++	/* Target of the ABL-applied debug-policy (dpm partition) overlay. */
++	dpm: dpm { };
++
++	cpus {
++		#address-cells = <1>;
++		#size-cells = <0>;
++
++		cpu-map {
++			cluster0 {
++				core0 { cpu = <&cpu0>; };
++				core1 { cpu = <&cpu1>; };
++				core2 { cpu = <&cpu2>; };
++				core3 { cpu = <&cpu3>; };
++				core4 { cpu = <&cpu4>; };
++				core5 { cpu = <&cpu5>; };
++				core6 { cpu = <&cpu6>; };
++				core7 { cpu = <&cpu7>; };
++			};
++		};
++
++		cpu0: cpu@0 {
++			device_type = "cpu";
++			compatible = "arm,cortex-a55";
++			reg = <0x000>;
++			enable-method = "psci";
++			capacity-dmips-mhz = <250>;
++		};
++		cpu1: cpu@100 {
++			device_type = "cpu";
++			compatible = "arm,cortex-a55";
++			reg = <0x100>;
++			enable-method = "psci";
++			capacity-dmips-mhz = <250>;
++		};
++		cpu2: cpu@200 {
++			device_type = "cpu";
++			compatible = "arm,cortex-a55";
++			reg = <0x200>;
++			enable-method = "psci";
++			capacity-dmips-mhz = <250>;
++		};
++		cpu3: cpu@300 {
++			device_type = "cpu";
++			compatible = "arm,cortex-a55";
++			reg = <0x300>;
++			enable-method = "psci";
++			capacity-dmips-mhz = <250>;
++		};
++		cpu4: cpu@400 {
++			device_type = "cpu";
++			compatible = "arm,cortex-a78";
++			reg = <0x400>;
++			enable-method = "psci";
++			capacity-dmips-mhz = <927>;
++		};
++		cpu5: cpu@500 {
++			device_type = "cpu";
++			compatible = "arm,cortex-a78";
++			reg = <0x500>;
++			enable-method = "psci";
++			capacity-dmips-mhz = <927>;
++		};
++		cpu6: cpu@600 {
++			device_type = "cpu";
++			compatible = "arm,cortex-x1";
++			reg = <0x600>;
++			enable-method = "psci";
++			capacity-dmips-mhz = <1024>;
++		};
++		cpu7: cpu@700 {
++			device_type = "cpu";
++			compatible = "arm,cortex-x1";
++			reg = <0x700>;
++			enable-method = "psci";
++			capacity-dmips-mhz = <1024>;
++		};
++	};
++
++	psci {
++		compatible = "arm,psci-1.0";
++		method = "smc";
++	};
++
++	timer {
++		compatible = "arm,armv8-timer";
++		interrupts = <GIC_PPI 13 (GIC_CPU_MASK_SIMPLE(8) | IRQ_TYPE_LEVEL_LOW)>,
++			     <GIC_PPI 14 (GIC_CPU_MASK_SIMPLE(8) | IRQ_TYPE_LEVEL_LOW)>,
++			     <GIC_PPI 11 (GIC_CPU_MASK_SIMPLE(8) | IRQ_TYPE_LEVEL_LOW)>,
++			     <GIC_PPI 10 (GIC_CPU_MASK_SIMPLE(8) | IRQ_TYPE_LEVEL_LOW)>;
++	};
++
++	oscclk: clock-oscclk {
++		compatible = "fixed-clock";
++		#clock-cells = <0>;
++		clock-frequency = <24576000>;
++		clock-output-names = "oscclk";
++	};
++
++	/*
++	 * Bring-up placeholder: HSI0 clocks are left running by ABL (it does
++	 * USB fastboot). Replace with cmu_hsi0 once clk-gs201 exists.
++	 */
++	usb_ref_clk: clock-usb-ref {
++		compatible = "fixed-clock";
++		#clock-cells = <0>;
++		clock-frequency = <19200000>;	/* Google: phy_ref_clock */
++		clock-output-names = "usb20-ref";
++	};
++
++	reserved-memory {
++		#address-cells = <2>;
++		#size-cells = <1>;
++		ranges;
++
++		gsa@90200000 { reg = <0x0 0x90200000 0x400000>; no-map; };
++		tpu-ctx@91e00000 { reg = <0x0 0x91e00000 0x1200000>; no-map; };
++		tpu-fw@93000000 { reg = <0x0 0x93000000 0x1000000>; no-map; };
++		aoc@94000000 { reg = <0x0 0x94000000 0x3000000>; no-map; };
++		gxp@98000000 { reg = <0x0 0x98000000 0x500000>; no-map; };
++		dss@d8100000 { reg = <0x0 0xd8100000 0x5f20000>; no-map; };
++		abl@f8800000 { reg = <0x0 0xf8800000 0x2000000>; no-map; };
++		debug@fd3f0000 { reg = <0x0 0xfd3f0000 0x10000>; no-map; };
++		bldr-log@fd800000 { reg = <0x0 0xfd800000 0x100000>; no-map; };
++		suspend-diag@fd90c000 { reg = <0x0 0xfd90c000 0x1000>; no-map; };
++	};
++
++	/* Label stubs so the ABL "dpm" overlay applies (it only sets status). */
++	dpm-stubs {
++		log_arrdumppanic: log-arrdumppanic { status = "disabled"; };
++		log_preslcdump: log-preslcdump { status = "disabled"; };
++		log_slcdump: log-slcdump { status = "disabled"; };
++	};
++
++	soc: soc@0 {
++		compatible = "simple-bus";
++		#address-cells = <1>;
++		#size-cells = <1>;
++		ranges = <0x0 0x0 0x0 0x40000000>;
++
++		gic: interrupt-controller@10400000 {
++			compatible = "arm,gic-v3";
++			#interrupt-cells = <3>;
++			#address-cells = <0>;
++			interrupt-controller;
++			reg = <0x10400000 0x10000>,	/* GICD */
++			      <0x10440000 0x100000>;	/* GICR x8 */
++			interrupts = <GIC_PPI 9 IRQ_TYPE_LEVEL_HIGH>;
++		};
++
++		usbdrd31_phy: phy@11200000 {
++			compatible = "google,gs201-usb31drd-phy";
++			reg = <0x11200000 0x200>,
++			      <0x11100000 0x800>,
++			      <0x110f0000 0x2800>;
++			reg-names = "phy", "pcs", "pma";
++			/* placeholders until cmu_hsi0 exists */
++			clocks = <&usb_ref_clk>, <&usb_ref_clk>, <&usb_ref_clk>,
++				 <&usb_ref_clk>, <&usb_ref_clk>;
++			clock-names = "phy", "ref", "ctrl_aclk", "ctrl_pclk",
++				      "scl_pclk";
++			samsung,pmu-syscon = <&pmu_system_controller>;
++			#phy-cells = <1>;
++			status = "disabled";
++		};
++
++		usb_dwc3: usb@11210000 {
++			compatible = "snps,dwc3";
++			reg = <0x11210000 0x10000>;
++			interrupts = <GIC_SPI 379 IRQ_TYPE_LEVEL_HIGH>;
++			phys = <&usbdrd31_phy 0>;
++			phy-names = "usb2-phy";
++			dr_mode = "peripheral";
++			maximum-speed = "high-speed";
++			snps,dis_u2_susphy_quirk;
++			snps,dis_u3_susphy_quirk;
++			snps,has-lpm-erratum;
++			status = "disabled";
++		};
++
++		/*
++		 * ABL leaves both watchdogs running (about 60 s). The driver stops
++		 * them at probe unless tmr_atboot is set. Clocks are placeholders
++		 * until clk-gs201 exists.
++		 */
++		watchdog_cl0: watchdog@10060000 {
++			compatible = "google,gs201-wdt";
++			reg = <0x10060000 0x100>;
++			clocks = <&oscclk>, <&oscclk>;
++			clock-names = "watchdog", "watchdog_src";
++			interrupts = <GIC_SPI 797 IRQ_TYPE_LEVEL_HIGH>;
++			samsung,syscon-phandle = <&pmu_system_controller>;
++			samsung,cluster-index = <0>;
++		};
++
++		watchdog_cl1: watchdog@10070000 {
++			compatible = "google,gs201-wdt";
++			reg = <0x10070000 0x100>;
++			clocks = <&oscclk>, <&oscclk>;
++			clock-names = "watchdog", "watchdog_src";
++			interrupts = <GIC_SPI 798 IRQ_TYPE_LEVEL_HIGH>;
++			samsung,syscon-phandle = <&pmu_system_controller>;
++			samsung,cluster-index = <1>;
++		};
++
++		pmu_system_controller: system-controller@18060000 {
++			compatible = "google,gs201-pmu", "syscon";
++			reg = <0x18060000 0x10000>;
++			google,pmu-intr-gen-syscon = <&pmu_intr_gen>;
++
++			syscon-poweroff {
++				compatible = "syscon-poweroff";
++				offset = <0x3e9c>;	/* PAD_CTRL_PWR_HOLD */
++				mask = <0x100>;
++				value = <0x0>;
++			};
++
++			reboot-mode {
++				compatible = "syscon-reboot-mode";
++				offset = <0x0810>;	/* SYSIP_DAT0 */
++				mode-bootloader = <0xfc>;
++				mode-fastboot = <0xfa>;
++				mode-recovery = <0xff>;
++			};
++		};
++
++		pmu_intr_gen: syscon@18070000 {
++			compatible = "google,gs201-pmu-intr-gen", "syscon";
++			reg = <0x18070000 0x10000>;
++		};
++	};
++};

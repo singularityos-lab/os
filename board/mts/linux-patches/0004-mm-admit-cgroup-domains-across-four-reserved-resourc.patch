@@ -1,7 +1,7 @@
-From 06f662c616f550caa83db9c0d774c24c66122ce2 Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Mirko Brombin <9479903+mirkobrombin@users.noreply.github.com>
 Date: Sat, 18 Jul 2026 19:34:12 +0100
-Subject: [PATCH 4/4] mm: admit cgroup domains across four reserved resources
+Subject: [PATCH 04/11] mm: admit cgroup domains across four reserved resources
 
 Add an atomic cgroup-v2 admission ioctl over capacity, read bandwidth, write bandwidth, and queue slots. Apply the normative 20 percent headroom, retain non-preemptible reservations behind a domain fd, and roll the complete vector back on any failure.
 
@@ -17,7 +17,7 @@ Signed-off-by: Mirko Brombin <9479903+mirkobrombin@users.noreply.github.com>
  4 files changed, 398 insertions(+), 1 deletion(-)
 
 diff --git a/include/trace/events/mts.h b/include/trace/events/mts.h
-index bc95234..c945ec3 100644
+index bc9523423..c945ec366 100644
 --- a/include/trace/events/mts.h
 +++ b/include/trace/events/mts.h
 @@ -44,6 +44,114 @@ TRACE_EVENT(mts_prediction_label,
@@ -136,7 +136,7 @@ index bc95234..c945ec3 100644
  
  #include <trace/define_trace.h>
 diff --git a/include/uapi/linux/mts.h b/include/uapi/linux/mts.h
-index 12db525..0851fe3 100644
+index 12db52554..0851fe347 100644
 --- a/include/uapi/linux/mts.h
 +++ b/include/uapi/linux/mts.h
 @@ -8,6 +8,7 @@
@@ -188,7 +188,7 @@ index 12db525..0851fe3 100644
  
  #endif /* _UAPI_LINUX_MTS_UAPI_V2_H */
 diff --git a/mm/Kconfig b/mm/Kconfig
-index 73a31a8..97658fd 100644
+index bdb9f64b2..8cb62349f 100644
 --- a/mm/Kconfig
 +++ b/mm/Kconfig
 @@ -31,7 +31,7 @@ config MTS_OBSERVE
@@ -201,7 +201,7 @@ index 73a31a8..97658fd 100644
  	help
  	  Register declarative file-backed tiers through /dev/mts and expose the
 diff --git a/mm/mts_tier.c b/mm/mts_tier.c
-index 02a138f..6c8e93a 100644
+index 02a138f2d..6c8e93ace 100644
 --- a/mm/mts_tier.c
 +++ b/mm/mts_tier.c
 @@ -1,20 +1,24 @@
@@ -539,6 +539,3 @@ index 02a138f..6c8e93a 100644
  	if (command == MTS_IOC_UNREGISTER_TIER)
  		return mts_unregister_tier((void __user *)argument);
  	if (command != MTS_IOC_REGISTER_TIER)
--- 
-2.51.1
-

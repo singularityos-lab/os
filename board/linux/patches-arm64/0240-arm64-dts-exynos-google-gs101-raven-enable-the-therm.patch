@@ -1,0 +1,31 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: saiththerobo <the.tom.sharp@gmail.com>
+Date: Thu, 15 Oct 2026 14:30:32 +0100
+Subject: [PATCH] arm64: dts: exynos: google: gs101-raven: enable the thermal
+ sensors
+
+Under sustained load with no thermal zones, the phone reset. With the
+sensors enabled, the CPU clusters throttle from 85 C.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+Signed-off-by: saiththerobo <the.tom.sharp@gmail.com>
+---
+ arch/arm64/boot/dts/exynos/google/gs101-raven.dts | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/gs101-raven.dts b/arch/arm64/boot/dts/exynos/google/gs101-raven.dts
+index 5bfe8d9fb..6a635c30b 100644
+--- a/arch/arm64/boot/dts/exynos/google/gs101-raven.dts
++++ b/arch/arm64/boot/dts/exynos/google/gs101-raven.dts
+@@ -76,6 +76,10 @@ bluetooth {
+ 	};
+ };
+ 
++&acpm_tmu {
++	status = "okay";
++};
++
+ /* Unused blocks the bootloader leaves powered: genpd turns them off */
+ &pd_g2d {
+ 	status = "okay";

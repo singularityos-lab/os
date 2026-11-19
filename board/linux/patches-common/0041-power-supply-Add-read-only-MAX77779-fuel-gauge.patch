@@ -1,0 +1,358 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Fri, 23 Oct 2026 10:14:17 -0647
+Subject: [PATCH] power: supply: Add read-only MAX77779 fuel gauge
+
+Expose retained-model capacity, voltage and charge readings without
+programming a battery model, NVM or charger. Reject a reset, loading or
+not-ready gauge and keep the register interface read-only. External power
+and charging state remain unknown until their hardware has a driver.
+
+Leave temperature out. Google's driver substitutes 22 C on firmware
+revision 1 with subrevision below 15; this driver has no firmware revision
+check or independent retail temperature qualification. Neither the
+property list nor the read-only register table exposes TEMP, so it does
+not create a battery thermal zone or provide charger thermal protection.
+
+Use Google's GPL register definitions and units, with the sense resistor
+in micro-ohms. Check the u64 charge conversion against INT_MAX before
+assigning the signed power-supply value: raw 65535 with a permitted
+100 micro-ohm resistor is 3276750000 uAh and would otherwise turn negative.
+Queue periodic notifications on the freezable workqueue for system suspend.
+
+The exact source passed a manual load, two reads 31.11 seconds apart,
+unload and installed-module restoration on tegu running
+7.3.0-rc6-omamobile-tegu-g7e457a96fc45. The retained firmware model reported
+93%, 4.340390 V and 4720/5045/5120 mAh remaining/full/design at 2000 micro-ohms,
+with presence set and no TEMP attribute. Fresh root/guard, six protected
+checksums and five B payload hashes passed. Charging, current direction,
+firmware temperature equivalence and suspend remain unqualified.
+
+Exact-source host tests cover physical unit anchors, the signed boundary,
+983040 charge cases, I/O errors, absence and readiness with a mocked regmap;
+they do not substitute for hardware qualification of those other paths.
+
+Link: https://android.googlesource.com/kernel/google-modules/bms/+/183509aff980610401869deca9f6ce8836980fe7/max77779_fg.c
+Link: https://android.googlesource.com/kernel/google-modules/bms/+/183509aff980610401869deca9f6ce8836980fe7/maxfg_common.h
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ MAINTAINERS                             |   1 +
+ drivers/power/supply/Kconfig            |  11 +
+ drivers/power/supply/Makefile           |   1 +
+ drivers/power/supply/max77779_battery.c | 261 ++++++++++++++++++++++++
+ 4 files changed, 274 insertions(+)
+ create mode 100644 drivers/power/supply/max77779_battery.c
+
+diff --git a/MAINTAINERS b/MAINTAINERS
+index e2435a76a..9b17b3804 100644
+--- a/MAINTAINERS
++++ b/MAINTAINERS
+@@ -16183,6 +16183,7 @@ M:	W4HO <87742609+W4HO-ham@users.noreply.github.com>
+ L:	linux-pm@vger.kernel.org
+ S:	Maintained
+ F:	Documentation/devicetree/bindings/power/supply/maxim,max77779-fg.yaml
++F:	drivers/power/supply/max77779_battery.c
+ 
+ MAXIM MAX77802 PMIC REGULATOR DEVICE DRIVER
+ M:	Javier Martinez Canillas <javier@dowhile0.org>
+diff --git a/drivers/power/supply/Kconfig b/drivers/power/supply/Kconfig
+index b89ef40df..691781cd6 100644
+--- a/drivers/power/supply/Kconfig
++++ b/drivers/power/supply/Kconfig
+@@ -459,6 +459,17 @@ config BATTERY_MAX17042
+ 
+ 	  Driver can be build as a module (max17042_battery).
+ 
++config BATTERY_MAX77779
++	tristate "Maxim MAX77779 read-only Fuel Gauge"
++	depends on I2C
++	select REGMAP_I2C
++	help
++	  Report battery measurements from a MAX77779 with a retained,
++	  initialized firmware model. Probe refuses an uninitialized gauge.
++	  Model loading and charger control are not provided.
++
++	  The module is named max77779_battery.
++
+ config BATTERY_MAX1720X
+ 	tristate "Maxim MAX17201/MAX17205 Fuel Gauge"
+ 	depends on I2C
+diff --git a/drivers/power/supply/Makefile b/drivers/power/supply/Makefile
+index f3c0d1006..0f9ae2cb9 100644
+--- a/drivers/power/supply/Makefile
++++ b/drivers/power/supply/Makefile
+@@ -58,6 +58,7 @@ obj-$(CONFIG_CHARGER_DA9150)	+= da9150-charger.o
+ obj-$(CONFIG_BATTERY_DA9150)	+= da9150-fg.o
+ obj-$(CONFIG_BATTERY_MAX17040)	+= max17040_battery.o
+ obj-$(CONFIG_BATTERY_MAX17042)	+= max17042_battery.o
++obj-$(CONFIG_BATTERY_MAX77779)	+= max77779_battery.o
+ obj-$(CONFIG_BATTERY_MAX1720X)	+= max1720x_battery.o
+ obj-$(CONFIG_BATTERY_MAX1721X)	+= max1721x_battery.o
+ obj-$(CONFIG_BATTERY_RT5033)	+= rt5033_battery.o
+diff --git a/drivers/power/supply/max77779_battery.c b/drivers/power/supply/max77779_battery.c
+new file mode 100644
+index 000000000..1e113081a
+--- /dev/null
++++ b/drivers/power/supply/max77779_battery.c
+@@ -0,0 +1,261 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/* Read-only MAX77779 fuel-gauge measurements; retain the firmware model. */
++
++#include <linux/bits.h>
++#include <linux/i2c.h>
++#include <linux/limits.h>
++#include <linux/math64.h>
++#include <linux/module.h>
++#include <linux/power_supply.h>
++#include <linux/property.h>
++#include <linux/regmap.h>
++#include <linux/workqueue.h>
++
++#define MAX77779_STATUS		0x00
++#define MAX77779_REPCAP		0x06
++#define MAX77779_REPSOC		0x07
++#define MAX77779_CONFIG		0x0c
++#define MAX77779_FULLCAPREP	0x10
++#define MAX77779_DESIGNCAP	0x18
++#define MAX77779_AVGVCELL		0x19
++#define MAX77779_VCELL		0x1a
++#define MAX77779_DEVNAME		0x21
++#define MAX77779_FSTAT		0x3d
++#define MAX77779_POR		BIT(1)
++#define MAX77779_ABSENT		BIT(3)
++#define MAX77779_NOT_READY	GENMASK(1, 0)
++
++struct max77779_battery {
++	struct regmap *map;
++	struct power_supply *supply;
++	struct delayed_work poll;
++	u32 rsense;
++};
++
++static bool max77779_readable(struct device *dev, unsigned int reg)
++{
++	switch (reg) {
++	case MAX77779_STATUS:
++	case MAX77779_REPCAP:
++	case MAX77779_REPSOC:
++	case MAX77779_CONFIG:
++	case MAX77779_FULLCAPREP:
++	case MAX77779_DESIGNCAP:
++	case MAX77779_AVGVCELL:
++	case MAX77779_VCELL:
++	case MAX77779_DEVNAME:
++	case MAX77779_FSTAT:
++		return true;
++	default:
++		return false;
++	}
++}
++
++static bool max77779_writeable(struct device *dev, unsigned int reg)
++{
++	return false;
++}
++
++static const struct regmap_config max77779_regmap = {
++	.reg_bits = 8,
++	.val_bits = 16,
++	.val_format_endian = REGMAP_ENDIAN_LITTLE,
++	.max_register = MAX77779_FSTAT,
++	.readable_reg = max77779_readable,
++	.writeable_reg = max77779_writeable,
++	.cache_type = REGCACHE_NONE,
++};
++
++static int max77779_ready(struct max77779_battery *battery, u32 *status)
++{
++	u32 fstat;
++	int ret;
++
++	ret = regmap_read(battery->map, MAX77779_STATUS, status);
++	if (ret)
++		return ret;
++	ret = regmap_read(battery->map, MAX77779_FSTAT, &fstat);
++	if (ret)
++		return ret;
++	/* Never clear POR, reload a model, or publish uninitialised data. */
++	if ((*status & MAX77779_POR) || (fstat & MAX77779_NOT_READY))
++		return -EAGAIN;
++	return 0;
++}
++
++static int max77779_get_property(struct power_supply *supply,
++				 enum power_supply_property property,
++				 union power_supply_propval *value)
++{
++	struct max77779_battery *battery = power_supply_get_drvdata(supply);
++	u64 charge;
++	u32 status, raw;
++	unsigned int reg;
++	int ret;
++
++	ret = max77779_ready(battery, &status);
++	if (ret)
++		return ret;
++	switch (property) {
++	case POWER_SUPPLY_PROP_PRESENT:
++		value->intval = !(status & MAX77779_ABSENT);
++		return 0;
++	case POWER_SUPPLY_PROP_STATUS:
++		/* The charger and external-power detection are separate devices. */
++		value->intval = POWER_SUPPLY_STATUS_UNKNOWN;
++		return 0;
++	case POWER_SUPPLY_PROP_TECHNOLOGY:
++		value->intval = POWER_SUPPLY_TECHNOLOGY_LION;
++		return 0;
++	case POWER_SUPPLY_PROP_MODEL_NAME:
++		value->strval = "MAX77779";
++		return 0;
++	case POWER_SUPPLY_PROP_CAPACITY:
++		reg = MAX77779_REPSOC;
++		break;
++	case POWER_SUPPLY_PROP_VOLTAGE_NOW:
++		reg = MAX77779_VCELL;
++		break;
++	case POWER_SUPPLY_PROP_VOLTAGE_AVG:
++		reg = MAX77779_AVGVCELL;
++		break;
++	case POWER_SUPPLY_PROP_CHARGE_NOW:
++		reg = MAX77779_REPCAP;
++		break;
++	case POWER_SUPPLY_PROP_CHARGE_FULL:
++		reg = MAX77779_FULLCAPREP;
++		break;
++	case POWER_SUPPLY_PROP_CHARGE_FULL_DESIGN:
++		reg = MAX77779_DESIGNCAP;
++		break;
++	default:
++		return -EINVAL;
++	}
++	if (status & MAX77779_ABSENT)
++		return -ENODATA;
++	ret = regmap_read(battery->map, reg, &raw);
++	if (ret)
++		return ret;
++	switch (property) {
++	case POWER_SUPPLY_PROP_CAPACITY:
++		if ((raw >> 8) > 100)
++			return -ERANGE;
++		value->intval = raw >> 8;
++		break;
++	case POWER_SUPPLY_PROP_VOLTAGE_NOW:
++	case POWER_SUPPLY_PROP_VOLTAGE_AVG:
++		value->intval = div_u64((u64)raw * 78125, 1000);
++		break;
++	default:
++		/* 5 uVh / Rsense, with Rsense expressed in micro-ohms. */
++		charge = div_u64((u64)raw * 5000000, battery->rsense);
++		if (charge > INT_MAX)
++			return -ERANGE;
++		value->intval = charge;
++		break;
++	}
++	return 0;
++}
++
++static const enum power_supply_property max77779_properties[] = {
++	POWER_SUPPLY_PROP_PRESENT,
++	POWER_SUPPLY_PROP_STATUS,
++	POWER_SUPPLY_PROP_TECHNOLOGY,
++	POWER_SUPPLY_PROP_MODEL_NAME,
++	POWER_SUPPLY_PROP_CAPACITY,
++	POWER_SUPPLY_PROP_VOLTAGE_NOW,
++	POWER_SUPPLY_PROP_VOLTAGE_AVG,
++	POWER_SUPPLY_PROP_CHARGE_NOW,
++	POWER_SUPPLY_PROP_CHARGE_FULL,
++	POWER_SUPPLY_PROP_CHARGE_FULL_DESIGN,
++};
++
++static const struct power_supply_desc max77779_supply = {
++	.name = "max77779-battery",
++	.type = POWER_SUPPLY_TYPE_BATTERY,
++	.properties = max77779_properties,
++	.num_properties = ARRAY_SIZE(max77779_properties),
++	.get_property = max77779_get_property,
++};
++
++static void max77779_poll(struct work_struct *work)
++{
++	struct max77779_battery *battery;
++
++	battery = container_of(to_delayed_work(work), struct max77779_battery, poll);
++	power_supply_changed(battery->supply);
++	queue_delayed_work(system_freezable_wq, &battery->poll, 30 * HZ);
++}
++
++static void max77779_cancel_poll(void *data)
++{
++	struct max77779_battery *battery = data;
++
++	cancel_delayed_work_sync(&battery->poll);
++}
++
++static int max77779_probe(struct i2c_client *client)
++{
++	struct power_supply_config config = {};
++	struct device *dev = &client->dev;
++	struct max77779_battery *battery;
++	u32 raw;
++	int ret;
++
++	battery = devm_kzalloc(dev, sizeof(*battery), GFP_KERNEL);
++	if (!battery)
++		return -ENOMEM;
++	ret = device_property_read_u32(dev, "shunt-resistor-micro-ohms", &battery->rsense);
++	if (ret)
++		return dev_err_probe(dev, ret, "Sense resistor is required\n");
++	if (battery->rsense < 100 || battery->rsense > 100000)
++		return -EINVAL;
++	battery->map = devm_regmap_init_i2c(client, &max77779_regmap);
++	if (IS_ERR(battery->map))
++		return PTR_ERR(battery->map);
++	ret = regmap_read(battery->map, MAX77779_DEVNAME, &raw);
++	if (ret)
++		return ret;
++	if ((raw >> 8) != 0x51 && (raw >> 8) != 0x62 && (raw >> 8) != 0x63)
++		return -ENODEV;
++	ret = max77779_ready(battery, &raw);
++	if (ret)
++		return dev_err_probe(dev, ret, "Firmware model is not ready\n");
++	config.drv_data = battery;
++	config.fwnode = dev_fwnode(dev);
++	battery->supply = devm_power_supply_register(dev, &max77779_supply, &config);
++	if (IS_ERR(battery->supply))
++		return PTR_ERR(battery->supply);
++	INIT_DELAYED_WORK(&battery->poll, max77779_poll);
++	ret = devm_add_action_or_reset(dev, max77779_cancel_poll, battery);
++	if (ret)
++		return ret;
++	queue_delayed_work(system_freezable_wq, &battery->poll, 30 * HZ);
++	dev_info(dev, "Read-only fuel gauge; firmware model retained\n");
++	return 0;
++}
++
++static const struct of_device_id max77779_of_match[] = {
++	{ .compatible = "maxim,max77779-fg" },
++	{}
++};
++MODULE_DEVICE_TABLE(of, max77779_of_match);
++
++static const struct i2c_device_id max77779_ids[] = {
++	{ "max77779-battery" },
++	{}
++};
++MODULE_DEVICE_TABLE(i2c, max77779_ids);
++
++static struct i2c_driver max77779_driver = {
++	.driver = {
++		.name = "max77779-battery",
++		.of_match_table = max77779_of_match,
++	},
++	.probe = max77779_probe,
++	.id_table = max77779_ids,
++};
++module_i2c_driver(max77779_driver);
++
++MODULE_DESCRIPTION("Read-only MAX77779 fuel gauge with a retained firmware model");
++MODULE_LICENSE("GPL");

@@ -1,0 +1,33 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Sat, 31 Oct 2026 09:30:48 -0643
+Subject: [PATCH] dt-bindings: soc: samsung: exynos-pmu: describe Tensor G4's
+ PMU clock
+
+The Tensor G4 PMU (google,zumapro-pmu) gates the NFC controller's
+reference clock pad, which clk-exynos-clkout provides like the Exynos
+CLKOUT clocks. Say what #clock-cells numbers there: clock 0 is that pad.
+
+Only the Pixel 9a's devicetree is known to use it, so this names Tensor
+G4 rather than google,zuma-pmu in general.
+
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ Documentation/devicetree/bindings/soc/samsung/exynos-pmu.yaml | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/Documentation/devicetree/bindings/soc/samsung/exynos-pmu.yaml b/Documentation/devicetree/bindings/soc/samsung/exynos-pmu.yaml
+index 2f273e9e5..9cec4a137 100644
+--- a/Documentation/devicetree/bindings/soc/samsung/exynos-pmu.yaml
++++ b/Documentation/devicetree/bindings/soc/samsung/exynos-pmu.yaml
+@@ -63,6 +63,10 @@ properties:
+ 
+   '#clock-cells':
+     const: 1
++    description:
++      On the Exynos SoCs, one clock per CLKOUT mux input. On the Tensor G4
++      PMU (google,zumapro-pmu), clock 0 is the NFC controller's reference
++      clock pad.
+ 
+   clock-names:
+     description:

@@ -1,0 +1,55 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Wed, 14 Oct 2026 21:05:16 -0400
+Subject: [PATCH] arm64: dts: exynos: google: gs201: add the MCT
+
+Describe the multi-core timer at 0x10050000: interrupts GIC SPI 785-796,
+clocked from OSCCLK and the CMU_MISC MCT gate, as in the device tree the
+bootloader hands over on a Pixel 7 Pro (stock Android uses it as its
+per-CPU tick).
+
+On arm64 the driver ranks below the architected timer, so it doesn't
+replace the tick; its global comparator becomes the broadcast clock event
+device that the C2 idle state needs, because the per-core generic timer
+stops while a core is powered down. On a Pixel 7 Pro the clocksource
+stays arch_sys_counter and mct-comp is the broadcast device.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ arch/arm64/boot/dts/exynos/google/gs201.dtsi | 23 ++++++++++++++++++++
+ 1 file changed, 23 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/gs201.dtsi b/arch/arm64/boot/dts/exynos/google/gs201.dtsi
+index cced5465c..5688a35e5 100644
+--- a/arch/arm64/boot/dts/exynos/google/gs201.dtsi
++++ b/arch/arm64/boot/dts/exynos/google/gs201.dtsi
+@@ -801,6 +801,29 @@ ufs_0_phy: phy@14704000 {
+ 			status = "disabled";
+ 		};
+ 
++		/*
++		 * Multi-core timer. Gives the kernel a broadcast clock event
++		 * device that keeps running while cores are powered down in C2.
++		 */
++		mct: timer@10050000 {
++			compatible = "google,gs201-mct", "samsung,exynos4210-mct";
++			reg = <0x10050000 0x800>;
++			clocks = <&oscclk>, <&cmu_misc CLK_GOUT_MISC_MCT_PCLK>;
++			clock-names = "fin_pll", "mct";
++			interrupts = <GIC_SPI 785 IRQ_TYPE_LEVEL_HIGH>,
++				     <GIC_SPI 786 IRQ_TYPE_LEVEL_HIGH>,
++				     <GIC_SPI 787 IRQ_TYPE_LEVEL_HIGH>,
++				     <GIC_SPI 788 IRQ_TYPE_LEVEL_HIGH>,
++				     <GIC_SPI 789 IRQ_TYPE_LEVEL_HIGH>,
++				     <GIC_SPI 790 IRQ_TYPE_LEVEL_HIGH>,
++				     <GIC_SPI 791 IRQ_TYPE_LEVEL_HIGH>,
++				     <GIC_SPI 792 IRQ_TYPE_LEVEL_HIGH>,
++				     <GIC_SPI 793 IRQ_TYPE_LEVEL_HIGH>,
++				     <GIC_SPI 794 IRQ_TYPE_LEVEL_HIGH>,
++				     <GIC_SPI 795 IRQ_TYPE_LEVEL_HIGH>,
++				     <GIC_SPI 796 IRQ_TYPE_LEVEL_HIGH>;
++		};
++
+ 		/*
+ 		 * ABL leaves both watchdogs running (about 60 s). The driver stops
+ 		 * them at probe unless tmr_atboot is set.

@@ -1,0 +1,115 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Wed, 14 Oct 2026 21:05:25 -0400
+Subject: [PATCH] arm64: dts: exynos: google: gs201: add CMU_APM and the APM
+ USI1 UART
+
+Describe what the Bluetooth UART of Pixel 7 devices needs:
+
+- CMU_APM (0x18000000), read-only in the clock driver;
+- the APM sysreg (0x18020000), whose SW_CONF at 0x4e4 selects UART mode
+  for APM USI1, as Google's kernel does at boot;
+- the APM USI1 wrapper (0x181b00c0) with clkreq-on, as UART Rx needs the
+  IP clock while idle, and its UART (0x181b0000, SPI 69, 256-byte FIFO);
+- its pins, gpa3-0..3 in function 2.
+
+All are disabled except the inert sysreg syscon.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ .../boot/dts/exynos/google/gs201-pinctrl.dtsi |  7 +++
+ arch/arm64/boot/dts/exynos/google/gs201.dtsi  | 49 +++++++++++++++++++
+ 2 files changed, 56 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/gs201-pinctrl.dtsi b/arch/arm64/boot/dts/exynos/google/gs201-pinctrl.dtsi
+index 55734625e..82d3f5be0 100644
+--- a/arch/arm64/boot/dts/exynos/google/gs201-pinctrl.dtsi
++++ b/arch/arm64/boot/dts/exynos/google/gs201-pinctrl.dtsi
+@@ -118,6 +118,13 @@ gpa10: gpa10-gpio-bank {
+ 			     <GIC_SPI 43 IRQ_TYPE_LEVEL_HIGH>;
+ 	};
+ 
++	/* APM USI1 UART: RXD, TXD, RTS_N, CTS_N */
++	uart_apm1_bus: uart-apm1-bus-pins {
++		samsung,pins = "gpa3-0", "gpa3-1", "gpa3-2", "gpa3-3";
++		samsung,pin-function = <GS101_PIN_FUNC_2>;
++		samsung,pin-pud = <GS101_PIN_PULL_NONE>;
++	};
++
+ 	key_power: key-power-pins {
+ 		samsung,pins = "gpa10-0";
+ 		samsung,pin-function = <GS101_PIN_FUNC_EINT>;
+diff --git a/arch/arm64/boot/dts/exynos/google/gs201.dtsi b/arch/arm64/boot/dts/exynos/google/gs201.dtsi
+index 038814136..0f3e7647f 100644
+--- a/arch/arm64/boot/dts/exynos/google/gs201.dtsi
++++ b/arch/arm64/boot/dts/exynos/google/gs201.dtsi
+@@ -8,6 +8,7 @@
+ #include <dt-bindings/gpio/gpio.h>
+ #include <dt-bindings/interrupt-controller/arm-gic.h>
+ #include <dt-bindings/interrupt-controller/irq.h>
++#include <dt-bindings/soc/samsung,exynos-usi.h>
+ 
+ / {
+ 	compatible = "google,gs201";
+@@ -899,6 +900,24 @@ watchdog_cl1: watchdog@10070000 {
+ 			samsung,cluster-index = <1>;
+ 		};
+ 
++		/*
++		 * Shared with the APM firmware; the driver only reads it. Off by
++		 * default until the Bluetooth UART bring-up has passed.
++		 */
++		cmu_apm: clock-controller@18000000 {
++			compatible = "google,gs201-cmu-apm";
++			reg = <0x18000000 0x10000>;
++			#clock-cells = <1>;
++			clocks = <&oscclk>;
++			clock-names = "oscclk";
++			status = "disabled";
++		};
++
++		sysreg_apm: syscon@18020000 {
++			compatible = "google,gs201-apm-sysreg", "syscon";
++			reg = <0x18020000 0x10000>;
++		};
++
+ 		pmu_system_controller: system-controller@18060000 {
+ 			compatible = "google,gs201-pmu", "syscon";
+ 			reg = <0x18060000 0x10000>;
+@@ -955,6 +974,36 @@ wakeup-interrupt-controller {
+ 			};
+ 		};
+ 
++		/* APM USI1: a UART-only USI, wired to Bluetooth on Pixel 7 devices */
++		usi_apm1: usi@181b00c0 {
++			compatible = "google,gs201-usi", "samsung,exynos850-usi";
++			reg = <0x181b00c0 0x20>;
++			ranges;
++			#address-cells = <1>;
++			#size-cells = <1>;
++			clocks = <&cmu_apm CLK_GOUT_APM_APM_USI1_UART_PCLK>,
++				 <&cmu_apm CLK_GOUT_APM_APM_USI1_UART_IPCLK>;
++			clock-names = "pclk", "ipclk";
++			samsung,sysreg = <&sysreg_apm 0x4e4>;
++			samsung,mode = <USI_MODE_UART>;
++			/* UART Rx needs the IP clock while idle */
++			samsung,clkreq-on;
++			status = "disabled";
++
++			serial_apm1: serial@181b0000 {
++				compatible = "google,gs201-uart", "google,gs101-uart";
++				reg = <0x181b0000 0xc0>;
++				clocks = <&cmu_apm CLK_GOUT_APM_APM_USI1_UART_PCLK>,
++					 <&cmu_apm CLK_GOUT_APM_APM_USI1_UART_IPCLK>;
++				clock-names = "uart", "clk_uart_baud0";
++				interrupts = <GIC_SPI 69 IRQ_TYPE_LEVEL_HIGH>;
++				pinctrl-0 = <&uart_apm1_bus>;
++				pinctrl-names = "default";
++				samsung,uart-fifosize = <256>;
++				status = "disabled";
++			};
++		};
++
+ 		ap2apm_mailbox: mailbox@18210000 {
+ 			compatible = "google,gs201-mbox", "google,gs101-mbox";
+ 			reg = <0x18210000 0x1000>;

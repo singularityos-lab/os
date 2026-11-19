@@ -1,0 +1,27 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Sun, 11 Oct 2026 16:32:07 -0400
+Subject: [PATCH] watchdog: s3c2410_wdt: add Google gs201 compatible
+
+gs201 has the same two cluster watchdogs and PMU controls as gs101.
+The bootloader leaves both running; with this the driver stops them
+at probe instead of the phone resetting after about 60 seconds.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ drivers/watchdog/s3c2410_wdt.c | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/drivers/watchdog/s3c2410_wdt.c b/drivers/watchdog/s3c2410_wdt.c
+index e31f93db0..d45ba57c6 100644
+--- a/drivers/watchdog/s3c2410_wdt.c
++++ b/drivers/watchdog/s3c2410_wdt.c
+@@ -373,6 +373,8 @@ static const struct s3c2410_wdt_variant drv_data_exynosautov920_cl1 = {
+ static const struct of_device_id s3c2410_wdt_match[] = {
+ 	{ .compatible = "google,gs101-wdt",
+ 	  .data = &drv_data_gs101_cl0 },
++	{ .compatible = "google,gs201-wdt",
++	  .data = &drv_data_gs101_cl0 },
+ 	{ .compatible = "samsung,s3c6410-wdt",
+ 	  .data = &drv_data_s3c6410 },
+ 	{ .compatible = "samsung,exynos5250-wdt",

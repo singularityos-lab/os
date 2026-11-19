@@ -1,0 +1,148 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Sun, 11 Oct 2026 20:21:19 -0400
+Subject: [PATCH] arm64: dts: exynos: google: gs201-cheetah: add the MAX77759
+
+Describe the MAX77759 on USI13 of the Pixel 7 Pro: the PMIC core with its
+GPIO block at 0x66, the fuel gauge at 0x36 (5 mOhm sense resistor) and
+the Type-C port controller at 0x25. All three interrupt lines are on
+ALIVE gpa9 (pins 4, 3 and 7), active low with pull-ups, as in Google's
+GPL device tree.
+
+The Type-C port controller is left disabled. The USB-C port is the only
+way into the phone during bring-up, and TCPM would take over VBUS and
+the data role before the USB PHY and dwc3 have orientation and role
+switches to follow it. Its connector copies gs101's roles and PDOs with
+PD disabled.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ .../boot/dts/exynos/google/gs201-cheetah.dts  | 111 ++++++++++++++++++
+ 1 file changed, 111 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts b/arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts
+index f635eb19b..e8bd7bd6d 100644
+--- a/arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts
++++ b/arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts
+@@ -7,6 +7,7 @@
+ 
+ #include <dt-bindings/input/input.h>
+ #include <dt-bindings/soc/samsung,exynos-usi.h>
++#include <dt-bindings/usb/pd.h>
+ #include "gs201.dtsi"
+ 
+ / {
+@@ -172,3 +173,113 @@ &ufs_0 {
+ &ufs_0_phy {
+ 	status = "okay";
+ };
++
++/*
++ * MAX77759 (charger, Type-C port controller, fuel gauge) on USI13. All of
++ * its interrupt lines are on ALIVE gpa9, active low with pull-ups.
++ *
++ * The Type-C port controller stays disabled: the USB link is our only way
++ * into the phone, and TCPM would take over VBUS and data role from the
++ * forced-VBUS setup the USB PHY uses today. The charger has no DT node of
++ * its own (it is an MFD cell of pmic@66); note that its probe turns
++ * charging off until a "tcpm-source" power supply reports a source, so do
++ * not load it before the Type-C side works.
++ */
++&usi13 {
++	samsung,mode = <USI_MODE_I2C>;
++	status = "okay";
++};
++
++&hsi2c_13 {
++	clock-frequency = <400000>;
++	status = "okay";
++
++	usb-typec@25 {
++		compatible = "maxim,max77759-tcpci", "maxim,max33359";
++		reg = <0x25>;
++		interrupts-extended = <&gpa9 7 IRQ_TYPE_LEVEL_LOW>;
++		pinctrl-0 = <&typec_int>;
++		pinctrl-names = "default";
++		status = "disabled";
++
++		/*
++		 * Power roles and PDOs as on gs101 (the same MAX77759 design).
++		 * PD stays off, and the orientation/role-switch ports to the
++		 * USB PHY and dwc3 come with the Type-C work.
++		 */
++		connector {
++			compatible = "usb-c-connector";
++			label = "USB-C";
++			data-role = "dual";
++			power-role = "dual";
++			self-powered;
++			try-power-role = "sink";
++			op-sink-microwatt = <2600000>;
++			source-pdos = <PDO_FIXED(5000, 900,
++						 (PDO_FIXED_SUSPEND
++						  | PDO_FIXED_USB_COMM
++						  | PDO_FIXED_DATA_SWAP
++						  | PDO_FIXED_DUAL_ROLE))>;
++			sink-pdos = <PDO_FIXED(5000, 3000,
++					       (PDO_FIXED_DATA_SWAP
++						| PDO_FIXED_USB_COMM
++						| PDO_FIXED_HIGHER_CAP
++						| PDO_FIXED_DUAL_ROLE))
++				     PDO_FIXED(9000, 2200, 0)
++				     PDO_PPS_APDO(5000, 11000, 3000)>;
++			pd-disable;
++			typec-power-opmode = "default";
++		};
++	};
++
++	fuel-gauge@36 {
++		compatible = "maxim,max77759-fg";
++		reg = <0x36>;
++		interrupts-extended = <&gpa9 3 IRQ_TYPE_LEVEL_LOW>;
++		pinctrl-0 = <&if_pmic_fg_int>;
++		pinctrl-names = "default";
++		/* maxim,rsense-default = <500> (10 uOhm units) in Google's tree */
++		shunt-resistor-micro-ohms = <5000>;
++	};
++
++	pmic@66 {
++		compatible = "maxim,max77759";
++		reg = <0x66>;
++		interrupts-extended = <&gpa9 4 IRQ_TYPE_LEVEL_LOW>;
++		pinctrl-0 = <&if_pmic_int>;
++		pinctrl-names = "default";
++		interrupt-controller;
++		#interrupt-cells = <2>;
++
++		gpio {
++			compatible = "maxim,max77759-gpio";
++			gpio-controller;
++			#gpio-cells = <2>;
++			interrupt-controller;
++			#interrupt-cells = <2>;
++		};
++	};
++};
++
++&pinctrl_gpio_alive {
++	if_pmic_fg_int: if-pmic-fg-int-pins {
++		samsung,pins = "gpa9-3";
++		samsung,pin-function = <GS101_PIN_FUNC_EINT>;
++		samsung,pin-pud = <GS101_PIN_PULL_UP>;
++		samsung,pin-drv = <GS101_PIN_DRV_2_5_MA>;
++	};
++
++	if_pmic_int: if-pmic-int-pins {
++		samsung,pins = "gpa9-4";
++		samsung,pin-function = <GS101_PIN_FUNC_EINT>;
++		samsung,pin-pud = <GS101_PIN_PULL_UP>;
++		samsung,pin-drv = <GS101_PIN_DRV_2_5_MA>;
++	};
++
++	typec_int: typec-int-pins {
++		samsung,pins = "gpa9-7";
++		samsung,pin-function = <GS101_PIN_FUNC_EINT>;
++		samsung,pin-pud = <GS101_PIN_PULL_UP>;
++		samsung,pin-drv = <GS101_PIN_DRV_2_5_MA>;
++	};
++};

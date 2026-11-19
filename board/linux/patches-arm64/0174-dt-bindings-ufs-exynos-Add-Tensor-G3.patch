@@ -1,0 +1,48 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Brett-Michael Green <brett@bmgvisualtech.com>
+Date: Sat, 24 Oct 2026 12:22:33 -0400
+Subject: [PATCH] dt-bindings: ufs: exynos: Add Tensor G3
+
+zuma's (Tensor G3) UFS host runs the same CAL as zumapro's (Tensor G4),
+Google's drivers/ufs/zuma/, with the same PCS and UniPro sequences, so
+describe it with zumapro's compatible as the fallback.
+
+Assisted-by: LLM
+Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
+---
+ .../bindings/ufs/samsung,exynos-ufs.yaml      | 22 +++++++++++--------
+ 1 file changed, 13 insertions(+), 9 deletions(-)
+
+diff --git a/Documentation/devicetree/bindings/ufs/samsung,exynos-ufs.yaml b/Documentation/devicetree/bindings/ufs/samsung,exynos-ufs.yaml
+index e6053c655..08e793f2f 100644
+--- a/Documentation/devicetree/bindings/ufs/samsung,exynos-ufs.yaml
++++ b/Documentation/devicetree/bindings/ufs/samsung,exynos-ufs.yaml
+@@ -14,15 +14,19 @@ description: |
+ 
+ properties:
+   compatible:
+-    enum:
+-      - google,gs101-ufs
+-      - google,gs201-ufs
+-      - google,zumapro-ufs
+-      - samsung,exynos7-ufs
+-      - samsung,exynosautov9-ufs
+-      - samsung,exynosautov9-ufs-vh
+-      - samsung,exynosautov920-ufs
+-      - tesla,fsd-ufs
++    oneOf:
++      - enum:
++          - google,gs101-ufs
++          - google,gs201-ufs
++          - google,zumapro-ufs
++          - samsung,exynos7-ufs
++          - samsung,exynosautov9-ufs
++          - samsung,exynosautov9-ufs-vh
++          - samsung,exynosautov920-ufs
++          - tesla,fsd-ufs
++      - items:
++          - const: google,zuma-ufs
++          - const: google,zumapro-ufs
+ 
+   reg:
+     items:

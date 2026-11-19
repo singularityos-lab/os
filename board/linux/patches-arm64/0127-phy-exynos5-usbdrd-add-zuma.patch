@@ -1,0 +1,56 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Brett-Michael Green <brett@bmgvisualtech.com>
+Date: Thu, 22 Oct 2026 12:43:01 -0400
+Subject: [PATCH] phy: exynos5-usbdrd: add zuma
+
+zuma's USB control block matches Exynos 2200's: LINKCTRL 0x04,
+LINK_CLKRST 0x0c, UTMI_CTRL 0x10 and HSP_MISC 0x114, with the same bits
+the Exynos 2200 code uses. Its PMU isolation register is at 0x3eb0, as
+on gs101. Reuse the Exynos 2200 ops with that offset.
+
+Tested on a Pixel 8 Pro: with the eUSB2 PHY behind it, the DWC3 core
+comes out of soft reset and enumerates as a high-speed gadget.
+
+Assisted-by: LLM
+Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
+---
+ drivers/phy/samsung/phy-exynos5-usbdrd.c | 19 +++++++++++++++++++
+ 1 file changed, 19 insertions(+)
+
+diff --git a/drivers/phy/samsung/phy-exynos5-usbdrd.c b/drivers/phy/samsung/phy-exynos5-usbdrd.c
+index 9ab5db66f..760b5ccb0 100644
+--- a/drivers/phy/samsung/phy-exynos5-usbdrd.c
++++ b/drivers/phy/samsung/phy-exynos5-usbdrd.c
+@@ -2090,6 +2090,22 @@ static const struct exynos5_usbdrd_phy_drvdata exynos2200_usb32drd_phy = {
+ 	.n_regulators		= 0,
+ };
+ 
++/*
++ * zuma's USB control block has Exynos 2200's link registers and the same
++ * Synopsys eUSB2 PHY behind it; only its PMU isolation register differs.
++ */
++static const struct exynos5_usbdrd_phy_drvdata zuma_usb32drd_phy = {
++	.phy_cfg		= phy_cfg_exynos2200,
++	.phy_ops		= &exynos2200_usbdrd_phy_ops,
++	.pmu_offset_usbdrd0_phy	= GS101_PHY_CTRL_USB20,
++	.clk_names		= exynos5_clk_names,
++	.n_clks			= ARRAY_SIZE(exynos5_clk_names),
++	.core_clk_names		= NULL,
++	.n_core_clks		= 0,
++	.regulator_names	= NULL,
++	.n_regulators		= 0,
++};
++
+ static const struct exynos5_usbdrd_phy_drvdata exynos5420_usbdrd_phy = {
+ 	.phy_cfg		= phy_cfg_exynos5,
+ 	.phy_ops		= &exynos5_usbdrd_phy_ops,
+@@ -2968,6 +2984,9 @@ static const struct of_device_id exynos5_usbdrd_phy_of_match[] = {
+ 	}, {
+ 		.compatible = "google,gs201-usb31drd-phy",
+ 		.data = &gs101_usbd31rd_phy
++	}, {
++		.compatible = "google,zuma-usb32drd-phy",
++		.data = &zuma_usb32drd_phy
+ 	}, {
+ 		.compatible = "samsung,exynos2200-usb32drd-phy",
+ 		.data = &exynos2200_usb32drd_phy,

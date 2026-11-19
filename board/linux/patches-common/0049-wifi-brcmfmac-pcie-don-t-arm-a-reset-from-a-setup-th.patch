@@ -1,0 +1,59 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Tue, 27 Oct 2026 02:13:55 -0647
+Subject: [PATCH] wifi: brcmfmac: pcie: don't arm a reset from a setup that
+ fails
+
+When brcmf_pcie_setup() fails, it reports the crash with
+brcmf_fw_crashed() and then releases the driver. brcmf_fw_crashed()
+also arms the bus reset work. brcmf_pcie_remove(), called from
+device_release_driver(), drains that work with
+brcmf_bus_cancel_reset_work(); but by then the reset has usually run:
+it detached the bus and queued a new firmware request. That request's
+brcmf_pcie_setup() then runs while remove frees the chip, and it
+dereferences devinfo->ci in the firmware wait loop of
+brcmf_pcie_download_fw_nvram():
+
+  Unable to handle kernel NULL pointer dereference at virtual address 000000000000001c
+  pc : brcmf_pcie_setup+0x4d0/0x1008 [brcmfmac]
+  Call trace:
+   brcmf_pcie_setup+0x4d0/0x1008 [brcmfmac] (P)
+   brcmf_fw_request_done+0x144/0x188 [brcmfmac]
+   request_firmware_work_func+0x50/0xec
+
+The reset work and the firmware workers stay stuck afterwards.
+
+Block the reset before reporting the crash, as remove does: the driver
+is released anyway, so the report keeps its coredump and nothing races
+the release.
+
+Found on a Pixel 9a (BCM4383) by suspending with the driver loaded: the
+chip doesn't survive s2idle, the hot resume finds the firmware crashed,
+the recovery reset's firmware download fails ("FW failed to
+initialize"), and the second firmware request crashed as above. With
+this change the same sequence ends with "Dongle setup failed", the
+driver released, no oops and no task stuck in D state.
+
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ drivers/net/wireless/broadcom/brcm80211/brcmfmac/pcie.c | 7 +++++++
+ 1 file changed, 7 insertions(+)
+
+diff --git a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/pcie.c b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/pcie.c
+index bb70f3bbd..4093e7d51 100644
+--- a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/pcie.c
++++ b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/pcie.c
+@@ -2232,6 +2232,13 @@ static void brcmf_pcie_setup(struct device *dev, int ret,
+ fail:
+ 	brcmf_err(bus, "Dongle setup failed\n");
+ 	brcmf_pcie_bus_console_read(devinfo, true);
++	/*
++	 * The driver is released below, so report the crash (the coredump)
++	 * without arming a recovery reset: brcmf_pcie_remove() would wait for
++	 * that reset, which by then has queued a new firmware request whose
++	 * brcmf_pcie_setup() runs while remove frees the chip.
++	 */
++	brcmf_bus_cancel_reset_work(bus);
+ 	brcmf_fw_crashed(dev);
+ 	device_release_driver(dev);
+ }

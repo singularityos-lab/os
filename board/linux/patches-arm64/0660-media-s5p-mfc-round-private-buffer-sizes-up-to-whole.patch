@@ -1,0 +1,46 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?=C3=81ngel=20Ren=C3=A9?=
+ <17342133+angelrenefm@users.noreply.github.com>
+Date: Fri, 13 Nov 2026 21:06:11 +0100
+Subject: [PATCH] media: s5p-mfc: round private buffer sizes up to whole pages
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The preallocated-memory allocator marks b->size >> PAGE_SHIFT pages as
+used, so the tail of a buffer whose size is not a multiple of the page
+size is left free in the bitmap and can be handed out again. Today the
+64 KiB alignment of every allocation hides it for the context buffers
+(30 KiB, 2 MiB), but not for a buffer that ends just past a 64 KiB
+boundary.
+
+Round the page count up on allocation and release alike.
+
+Assisted-by: LLM
+Signed-off-by: Ángel René <17342133+angelrenefm@users.noreply.github.com>
+---
+ drivers/media/platform/samsung/s5p-mfc/s5p_mfc_opr.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_opr.c b/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_opr.c
+index b25ad2a37..5b078cc0d 100644
+--- a/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_opr.c
++++ b/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_opr.c
+@@ -35,7 +35,7 @@ int s5p_mfc_alloc_priv_buf(struct s5p_mfc_dev *dev, unsigned int mem_ctx,
+ 			   struct s5p_mfc_priv_buf *b)
+ {
+ 	unsigned int bits = dev->mem_size >> PAGE_SHIFT;
+-	unsigned int count = b->size >> PAGE_SHIFT;
++	unsigned int count = DIV_ROUND_UP(b->size, PAGE_SIZE);
+ 	unsigned int align = (SZ_64K >> PAGE_SHIFT) - 1;
+ 	unsigned int start, offset;
+ 
+@@ -97,7 +97,7 @@ void s5p_mfc_release_priv_buf(struct s5p_mfc_dev *dev,
+ {
+ 	if (dev->mem_virt) {
+ 		unsigned int start = (b->dma - dev->mem_base) >> PAGE_SHIFT;
+-		unsigned int count = b->size >> PAGE_SHIFT;
++		unsigned int count = DIV_ROUND_UP(b->size, PAGE_SIZE);
+ 
+ 		bitmap_clear(dev->mem_bitmap, start, count);
+ 	} else {

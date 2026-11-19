@@ -1,0 +1,32 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Tue, 13 Oct 2026 13:14:35 -0400
+Subject: [PATCH] soc: google: cpif: ask for a per-CPU receive workqueue
+ explicitly
+
+Since the workqueue default changed to unbound, alloc_workqueue() warns
+when a caller passes neither WQ_PERCPU nor WQ_UNBOUND, and the warning
+with its backtrace was the first thing in every modem bring-up log. The
+driver was written for the old per-CPU default: say so.
+
+Assisted-by: LLM
+Signed-off-by: Derek Ross <derekross@gmail.com>
+---
+ drivers/soc/google/cpif/link_device.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/soc/google/cpif/link_device.c b/drivers/soc/google/cpif/link_device.c
+index a0d8e779e..9a3687777 100644
+--- a/drivers/soc/google/cpif/link_device.c
++++ b/drivers/soc/google/cpif/link_device.c
+@@ -3156,8 +3156,8 @@ static int parse_ect(struct mem_link_device *mld, char *dvfs_domain_name)
+ 
+ static int shmem_rx_setup(struct link_device *ld)
+ {
+-	ld->rx_wq = alloc_workqueue(
+-			"mem_rx_work", WQ_HIGHPRI | WQ_CPU_INTENSIVE, 1);
++	ld->rx_wq = alloc_workqueue("mem_rx_work",
++				    WQ_PERCPU | WQ_HIGHPRI | WQ_CPU_INTENSIVE, 1);
+ 	if (!ld->rx_wq) {
+ 		mif_err("%s: ERR! fail to create rx_wq\n", ld->name);
+ 		return -ENOMEM;

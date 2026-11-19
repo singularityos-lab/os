@@ -1,0 +1,476 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Brett-Michael Green <brett@bmgvisualtech.com>
+Date: Sat, 31 Oct 2026 15:07:32 -0400
+Subject: [PATCH] drm/panel: Add Google HK3 panel driver
+
+Add a driver for the Google Pixel 8 Pro's HK3 command-mode AMOLED panel,
+with command sequences from Google's MIT-licensed panel-gs-hk3.c.
+
+Like the TG4C driver, it takes the panel over as the bootloader left it:
+out of sleep, with the display on, at 60 Hz. It never resets the panel
+or touches its supplies. It:
+
+- puts the panel to sleep and wakes it, with Google's display on and
+  off sequences around display on/off (the AMP type and Vreg changes,
+  with the Vreg of panels from DVT1 on, the retail ones);
+- switches it between 60 and 120 Hz in high-speed (HS) manual mode,
+  sending the whole of Google's panel feature update for that mode
+  each time: fixed TE and early exit at 120 Hz, changeable TE and no
+  early exit at 60 Hz, then the manual frequency, applied together by
+  the frame update command. The HBM and IRC settings stay as the
+  bootloader left them;
+- exposes its brightness as a backlight over Google's normal range,
+  DBV 196-3307 (2-1000 nits), using pixel off at 0 as Google does. A
+  level set while the panel is asleep, or before gs-dsim-cmd allows
+  commands (allow_tx), is kept and sent with the next write, so a
+  boot-time restore of the saved level does not fail.
+
+Assisted-by: LLM
+Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
+---
+ MAINTAINERS                              |   6 +
+ drivers/gpu/drm/panel/Kconfig            |  12 +
+ drivers/gpu/drm/panel/Makefile           |   1 +
+ drivers/gpu/drm/panel/panel-google-hk3.c | 381 +++++++++++++++++++++++
+ 4 files changed, 400 insertions(+)
+ create mode 100644 drivers/gpu/drm/panel/panel-google-hk3.c
+
+diff --git a/MAINTAINERS b/MAINTAINERS
+index 98edc7ef1..e5b4d3110 100644
+--- a/MAINTAINERS
++++ b/MAINTAINERS
+@@ -8149,6 +8149,12 @@ T:	git https://gitlab.freedesktop.org/drm/misc/kernel.git
+ F:	drivers/gpu/drm/gud/
+ F:	include/drm/gud.h
+ 
++DRM DRIVER FOR GOOGLE HK3 PANELS
++M:	Brett-Michael Green <brett@bmgvisualtech.com>
++S:	Maintained
++F:	Documentation/devicetree/bindings/display/panel/google,hk3.yaml
++F:	drivers/gpu/drm/panel/panel-google-hk3.c
++
+ DRM DRIVER FOR GOOGLE TG4C PANELS
+ M:	W4HO <87742609+W4HO-ham@users.noreply.github.com>
+ S:	Maintained
+diff --git a/drivers/gpu/drm/panel/Kconfig b/drivers/gpu/drm/panel/Kconfig
+index f094fcda7..625290c7f 100644
+--- a/drivers/gpu/drm/panel/Kconfig
++++ b/drivers/gpu/drm/panel/Kconfig
+@@ -213,6 +213,18 @@ config DRM_PANEL_DSI_CM
+ 	  DRM panel driver for DSI command mode panels with support for
+ 	  embedded and external backlights.
+ 
++config DRM_PANEL_GOOGLE_HK3
++	tristate "Google HK3 DSI command mode panel"
++	depends on OF
++	depends on DRM_MIPI_DSI
++	depends on BACKLIGHT_CLASS_DEVICE
++	help
++	  Say Y or M here if you want to enable support for the Google
++	  HK3 1344x2992 command-mode AMOLED panel, found in the Google
++	  Pixel 8 Pro. The driver takes over the panel the bootloader left
++	  running, switches it between 60 and 120 Hz, puts it to sleep and
++	  exposes its brightness as a backlight.
++
+ config DRM_PANEL_GOOGLE_TG4C
+ 	tristate "Google TG4C DSI command mode panel"
+ 	depends on OF
+diff --git a/drivers/gpu/drm/panel/Makefile b/drivers/gpu/drm/panel/Makefile
+index 23955a31d..93ed5eece 100644
+--- a/drivers/gpu/drm/panel/Makefile
++++ b/drivers/gpu/drm/panel/Makefile
+@@ -14,6 +14,7 @@ obj-$(CONFIG_DRM_PANEL_BOE_TV101WUM_NL6) += panel-boe-tv101wum-nl6.o
+ obj-$(CONFIG_DRM_PANEL_CHIPONE_ICNA35XX) += panel-chipone-icna35xx.o
+ obj-$(CONFIG_DRM_PANEL_CHIPWEALTH_CH13726A) += panel-chipwealth-ch13726a.o
+ obj-$(CONFIG_DRM_PANEL_DSI_CM) += panel-dsi-cm.o
++obj-$(CONFIG_DRM_PANEL_GOOGLE_HK3) += panel-google-hk3.o
+ obj-$(CONFIG_DRM_PANEL_GOOGLE_TG4C) += panel-google-tg4c.o
+ obj-$(CONFIG_DRM_PANEL_LVDS) += panel-lvds.o
+ obj-$(CONFIG_DRM_PANEL_SIMPLE) += panel-simple.o
+diff --git a/drivers/gpu/drm/panel/panel-google-hk3.c b/drivers/gpu/drm/panel/panel-google-hk3.c
+new file mode 100644
+index 000000000..e1842d92f
+--- /dev/null
++++ b/drivers/gpu/drm/panel/panel-google-hk3.c
+@@ -0,0 +1,381 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * Google HK3 DSI command-mode AMOLED panel (Google Pixel 8 Pro)
++ *
++ * Command sequences from Google's MIT-licensed panel driver
++ * (kernel/devices/google/shusky/display/panel-gs-hk3.c).
++ *
++ * The bootloader powers the panel on, initialises it and leaves it running
++ * at 60 Hz. The driver takes it over as it is and never resets it or
++ * touches its supplies: it puts it to sleep and wakes it (sleep in/out,
++ * the panel keeps its registers), switches it between 60 and 120 Hz in
++ * high-speed (HS) manual mode and sets its brightness. A panel without
++ * the bootloader's initialisation is not handled.
++ */
++
++#include <linux/backlight.h>
++#include <linux/mod_devicetable.h>
++#include <linux/module.h>
++#include <linux/mutex.h>
++
++#include <video/mipi_display.h>
++
++#include <drm/drm_connector.h>
++#include <drm/drm_mipi_dsi.h>
++#include <drm/drm_modes.h>
++#include <drm/drm_panel.h>
++
++/*
++ * Google's normal range, 2 to 1000 nits; the levels above it are high
++ * brightness mode and are left alone.
++ */
++#define HK3_MIN_BRIGHTNESS	196
++#define HK3_MAX_BRIGHTNESS	3307
++#define HK3_DEFAULT_BRIGHTNESS	1353	/* Google's, 140 nits */
++
++struct hk3 {
++	struct drm_panel panel;
++	struct mipi_dsi_device *dsi;
++	/* serialises commands from the panel and backlight paths */
++	struct mutex lock;
++	/* out of sleep: commands and frames reach the panel */
++	bool awake;
++	/* at brightness 0 the panel shows no pixels instead of DBV 0 */
++	bool pixel_off;
++	u16 brightness;
++};
++
++static inline struct hk3 *to_hk3(struct drm_panel *panel)
++{
++	return container_of(panel, struct hk3, panel);
++}
++
++#define hk3_unlock(ctx)	mipi_dsi_dcs_write_seq_multi(ctx, 0xf0, 0x5a, 0x5a)
++#define hk3_lock(ctx)	mipi_dsi_dcs_write_seq_multi(ctx, 0xf0, 0xa5, 0xa5)
++
++/*
++ * Google's gs_hk3_set_panel_feat() for HS manual mode without HBM, as its
++ * enable path sends it (all of it, after the bootloader): 120 Hz is the
++ * HS peak, with fixed TE and early exit; 60 Hz has changeable TE and no
++ * early exit. The HBM and IRC settings stay as the bootloader left them.
++ * The frame update (0xf7) applies it all at once.
++ */
++static void hk3_write_rate(struct mipi_dsi_multi_context *ctx, unsigned int hz)
++{
++	bool peak = hz == 120;
++	u8 ee = peak ? 0x22 : 0x00;
++	u8 ee_on[] = { 0xbd, ee };
++	u8 ee_bands[] = { 0xbd, ee, ee, ee, ee };
++	u8 rate[] = { 0x60, peak ? 0x00 : 0x01 };
++
++	hk3_unlock(ctx);
++	if (peak) {
++		/* fixed TE at the refresh rate, 273 us wide */
++		mipi_dsi_dcs_write_seq_multi(ctx, 0xb9, 0x51);
++		mipi_dsi_dcs_write_seq_multi(ctx, 0xb0, 0x00, 0x02, 0xb9);
++		mipi_dsi_dcs_write_seq_multi(ctx, 0xb9, 0x00);
++		mipi_dsi_dcs_write_seq_multi(ctx, 0xb0, 0x00, 0x08, 0xb9);
++		mipi_dsi_dcs_write_seq_multi(ctx, 0xb9, 0x0b, 0xbb, 0x00, 0x2f,
++					     0x0b, 0xbb, 0x00, 0x2f);
++	} else {
++		/* changeable TE, 273 us wide */
++		mipi_dsi_dcs_write_seq_multi(ctx, 0xb9, 0x04);
++		mipi_dsi_dcs_write_seq_multi(ctx, 0xb0, 0x00, 0x04, 0xb9);
++		mipi_dsi_dcs_write_seq_multi(ctx, 0xb9, 0x0b, 0xbb, 0x00, 0x2f);
++	}
++	/* HS operating mode */
++	mipi_dsi_dcs_write_seq_multi(ctx, 0xf2, 0x01);
++	mipi_dsi_dcs_write_seq_multi(ctx, 0x60, 0x00);
++	/* early exit */
++	if (peak)
++		mipi_dsi_dcs_write_seq_multi(ctx, 0xbd, 0x21, 0x01, 0x83, 0x03, 0x03);
++	else
++		mipi_dsi_dcs_write_seq_multi(ctx, 0xbd, 0x21, 0x81, 0x83, 0x03, 0x03);
++	mipi_dsi_dcs_write_seq_multi(ctx, 0xb0, 0x00, 0x10, 0xbd);
++	mipi_dsi_dcs_write_buffer_multi(ctx, ee_on, sizeof(ee_on));
++	mipi_dsi_dcs_write_seq_multi(ctx, 0xb0, 0x00, 0x82, 0xbd);
++	mipi_dsi_dcs_write_buffer_multi(ctx, ee_bands, sizeof(ee_bands));
++	mipi_dsi_dcs_write_seq_multi(ctx, 0xb0, 0x00, 0x1e, 0xbd);
++	mipi_dsi_dcs_write_seq_multi(ctx, 0xbd, 0x00, 0x00, 0x00, 0x02, 0x00,
++				     0x06, 0x00, 0x16, 0x00, 0x2e, 0x00, 0xee);
++	/* manual frequency: 0x00 is 120 Hz, 0x01 60 Hz */
++	mipi_dsi_dcs_write_seq_multi(ctx, 0xbd, 0x21);
++	mipi_dsi_dcs_write_buffer_multi(ctx, rate, sizeof(rate));
++	mipi_dsi_dcs_write_seq_multi(ctx, 0xf7, 0x0f);
++	hk3_lock(ctx);
++}
++
++/* lock held */
++static void hk3_write_brightness(struct hk3 *ctx, struct mipi_dsi_multi_context *dsi_ctx)
++{
++	/* 16 bits, big endian, as mipi_dsi_dcs_set_display_brightness_large() */
++	u8 dbv[] = { MIPI_DCS_SET_DISPLAY_BRIGHTNESS, ctx->brightness >> 8,
++		     ctx->brightness & 0xff };
++
++	/* Google uses pixel off rather than DBV 0 */
++	if (!ctx->brightness) {
++		if (!ctx->pixel_off)
++			mipi_dsi_dcs_write_seq_multi(dsi_ctx, 0x22);
++		if (!dsi_ctx->accum_err)
++			ctx->pixel_off = true;
++		return;
++	}
++	if (ctx->pixel_off) {
++		mipi_dsi_dcs_write_seq_multi(dsi_ctx, MIPI_DCS_ENTER_NORMAL_MODE);
++		if (!dsi_ctx->accum_err)
++			ctx->pixel_off = false;
++	}
++	mipi_dsi_dcs_write_buffer_multi(dsi_ctx, dbv, sizeof(dbv));
++}
++
++static int hk3_prepare(struct drm_panel *panel)
++{
++	struct hk3 *ctx = to_hk3(panel);
++	struct mipi_dsi_multi_context dsi_ctx = { .dsi = ctx->dsi };
++
++	guard(mutex)(&ctx->lock);
++	if (ctx->awake)
++		return 0;
++	mipi_dsi_dcs_exit_sleep_mode_multi(&dsi_ctx);
++	mipi_dsi_msleep(&dsi_ctx, 120);
++	/* the DSI host wakes the link at 60 Hz */
++	hk3_write_rate(&dsi_ctx, 60);
++	if (!dsi_ctx.accum_err)
++		ctx->awake = true;
++	hk3_write_brightness(ctx, &dsi_ctx);
++
++	return dsi_ctx.accum_err;
++}
++
++/* Google's hk3_display_on_cmds, for panels from DVT1 on (retail) */
++static int hk3_enable(struct drm_panel *panel)
++{
++	struct hk3 *ctx = to_hk3(panel);
++	struct mipi_dsi_multi_context dsi_ctx = { .dsi = ctx->dsi };
++
++	guard(mutex)(&ctx->lock);
++	hk3_unlock(&dsi_ctx);
++	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, 0xe4, 0x00, 0x2c, 0x2c, 0xa2, 0x00, 0x00);
++	/* AMP type change (return) */
++	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, 0xb0, 0x00, 0x4f, 0xf4);
++	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, 0xf4, 0x70);
++	/* Vreg 7.1 V (return) */
++	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, 0xb0, 0x00, 0x31, 0xf4);
++	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, 0xf4, 0x1a, 0x1a, 0x1a, 0x1a, 0x1a);
++	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, 0xe4, 0x00, 0x2c, 0x2c, 0x82, 0x00, 0x00);
++	hk3_lock(&dsi_ctx);
++	mipi_dsi_dcs_set_display_on_multi(&dsi_ctx);
++
++	return dsi_ctx.accum_err;
++}
++
++/* Google's hk3_display_off_cmds */
++static int hk3_disable(struct drm_panel *panel)
++{
++	struct hk3 *ctx = to_hk3(panel);
++	struct mipi_dsi_multi_context dsi_ctx = { .dsi = ctx->dsi };
++
++	guard(mutex)(&ctx->lock);
++	mipi_dsi_dcs_set_display_off_multi(&dsi_ctx);
++	hk3_unlock(&dsi_ctx);
++	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, 0xe4, 0x00, 0x2c, 0x2c, 0xa2, 0x00, 0x00);
++	/* AMP type change */
++	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, 0xb0, 0x00, 0x4f, 0xf4);
++	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, 0xf4, 0x50);
++	/* Vreg 4.5 V */
++	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, 0xb0, 0x00, 0x31, 0xf4);
++	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, 0xf4, 0x00, 0x00, 0x00, 0x00, 0x00);
++	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, 0xe4, 0x00, 0x2c, 0x2c, 0x82, 0x00, 0x00);
++	hk3_lock(&dsi_ctx);
++	mipi_dsi_msleep(&dsi_ctx, 100);
++
++	return dsi_ctx.accum_err;
++}
++
++static int hk3_unprepare(struct drm_panel *panel)
++{
++	struct hk3 *ctx = to_hk3(panel);
++	struct mipi_dsi_multi_context dsi_ctx = { .dsi = ctx->dsi };
++
++	guard(mutex)(&ctx->lock);
++	mipi_dsi_dcs_enter_sleep_mode_multi(&dsi_ctx);
++	mipi_dsi_msleep(&dsi_ctx, 120);
++	if (!dsi_ctx.accum_err)
++		ctx->awake = false;
++
++	return dsi_ctx.accum_err;
++}
++
++static int hk3_set_refresh_rate(struct drm_panel *panel, unsigned int hz)
++{
++	struct hk3 *ctx = to_hk3(panel);
++	struct mipi_dsi_multi_context dsi_ctx = { .dsi = ctx->dsi };
++
++	if (hz != 60 && hz != 120)
++		return -EINVAL;
++
++	guard(mutex)(&ctx->lock);
++	if (!ctx->awake)
++		return -ENODEV;
++	hk3_write_rate(&dsi_ctx, hz);
++
++	return dsi_ctx.accum_err;
++}
++
++/* Google's hk3 modes, from panel-gs-hk3.c */
++#define HK3_MODE(hz, flags) {						\
++	.clock = (1344 + 80 + 24 + 42) * (2992 + 12 + 4 + 22) * (hz) / 1000, \
++	.hdisplay = 1344,						\
++	.hsync_start = 1344 + 80,					\
++	.hsync_end = 1344 + 80 + 24,					\
++	.htotal = 1344 + 80 + 24 + 42,					\
++	.vdisplay = 2992,						\
++	.vsync_start = 2992 + 12,					\
++	.vsync_end = 2992 + 12 + 4,					\
++	.vtotal = 2992 + 12 + 4 + 22,					\
++	.width_mm = 70,							\
++	.height_mm = 155,						\
++	.type = DRM_MODE_TYPE_DRIVER | (flags),				\
++}
++
++/* 60 Hz (preferred, the bootloader's) and 120 Hz */
++static const struct drm_display_mode hk3_modes[] = {
++	HK3_MODE(60, DRM_MODE_TYPE_PREFERRED),
++	HK3_MODE(120, 0),
++};
++
++static int hk3_get_modes(struct drm_panel *panel, struct drm_connector *connector)
++{
++	int i;
++
++	for (i = 0; i < ARRAY_SIZE(hk3_modes); i++) {
++		struct drm_display_mode *mode;
++
++		mode = drm_mode_duplicate(connector->dev, &hk3_modes[i]);
++		if (!mode)
++			return i;
++		drm_mode_set_name(mode);
++		drm_mode_probed_add(connector, mode);
++	}
++
++	return i;
++}
++
++static const struct drm_panel_funcs hk3_panel_funcs = {
++	.prepare = hk3_prepare,
++	.enable = hk3_enable,
++	.disable = hk3_disable,
++	.unprepare = hk3_unprepare,
++	.get_modes = hk3_get_modes,
++	.set_refresh_rate = hk3_set_refresh_rate,
++};
++
++static int hk3_bl_update_status(struct backlight_device *bl)
++{
++	struct hk3 *ctx = bl_get_data(bl);
++	struct mipi_dsi_multi_context dsi_ctx = { .dsi = ctx->dsi };
++	u16 brightness = backlight_get_brightness(bl);
++
++	/* below Google's normal range, but above 0: its lowest level */
++	if (brightness && brightness < HK3_MIN_BRIGHTNESS)
++		brightness = HK3_MIN_BRIGHTNESS;
++
++	guard(mutex)(&ctx->lock);
++	ctx->brightness = brightness;
++	/* asleep: the level is kept and sent on wake */
++	if (!ctx->awake)
++		return 0;
++	hk3_write_brightness(ctx, &dsi_ctx);
++	/*
++	 * The DSI host does not take commands yet (gs-dsim-cmd's allow_tx):
++	 * the level is kept, as when asleep, and sent with the next write.
++	 */
++	if (dsi_ctx.accum_err == -EPERM)
++		return 0;
++
++	return dsi_ctx.accum_err;
++}
++
++static const struct backlight_ops hk3_bl_ops = {
++	.update_status = hk3_bl_update_status,
++};
++
++static int hk3_probe(struct mipi_dsi_device *dsi)
++{
++	struct device *dev = &dsi->dev;
++	struct backlight_properties props = {
++		.type = BACKLIGHT_RAW,
++		.brightness = HK3_DEFAULT_BRIGHTNESS,
++		.max_brightness = HK3_MAX_BRIGHTNESS,
++		.scale = BACKLIGHT_SCALE_NON_LINEAR,
++	};
++	struct backlight_device *bl;
++	struct hk3 *ctx;
++	int ret;
++
++	ctx = devm_drm_panel_alloc(dev, struct hk3, panel, &hk3_panel_funcs,
++				   DRM_MODE_CONNECTOR_DSI);
++	if (IS_ERR(ctx))
++		return PTR_ERR(ctx);
++
++	ret = devm_mutex_init(dev, &ctx->lock);
++	if (ret)
++		return ret;
++
++	ctx->dsi = dsi;
++	ctx->brightness = HK3_DEFAULT_BRIGHTNESS;
++	mipi_dsi_set_drvdata(dsi, ctx);
++
++	dsi->lanes = 4;
++	dsi->format = MIPI_DSI_FMT_RGB888;
++	dsi->mode_flags = MIPI_DSI_CLOCK_NON_CONTINUOUS;
++
++	/* the bootloader left it out of sleep with the display on */
++	ctx->awake = true;
++	ctx->panel.prepared = true;
++	ctx->panel.enabled = true;
++	ctx->panel.prepare_prev_first = true;
++
++	bl = devm_backlight_device_register(dev, dev_name(dev), dev, ctx,
++					    &hk3_bl_ops, &props);
++	if (IS_ERR(bl))
++		return dev_err_probe(dev, PTR_ERR(bl), "failed to register backlight\n");
++	ctx->panel.backlight = bl;
++
++	drm_panel_add(&ctx->panel);
++
++	ret = mipi_dsi_attach(dsi);
++	if (ret < 0) {
++		drm_panel_remove(&ctx->panel);
++		return dev_err_probe(dev, ret, "failed to attach to DSI host\n");
++	}
++
++	return 0;
++}
++
++static void hk3_remove(struct mipi_dsi_device *dsi)
++{
++	struct hk3 *ctx = mipi_dsi_get_drvdata(dsi);
++
++	mipi_dsi_detach(dsi);
++	drm_panel_remove(&ctx->panel);
++}
++
++static const struct of_device_id hk3_of_match[] = {
++	{ .compatible = "google,hk3" },
++	{ /* sentinel */ }
++};
++MODULE_DEVICE_TABLE(of, hk3_of_match);
++
++static struct mipi_dsi_driver hk3_driver = {
++	.probe = hk3_probe,
++	.remove = hk3_remove,
++	.driver = {
++		.name = "panel-google-hk3",
++		.of_match_table = hk3_of_match,
++	},
++};
++module_mipi_dsi_driver(hk3_driver);
++
++MODULE_DESCRIPTION("Google HK3 DSI command mode panel");
++MODULE_LICENSE("GPL");

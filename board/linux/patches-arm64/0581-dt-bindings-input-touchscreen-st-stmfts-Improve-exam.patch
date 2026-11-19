@@ -1,0 +1,38 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: David Heidelberg <david@ixit.cz>
+Date: Thu, 29 Oct 2026 14:36:38 -0700
+Subject: [PATCH] dt-bindings: input: touchscreen: st,stmfts: Improve example
+
+The touchscreen-size-{x,y} is exact number, the -1 deduction is done on
+driver side.
+
+Example now use interrupts-extended and size obviously not deducted by
+one.
+
+Signed-off-by: David Heidelberg <david@ixit.cz>
+Acked-by: Krzysztof Kozlowski <krzysztof.kozlowski@oss.qualcomm.com>
+Link: https://patch.msgid.link/20260925-stmfts5-v8-2-0fcf49e2c85f@ixit.cz
+Signed-off-by: Dmitry Torokhov <dmitry.torokhov@gmail.com>
+Signed-off-by: quatrixone <quatrix1@gmail.com>
+---
+ .../devicetree/bindings/input/touchscreen/st,stmfts.yaml   | 7 +++----
+ 1 file changed, 3 insertions(+), 4 deletions(-)
+
+diff --git a/Documentation/devicetree/bindings/input/touchscreen/st,stmfts.yaml b/Documentation/devicetree/bindings/input/touchscreen/st,stmfts.yaml
+index 64c4f24ea..6eb1ad658 100644
+--- a/Documentation/devicetree/bindings/input/touchscreen/st,stmfts.yaml
++++ b/Documentation/devicetree/bindings/input/touchscreen/st,stmfts.yaml
+@@ -64,10 +64,9 @@ examples:
+         touchscreen@49 {
+             compatible = "st,stmfts";
+             reg = <0x49>;
+-            interrupt-parent = <&gpa1>;
+-            interrupts = <1 IRQ_TYPE_LEVEL_LOW>;
+-            touchscreen-size-x = <1599>;
+-            touchscreen-size-y = <2559>;
++            interrupts-extended = <&gpa1 1 IRQ_TYPE_LEVEL_LOW>;
++            touchscreen-size-x = <1600>;
++            touchscreen-size-y = <2560>;
+             touch-key-connected;
+             avdd-supply = <&ldo30_reg>;
+             vdd-supply = <&ldo31_reg>;

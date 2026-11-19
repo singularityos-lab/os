@@ -1,0 +1,34 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: DarekM <149845949+aninmucek@users.noreply.github.com>
+Date: Fri, 13 Nov 2026 01:01:47 +0000
+Subject: [PATCH] arm64: dts: exynos: google: zuma-akita: Give the main PMIC
+ its interrupt
+
+Without an interrupt the S2MPG14 driver supplies its rails but none of
+the PMIC's events reach the host, so rtc0 has no wake alarm on the
+Pixel 8a. The stock phone's s2mpg14mfd node has the same interrupt as
+the Pixel 8 Pro's (interrupts = <0 0x4a 4 0>, GIC SPI 74, with
+s2mpg14,wakeup enabled), and its /proc/interrupts shows rtc-alarm0 on
+it. So this takes zuma-husky's three lines as they are: the interrupt,
+latched by the VGPIO2AP sysreg, and wakeup-source.
+
+Assisted-by: Claude Opus 5.5
+Signed-off-by: DarekM <149845949+aninmucek@users.noreply.github.com>
+---
+ arch/arm64/boot/dts/exynos/google/zuma-akita.dts | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/zuma-akita.dts b/arch/arm64/boot/dts/exynos/google/zuma-akita.dts
+index e0a73f91c..039eadf76 100644
+--- a/arch/arm64/boot/dts/exynos/google/zuma-akita.dts
++++ b/arch/arm64/boot/dts/exynos/google/zuma-akita.dts
+@@ -167,6 +167,9 @@ cont_splash_mem: splash@fac00000 {
+ &acpm_ipc {
+ 	pmic-1 {
+ 		compatible = "samsung,s2mpg14-pmic";
++		interrupts = <GIC_SPI 74 IRQ_TYPE_LEVEL_HIGH>;
++		google,vgpio2ap-sysreg = <&sysreg_vgpio2ap>;
++		wakeup-source;
+ 
+ 		regulators {
+ 			touch_avdd: ldo4m {

@@ -1,0 +1,171 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Hiroyuki Ikegami <ikegam@mixallow.net>
+Date: Sat, 14 Nov 2026 19:55:19 +0900
+Subject: [PATCH] PCI: dwc: gs201-cp: refuse system sleep before the freeze
+ while the link is up
+
+With the modem online, systemd's sleeps were refused only in this driver's
+noirq callback: after every task was frozen and every device suspended,
+which the PM core then resumed again. On the maintainer's Pixel 7 Pro
+(2026-11-13) six such refusals in a row were followed by a downlink that
+received nothing until a reboot, and each real sleep logged
+"pcieport ... Unable to change power state from D3cold to D0": the root
+port had been marked D3cold by a sleep with the link down, so the next
+sleep, a refused one included, ran the PCI core's whole resume of it on a
+live link.
+
+Refuse earlier, from a PM_SUSPEND_PREPARE notifier, while the link is up or
+the PHY is out of isolation: a refusal then costs one notifier call, before
+the freeze. Stock gets the same from CPIF's wake lock under Android's
+autosleep, which systemd doesn't use. The noirq check stays, for a link
+that comes up during the freeze.
+
+Leave the root port out of system sleep too (dev_pm_syscore_device()), as
+the previous commit does for the modem. Its windows are this driver's and
+are restored at every link up (cp_root_win_restore());
+PCI_DEV_FLAGS_NO_D3 stays for runtime PM.
+
+Tested on a second Pixel 7 Pro (2026-11-14, on top of omamobile at
+2db2bc35beec): three real sleeps (9.7 s, 43.7 s to the RTC, 4.2 s), then
+five requests under a 1 s ping, all ten attempts refused before the
+freeze, ping 138 of 141 and 3 of 3 afterwards, no pcieport line. On a
+Pixel 9a with sleep_guard set for zumapro (W4HO): 14 refusals with data
+alive, then 22 of 23 sleeps entered.
+
+The notifier and the root port change are Derek Ross's, from his review
+of this series.
+
+Suggested-by: Derek Ross <derekross@gmail.com>
+Assisted-by: LLM
+Signed-off-by: Hiroyuki Ikegami <ikegam@mixallow.net>
+---
+ drivers/pci/controller/dwc/pcie-gs201-cp.c | 68 +++++++++++++++++++---
+ 1 file changed, 60 insertions(+), 8 deletions(-)
+
+diff --git a/drivers/pci/controller/dwc/pcie-gs201-cp.c b/drivers/pci/controller/dwc/pcie-gs201-cp.c
+index 8c5597da9..7ed4650b2 100644
+--- a/drivers/pci/controller/dwc/pcie-gs201-cp.c
++++ b/drivers/pci/controller/dwc/pcie-gs201-cp.c
+@@ -100,6 +100,7 @@
+ #include <linux/pinctrl/consumer.h>
+ #include <linux/platform_device.h>
+ #include <linux/pm.h>
++#include <linux/suspend.h>
+ #include <linux/property.h>
+ #include <linux/regmap.h>
+ #include <linux/seq_file.h>
+@@ -281,6 +282,7 @@ struct gs201_pcie_cp {
+ 	struct pci_host_bridge *bridge;
+ 	struct resource msi_page;	/* memory-region: the modem's MSI page */
+ 	struct dentry *debugfs;
++	struct notifier_block pm_nb;	/* sleep_guard: the early refusal */
+ 	struct mutex lock;		/* serializes the steps */
+ 	raw_spinlock_t cfg_lock;	/* config accesses against link changes */
+ 	bool cfg_root_ok;		/* root port (DBI) accessible */
+@@ -855,12 +857,20 @@ static int cp_bus(struct gs201_pcie_cp *cp)
+ 	 * own suspend and resume of it (disable and save, then the power-up
+ 	 * read, restore and re-enable) ran behind that driver's back when a
+ 	 * sleep was aborted, after which the driver could not reach the modem.
++	 * The root port is left out of system sleep the same way: once a
++	 * sleep with the link down had marked it D3cold, the next sleep, a
++	 * refused one included, ran the PCI core's whole resume of it on a
++	 * live link (power-up, config restore, PME restore, then a resume of
++	 * the bus below), and with the link down its suspend only saved and
++	 * read back all ones. Its windows are this driver's, restored at
++	 * every link up (cp_root_win_restore()).
+ 	 * All of this only where system sleep with the modem up has been
+ 	 * tried (sleep_guard, gs201).
+ 	 */
+ 	if (cp->data->sleep_guard) {
+ 		list_for_each_entry(rp, &cp->bridge->bus->devices, bus_list) {
+ 			rp->dev_flags |= PCI_DEV_FLAGS_NO_D3;
++			dev_pm_syscore_device(&rp->dev, true);
+ 			if (rp->subordinate)
+ 				pci_walk_bus(rp->subordinate,
+ 					     cp_ep_sleep_setup, NULL);
+@@ -2175,6 +2185,39 @@ static int cp_get_sysreg(struct gs201_pcie_cp *cp)
+ 	return 0;
+ }
+ 
++/*
++ * The same check before anything is frozen or suspended (sleep_guard): a
++ * sleep refused here costs one notifier call, where the noirq refusal
++ * (gs201_pcie_cp_suspend_noirq()) comes after every task was frozen and
++ * every device suspended, and resumes them all again. Stock gets the
++ * early refusal from CPIF's wake lock, held while the link is up; that
++ * lock holds a sleep off only for a caller that wrote
++ * /sys/power/wakeup_count (Android's autosleep), which systemd doesn't.
++ * The noirq check stays for a link that comes up while the system is
++ * being frozen.
++ */
++static int gs201_pcie_cp_pm_notify(struct notifier_block *nb,
++				   unsigned long event, void *unused)
++{
++	struct gs201_pcie_cp *cp = container_of(nb, struct gs201_pcie_cp,
++						pm_nb);
++	int ret = 0;
++
++	if (event != PM_SUSPEND_PREPARE)
++		return NOTIFY_DONE;
++
++	mutex_lock(&cp->lock);
++	if (cp->link_up || cp->dbi_ok) {
++		dev_info(cp->dev, "sleep refused before the freeze: link %s, PHY %s\n",
++			 cp->link_up ? "up" : "down",
++			 cp->dbi_ok ? "out of isolation" : "isolated");
++		ret = -EBUSY;
++	}
++	mutex_unlock(&cp->lock);
++
++	return notifier_from_errno(ret);
++}
++
+ static int gs201_pcie_cp_probe(struct platform_device *pdev)
+ {
+ 	struct device *dev = &pdev->dev;
+@@ -2307,6 +2350,15 @@ static int gs201_pcie_cp_probe(struct platform_device *pdev)
+ 	gs201_cp = cp;
+ 	mutex_unlock(&gs201_cp_lock);
+ 
++	if (IS_ENABLED(CONFIG_PM_SLEEP) && cp->data->sleep_guard) {
++		cp->pm_nb.notifier_call = gs201_pcie_cp_pm_notify;
++		ret = register_pm_notifier(&cp->pm_nb);
++		if (ret) {
++			cp->pm_nb.notifier_call = NULL;
++			dev_warn(dev, "no early sleep refusal: %d\n", ret);
++		}
++	}
++
+ 	dev_info(dev, "modem PCIe ch0 bring-up: %u lanes, steps %s, modem lines %s\n",
+ 		 cp->num_lanes, allow_hw ? "enabled" : "disabled (allow_hw=0)",
+ 		 cp->has_lines ? "here" : "left to the modem driver");
+@@ -2318,6 +2370,8 @@ static void gs201_pcie_cp_remove(struct platform_device *pdev)
+ {
+ 	struct gs201_pcie_cp *cp = platform_get_drvdata(pdev);
+ 
++	if (cp->pm_nb.notifier_call)
++		unregister_pm_notifier(&cp->pm_nb);
+ 	mutex_lock(&gs201_cp_lock);
+ 	gs201_cp = NULL;
+ 	mutex_unlock(&gs201_cp_lock);
+@@ -2351,14 +2405,12 @@ static void gs201_pcie_cp_remove(struct platform_device *pdev)
+  * suspend either and only isolates a link that is already down, as
+  * link_down does here. Should those paths ever race, this refuses the
+  * sleep. It is a late abort, not a guard: the root port and the modem are
+- * children of this device, so the PM core has already run their
+- * suspend_noirq when this runs. The PCI core has handled the root port
+- * by then (harmlessly, with PCI_DEV_FLAGS_NO_D3 on it) and leaves the
+- * modem alone (a syscore device, see cp_bus()); the refusal makes the PM
+- * core resume them and the sleep fails, with the modem driver's state of
+- * the modem untouched. The PMU's isolation bit is only logged: a phone
+- * whose modem never started has never isolated the PHY, and must still
+- * sleep.
++ * children of this device, but both are syscore devices (see cp_bus()),
++ * so the PM core leaves them alone; the refusal fails the sleep with the
++ * modem driver's state of the link and the modem untouched. Most refusals
++ * come earlier, from gs201_pcie_cp_pm_notify(). The PMU's isolation bit
++ * is only logged: a phone whose modem never started has never isolated
++ * the PHY, and must still sleep.
+  */
+ static int gs201_pcie_cp_suspend_noirq(struct device *dev)
+ {

@@ -1,0 +1,38 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?=C3=81ngel=20Ren=C3=A9?=
+ <17342133+angelrenefm@users.noreply.github.com>
+Date: Sat, 14 Nov 2026 19:26:55 +0100
+Subject: [PATCH] media: s5p-mfc: keep VP8 rate control when a frame rate is
+ set
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+s5p_mfc_set_enc_params_vp8() writes the frame rate from reg and then
+uses reg again to set the frame QP in E_RC_CONFIG. When the client has
+set a frame rate, E_RC_CONFIG gets the frame rate value with the QP
+bits replaced, which clears the frame rate control enable bit: on the
+Pixel 7 (MFC v15) the asked bitrate was ignored.
+
+Read E_RC_CONFIG again before setting the frame QP.
+
+Assisted-by: LLM
+Signed-off-by: Ángel René <17342133+angelrenefm@users.noreply.github.com>
+---
+ drivers/media/platform/samsung/s5p-mfc/s5p_mfc_opr_v6.c | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_opr_v6.c b/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_opr_v6.c
+index 97fba11ac..6d764254b 100644
+--- a/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_opr_v6.c
++++ b/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_opr_v6.c
+@@ -1580,7 +1580,8 @@ static int s5p_mfc_set_enc_params_vp8(struct s5p_mfc_ctx *ctx)
+ 		writel(reg, mfc_regs->e_rc_frame_rate);
+ 	}
+ 
+-	/* frame QP */
++	/* frame QP: reg may hold the frame rate now */
++	reg = readl(mfc_regs->e_rc_config);
+ 	reg &= ~(0x7F);
+ 	reg |= p_vp8->rc_frame_qp & 0x7F;
+ 	writel(reg, mfc_regs->e_rc_config);

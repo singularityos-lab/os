@@ -1,0 +1,165 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Mon, 12 Oct 2026 10:15:32 -0400
+Subject: [PATCH] wifi: brcmfmac: pcie: poll the D2H rings after interrupts on
+ the BCM4389
+
+On the Pixel 7 Pro (INTx, DMA'd ring indices) control completions go
+unprocessed until some later interrupt: ioctls time out every 2 s
+("Timeout on response for query command") while others succeed, P2P
+device creation misses its interface event, and association stalls.
+Broadcom's driver does not rely on the interrupt alone with INTx and
+DMA'd indices: it runs its interrupt work again shortly after
+(dhd_pcie.c dhd_bus_handle_intx_ahead_dma_indices()).
+
+For the BCM4389, after each interrupt and each doorbell, process the
+D2H rings every 10 ms for the next 500 ms, from a delayed work, with a
+mutex so the poll and the interrupt thread never process a ring at the
+same time. At the PCIe debug level, log when the poll finds a doorbell
+pending that no interrupt delivered.
+
+Assisted-by: LLM
+Signed-off-by: Derek Ross <derekross@gmail.com>
+---
+ .../broadcom/brcm80211/brcmfmac/pcie.c        | 73 +++++++++++++++++--
+ 1 file changed, 68 insertions(+), 5 deletions(-)
+
+diff --git a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/pcie.c b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/pcie.c
+index 1b7a25b73..666ca1b36 100644
+--- a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/pcie.c
++++ b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/pcie.c
+@@ -373,6 +373,10 @@ struct brcmf_pciedev_info {
+ 	const struct brcmf_pcie_reginfo *reginfo;
+ 	void __iomem *regs;
+ 	void __iomem *tcm;
++	struct delayed_work poll_work;
++	struct mutex rx_lock;		/* one D2H ring processor at a time */
++	unsigned int poll_left;
++	bool poll_enabled;
+ 	u32 tcm_size;
+ 	u32 tcm_win;
+ 	bool tcm_win_switch;
+@@ -1230,6 +1234,61 @@ static irqreturn_t brcmf_pcie_quick_check_isr(int irq, void *arg)
+ }
+ 
+ 
++/* Process the D2H rings; the interrupt thread and the poll both get here. */
++static void brcmf_pcie_rx_process(struct brcmf_pciedev_info *devinfo)
++{
++	mutex_lock(&devinfo->rx_lock);
++	if (devinfo->state == BRCMFMAC_PCIE_STATE_UP)
++		brcmf_proto_msgbuf_rx_trigger(&devinfo->pdev->dev);
++	mutex_unlock(&devinfo->rx_lock);
++}
++
++/*
++ * BCM4389 on INTx: completions were seen to go unprocessed until a later
++ * interrupt (ioctl timeouts, a control ring that looks stuck). Broadcom's
++ * driver re-runs its interrupt work after INTx with DMA'd indices
++ * (dhd_bus_handle_intx_ahead_dma_indices()). Do the same, more often: after
++ * each interrupt and each doorbell, look at the D2H rings every 10 ms for
++ * the next 500 ms.
++ */
++#define BRCMF_PCIE_POLL_MS	10
++#define BRCMF_PCIE_POLL_COUNT	50
++
++static void brcmf_pcie_kick_poll(struct brcmf_pciedev_info *devinfo)
++{
++	if (!devinfo->poll_enabled ||
++	    devinfo->state != BRCMFMAC_PCIE_STATE_UP)
++		return;
++	WRITE_ONCE(devinfo->poll_left, BRCMF_PCIE_POLL_COUNT);
++	mod_delayed_work(system_wq, &devinfo->poll_work,
++			 msecs_to_jiffies(BRCMF_PCIE_POLL_MS));
++}
++
++static void brcmf_pcie_poll_worker(struct work_struct *work)
++{
++	struct brcmf_pciedev_info *devinfo =
++		container_of(to_delayed_work(work), struct brcmf_pciedev_info,
++			     poll_work);
++	u32 status;
++	unsigned int left;
++
++	if (devinfo->state != BRCMFMAC_PCIE_STATE_UP)
++		return;
++
++	status = brcmf_pcie_read_reg32(devinfo, devinfo->reginfo->mailboxint);
++	if (status & devinfo->reginfo->int_d2h_db)
++		brcmf_dbg(PCIE, "poll: mailboxint 0x%08x pending without an interrupt\n",
++			  status);
++	brcmf_pcie_rx_process(devinfo);
++
++	left = READ_ONCE(devinfo->poll_left);
++	if (left) {
++		WRITE_ONCE(devinfo->poll_left, left - 1);
++		queue_delayed_work(system_wq, &devinfo->poll_work,
++				   msecs_to_jiffies(BRCMF_PCIE_POLL_MS));
++	}
++}
++
+ static irqreturn_t brcmf_pcie_isr_thread(int irq, void *arg)
+ {
+ 	struct brcmf_pciedev_info *devinfo = (struct brcmf_pciedev_info *)arg;
+@@ -1244,9 +1303,7 @@ static irqreturn_t brcmf_pcie_isr_thread(int irq, void *arg)
+ 		if (status & devinfo->reginfo->int_fn0)
+ 			brcmf_pcie_handle_mb_data(devinfo);
+ 		if (status & devinfo->reginfo->int_d2h_db) {
+-			if (devinfo->state == BRCMFMAC_PCIE_STATE_UP)
+-				brcmf_proto_msgbuf_rx_trigger(
+-							&devinfo->pdev->dev);
++			brcmf_pcie_rx_process(devinfo);
+ 			/* With INTx and DMA'd indices the interrupt can
+ 			 * overtake the index update it announces; Broadcom's
+ 			 * driver looks again later
+@@ -1256,14 +1313,14 @@ static irqreturn_t brcmf_pcie_isr_thread(int irq, void *arg)
+ 			    devinfo->pdev->device == BRCM_PCIE_4389_DEVICE_ID &&
+ 			    devinfo->state == BRCMFMAC_PCIE_STATE_UP) {
+ 				usleep_range(500, 1000);
+-				brcmf_proto_msgbuf_rx_trigger(
+-							&devinfo->pdev->dev);
++				brcmf_pcie_rx_process(devinfo);
+ 			}
+ 		}
+ 	}
+ 	brcmf_pcie_bus_console_read(devinfo, false);
+ 	if (devinfo->state == BRCMFMAC_PCIE_STATE_UP)
+ 		brcmf_pcie_intr_enable(devinfo);
++	brcmf_pcie_kick_poll(devinfo);
+ 	devinfo->in_irq = false;
+ 	return IRQ_HANDLED;
+ }
+@@ -1368,6 +1425,7 @@ static int brcmf_pcie_ring_mb_ring_bell(void *ctx)
+ 	brcmf_dbg(PCIE, "RING !\n");
+ 	/* Any arbitrary value will do, lets use 1 */
+ 	brcmf_pcie_write_reg32(devinfo, devinfo->reginfo->h2d_mailbox_0, 1);
++	brcmf_pcie_kick_poll(devinfo);
+ 
+ 	return 0;
+ }
+@@ -2578,6 +2636,8 @@ static void brcmf_pcie_setup(struct device *dev, int ret,
+ 	ret = brcmf_pcie_request_irq(devinfo);
+ 	if (ret)
+ 		goto fail;
++	devinfo->poll_enabled = devinfo->pdev->device ==
++				BRCM_PCIE_4389_DEVICE_ID;
+ 
+ 	/* Broadcom's driver rings host ready as soon as the common rings
+ 	 * are set up, before it posts any buffer (bcmdhd dhd_prot_init(),
+@@ -2875,6 +2935,8 @@ brcmf_pcie_probe(struct pci_dev *pdev, const struct pci_device_id *id)
+ 
+ 	devinfo->pdev = pdev;
+ 	spin_lock_init(&devinfo->tcm_lock);
++	mutex_init(&devinfo->rx_lock);
++	INIT_DELAYED_WORK(&devinfo->poll_work, brcmf_pcie_poll_worker);
+ 	pcie_bus_dev = NULL;
+ 	devinfo->ci = brcmf_chip_attach(devinfo, pdev->device,
+ 					&brcmf_pcie_buscore_ops);
+@@ -3008,6 +3070,7 @@ brcmf_pcie_remove(struct pci_dev *pdev)
+ 	brcmf_pcie_fwcon_timer(devinfo, false);
+ 
+ 	devinfo->state = BRCMFMAC_PCIE_STATE_DOWN;
++	cancel_delayed_work_sync(&devinfo->poll_work);
+ 	if (devinfo->ci)
+ 		brcmf_pcie_intr_disable(devinfo);
+ 

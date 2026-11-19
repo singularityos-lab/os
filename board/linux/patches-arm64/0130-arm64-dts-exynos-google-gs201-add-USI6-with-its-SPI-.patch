@@ -1,0 +1,73 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: boozedog <code@booze.dog>
+Date: Wed, 21 Oct 2026 06:33:59 -0400
+Subject: [PATCH] arm64: dts: exynos: google: gs201: add USI6 with its SPI bus
+
+Add the PERIC0 USI6 block with its SPI controller (GIC SPI 679,
+sysreg offset 0x1014) and bus pins (gpp12-0/1/2, function 3), as
+found in the stock device tree. On the Pixel Fold this host carries
+the cover touch controller. The USI stays disabled until a board
+enables it.
+
+Signed-off-by: boozedog <code@booze.dog>
+---
+ .../boot/dts/exynos/google/gs201-pinctrl.dtsi |  7 +++++
+ arch/arm64/boot/dts/exynos/google/gs201.dtsi  | 27 +++++++++++++++++++
+ 2 files changed, 34 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/gs201-pinctrl.dtsi b/arch/arm64/boot/dts/exynos/google/gs201-pinctrl.dtsi
+index 32b3aabe2..3ebafd39c 100644
+--- a/arch/arm64/boot/dts/exynos/google/gs201-pinctrl.dtsi
++++ b/arch/arm64/boot/dts/exynos/google/gs201-pinctrl.dtsi
+@@ -390,6 +390,13 @@ hsi2c8_bus: hsi2c8-bus-pins {
+ 		samsung,pin-drv = <GS101_PIN_DRV_2_5_MA>;
+ 	};
+ 
++	spi6_bus: spi6-bus-pins {
++		samsung,pins = "gpp12-0", "gpp12-1", "gpp12-2";
++		samsung,pin-function = <GS101_PIN_FUNC_3>;
++		samsung,pin-pud = <GS101_PIN_PULL_NONE>;
++		samsung,pin-drv = <GS101_PIN_DRV_2_5_MA>;
++	};
++
+ };
+ 
+ &pinctrl_peric1 {
+diff --git a/arch/arm64/boot/dts/exynos/google/gs201.dtsi b/arch/arm64/boot/dts/exynos/google/gs201.dtsi
+index 5d377e5b4..81504af41 100644
+--- a/arch/arm64/boot/dts/exynos/google/gs201.dtsi
++++ b/arch/arm64/boot/dts/exynos/google/gs201.dtsi
+@@ -473,6 +473,33 @@ hsi2c_4: i2c@10930000 {
+ 			};
+ 		};
+ 
++		usi6: usi@109500c0 {
++			compatible = "google,gs201-usi", "samsung,exynos850-usi";
++			reg = <0x109500c0 0x20>;
++			ranges;
++			#address-cells = <1>;
++			#size-cells = <1>;
++			clocks = <&cmu_peric0 CLK_GOUT_PERIC0_USI6_USI_PCLK>,
++				 <&cmu_peric0 CLK_GOUT_PERIC0_USI6_USI_IPCLK>;
++			clock-names = "pclk", "ipclk";
++			samsung,sysreg = <&sysreg_peric0 0x1014>;
++			status = "disabled";
++
++			spi_6: spi@10950000 {
++				compatible = "google,gs201-spi", "google,gs101-spi";
++				reg = <0x10950000 0x30>;
++				#address-cells = <1>;
++				#size-cells = <0>;
++				clocks = <&cmu_peric0 CLK_GOUT_PERIC0_USI6_USI_PCLK>,
++					 <&cmu_peric0 CLK_GOUT_PERIC0_USI6_USI_IPCLK>;
++				clock-names = "spi", "spi_busclk0";
++				interrupts = <GIC_SPI 679 IRQ_TYPE_LEVEL_HIGH>;
++				pinctrl-0 = <&spi6_bus>;
++				pinctrl-names = "default";
++				status = "disabled";
++			};
++		};
++
+ 		usi8: usi@109700c0 {
+ 			compatible = "google,gs201-usi", "samsung,exynos850-usi";
+ 			reg = <0x109700c0 0x20>;

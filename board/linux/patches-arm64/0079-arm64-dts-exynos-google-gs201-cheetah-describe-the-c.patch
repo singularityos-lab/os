@@ -1,0 +1,166 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Wed, 14 Oct 2026 21:05:13 -0400
+Subject: [PATCH] arm64: dts: exynos: google: gs201-cheetah: describe the
+ camera power path
+
+As in Google's GPL pantah camera PMIC device tree: two fixed supplies,
+PP3200_BB_CAM and PP1300_CAM, switched by S2MPG13 GPIOs 1 and 3, feed
+the SLG51002 camera PMIC at 0x75 on I2C bus 8 (USI8), whose chip select
+is S2MPG13 GPIO 0. Its eight LDOs and four switches, together with the
+sub-PMIC's L12S, power the camera modules. Voltages are stock's.
+
+Enable the PERIC0 pin controller, USI8 and its I2C bus for it. The
+supplies and the camera PMIC stay disabled.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ .../boot/dts/exynos/google/gs201-cheetah.dts  | 131 ++++++++++++++++++
+ 1 file changed, 131 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts b/arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts
+index fcb5f455c..8f28e025d 100644
+--- a/arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts
++++ b/arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts
+@@ -429,6 +429,24 @@ gpio {
+ 	};
+ };
+ 
++/*
++ * PERIC0 USI8 (Google's I2C bus 8) carries the camera PMIC; its bus pins
++ * are on PERIC0 (gpp16-0/1).
++ */
++&pinctrl_peric0 {
++	status = "okay";
++};
++
++&usi8 {
++	samsung,mode = <USI_MODE_I2C>;
++	status = "okay";
++};
++
++&hsi2c_8 {
++	clock-frequency = <400000>;
++	status = "okay";
++};
++
+ &pinctrl_gpio_alive {
+ 	if_pmic_fg_int: if-pmic-fg-int-pins {
+ 		samsung,pins = "gpa9-3";
+@@ -451,3 +469,116 @@ typec_int: typec-int-pins {
+ 		samsung,pin-drv = <GS101_PIN_DRV_2_5_MA>;
+ 	};
+ };
++
++/*
++ * Camera power (CAMERA-PLAN.md 1.2), from Google's GPL pantah camera PMIC
++ * device tree: two fixed supplies switched by S2MPG13 GPIOs feed the
++ * SLG51002 camera PMIC on I2C bus 8, which with LDO12S powers the modules.
++ * Voltages are stock's. All disabled until the camera-pwr-test overlay; the
++ * new drivers are blacklisted from autoload as well.
++ */
++/ {
++	pp3200_bb_cam: regulator-pp3200-bb-cam {
++		compatible = "regulator-fixed";
++		regulator-name = "PP3200_BB_CAM";
++		regulator-min-microvolt = <3200000>;
++		regulator-max-microvolt = <3200000>;
++		regulator-enable-ramp-delay = <2000>;
++		gpio = <&pmic_2_gpio 1 GPIO_ACTIVE_HIGH>;
++		enable-active-high;
++		status = "disabled";
++	};
++
++	pp1300_cam: regulator-pp1300-cam {
++		compatible = "regulator-fixed";
++		regulator-name = "PP1300_CAM";
++		regulator-min-microvolt = <1300000>;
++		regulator-max-microvolt = <1300000>;
++		regulator-enable-ramp-delay = <2000>;
++		gpio = <&pmic_2_gpio 3 GPIO_ACTIVE_HIGH>;
++		enable-active-high;
++		status = "disabled";
++	};
++};
++
++&hsi2c_8 {
++	cam_pmic: pmic@75 {
++		compatible = "dlg,slg51002";
++		reg = <0x75>;
++		dlg,cs-gpios = <&pmic_2_gpio 0 GPIO_ACTIVE_HIGH>;
++		vin1-2-supply = <&pp3200_bb_cam>;
++		vin3-supply = <&pp3200_bb_cam>;
++		vin4-supply = <&pp3200_bb_cam>;
++		vin5-supply = <&pp3200_bb_cam>;
++		vin6-supply = <&pp1300_cam>;
++		vin7-supply = <&pp1300_cam>;
++		vin8-supply = <&pp1300_cam>;
++		status = "disabled";
++
++		regulators {
++			cam_ldo1: ldo1 {
++				regulator-name = "vdda_main";
++				regulator-min-microvolt = <2850000>;
++				regulator-max-microvolt = <2850000>;
++			};
++
++			cam_ldo2: ldo2 {
++				regulator-name = "vdda_uw";
++				regulator-min-microvolt = <2850000>;
++				regulator-max-microvolt = <2850000>;
++			};
++
++			cam_ldo3: ldo3 {
++				regulator-name = "vdda_tele";
++				regulator-min-microvolt = <2250000>;
++				regulator-max-microvolt = <2250000>;
++			};
++
++			cam_ldo4: ldo4 {
++				regulator-name = "vdd_main_af";
++				regulator-min-microvolt = <2900000>;
++				regulator-max-microvolt = <2900000>;
++			};
++
++			cam_ldo5: ldo5 {
++				regulator-name = "vdd_tele_module";
++				regulator-min-microvolt = <2850000>;
++				regulator-max-microvolt = <2850000>;
++			};
++
++			cam_ldo6: ldo6 {
++				regulator-name = "vddd_uw";
++				regulator-min-microvolt = <1100000>;
++				regulator-max-microvolt = <1100000>;
++			};
++
++			cam_ldo7: ldo7 {
++				regulator-name = "vddd_tele";
++				regulator-min-microvolt = <1000000>;
++				regulator-max-microvolt = <1000000>;
++			};
++
++			cam_ldo8: ldo8 {
++				regulator-name = "vddd_main_front";
++				regulator-min-microvolt = <1100000>;
++				regulator-max-microvolt = <1100000>;
++			};
++
++			cam_sw1: sw1 {
++				regulator-name = "cam_sw1";
++			};
++
++			cam_sw2: sw2 {
++				regulator-name = "cam_sw2";
++			};
++
++			cam_sw3: sw3 {
++				regulator-name = "cam_sw3";
++			};
++
++			cam_sw4: sw4 {
++				regulator-name = "cam_sw4";
++			};
++		};
++	};
++};

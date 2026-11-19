@@ -1,0 +1,33 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: saiththerobo <the.tom.sharp@gmail.com>
+Date: Thu, 15 Oct 2026 15:07:15 +0100
+Subject: [PATCH] dt-bindings: pinctrl: samsung: allow GPIO hogs in a GPIO bank
+
+A board may need to hold a line at a fixed level from boot, as the
+Pixel 6 Pro holds TS_SPI_SEL low so that the touch controller's SPI bus
+belongs to the AP rather than the AoC. Allow gpio-hog child nodes in a
+bank, as gpio.yaml describes them.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Signed-off-by: saiththerobo <the.tom.sharp@gmail.com>
+---
+ .../bindings/pinctrl/samsung,pinctrl-gpio-bank.yaml         | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+diff --git a/Documentation/devicetree/bindings/pinctrl/samsung,pinctrl-gpio-bank.yaml b/Documentation/devicetree/bindings/pinctrl/samsung,pinctrl-gpio-bank.yaml
+index 8cf3c47ab..20bfb3d2b 100644
+--- a/Documentation/devicetree/bindings/pinctrl/samsung,pinctrl-gpio-bank.yaml
++++ b/Documentation/devicetree/bindings/pinctrl/samsung,pinctrl-gpio-bank.yaml
+@@ -45,6 +45,12 @@ properties:
+     minItems: 1
+     maxItems: 8
+ 
++patternProperties:
++  '-hog(-[0-9]+)?$':
++    type: object
++    required:
++      - gpio-hog
++
+ required:
+   - '#gpio-cells'
+   - gpio-controller

@@ -1,0 +1,30 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Brett-Michael Green <brett@bmgvisualtech.com>
+Date: Fri, 30 Oct 2026 16:23:41 -0400
+Subject: [PATCH] dt-bindings: mfd: samsung,s2mpg14-pmic: Tensor G3 uses it too
+
+The Pixel 8 Pro's (Tensor G3) main PMIC is the S2MPG14, at the same
+ACPM channel and with the same touchscreen rails on LDO4M and LDO25M.
+
+Assisted-by: LLM
+Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
+---
+ .../devicetree/bindings/mfd/samsung,s2mpg14-pmic.yaml        | 5 +++--
+ 1 file changed, 3 insertions(+), 2 deletions(-)
+
+diff --git a/Documentation/devicetree/bindings/mfd/samsung,s2mpg14-pmic.yaml b/Documentation/devicetree/bindings/mfd/samsung,s2mpg14-pmic.yaml
+index 5419f1522..5a94a6545 100644
+--- a/Documentation/devicetree/bindings/mfd/samsung,s2mpg14-pmic.yaml
++++ b/Documentation/devicetree/bindings/mfd/samsung,s2mpg14-pmic.yaml
+@@ -10,8 +10,9 @@ maintainers:
+   - W4HO <87742609+W4HO-ham@users.noreply.github.com>
+ 
+ description: |
+-  S2MPG14 is the main PMIC paired with Google's Tensor G4. Its LDO4M and
+-  LDO25M outputs supply the analog and digital touchscreen power rails.
++  S2MPG14 is the main PMIC paired with Google's Tensor G3 and Tensor G4.
++  Its LDO4M and LDO25M outputs supply the analog and digital touchscreen
++  power rails.
+ 
+ properties:
+   compatible:

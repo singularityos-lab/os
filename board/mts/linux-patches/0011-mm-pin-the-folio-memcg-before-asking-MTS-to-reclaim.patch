@@ -1,16 +1,20 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Mirko Brombin <9479903+mirkobrombin@users.noreply.github.com>
 Date: Fri, 6 Nov 2026 13:00:00 +0100
-Subject: [PATCH] mm: pin the folio memcg before asking MTS to reclaim
+Subject: [PATCH 11/11] mm: pin the folio memcg before asking MTS to reclaim
 
 mts_try_demote_folio() passed folio_memcg() straight into
 mts_can_reclaim(), which may sleep, without RCU or a css reference, so the
 memcg could be freed underneath it. Take a css reference under RCU first.
-
 ---
+ mm/vmscan.c | 19 ++++++++++++++++++-
+ 1 file changed, 18 insertions(+), 1 deletion(-)
+
+diff --git a/mm/vmscan.c b/mm/vmscan.c
+index a7181819b..880c0c0e2 100644
 --- a/mm/vmscan.c
 +++ b/mm/vmscan.c
-@@ -362,10 +362,28 @@
+@@ -370,10 +370,27 @@ static inline bool can_reclaim_anon_pages(struct mem_cgroup *memcg,
  	return can_demote(nid, sc, memcg);
  }
  
@@ -21,14 +25,13 @@ memcg could be freed underneath it. Take a css reference under RCU first.
 +
 +	rcu_read_lock();
 +	memcg = folio_memcg(folio);
-+	if (memcg && !css_tryget(&memcg->css)) {
++	if (memcg && !mem_cgroup_tryget(memcg)) {
 +		rcu_read_unlock();
 +		return false;
 +	}
 +	rcu_read_unlock();
 +	ok = mts_can_reclaim(memcg);
-+	if (memcg)
-+		css_put(&memcg->css);
++	mem_cgroup_put(memcg);
 +	return ok;
 +}
 +

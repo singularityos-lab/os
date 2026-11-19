@@ -1,0 +1,41 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Mon, 2 Nov 2026 08:50:50 -0647
+Subject: [PATCH] clk: samsung: zumapro: Keep the HSI2 GPIO bus clocks on too
+
+CMU_HSI2's two GPIO gates, for pinctrl_hsi2ufs (0x2008) and pinctrl_hsi2
+(0x2060), are writable and in the same manual mode as PERIC0's: on the
+Pixel 9a both CLK_CON_GAT registers read 0x100000 (MANUAL set, CG_VAL
+clear), and the clock summary shows them at enable count 0 between pin
+controller accesses. So the pin controller turns them on and off around
+every access, as it did PERIC0's.
+
+No hang has been seen on these blocks: their lines (the Wi-Fi's PERST#
+and WL_REG_ON on gph3, the UFS pins) change rarely. But the PERIC0 hang
+followed the gate toggling, not anything specific to that block, and
+stock's pin controllers name no clocks, so Google's kernel never gates
+any GPIO bus clock. Mark both gates critical as well.
+
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ drivers/clk/samsung/clk-zumapro.c | 5 +++--
+ 1 file changed, 3 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/clk/samsung/clk-zumapro.c b/drivers/clk/samsung/clk-zumapro.c
+index a2811b7fd..4e47c45c1 100644
+--- a/drivers/clk/samsung/clk-zumapro.c
++++ b/drivers/clk/samsung/clk-zumapro.c
+@@ -287,10 +287,11 @@ static const struct samsung_gate_clock hsi2_gates[] __initconst = {
+ 	     0x20d0, 21, CLK_IGNORE_UNUSED, 0),
+ 	GATE(CLK_GOUT_SYSREG_HSI2, "zumapro_sysreg_hsi2", "zumapro_hsi2_noc_user",
+ 	     0x20e8, 21, CLK_IGNORE_UNUSED, 0),
++	/* GPIO bus clocks stay on, as for PERIC0's below */
+ 	GATE(CLK_GOUT_GPIO_HSI2UFS, "zumapro_gpio_hsi2ufs", "zumapro_hsi2_noc_user",
+-	     0x2008, 21, CLK_IGNORE_UNUSED, 0),
++	     0x2008, 21, CLK_IS_CRITICAL, 0),
+ 	GATE(CLK_GOUT_GPIO_HSI2, "zumapro_gpio_hsi2", "zumapro_hsi2_noc_user",
+-	     0x2060, 21, CLK_IGNORE_UNUSED, 0),
++	     0x2060, 21, CLK_IS_CRITICAL, 0),
+ 	GATE(CLK_GOUT_PCIE1_CTL_APB, "zumapro_pcie1_ctl_apb",
+ 	     "zumapro_hsi2_noc_user", 0x2094, 21, CLK_IGNORE_UNUSED, 0),
+ 	GATE(CLK_GOUT_PCIE1_DBI_ACLK, "zumapro_pcie1_dbi_aclk",

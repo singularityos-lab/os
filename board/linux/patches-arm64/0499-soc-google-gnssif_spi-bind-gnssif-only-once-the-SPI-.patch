@@ -1,0 +1,154 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Sun, 1 Nov 2026 18:38:17 -0647
+Subject: [PATCH] soc: google: gnssif_spi: bind gnssif only once the SPI device
+ is there
+
+gnssif reads and writes through functions gnss_spi.ko exports, which
+use the SPI device gnss_spi stored at probe. Loading gnssif loads
+gnss_spi for its symbols, but nothing makes the SPI device bind first:
+if gnssif binds before it (built in, or the SPI controller probing
+later), the first request from the core makes the read work call
+spi_sync() on a NULL device. Google's header also defines that device
+holder static, so every file that includes it gets an unused copy.
+
+Keep the holder in gnss_spi.c, export gnss_spi_bound(), and defer
+gnssif's probe until it is true; the SPI device's binding retries the
+deferred probe. The transfer functions return -ENODEV without a device,
+and gnss_spi's remove() clears it. The exports become
+EXPORT_SYMBOL_GPL, and the driver structure loses .owner, which the SPI
+core sets.
+
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ drivers/soc/google/gnssif_spi/gnss_main.c |  9 +++++++++
+ drivers/soc/google/gnssif_spi/gnss_spi.c  | 22 ++++++++++++++++++----
+ drivers/soc/google/gnssif_spi/gnss_spi.h  |  7 +++----
+ 3 files changed, 30 insertions(+), 8 deletions(-)
+
+diff --git a/drivers/soc/google/gnssif_spi/gnss_main.c b/drivers/soc/google/gnssif_spi/gnss_main.c
+index 5c0bb8179..f6ac72ec0 100644
+--- a/drivers/soc/google/gnssif_spi/gnss_main.c
++++ b/drivers/soc/google/gnssif_spi/gnss_main.c
+@@ -13,6 +13,7 @@
+ #include <linux/vmalloc.h>
+ 
+ #include "gnss_prj.h"
++#include "gnss_spi.h"
+ #include "gnss_utils.h"
+ 
+ /* Hand a dump to devcoredump, which frees it. */
+@@ -152,6 +153,14 @@ static int gnss_probe(struct platform_device *pdev)
+ 		return -ENODEV;
+ 	}
+ 
++	/*
++	 * The core's requests are read over gnss_spi: without its device
++	 * the read work would find nothing to read from while the request
++	 * line stays high.
++	 */
++	if (!gnss_spi_bound())
++		return dev_err_probe(dev, -EPROBE_DEFER, "no GNSS SPI device yet\n");
++
+ 	pdata = gnss_if_parse_dt_pdata(dev);
+ 	if (IS_ERR(pdata)) {
+ 		gif_err("DT parse error!\n");
+diff --git a/drivers/soc/google/gnssif_spi/gnss_spi.c b/drivers/soc/google/gnssif_spi/gnss_spi.c
+index eeec109d1..dd88cd4c5 100644
+--- a/drivers/soc/google/gnssif_spi/gnss_spi.c
++++ b/drivers/soc/google/gnssif_spi/gnss_spi.c
+@@ -14,6 +14,14 @@
+ #include "include/gnss.h"
+ #include "gnss_spi.h"
+ 
++static struct gnss_spi gnss_if;
++
++/* gnssif binds only once the SPI device is there. */
++bool gnss_spi_bound(void)
++{
++	return !!READ_ONCE(gnss_if.spi);
++}
++EXPORT_SYMBOL_GPL(gnss_spi_bound);
+ 
+ int gnss_spi_send(char *buff, unsigned int size, char *rx_buff)
+ {
+@@ -21,6 +29,9 @@ int gnss_spi_send(char *buff, unsigned int size, char *rx_buff)
+ 	struct spi_message msg;
+ 	struct spi_transfer tx;
+ 
++	if (!gnss_spi_bound())
++		return -ENODEV;
++
+ 	memset(&tx, 0, sizeof(struct spi_transfer));
+ 	spi_message_init(&msg);
+ 	tx.len = size;
+@@ -35,7 +46,7 @@ int gnss_spi_send(char *buff, unsigned int size, char *rx_buff)
+ 
+ 	return ret;
+ }
+-EXPORT_SYMBOL(gnss_spi_send);
++EXPORT_SYMBOL_GPL(gnss_spi_send);
+ 
+ int gnss_spi_recv(char *buff, unsigned int size)
+ {
+@@ -43,6 +54,9 @@ int gnss_spi_recv(char *buff, unsigned int size)
+ 	struct spi_message msg;
+ 	struct spi_transfer rx;
+ 
++	if (!gnss_spi_bound())
++		return -ENODEV;
++
+ 	memset(&rx, 0, sizeof(struct spi_transfer));
+ 	rx.len = size;
+ 	rx.rx_buf = buff;
+@@ -56,7 +70,7 @@ int gnss_spi_recv(char *buff, unsigned int size)
+ 	return ret;
+ 
+ }
+-EXPORT_SYMBOL(gnss_spi_recv);
++EXPORT_SYMBOL_GPL(gnss_spi_recv);
+ 
+ static int gnss_spi_probe(struct spi_device *spi)
+ {
+@@ -71,7 +85,7 @@ static int gnss_spi_probe(struct spi_device *spi)
+ 		goto err_setup;
+ 	}
+ 	spi_set_drvdata(spi, &gnss_if);
+-	gnss_if.spi = spi;
++	WRITE_ONCE(gnss_if.spi, spi);
+ 	gif_info("---\n");
+ 
+ 	return 0;
+@@ -86,6 +100,7 @@ static void gnss_spi_remove (struct spi_device *spi)
+ {
+ 	struct gnss_spi *gnss_if = spi_get_drvdata(spi);
+ 
++	WRITE_ONCE(gnss_if->spi, NULL);
+ 	mutex_destroy(&gnss_if->lock);
+ }
+ 
+@@ -107,7 +122,6 @@ static struct spi_driver gnss_spi_driver = {
+ 	.remove = gnss_spi_remove,
+ 	.driver = {
+ 		.name = "gnss_spi",
+-		.owner = THIS_MODULE,
+ 		.of_match_table = of_match_ptr(gnss_spi_dt_match),
+ 		.suppress_bind_attrs = true,
+ 	},
+diff --git a/drivers/soc/google/gnssif_spi/gnss_spi.h b/drivers/soc/google/gnssif_spi/gnss_spi.h
+index 553c40a0d..a3d41fbaa 100644
+--- a/drivers/soc/google/gnssif_spi/gnss_spi.h
++++ b/drivers/soc/google/gnssif_spi/gnss_spi.h
+@@ -20,9 +20,8 @@ struct gnss_spi {
+ 	struct mutex lock;
+ };
+ 
+-static struct gnss_spi gnss_if;
+-
+-extern int gnss_spi_send(char *buff, unsigned int size, char *recv_buff);
+-extern int gnss_spi_recv(char *buff, unsigned int size);
++bool gnss_spi_bound(void);
++int gnss_spi_send(char *buff, unsigned int size, char *recv_buff);
++int gnss_spi_recv(char *buff, unsigned int size);
+ 
+ #endif /* __GNSS_SPI_H__ */

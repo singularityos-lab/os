@@ -1,0 +1,39 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Mon, 12 Oct 2026 13:43:14 -0400
+Subject: [PATCH] dt-bindings: soc: google: gs201-aoc: add the AoC mailboxes
+
+Describe the three AoC to AP mailboxes (A32, F1 and P6) as optional
+ranges of the AoC node, so the bring-up driver can read which doorbells
+the AoC rang.
+
+Assisted-by: LLM
+Signed-off-by: Derek Ross <derekross@gmail.com>
+---
+ .../devicetree/bindings/soc/google/google,gs201-aoc.yaml    | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+diff --git a/Documentation/devicetree/bindings/soc/google/google,gs201-aoc.yaml b/Documentation/devicetree/bindings/soc/google/google,gs201-aoc.yaml
+index 19129cb6f..2284516c6 100644
+--- a/Documentation/devicetree/bindings/soc/google/google,gs201-aoc.yaml
++++ b/Documentation/devicetree/bindings/soc/google/google,gs201-aoc.yaml
+@@ -28,6 +28,9 @@ properties:
+           parameters
+       - description: the AoC power control unit (A32 reset control and
+           revision), in the AoC block
++      - description: the AoC A32 to AP mailbox
++      - description: the AoC F1 to AP mailbox
++      - description: the AoC P6 to AP mailbox
+ 
+   reg-names:
+     minItems: 3
+@@ -36,6 +39,9 @@ properties:
+       - const: s2mpu
+       - const: chipid
+       - const: pcu
++      - const: mbox-a32
++      - const: mbox-f1
++      - const: mbox-p6
+ 
+   interrupts:
+     maxItems: 1

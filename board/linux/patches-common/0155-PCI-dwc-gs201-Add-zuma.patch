@@ -1,0 +1,173 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Brett-Michael Green <brett@bmgvisualtech.com>
+Date: Sat, 31 Oct 2026 08:15:21 -0400
+Subject: [PATCH] PCI: dwc: gs201: Add zuma
+
+zuma's (Tensor G3) Wi-Fi controller follows gs201's sequence, with one
+difference in order: zuma's CAL sets RC mode, pulses the soft power
+reset and enables the slave pending NAK in the middle of the PHY
+configuration, and establish_link() does not reset the controller again
+afterwards. Do these before the PHY's power_on on zuma, and skip the
+later soft resets.
+
+Assisted-by: LLM
+Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
+---
+ drivers/pci/controller/dwc/Kconfig      |  7 +--
+ drivers/pci/controller/dwc/pcie-gs201.c | 58 +++++++++++++++++++++++--
+ 2 files changed, 58 insertions(+), 7 deletions(-)
+
+diff --git a/drivers/pci/controller/dwc/Kconfig b/drivers/pci/controller/dwc/Kconfig
+index 31de17d0e..43efbf32e 100644
+--- a/drivers/pci/controller/dwc/Kconfig
++++ b/drivers/pci/controller/dwc/Kconfig
+@@ -424,9 +424,10 @@ config PCIE_GS201
+ 	select PCI_PWRCTRL_GENERIC
+ 	help
+ 	  Say Y here to enable support for the PCIe controller of the Google
+-	  gs201 (Tensor G2) SoC in host mode. Pixel 7 phones connect their
+-	  Wi-Fi chip to it. The controller uses the DesignWare core plus a
+-	  Samsung wrapper, and needs the gs201 PCIe PHY driver.
++	  gs201 (Tensor G2) and zuma (Tensor G3) SoCs in host mode. Pixel 7
++	  and Pixel 8 phones connect their Wi-Fi chip to it. The controller
++	  uses the DesignWare core plus a Samsung wrapper, and needs the gs201
++	  or zuma PCIe PHY driver.
+ 
+ config PCIE_GS201_SYSMMU
+ 	tristate "Google gs201 PCIe System MMU as a DMA window"
+diff --git a/drivers/pci/controller/dwc/pcie-gs201.c b/drivers/pci/controller/dwc/pcie-gs201.c
+index af650d763..98238660b 100644
+--- a/drivers/pci/controller/dwc/pcie-gs201.c
++++ b/drivers/pci/controller/dwc/pcie-gs201.c
+@@ -1,6 +1,7 @@
+ // SPDX-License-Identifier: GPL-2.0-only
+ /*
+- * PCIe host controller driver for the Google gs201 (Tensor G2) SoC
++ * PCIe host controller driver for the Google gs201 (Tensor G2) and zuma
++ * (Tensor G3) SoCs
+  *
+  * The controller is a Synopsys DesignWare core (IP version 0x984500) in a
+  * Samsung wrapper ("ELBI" sub-control registers, a link-training helper
+@@ -69,9 +70,11 @@
+ #define GS201_ELBI_SOFT_RESET		0x3a4
+ #define GS201_ELBI_SOFT_PWR_RESET	BIT(1)
+ #define GS201_ELBI_SOFT_NON_STICKY_RESET BIT(3)
++#define GS201_ELBI_SOFT_RESET_ALL	GENMASK(3, 0)
+ #define GS201_ELBI_QCH_SEL		0x3a8
+ #define GS201_ELBI_QCH_GATING_MASK	GENMASK(11, 0)
+ #define GS201_ELBI_REQ_EXIT_L1_MODE	0x3bc
++#define GS201_ELBI_SLV_PEND_SEL_NAK	0x3d8
+ #define GS201_ELBI_APP_REQ_EXIT_L1_MODE	BIT(0)
+ #define GS201_ELBI_L1_REQ_NAK_MASTER	BIT(4)
+ #define GS201_ELBI_MSTR_PEND_SEL_NAK	0x474
+@@ -163,8 +166,20 @@ module_param(cmu_acg_off, bool, 0444);
+ MODULE_PARM_DESC(cmu_acg_off,
+ 		 "Clear CMU_HSI2 automatic clock gating in stage 1, as Google's gs201 driver does (default: false)");
+ 
++/**
++ * struct gs201_pcie_soc_data - what differs between the SoCs
++ * @ctrl_reset_before_phy: the controller's soft power reset and RC mode are
++ *	set before the PHY configuration, and not again after it. zuma's
++ *	CAL does them in the middle of its PHY configuration; gs201's
++ *	establish_link() does them after.
++ */
++struct gs201_pcie_soc_data {
++	bool ctrl_reset_before_phy;
++};
++
+ struct gs201_pcie {
+ 	struct dw_pcie pci;
++	const struct gs201_pcie_soc_data *data;
+ 	void __iomem *elbi;
+ 	void __iomem *ia;
+ 	void __iomem *cmu;
+@@ -569,11 +584,33 @@ static int gs201_pcie_stage_wake(struct gs201_pcie *gp)
+ 	return 0;
+ }
+ 
++/*
++ * zuma's CAL: RC mode and a soft power reset pulse, written as whole words
++ * as Google does, and NAKs for slave requests while AXI is pending.
++ */
++static void gs201_pcie_ctrl_reset_early(struct gs201_pcie *gp)
++{
++	gs201_trace(gp, "about to write ELBI 0x080 = 4 (root complex) and pulse the soft power reset (ELBI 0x3a4)");
++	gs201_elbi_writel(gp, GS201_ELBI_DEVICE_TYPE, GS201_ELBI_DEVICE_TYPE_RC);
++	gs201_elbi_writel(gp, GS201_ELBI_SOFT_RESET, GS201_ELBI_SOFT_RESET_ALL);
++	gs201_elbi_writel(gp, GS201_ELBI_SOFT_RESET,
++			  GS201_ELBI_SOFT_RESET_ALL & ~GS201_ELBI_SOFT_PWR_RESET);
++	fsleep(10);
++	gs201_elbi_writel(gp, GS201_ELBI_SOFT_RESET, GS201_ELBI_SOFT_RESET_ALL);
++	fsleep(10);
++
++	gs201_trace(gp, "about to write ELBI 0x3d8 = 1 (slave pending NAK)");
++	gs201_elbi_writel(gp, GS201_ELBI_SLV_PEND_SEL_NAK, 1);
++}
++
+ /* Stage 3: Google's PHY configuration, then the I/A sequencer */
+ static int gs201_pcie_stage_phy(struct gs201_pcie *gp)
+ {
+ 	int ret;
+ 
++	if (gp->data->ctrl_reset_before_phy)
++		gs201_pcie_ctrl_reset_early(gp);
++
+ 	gs201_trace(gp, "phy_power_on: power-down clear, CAL table, lock checks");
+ 	ret = phy_power_on(gp->phy);
+ 	if (ret)
+@@ -607,6 +644,9 @@ static void gs201_pcie_stage_ctrl(struct gs201_pcie *gp, bool release_perst)
+ 	struct device *dev = gp->pci.dev;
+ 	u32 val;
+ 
++	if (gp->data->ctrl_reset_before_phy)
++		goto perst;
++
+ 	gs201_trace(gp, "about to pulse the soft power reset (ELBI 0x3a4 bit 1)");
+ 	val = gs201_elbi_readl(gp, GS201_ELBI_SOFT_RESET);
+ 	gs201_elbi_writel(gp, GS201_ELBI_SOFT_RESET,
+@@ -631,8 +671,9 @@ static void gs201_pcie_stage_ctrl(struct gs201_pcie *gp, bool release_perst)
+ 	gs201_elbi_writel(gp, GS201_ELBI_SOFT_RESET,
+ 			  val | GS201_ELBI_SOFT_NON_STICKY_RESET);
+ 
++perst:
+ 	if (release_perst) {
+-		gs201_trace(gp, "about to release PERST# (gph2-0) and wait 20 ms");
++		gs201_trace(gp, "about to release PERST# and wait 20 ms");
+ 		gpiod_set_value_cansleep(gp->perst, 0);
+ 		fsleep(GS201_PERST_DELAY_US);
+ 	}
+@@ -818,7 +859,7 @@ static int gs201_pcie_host_init(struct dw_pcie_rp *pp)
+ 	}
+ 
+ 	if (!pp->skip_pwrctrl_off) {
+-		gs201_trace(gp, "about to power the endpoint (WL_REG_ON, gph2-4, 200 ms)");
++		gs201_trace(gp, "about to power the endpoint (WL_REG_ON and its startup delay)");
+ 		ret = pci_pwrctrl_power_on_devices(dev);
+ 		if (ret)
+ 			goto err_pwrctrl_destroy;
+@@ -1101,6 +1142,7 @@ static int gs201_pcie_probe(struct platform_device *pdev)
+ 		return -ENOMEM;
+ 
+ 	raw_spin_lock_init(&gp->lock);
++	gp->data = of_device_get_match_data(dev);
+ 
+ 	pci = &gp->pci;
+ 	pci->dev = dev;
+@@ -1186,8 +1228,16 @@ static void gs201_pcie_remove(struct platform_device *pdev)
+ 	gs201_pcie_remove_irq(gp);
+ }
+ 
++static const struct gs201_pcie_soc_data gs201_pcie_data = {
++};
++
++static const struct gs201_pcie_soc_data zuma_pcie_data = {
++	.ctrl_reset_before_phy = true,
++};
++
+ static const struct of_device_id gs201_pcie_of_match[] = {
+-	{ .compatible = "google,gs201-pcie" },
++	{ .compatible = "google,gs201-pcie", .data = &gs201_pcie_data },
++	{ .compatible = "google,zuma-pcie", .data = &zuma_pcie_data },
+ 	{ }
+ };
+ MODULE_DEVICE_TABLE(of, gs201_pcie_of_match);

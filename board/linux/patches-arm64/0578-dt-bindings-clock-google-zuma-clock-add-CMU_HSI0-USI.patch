@@ -1,0 +1,40 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Lef <me@lefteros.com>
+Date: Sat, 7 Nov 2026 11:42:47 +0200
+Subject: [PATCH] dt-bindings: clock: google,zuma-clock: add CMU_HSI0 USI3
+ clock IDs
+
+The Pixel 8 Pro's GNSS receiver sits on HSI0 USI3 (Google's spi_21). Add
+the IDs for its mux, divider and the three gates, in the same shape as
+USI2's, after USI2's IDs. Only the header; the clock driver follows.
+
+Signed-off-by: Lef <me@lefteros.com>
+---
+ include/dt-bindings/clock/google,zuma.h | 7 ++++++-
+ 1 file changed, 6 insertions(+), 1 deletion(-)
+
+diff --git a/include/dt-bindings/clock/google,zuma.h b/include/dt-bindings/clock/google,zuma.h
+index a226cae5a..05db2859f 100644
+--- a/include/dt-bindings/clock/google,zuma.h
++++ b/include/dt-bindings/clock/google,zuma.h
+@@ -33,7 +33,7 @@
+ #define CLK_DOUT_PERIC0_NOC		26
+ #define CLK_DOUT_PERIC0_IP		27
+ 
+-/* CMU_HSI0: USI2, the touchscreen's SPI. */
++/* CMU_HSI0: USI2, the touchscreen's SPI, and USI3, the GNSS receiver's SPI. */
+ #define CLK_GOUT_HSI0_ALT		1
+ #define CLK_MOUT_HSI0_NOC_USER		2
+ #define CLK_MOUT_HSI0_ALT_USER		3
+@@ -44,6 +44,11 @@
+ #define CLK_DOUT_HSI0_USI2		8
+ #define CLK_GOUT_HSI0_USI2_IP		9
+ #define CLK_GOUT_HSI0_USI2_PCLK		10
++#define CLK_MOUT_HSI0_USI3		11
++#define CLK_GOUT_HSI0_USI3_SOURCE	12
++#define CLK_DOUT_HSI0_USI3		13
++#define CLK_GOUT_HSI0_USI3_IP		14
++#define CLK_GOUT_HSI0_USI3_PCLK		15
+ 
+ /*
+  * CMU_PERIC1: USI11, the I2C bus of the battery, charger and USB-C chips, and

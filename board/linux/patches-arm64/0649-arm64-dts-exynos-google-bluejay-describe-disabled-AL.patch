@@ -1,0 +1,111 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Chris Gray <chrisgray70@gmail.com>
+Date: Wed, 11 Nov 2026 12:20:03 -0600
+Subject: [PATCH] arm64: dts: exynos: google: bluejay: describe disabled ALIX
+ touch
+
+Describe the SPI/USI path, regulators, reset and AP ownership wiring
+from the Bluejay and GS101 GPL trees. Keep USI, SPI and the touchscreen
+disabled until a separately reviewed overlay is hardware-qualified.
+No shared USI probe parameter is required by this source description.
+
+Link: https://android.googlesource.com/kernel/devices/google/bluejay/+/refs/tags/android-16.0.0_r0.9/dts/gs101-bluejay-touch.dtsi
+
+Assisted-by: LLM
+Signed-off-by: Chris Gray <chrisgray70@gmail.com>
+---
+ .../exynos/google/gs101-bluejay-input.dtsi    | 72 +++++++++++++++++++
+ .../boot/dts/exynos/google/gs101-bluejay.dts  |  1 +
+ 2 files changed, 73 insertions(+)
+ create mode 100644 arch/arm64/boot/dts/exynos/google/gs101-bluejay-input.dtsi
+
+diff --git a/arch/arm64/boot/dts/exynos/google/gs101-bluejay-input.dtsi b/arch/arm64/boot/dts/exynos/google/gs101-bluejay-input.dtsi
+new file mode 100644
+index 000000000..143ed3fce
+--- /dev/null
++++ b/arch/arm64/boot/dts/exynos/google/gs101-bluejay-input.dtsi
+@@ -0,0 +1,72 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * Bluejay ALIX touch wiring from Google's gs101-bluejay-touch.dtsi and
++ * gs101-common-touch.dtsi. The path stays disabled until a gated overlay.
++ */
++
++#include <dt-bindings/soc/samsung,exynos-usi.h>
++
++&pinctrl_gpio_alive {
++	bluejay_touch_irq: bluejay-touch-irq-pins {
++		samsung,pins = "gpa9-0";
++		samsung,pin-pud = <GS101_PIN_PULL_NONE>;
++	};
++};
++
++&pinctrl_far_alive {
++	bluejay_touch_ack: bluejay-touch-ack-pins {
++		samsung,pins = "gpa8-6";
++		samsung,pin-pud = <GS101_PIN_PULL_DOWN>;
++	};
++};
++
++&pinctrl_peric1 {
++	bluejay_touch_reset: bluejay-touch-reset-pins {
++		samsung,pins = "gpp26-0";
++		samsung,pin-pud = <GS101_PIN_PULL_NONE>;
++		samsung,pin-con-pdn = <GS101_PIN_PDN_PREV>;
++		samsung,pin-pud-pdn = <GS101_PIN_PULL_NONE>;
++	};
++
++	bluejay_touch_request: bluejay-touch-request-pins {
++		samsung,pins = "gpp26-1";
++		samsung,pin-pud = <GS101_PIN_PULL_NONE>;
++		samsung,pin-con-pdn = <GS101_PIN_PDN_PREV>;
++		samsung,pin-pud-pdn = <GS101_PIN_PULL_NONE>;
++	};
++};
++
++&usi11 {
++	samsung,mode = <USI_MODE_SPI>;
++	status = "disabled";
++};
++
++&spi_11 {
++	pinctrl-0 = <&spi11_bus &spi11_cs>;
++	cs-gpios = <&gpp23 3 GPIO_ACTIVE_LOW>;
++	num-cs = <1>;
++	status = "disabled";
++
++	bluejay_touch: touchscreen@0 {
++		compatible = "st,alix";
++		reg = <0>;
++		spi-max-frequency = <10000000>;
++		interrupt-parent = <&gpa9>;
++		interrupts = <0 IRQ_TYPE_LEVEL_LOW>;
++		vdd-supply = <&{/firmware/power-management/pmic-1/regulators/ldo25m}>;
++		avdd-supply = <&{/firmware/power-management/pmic-1/regulators/ldo26m}>;
++		reset-gpios = <&gpp26 0 GPIO_ACTIVE_LOW>;
++		bus-request-gpios = <&gpp26 1 GPIO_ACTIVE_LOW>;
++		bus-ack-gpios = <&gpa8 6 GPIO_ACTIVE_LOW>;
++		touchscreen-size-x = <1080>;
++		touchscreen-size-y = <2400>;
++		pinctrl-names = "default";
++		pinctrl-0 = <&bluejay_touch_irq &bluejay_touch_reset
++			     &bluejay_touch_request &bluejay_touch_ack>;
++		status = "disabled";
++
++		controller-data {
++			samsung,spi-feedback-delay = <1>;
++		};
++	};
++};
+diff --git a/arch/arm64/boot/dts/exynos/google/gs101-bluejay.dts b/arch/arm64/boot/dts/exynos/google/gs101-bluejay.dts
+index e41d8e335..e1ae087fe 100644
+--- a/arch/arm64/boot/dts/exynos/google/gs101-bluejay.dts
++++ b/arch/arm64/boot/dts/exynos/google/gs101-bluejay.dts
+@@ -9,6 +9,7 @@
+ /dts-v1/;
+ 
+ #include "gs101-pixel-common.dtsi"
++#include "gs101-bluejay-input.dtsi"
+ 
+ / {
+ 	model = "Bluejay";

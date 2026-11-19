@@ -1,0 +1,77 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: saiththerobo <the.tom.sharp@gmail.com>
+Date: Fri, 16 Oct 2026 13:54:46 +0100
+Subject: [PATCH] drm: google: gs-decon: no VT switch around system sleep
+ without fbdev
+
+With no fbdev console the suspend VT switch has nothing to show, but it
+still takes the session away from the compositor: logind deactivates and
+reactivates it, Hyprland (libseat) drops its input devices and reopens
+them, and the power-key press that woke the Pixel 6 Pro from s2idle is
+lost with the old device. Every wake needed a second press.
+
+Tell the PM core a VT switch is only needed with the fbdev console, and
+stop tracking the device on remove. Only on gs101 for now: the Pixel 7
+Pro (gs201) runs without fbdev too, and its validated s2idle path keeps
+its VT switch until this has been tested there.
+
+Assisted-by: Claude Opus 5.5
+Signed-off-by: saiththerobo <the.tom.sharp@gmail.com>
+---
+ drivers/gpu/drm/google/gs-decon.c | 15 +++++++++++++++
+ 1 file changed, 15 insertions(+)
+
+diff --git a/drivers/gpu/drm/google/gs-decon.c b/drivers/gpu/drm/google/gs-decon.c
+index 68875de48..1a5dd8c21 100644
+--- a/drivers/gpu/drm/google/gs-decon.c
++++ b/drivers/gpu/drm/google/gs-decon.c
+@@ -54,6 +54,7 @@
+ #include <linux/of_graph.h>
+ #include <linux/of_reserved_mem.h>
+ #include <linux/platform_device.h>
++#include <linux/pm.h>
+ #include <linux/property.h>
+ #include <linux/spinlock.h>
+ #include <linux/wait.h>
+@@ -271,6 +272,8 @@ struct gs_decon_soc_data {
+ 	bool floors_optional;
+ 	/* hold the boot framebuffer's aperture after evicting simpledrm */
+ 	bool hold_boot_fb;
++	/* a VT switch around system sleep only with the fbdev console */
++	bool vt_switch_fbdev_only;
+ };
+ 
+ static const struct gs_decon_soc_data gs201_decon_data = {
+@@ -292,6 +295,7 @@ static const struct gs_decon_soc_data gs101_decon_data = {
+ 	.source_offset_reg = RDMA_SRC_OFFSET,
+ 	.shadow_update_mask = SHD_REG_UP_REQ_FLIP(SHD_REG_UP_REQ_ALL_WIN),
+ 	.hold_boot_fb = true,
++	.vt_switch_fbdev_only = true,
+ };
+ 
+ static const struct gs_decon_soc_data zumapro_decon_data = {
+@@ -1573,6 +1577,15 @@ static int gs_decon_probe(struct platform_device *pdev)
+ 	 */
+ 	if (fbdev)
+ 		drm_client_setup(&dc->drm, NULL);
++
++	/*
++	 * Without an fbdev console, a VT switch around system sleep has
++	 * nothing to show, and it costs the compositor its input devices:
++	 * logind takes the session away and gives it back, and the key press
++	 * that woke the phone is lost with the device it was queued on.
++	 */
++	if (dc->soc->vt_switch_fbdev_only)
++		pm_vt_switch_required(dev, fbdev);
+ 	dev_info(dev, "flip-only KMS on DECON0, %ux%u, up to %u Hz (at %u Hz)\n",
+ 		 dc->width, dc->height, dc->max_hz, dc->hz);
+ 
+@@ -1591,6 +1604,8 @@ static void gs_decon_remove(struct platform_device *pdev)
+ 	struct gs_decon *dc = platform_get_drvdata(pdev);
+ 
+ 	if (dc->kms) {
++		if (dc->soc->vt_switch_fbdev_only)
++			pm_vt_switch_unregister(&pdev->dev);
+ 		dc->going_down = true;
+ 		drm_dev_unplug(&dc->drm);
+ 		drm_atomic_helper_shutdown(&dc->drm);

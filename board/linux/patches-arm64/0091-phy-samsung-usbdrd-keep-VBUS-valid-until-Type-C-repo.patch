@@ -1,0 +1,223 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Mon, 12 Oct 2026 00:36:53 -0400
+Subject: [PATCH] phy: samsung: usbdrd: keep VBUS valid until Type-C reports a
+ connection
+
+On PHYs with an orientation switch (gs101 and gs201), the PHY stops
+forcing VBUS valid and leaves it to the Type-C port controller driver,
+which sets it through the orientation callback. If that driver is not
+loaded, fails to probe or is unloaded, USB device mode never sees VBUS
+and the gadget never connects. On a phone that is reached over USB
+during bring-up, that means losing the only link.
+
+Keep forcing VBUS valid, as without a switch, until the port
+controller has reported an orientation for the first time. From then
+on, VBUS valid follows the reported connection exactly as before.
+
+Add a writable force_vbus_valid module parameter that forces VBUS valid
+again at runtime, regardless of what Type-C reports, so that a
+misbehaving port controller can be taken out of the loop without a
+reboot.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ drivers/phy/samsung/phy-exynos5-usbdrd.c | 146 ++++++++++++++++++-----
+ 1 file changed, 116 insertions(+), 30 deletions(-)
+
+diff --git a/drivers/phy/samsung/phy-exynos5-usbdrd.c b/drivers/phy/samsung/phy-exynos5-usbdrd.c
+index 8f9841740..9ab5db66f 100644
+--- a/drivers/phy/samsung/phy-exynos5-usbdrd.c
++++ b/drivers/phy/samsung/phy-exynos5-usbdrd.c
+@@ -508,6 +508,8 @@ struct exynos5_usbdrd_phy_drvdata {
+  * @regulators: regulators for phy
+  * @sw: TypeC orientation switch handle
+  * @orientation: TypeC connector orientation - normal or flipped
++ * @orientation_known: TypeC has reported an orientation at least once
++ * @vbus_node: entry in the list of PHYs whose VBUS valid follows TypeC
+  */
+ struct exynos5_usbdrd_phy {
+ 	struct device *dev;
+@@ -531,8 +533,54 @@ struct exynos5_usbdrd_phy {
+ 
+ 	struct typec_switch_dev *sw;
+ 	enum typec_orientation orientation;
++	bool orientation_known;
++	struct list_head vbus_node;
+ };
+ 
++/*
++ * With an orientation switch, VBUS valid follows the Type-C connection
++ * reported by the port controller. Until that driver reports anything,
++ * and whenever force_vbus_valid is set, the PHY keeps VBUS valid forced
++ * as it does without a switch, so USB device mode keeps working when no
++ * port controller driver is loaded.
++ */
++static bool force_vbus_valid;
++static LIST_HEAD(exynos5_usbdrd_vbus_phys);
++static DEFINE_MUTEX(exynos5_usbdrd_vbus_lock);
++
++static bool exynos5_usbdrd_vbus_forced(struct exynos5_usbdrd_phy *phy_drd)
++{
++	return !phy_drd->sw || READ_ONCE(force_vbus_valid) ||
++	       !phy_drd->orientation_known ||
++	       phy_drd->orientation != TYPEC_ORIENTATION_NONE;
++}
++
++/* Caller holds phy_mutex, with the PHY clocks on */
++static void exynos850_usbdrd_set_vbus_valid(struct exynos5_usbdrd_phy *phy_drd)
++{
++	void __iomem * const regs_base = phy_drd->reg_phy;
++	u32 reg;
++
++	if (exynos5_usbdrd_vbus_forced(phy_drd)) {
++		reg = readl(regs_base + EXYNOS850_DRD_UTMI);
++		reg |= UTMI_FORCE_VBUSVALID | UTMI_FORCE_BVALID;
++		writel(reg, regs_base + EXYNOS850_DRD_UTMI);
++
++		reg = readl(regs_base + EXYNOS850_DRD_HSP);
++		reg |= HSP_VBUSVLDEXTSEL | HSP_VBUSVLDEXT;
++		writel(reg, regs_base + EXYNOS850_DRD_HSP);
++	} else {
++		reg = readl(regs_base + EXYNOS850_DRD_UTMI);
++		reg &= ~(UTMI_FORCE_VBUSVALID | UTMI_FORCE_BVALID);
++		writel(reg, regs_base + EXYNOS850_DRD_UTMI);
++
++		reg = readl(regs_base + EXYNOS850_DRD_HSP);
++		reg |= HSP_VBUSVLDEXTSEL;
++		reg &= ~HSP_VBUSVLDEXT;
++		writel(reg, regs_base + EXYNOS850_DRD_HSP);
++	}
++}
++
+ static inline
+ struct exynos5_usbdrd_phy *to_usbdrd_phy(struct phy_usb_instance *inst)
+ {
+@@ -1560,15 +1608,7 @@ static void exynos850_usbdrd_utmi_init(struct exynos5_usbdrd_phy *phy_drd)
+ 	reg |= FIELD_PREP(LINKCTRL_BUS_FILTER_BYPASS, 0xf);
+ 	writel(reg, regs_base + EXYNOS850_DRD_LINKCTRL);
+ 
+-	if (!phy_drd->sw) {
+-		reg = readl(regs_base + EXYNOS850_DRD_UTMI);
+-		reg |= UTMI_FORCE_BVALID | UTMI_FORCE_VBUSVALID;
+-		writel(reg, regs_base + EXYNOS850_DRD_UTMI);
+-
+-		reg = readl(regs_base + EXYNOS850_DRD_HSP);
+-		reg |= HSP_VBUSVLDEXT | HSP_VBUSVLDEXTSEL;
+-		writel(reg, regs_base + EXYNOS850_DRD_HSP);
+-	}
++	exynos850_usbdrd_set_vbus_valid(phy_drd);
+ 
+ 	reg = readl(regs_base + EXYNOS850_DRD_SSPPLLCTL);
+ 	reg &= ~SSPPLLCTL_FSEL;
+@@ -1851,36 +1891,72 @@ static int exynos5_usbdrd_orien_sw_set(struct typec_switch_dev *sw,
+ 	}
+ 
+ 	scoped_guard(mutex, &phy_drd->phy_mutex) {
+-		void __iomem * const regs_base = phy_drd->reg_phy;
+-		unsigned int reg;
+-
+-		if (orientation == TYPEC_ORIENTATION_NONE) {
+-			reg = readl(regs_base + EXYNOS850_DRD_UTMI);
+-			reg &= ~(UTMI_FORCE_VBUSVALID | UTMI_FORCE_BVALID);
+-			writel(reg, regs_base +  EXYNOS850_DRD_UTMI);
+-
+-			reg = readl(regs_base + EXYNOS850_DRD_HSP);
+-			reg |= HSP_VBUSVLDEXTSEL;
+-			reg &= ~HSP_VBUSVLDEXT;
+-			writel(reg, regs_base + EXYNOS850_DRD_HSP);
+-		} else {
+-			reg = readl(regs_base + EXYNOS850_DRD_UTMI);
+-			reg |= UTMI_FORCE_VBUSVALID | UTMI_FORCE_BVALID;
+-			writel(reg, regs_base +  EXYNOS850_DRD_UTMI);
+-
+-			reg = readl(regs_base + EXYNOS850_DRD_HSP);
+-			reg |= HSP_VBUSVLDEXTSEL | HSP_VBUSVLDEXT;
+-			writel(reg, regs_base + EXYNOS850_DRD_HSP);
+-		}
++		if (!phy_drd->orientation_known)
++			dev_info(phy_drd->dev,
++				 "Type-C reported orientation %d, VBUS valid follows it from now on\n",
++				 orientation);
+ 
+ 		phy_drd->orientation = orientation;
++		phy_drd->orientation_known = true;
++		exynos850_usbdrd_set_vbus_valid(phy_drd);
++	}
++
++	clk_bulk_disable_unprepare(phy_drd->drv_data->n_clks, phy_drd->clks);
++
++	return 0;
++}
++
++static void exynos5_usbdrd_vbus_apply(struct exynos5_usbdrd_phy *phy_drd)
++{
++	if (clk_bulk_prepare_enable(phy_drd->drv_data->n_clks, phy_drd->clks)) {
++		dev_err(phy_drd->dev, "Failed to enable PHY clocks(s)\n");
++		return;
+ 	}
+ 
++	scoped_guard(mutex, &phy_drd->phy_mutex)
++		exynos850_usbdrd_set_vbus_valid(phy_drd);
++
+ 	clk_bulk_disable_unprepare(phy_drd->drv_data->n_clks, phy_drd->clks);
++}
++
++static int exynos5_usbdrd_force_vbus_valid_set(const char *val,
++					       const struct kernel_param *kp)
++{
++	struct exynos5_usbdrd_phy *phy_drd;
++	int ret;
++
++	guard(mutex)(&exynos5_usbdrd_vbus_lock);
++
++	ret = param_set_bool(val, kp);
++	if (ret)
++		return ret;
++
++	list_for_each_entry(phy_drd, &exynos5_usbdrd_vbus_phys, vbus_node) {
++		dev_info(phy_drd->dev, "VBUS valid %s\n",
++			 force_vbus_valid ? "forced" : "follows Type-C");
++		exynos5_usbdrd_vbus_apply(phy_drd);
++	}
+ 
+ 	return 0;
+ }
+ 
++static const struct kernel_param_ops exynos5_usbdrd_force_vbus_valid_ops = {
++	.set = exynos5_usbdrd_force_vbus_valid_set,
++	.get = param_get_bool,
++};
++module_param_cb(force_vbus_valid, &exynos5_usbdrd_force_vbus_valid_ops,
++		&force_vbus_valid, 0644);
++MODULE_PARM_DESC(force_vbus_valid,
++		 "Keep VBUS valid forced on PHYs with a Type-C orientation switch, ignoring disconnects (recovery when the port controller misbehaves)");
++
++static void exynos5_usbdrd_vbus_unlist(void *data)
++{
++	struct exynos5_usbdrd_phy *phy_drd = data;
++
++	guard(mutex)(&exynos5_usbdrd_vbus_lock);
++	list_del(&phy_drd->vbus_node);
++}
++
+ static void exynos5_usbdrd_orien_switch_unregister(void *data)
+ {
+ 	struct exynos5_usbdrd_phy *phy_drd = data;
+@@ -1914,6 +1990,16 @@ static int exynos5_usbdrd_setup_notifiers(struct exynos5_usbdrd_phy *phy_drd)
+ 		if (ret)
+ 			return dev_err_probe(phy_drd->dev, ret,
+ 					     "Failed to register TypeC orientation devm action\n");
++
++		scoped_guard(mutex, &exynos5_usbdrd_vbus_lock)
++			list_add_tail(&phy_drd->vbus_node,
++				      &exynos5_usbdrd_vbus_phys);
++
++		ret = devm_add_action_or_reset(phy_drd->dev,
++					       exynos5_usbdrd_vbus_unlist,
++					       phy_drd);
++		if (ret)
++			return ret;
+ 	}
+ 
+ 	return 0;

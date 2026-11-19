@@ -1,0 +1,81 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Mon, 12 Oct 2026 00:36:02 -0400
+Subject: [PATCH] usb: typec: tcpci_maxim: connect the USB data switches on
+ attach
+
+The MAX77759 (and MAX33359) route D+/D- through switches controlled by
+the vendor USBSW_CTRL register. The chip opens them when the partner is
+removed, and the driver closes them only when a USB PD source or sink
+says it is USB communications capable. A partner without PD (a PC port,
+a USB-A to C cable, or any port with pd-disable) therefore never gets a
+data connection after the first unplug, and TCPM's port reset at probe
+opens them for good.
+
+Close the switches whenever TCPM reports an attach, as Google's
+downstream driver does for every attach with a data role. PD can still
+open them through set_partner_usb_comm_capable(), and the port reset on
+detach still opens them.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ drivers/usb/typec/tcpm/tcpci_maxim_core.c | 33 ++++++++++++++++++-----
+ 1 file changed, 26 insertions(+), 7 deletions(-)
+
+diff --git a/drivers/usb/typec/tcpm/tcpci_maxim_core.c b/drivers/usb/typec/tcpm/tcpci_maxim_core.c
+index 998693a61..2c7c0e743 100644
+--- a/drivers/usb/typec/tcpm/tcpci_maxim_core.c
++++ b/drivers/usb/typec/tcpm/tcpci_maxim_core.c
+@@ -292,19 +292,37 @@ static void process_tx(struct max_tcpci_chip *chip, u16 status)
+ 		max_tcpci_init_regs(chip);
+ }
+ 
+-/* Enable USB switches when partner is USB communications capable */
+-static void max_tcpci_set_partner_usb_comm_capable(struct tcpci *tcpci, struct tcpci_data *data,
+-						   bool capable)
++static void max_tcpci_set_usb_switches(struct max_tcpci_chip *chip, bool enable)
+ {
+-	struct max_tcpci_chip *chip = tdata_to_max_tcpci(data);
+ 	int ret;
+ 
+-	ret = max_tcpci_write8(chip, TCPC_VENDOR_USBSW_CTRL, capable ?
++	ret = max_tcpci_write8(chip, TCPC_VENDOR_USBSW_CTRL, enable ?
+ 			       TCPC_VENDOR_USBSW_CTRL_ENABLE_USB_DATA :
+ 			       TCPC_VENDOR_USBSW_CTRL_DISABLE_USB_DATA);
+-
+ 	if (ret < 0)
+-		dev_err(chip->dev, "Failed to enable USB switches");
++		dev_err(chip->dev, "Failed to %s USB switches\n",
++			enable ? "enable" : "disable");
++}
++
++/* Enable USB switches when partner is USB communications capable */
++static void max_tcpci_set_partner_usb_comm_capable(struct tcpci *tcpci, struct tcpci_data *data,
++						   bool capable)
++{
++	max_tcpci_set_usb_switches(tdata_to_max_tcpci(data), capable);
++}
++
++/*
++ * The chip opens its USB data switches by itself when the partner goes
++ * away, and nothing closes them again for a partner that does not speak
++ * USB PD. USB 2.0 data is part of any Type-C attach, so close them on
++ * attach; a PD partner that is not USB communications capable opens them
++ * again through set_partner_usb_comm_capable().
++ */
++static void max_tcpci_set_roles(struct tcpci *tcpci, struct tcpci_data *data, bool attached,
++				enum typec_role role, enum typec_data_role data_role)
++{
++	if (attached)
++		max_tcpci_set_usb_switches(tdata_to_max_tcpci(data), true);
+ }
+ 
+ static irqreturn_t _max_tcpci_irq(struct max_tcpci_chip *chip, u16 status)
+@@ -520,6 +538,7 @@ static int max_tcpci_probe(struct i2c_client *client)
+ 	chip->data.auto_discharge_disconnect = true;
+ 	chip->data.vbus_vsafe0v = true;
+ 	chip->data.set_partner_usb_comm_capable = max_tcpci_set_partner_usb_comm_capable;
++	chip->data.set_roles = max_tcpci_set_roles;
+ 	chip->data.check_contaminant = max_tcpci_check_contaminant;
+ 	chip->data.cable_comm_capable = true;
+ 	chip->data.attempt_vconn_swap_discovery = max_tcpci_attempt_vconn_swap_discovery;

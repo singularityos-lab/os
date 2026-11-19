@@ -1,0 +1,138 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Wed, 14 Oct 2026 21:05:12 -0400
+Subject: [PATCH] media: i2c: ak7375: wait for a slow VCM at resume
+
+On the Google Pixel 7 Pro the main and ultrawide cameras' AK7375 VCMs
+are supplied by the camera PMIC (an SLG51002 LDO behind switched input
+rails). For a few seconds after the camera drivers load, both VCMs
+ignore every write ("ak7375_vcm_resume I2C failure: -6"), and answer at
+once later. Failing the runtime resume failed the subdev open, and
+libcamera dropped the lens for the whole session, so the main camera
+never focused in camera apps. The supplies were also left enabled on
+that error path, unbalancing the next resume.
+
+Retry the first write for about 250 ms (20 ms apart) after the nominal
+power-up delay, and log how many retries a VCM needed. When it still
+doesn't answer, keep it powered, let the open succeed, and switch it to
+active mode at the first focus move instead. Suspend skips the I2C
+writes of a VCM that was never set up.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ drivers/media/i2c/ak7375.c | 52 +++++++++++++++++++++++++++++++++-----
+ 1 file changed, 45 insertions(+), 7 deletions(-)
+
+diff --git a/drivers/media/i2c/ak7375.c b/drivers/media/i2c/ak7375.c
+index 9a2432cea..669aee3c0 100644
+--- a/drivers/media/i2c/ak7375.c
++++ b/drivers/media/i2c/ak7375.c
+@@ -65,6 +65,10 @@ static const struct ak73xx_chipdef ak7375_cdef = {
+ 	.power_delay_us	= 10000,
+ };
+ 
++/* about 250 ms in all: a camera PMIC's first enable after probe is slow */
++#define AK7375_RESUME_TRIES	12
++#define AK7375_RESUME_RETRY_US	20000
++
+ static const char * const ak7375_supply_names[] = {
+ 	"vdd",
+ 	"vio",
+@@ -80,6 +84,7 @@ struct ak7375_device {
+ 
+ 	/* active or standby mode */
+ 	bool active;
++	bool ready;	/* the VCM answered and is in active mode */
+ };
+ 
+ static inline struct ak7375_device *to_ak7375_vcm(struct v4l2_ctrl *ctrl)
+@@ -118,6 +123,16 @@ static int ak7375_set_ctrl(struct v4l2_ctrl *ctrl)
+ {
+ 	struct ak7375_device *dev_vcm = to_ak7375_vcm(ctrl);
+ 	const struct ak73xx_chipdef *cdef = dev_vcm->cdef;
++	int ret;
++
++	if (ctrl->id == V4L2_CID_FOCUS_ABSOLUTE && dev_vcm->active &&
++	    !dev_vcm->ready) {
++		ret = ak7375_i2c_write(dev_vcm, cdef->reg_cont,
++				       cdef->mode_active, 1);
++		if (ret)
++			return ret;
++		dev_vcm->ready = true;
++	}
+ 
+ 	if (ctrl->id == V4L2_CID_FOCUS_ABSOLUTE)
+ 		return ak7375_i2c_write(dev_vcm, cdef->reg_position,
+@@ -254,6 +269,9 @@ static int __maybe_unused ak7375_vcm_suspend(struct device *dev)
+ 	if (!ak7375_dev->active)
+ 		return 0;
+ 
++	if (!ak7375_dev->ready)
++		goto power_off;
++
+ 	for (val = ak7375_dev->focus->val & ~(cdef->ctrl_steps - 1);
+ 	     val >= 0; val -= cdef->ctrl_steps) {
+ 		ret = ak7375_i2c_write(ak7375_dev, cdef->reg_position,
+@@ -271,12 +289,14 @@ static int __maybe_unused ak7375_vcm_suspend(struct device *dev)
+ 			dev_err(dev, "%s I2C failure: %d\n", __func__, ret);
+ 	}
+ 
++power_off:
+ 	ret = regulator_bulk_disable(ARRAY_SIZE(ak7375_supply_names),
+ 				     ak7375_dev->supplies);
+ 	if (ret)
+ 		return ret;
+ 
+ 	ak7375_dev->active = false;
++	ak7375_dev->ready = false;
+ 
+ 	return 0;
+ }
+@@ -292,6 +312,7 @@ static int __maybe_unused ak7375_vcm_resume(struct device *dev)
+ 	struct v4l2_subdev *sd = dev_get_drvdata(dev);
+ 	struct ak7375_device *ak7375_dev = sd_to_ak7375_vcm(sd);
+ 	const struct ak73xx_chipdef *cdef = ak7375_dev->cdef;
++	unsigned int tries;
+ 	int ret, val;
+ 
+ 	if (ak7375_dev->active)
+@@ -302,15 +323,32 @@ static int __maybe_unused ak7375_vcm_resume(struct device *dev)
+ 	if (ret)
+ 		return ret;
+ 
+-	/* Wait for vcm to become ready */
+-	usleep_range(cdef->power_delay_us, cdef->power_delay_us + 500);
+-
+-	ret = ak7375_i2c_write(ak7375_dev, cdef->reg_cont,
+-			       cdef->mode_active, 1);
++	/*
++	 * Wait for vcm to become ready. A VCM whose supply comes from a
++	 * camera PMIC can take much longer than the nominal delay to answer
++	 * (on the Pixel 7 Pro, seconds after the camera drivers load): retry
++	 * for a while, and if it still doesn't answer, keep it powered and
++	 * set it up at the first move instead of failing the open, which
++	 * makes applications drop the lens altogether.
++	 */
++	for (tries = 0; tries < AK7375_RESUME_TRIES; tries++) {
++		if (tries)
++			usleep_range(AK7375_RESUME_RETRY_US, AK7375_RESUME_RETRY_US + 500);
++		else
++			usleep_range(cdef->power_delay_us, cdef->power_delay_us + 500);
++		ret = ak7375_i2c_write(ak7375_dev, cdef->reg_cont,
++				       cdef->mode_active, 1);
++		if (!ret)
++			break;
++	}
++	ak7375_dev->active = true;
++	ak7375_dev->ready = !ret;
+ 	if (ret) {
+-		dev_err(dev, "%s I2C failure: %d\n", __func__, ret);
+-		return ret;
++		dev_warn(dev, "VCM not answering yet (%d): set up at the first move\n", ret);
++		return 0;
+ 	}
++	if (tries)
++		dev_info(dev, "answered after %u retries\n", tries);
+ 
+ 	for (val = ak7375_dev->focus->val % cdef->ctrl_steps;
+ 	     val <= ak7375_dev->focus->val;

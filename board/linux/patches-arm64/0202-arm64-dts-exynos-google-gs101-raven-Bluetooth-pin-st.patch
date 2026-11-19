@@ -1,0 +1,60 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: saiththerobo <the.tom.sharp@gmail.com>
+Date: Mon, 26 Oct 2026 07:51:07 +0000
+Subject: [PATCH] arm64: dts: exynos: google: gs101-raven: Bluetooth pin states
+
+Give the three Bluetooth control lines a pinctrl state, as Google's
+gs101-common-bluetooth.dtsi does and as cheetah's gs201 tree has:
+BT_REG_ON (gpp16-2) and BT_DEV_WAKE (gpp14-3) as outputs without a pull,
+BT_HOST_WAKE (gpa6-6) as an external interrupt with a pull-down, all at
+2.5 mA. Until now they kept whatever the bootloader left.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Signed-off-by: saiththerobo <the.tom.sharp@gmail.com>
+---
+ .../boot/dts/exynos/google/gs101-raven.dts    | 28 +++++++++++++++++++
+ 1 file changed, 28 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/gs101-raven.dts b/arch/arm64/boot/dts/exynos/google/gs101-raven.dts
+index fc7a80fb3..350ab7502 100644
+--- a/arch/arm64/boot/dts/exynos/google/gs101-raven.dts
++++ b/arch/arm64/boot/dts/exynos/google/gs101-raven.dts
+@@ -62,6 +62,8 @@ bluetooth {
+ 		device-wakeup-gpios = <&gpp14 3 GPIO_ACTIVE_HIGH>;
+ 		interrupts-extended = <&gpa6 6 IRQ_TYPE_EDGE_RISING>;
+ 		interrupt-names = "host-wakeup";
++		pinctrl-0 = <&bt_reg_on &bt_dev_wake &bt_host_wake>;
++		pinctrl-names = "default";
+ 		max-speed = <3000000>;
+ 	};
+ };
+@@ -90,3 +92,29 @@ &gpu {
+ 
+ 	status = "okay";
+ };
++
++/* Bluetooth's control lines, as Google's gs101-common-bluetooth.dtsi sets them */
++&pinctrl_far_alive {
++	bt_host_wake: bt-host-wake-pins {
++		samsung,pins = "gpa6-6";
++		samsung,pin-function = <GS101_PIN_FUNC_EINT>;
++		samsung,pin-pud = <GS101_PIN_PULL_DOWN>;
++		samsung,pin-drv = <GS101_PIN_DRV_2_5_MA>;
++	};
++};
++
++&pinctrl_peric0 {
++	bt_dev_wake: bt-dev-wake-pins {
++		samsung,pins = "gpp14-3";
++		samsung,pin-function = <GS101_PIN_FUNC_OUTPUT>;
++		samsung,pin-pud = <GS101_PIN_PULL_NONE>;
++		samsung,pin-drv = <GS101_PIN_DRV_2_5_MA>;
++	};
++
++	bt_reg_on: bt-reg-on-pins {
++		samsung,pins = "gpp16-2";
++		samsung,pin-function = <GS101_PIN_FUNC_OUTPUT>;
++		samsung,pin-pud = <GS101_PIN_PULL_NONE>;
++		samsung,pin-drv = <GS101_PIN_DRV_2_5_MA>;
++	};
++};

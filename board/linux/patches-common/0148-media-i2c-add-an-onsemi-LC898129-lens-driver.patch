@@ -1,0 +1,424 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: cbm <omarchy-mobile@kloot.lu>
+Date: Sat, 7 Nov 2026 21:46:21 +0100
+Subject: [PATCH] media: i2c: add an onsemi LC898129 lens driver
+
+The Pixel 9a's main camera focuses through an LC898129, which also runs
+the module's optical image stabilisation. Add a V4L2 lens subdev for its
+focus part only, so libcamera's contrast autofocus can drive it like the
+other focus drivers.
+
+The controller shares the module's supplies and reset with the sensor
+and answers only while the sensor is powered, so, as for the SEM1215SA,
+it is powered through runtime PM only: the sensor driver holds its
+lens-focus device while streaming. Power-up waits until the controller
+answers a read of its servo mode (0xf010), up to 200 ms, then moves the
+lens to the control's value.
+
+There is no public datasheet or driver for the part. The register
+numbers and the form of a move were found by disassembling Google's
+camera HAL for the Pixel 9a: the LC898129 actuator code in
+liblyric_hwl.so, from the com.google.pixel.camera.hal APEX on the vendor
+partition of factory image BP3A.250905.014. That code reads 0xf010 and
+0x0548 and writes 0xf01a with 0x0002 in the upper half and the target
+in the lower half. No code was copied. What the registers do, the
+usable range and the direction were worked out on the phone, by reading
+registers and writing 0xf01a alone while measuring the picture's
+sharpness.
+
+After power-up the controller runs its focus servo by itself (0xf010
+reads 7) and holds the lens at 0x0fff in the focus target register,
+0xf01a. A move writes 0x0002 in the upper half of 0xf01a and the target
+in the lower half. On the phone the corrected Hall position (0x0548,
+upper half) followed the target's low 12 bits linearly over the whole
+stroke, from -16379 at 0 to 16381 at 4095, and was the same going up and
+down; setting bits above those also moved the picture in other ways, so
+the driver keeps to 0-4095. Register 0 is the near end and 4095 the far
+end, so the control counts the other way round: higher values focus
+closer, as V4L2_CID_FOCUS_ABSOLUTE expects. Its default, 0, is where the
+controller parks the lens itself.
+
+Only 0xf01a is written. The OIS and the calibration memory are left
+alone, so the control spans the whole stroke rather than the module's
+calibrated infinity-to-macro range. debug_position logs the Hall
+position read back after each move.
+
+Tested on a Pixel 9a with 7.3.0-rc6-omamobile-push1-ge8d722982099, on
+top of the camera device tree of linux-omarchy-mobile#164, whose
+lc898129.c is this commit's (blob 50cce3a5f4c0): while the main camera
+streams, focus_absolute 0, 1024, 2048, 3072, 4095, 2048, 0 settle at a
+Hall position of 16371, 8179, -7, -8197, -16383, -4 and 16369, and the
+lens is runtime-suspended again after the stream. libcamera's contrast
+autofocus (simple pipeline, soft ISP) sweeps the range in 8 coarse
+steps, then finely around the peak, and settles there; in omacam it
+brings a subject at about 25 cm into focus.
+
+Assisted-by: Claude:claude-opus-5-5
+Signed-off-by: cbm <omarchy-mobile@kloot.lu>
+---
+ drivers/media/i2c/Kconfig    |  11 ++
+ drivers/media/i2c/Makefile   |   1 +
+ drivers/media/i2c/lc898129.c | 320 +++++++++++++++++++++++++++++++++++
+ 3 files changed, 332 insertions(+)
+ create mode 100644 drivers/media/i2c/lc898129.c
+
+diff --git a/drivers/media/i2c/Kconfig b/drivers/media/i2c/Kconfig
+index 06e8614c5..edef8fa2b 100644
+--- a/drivers/media/i2c/Kconfig
++++ b/drivers/media/i2c/Kconfig
+@@ -983,6 +983,17 @@ config VIDEO_SEM1215
+ 	  To compile this driver as a module, choose M here: the
+ 	  module will be called sem1215.
+ 
++config VIDEO_LC898129
++	tristate "onsemi LC898129 lens focus support"
++	select V4L2_CCI_I2C
++	help
++	  This is a driver for the focus part of the onsemi LC898129
++	  autofocus and image stabilisation controller, as in the Google
++	  Pixel 9a's main camera.
++
++	  To compile this driver as a module, choose M here: the
++	  module will be called lc898129.
++
+ endif
+ 
+ menu "Flash devices"
+diff --git a/drivers/media/i2c/Makefile b/drivers/media/i2c/Makefile
+index de9058fc3..58200fd62 100644
+--- a/drivers/media/i2c/Makefile
++++ b/drivers/media/i2c/Makefile
+@@ -67,6 +67,7 @@ obj-$(CONFIG_VIDEO_IMX471) += imx471.o
+ obj-$(CONFIG_VIDEO_IR_I2C) += ir-kbd-i2c.o
+ obj-$(CONFIG_VIDEO_ISL7998X) += isl7998x.o
+ obj-$(CONFIG_VIDEO_KS0127) += ks0127.o
++obj-$(CONFIG_VIDEO_LC898129) += lc898129.o
+ obj-$(CONFIG_VIDEO_LM3560) += lm3560.o
+ obj-$(CONFIG_VIDEO_LM3646) += lm3646.o
+ obj-$(CONFIG_VIDEO_LT6911UXE) += lt6911uxe.o
+diff --git a/drivers/media/i2c/lc898129.c b/drivers/media/i2c/lc898129.c
+new file mode 100644
+index 000000000..50cce3a5f
+--- /dev/null
++++ b/drivers/media/i2c/lc898129.c
+@@ -0,0 +1,320 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * onsemi LC898129 lens driver (focus only)
++ *
++ * The LC898129 is onsemi's combined autofocus and optical image
++ * stabilisation controller, a small microcontroller with the module's
++ * calibration memory behind it; the Google Pixel 9a's main camera module
++ * uses one. It has 16-bit register addresses and 32-bit big-endian values.
++ * It shares the module's supplies and reset with the image sensor, so it
++ * only answers while the sensor is powered: the sensor's driver takes this
++ * device's runtime PM while it streams (lens-focus), and opening the subdev
++ * doesn't power it.
++ *
++ * This driver uses the focus part only. After power-up the controller runs
++ * its focus servo on its own (0xf010 reads 7) with the lens at the far end
++ * of a 12-bit range (0xf01a reads 0x0fff). A move writes 0x0002 in the
++ * upper half of 0xf01a and the 12-bit target in the lower half; the
++ * controller's corrected Hall position (0x0548, upper half) follows the
++ * target's low 12 bits linearly over the whole stroke, and bits above them
++ * move the picture in other ways, so they are never set. Position 0 of the
++ * register is the near end, 4095 the far end; the V4L2 control counts the
++ * other way round, so that higher values focus closer.
++ *
++ * Registers used (all others, the calibration memory included, are never
++ * written):
++ *   0xf010 servo mode (read only: the controller is up once it answers)
++ *   0xf01a focus target, 0x0002xxxx
++ *   0x0548 corrected Hall position, read back with debug_position
++ */
++
++#include <linux/delay.h>
++#include <linux/i2c.h>
++#include <linux/iopoll.h>
++#include <linux/module.h>
++#include <linux/pm_runtime.h>
++#include <linux/regulator/consumer.h>
++
++#include <media/v4l2-cci.h>
++#include <media/v4l2-ctrls.h>
++#include <media/v4l2-device.h>
++
++#define LC898129_REG_SERVO		CCI_REG32(0xf010)
++#define LC898129_REG_FOCUS		CCI_REG32(0xf01a)
++#define LC898129_FOCUS_CMD		0x00020000
++#define LC898129_REG_HALL		CCI_REG32(0x0548)
++
++#define LC898129_POS_MAX		4095
++#define LC898129_READY_TIMEOUT_US	200000
++
++static bool debug_position;
++module_param(debug_position, bool, 0644);
++MODULE_PARM_DESC(debug_position, "Log the Hall position read back after each move");
++
++static const char * const lc898129_supply_names[] = {
++	"vio", "vm", "vdda",
++};
++
++#define LC898129_NUM_SUPPLIES	ARRAY_SIZE(lc898129_supply_names)
++
++struct lc898129 {
++	struct device *dev;
++	struct regmap *regmap;
++	struct v4l2_subdev sd;
++	struct v4l2_ctrl_handler ctrls;
++	struct v4l2_ctrl *focus;
++	struct regulator *supplies[LC898129_NUM_SUPPLIES];
++	bool active;
++};
++
++static inline struct lc898129 *to_lc898129(struct v4l2_subdev *sd)
++{
++	return container_of(sd, struct lc898129, sd);
++}
++
++static int lc898129_move(struct lc898129 *lens, u32 val)
++{
++	u32 target = LC898129_POS_MAX - val;
++	int ret;
++
++	ret = cci_write(lens->regmap, LC898129_REG_FOCUS,
++			LC898129_FOCUS_CMD | target, NULL);
++
++	if (!ret && debug_position) {
++		u64 hall = 0;
++
++		usleep_range(10000, 11000);
++		cci_read(lens->regmap, LC898129_REG_HALL, &hall, NULL);
++		dev_info(lens->dev, "position %u (target %u), Hall %d\n",
++			 val, target, (s16)(hall >> 16));
++	}
++
++	return ret;
++}
++
++static int lc898129_set_ctrl(struct v4l2_ctrl *ctrl)
++{
++	struct lc898129 *lens = container_of(ctrl->handler, struct lc898129, ctrls);
++	int ret;
++
++	if (ctrl->id != V4L2_CID_FOCUS_ABSOLUTE)
++		return -EINVAL;
++
++	/* Only while powered; resume applies the value. */
++	if (pm_runtime_get_if_in_use(lens->dev) <= 0)
++		return 0;
++
++	ret = lc898129_move(lens, ctrl->val);
++	pm_runtime_put(lens->dev);
++
++	return ret;
++}
++
++static const struct v4l2_ctrl_ops lc898129_ctrl_ops = {
++	.s_ctrl = lc898129_set_ctrl,
++};
++
++static int lc898129_supplies_on(struct lc898129 *lens)
++{
++	int i, ret;
++
++	for (i = 0; i < LC898129_NUM_SUPPLIES; i++) {
++		if (!lens->supplies[i])
++			continue;
++		ret = regulator_enable(lens->supplies[i]);
++		if (ret)
++			goto err;
++	}
++
++	return 0;
++
++err:
++	while (--i >= 0)
++		if (lens->supplies[i])
++			regulator_disable(lens->supplies[i]);
++	return ret;
++}
++
++static void lc898129_supplies_off(struct lc898129 *lens)
++{
++	int i;
++
++	for (i = LC898129_NUM_SUPPLIES - 1; i >= 0; i--)
++		if (lens->supplies[i])
++			regulator_disable(lens->supplies[i]);
++}
++
++/* The controller boots after the sensor's reset: wait until it answers. */
++static int lc898129_wait_ready(struct lc898129 *lens)
++{
++	u64 servo = 0;
++	int ret, err;
++
++	ret = read_poll_timeout(cci_read, err, !err, 5000,
++				LC898129_READY_TIMEOUT_US, false,
++				lens->regmap, LC898129_REG_SERVO, &servo, NULL);
++	if (ret)
++		dev_err(lens->dev, "doesn't answer: %d\n", err);
++	else
++		dev_dbg(lens->dev, "servo mode 0x%llx\n", servo);
++
++	return ret ? err : 0;
++}
++
++static int lc898129_power_on(struct device *dev)
++{
++	struct v4l2_subdev *sd = dev_get_drvdata(dev);
++	struct lc898129 *lens = to_lc898129(sd);
++	int ret;
++
++	if (lens->active)
++		return 0;
++
++	ret = lc898129_supplies_on(lens);
++	if (ret)
++		return ret;
++
++	ret = lc898129_wait_ready(lens);
++	if (!ret)
++		ret = lc898129_move(lens, lens->focus->val);
++	if (ret) {
++		lc898129_supplies_off(lens);
++		return ret;
++	}
++
++	lens->active = true;
++
++	return 0;
++}
++
++static int lc898129_power_off(struct device *dev)
++{
++	struct v4l2_subdev *sd = dev_get_drvdata(dev);
++	struct lc898129 *lens = to_lc898129(sd);
++
++	if (!lens->active)
++		return 0;
++
++	lc898129_supplies_off(lens);
++	lens->active = false;
++
++	return 0;
++}
++
++static const struct v4l2_subdev_ops lc898129_ops = { };
++
++static int lc898129_init_controls(struct lc898129 *lens)
++{
++	struct v4l2_ctrl_handler *hdl = &lens->ctrls;
++
++	v4l2_ctrl_handler_init(hdl, 1);
++	/* 0 is where the controller parks the lens itself: the far end */
++	lens->focus = v4l2_ctrl_new_std(hdl, &lc898129_ctrl_ops,
++					V4L2_CID_FOCUS_ABSOLUTE, 0,
++					LC898129_POS_MAX, 1, 0);
++	if (hdl->error) {
++		int ret = hdl->error;
++
++		v4l2_ctrl_handler_free(hdl);
++		return ret;
++	}
++	lens->sd.ctrl_handler = hdl;
++
++	return 0;
++}
++
++static int lc898129_probe(struct i2c_client *client)
++{
++	struct device *dev = &client->dev;
++	struct lc898129 *lens;
++	unsigned int i;
++	int ret;
++
++	lens = devm_kzalloc(dev, sizeof(*lens), GFP_KERNEL);
++	if (!lens)
++		return -ENOMEM;
++
++	lens->dev = dev;
++	lens->regmap = devm_cci_regmap_init_i2c(client, 16);
++	if (IS_ERR(lens->regmap))
++		return PTR_ERR(lens->regmap);
++
++	/* the sensor powers the module; these only keep the rails counted */
++	for (i = 0; i < LC898129_NUM_SUPPLIES; i++) {
++		const char *name = lc898129_supply_names[i];
++
++		lens->supplies[i] = devm_regulator_get_optional(dev, name);
++		if (IS_ERR(lens->supplies[i])) {
++			ret = PTR_ERR(lens->supplies[i]);
++			if (ret == -ENODEV) {
++				lens->supplies[i] = NULL;
++				continue;
++			}
++			return dev_err_probe(dev, ret, "%s supply\n", name);
++		}
++	}
++
++	v4l2_i2c_subdev_init(&lens->sd, client, &lc898129_ops);
++	lens->sd.flags |= V4L2_SUBDEV_FL_HAS_DEVNODE;
++	lens->sd.entity.function = MEDIA_ENT_F_LENS;
++
++	ret = lc898129_init_controls(lens);
++	if (ret)
++		return ret;
++
++	ret = media_entity_pads_init(&lens->sd.entity, 0, NULL);
++	if (ret)
++		goto err_ctrls;
++
++	pm_runtime_enable(dev);
++
++	ret = v4l2_async_register_subdev(&lens->sd);
++	if (ret)
++		goto err_pm;
++
++	return 0;
++
++err_pm:
++	pm_runtime_disable(dev);
++	media_entity_cleanup(&lens->sd.entity);
++err_ctrls:
++	v4l2_ctrl_handler_free(&lens->ctrls);
++	return ret;
++}
++
++static void lc898129_remove(struct i2c_client *client)
++{
++	struct v4l2_subdev *sd = i2c_get_clientdata(client);
++	struct lc898129 *lens = to_lc898129(sd);
++
++	v4l2_async_unregister_subdev(sd);
++	v4l2_ctrl_handler_free(&lens->ctrls);
++	media_entity_cleanup(&sd->entity);
++	pm_runtime_disable(&client->dev);
++	if (!pm_runtime_status_suspended(&client->dev))
++		lc898129_power_off(&client->dev);
++	pm_runtime_set_suspended(&client->dev);
++}
++
++static DEFINE_RUNTIME_DEV_PM_OPS(lc898129_pm_ops, lc898129_power_off,
++				 lc898129_power_on, NULL);
++
++static const struct of_device_id lc898129_of_match[] = {
++	{ .compatible = "onnn,lc898129" },
++	{ }
++};
++MODULE_DEVICE_TABLE(of, lc898129_of_match);
++
++static struct i2c_driver lc898129_driver = {
++	.probe = lc898129_probe,
++	.remove = lc898129_remove,
++	.driver = {
++		.name = "lc898129",
++		.of_match_table = lc898129_of_match,
++		.pm = pm_ptr(&lc898129_pm_ops),
++	},
++};
++module_i2c_driver(lc898129_driver);
++
++MODULE_DESCRIPTION("onsemi LC898129 lens driver");
++MODULE_LICENSE("GPL");

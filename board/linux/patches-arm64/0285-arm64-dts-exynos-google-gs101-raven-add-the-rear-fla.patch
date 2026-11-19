@@ -1,0 +1,66 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: saiththerobo <the.tom.sharp@gmail.com>
+Date: Thu, 15 Oct 2026 20:54:59 +0100
+Subject: [PATCH] arm64: dts: exynos: google: gs101-raven: add the rear flash
+ LED
+
+The Pixel 6 Pro's rear flash LED driver is a TI LM3644 at 0x63 on I2C 7
+(USI7), with its HWEN on gpp23-6, as stock's raven device tree describes
+it. Torch only, capped at 50 mA per channel (a bring-up limit).
+
+Tested on raven (7.3.0-rc6): the driver reads the LM3644TT (device ID
+0x04) and offers 17 torch steps, 2550-49110 uA per channel; the LED
+turns on and off by hand and from the shell's torch tile (brightnessctl
+through logind, no udev rule needed).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Signed-off-by: saiththerobo <the.tom.sharp@gmail.com>
+---
+ .../boot/dts/exynos/google/gs101-raven.dts    | 30 +++++++++++++++++++
+ 1 file changed, 30 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/gs101-raven.dts b/arch/arm64/boot/dts/exynos/google/gs101-raven.dts
+index 1f4f95779..d48e0ae97 100644
+--- a/arch/arm64/boot/dts/exynos/google/gs101-raven.dts
++++ b/arch/arm64/boot/dts/exynos/google/gs101-raven.dts
+@@ -8,6 +8,7 @@
+ 
+ /dts-v1/;
+ 
++#include <dt-bindings/leds/common.h>
+ #include "gs101-pixel-common.dtsi"
+ 
+ / {
+@@ -297,3 +298,32 @@ &pmic {
+ 	/* for the charger cell */
+ 	monitored-battery = <&battery>;
+ };
++
++/*
++ * Rear flash LED: TI LM3644 at 0x63 on PERIC0 USI7 (Google's I2C bus 7, also
++ * the cameras' bus), HWEN on gpp23-6, as stock's raven device tree
++ * describes it. Stock drives it from the camera HAL through LWIS; torch only
++ * here, with cheetah's bring-up cap (not a stock value).
++ */
++&usi7 {
++	samsung,mode = <USI_MODE_I2C>;
++	status = "okay";
++};
++
++&hsi2c_7 {
++	clock-frequency = <370000>;
++	status = "okay";
++
++	led-controller@63 {
++		compatible = "ti,lm3644";
++		reg = <0x63>;
++		enable-gpios = <&gpp23 6 GPIO_ACTIVE_HIGH>;
++
++		led {
++			function = LED_FUNCTION_TORCH;
++			color = <LED_COLOR_ID_WHITE>;
++			led-sources = <1 2>;
++			led-max-microamp = <50000>;
++		};
++	};
++};

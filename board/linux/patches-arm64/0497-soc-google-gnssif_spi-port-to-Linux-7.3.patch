@@ -1,0 +1,607 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Mon, 2 Nov 2026 12:51:41 -0647
+Subject: [PATCH] soc: google: gnssif_spi: port to Linux 7.3
+
+Build Google's GNSS SPI interface driver as the two modules Google
+builds, gnss_spi.ko and gnssif.ko, under EXYNOS_GNSS_IF_SPI (Google's
+option name), and make it take its lines and names as the binding
+describes:
+
+- drivers/soc/google is new on omamobile. Its Kconfig menu and Makefile
+  are laid out as the curated series adds them for the GSA and AoC
+  drivers (linux-omarchy-mobile#141), so whichever lands second keeps
+  both sets of lines.
+- GPIOs: of_gpio.h is gone. The two lines are GPIO descriptors,
+  gnss2ap-spi-gpios (an input, also the interrupt, through
+  gpiod_to_irq()) and ap2gnss-spi-gpios (an output that starts low, as
+  Google's driver sets it). devm releases them. The node's lines are
+  active high, so the logical values are Google's raw ones.
+- The error path freed the interrupt with &gc as its cookie instead of
+  gc, which never matches; it now passes gc, as remove() does too.
+- A failed enable_irq_wake() no longer fails the probe: GNSS works
+  without it, it just can't wake the AP.
+- device,name and device_node_name are not in the binding: the names
+  are fixed ("KEPLER", which only appears in log lines, and "gnss_ipc",
+  the device the GNSS daemon opens), and the macros that read them go.
+- Google's subsystem coredump (sscoredump) is not in this kernel. A dump
+  the daemon writes to the coredump attribute goes to devcoredump, its
+  counterpart here, with the reason logged.
+- API drift: remove() returns void, strscpy() instead of strncpy(),
+  __poll_t and EPOLL*, __user on the read buffer, %zu for size_t; the
+  unused gif_trace() (with the gone %pF) and the leftover linux/gpio.h
+  includes go.
+- W=1: init_io_device() is static, and an unused variable in open goes.
+- checkpatch: the static last_trigger_time loses its "= 0".
+- gnss_spi gets an spi_device_id table ("gnss-spi"): without one the SPI
+  core warns, when the driver registers, that it has none for the
+  compatible.
+
+The SPI transfers are still Google's; the next commits change them.
+
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ drivers/soc/google/Kconfig                    |  1 +
+ drivers/soc/google/Makefile                   |  1 +
+ drivers/soc/google/gnssif_spi/Kconfig         | 14 ++++
+ drivers/soc/google/gnssif_spi/Makefile        |  6 ++
+ .../soc/google/gnssif_spi/gnss_io_device.c    | 18 ++---
+ .../google/gnssif_spi/gnss_keplerctl_device.c | 73 ++++++-----------
+ .../soc/google/gnssif_spi/gnss_link_device.c  |  1 -
+ drivers/soc/google/gnssif_spi/gnss_main.c     | 80 ++++++-------------
+ drivers/soc/google/gnssif_spi/gnss_spi.c      |  7 ++
+ drivers/soc/google/gnssif_spi/gnss_utils.c    |  4 +-
+ drivers/soc/google/gnssif_spi/include/gnss.h  | 43 +---------
+ 11 files changed, 86 insertions(+), 162 deletions(-)
+ create mode 100644 drivers/soc/google/gnssif_spi/Kconfig
+ create mode 100644 drivers/soc/google/gnssif_spi/Makefile
+
+diff --git a/drivers/soc/google/Kconfig b/drivers/soc/google/Kconfig
+index f4dd87cb8..7fb05aefa 100644
+--- a/drivers/soc/google/Kconfig
++++ b/drivers/soc/google/Kconfig
+@@ -95,6 +95,7 @@ config GS201_AOC_ALSA
+ 	  limits in device/cheetah/AUDIO-PLAN.md.
+ 
+ source "drivers/soc/google/cpif/Kconfig"
++source "drivers/soc/google/gnssif_spi/Kconfig"
+ 
+ endmenu
+ 
+diff --git a/drivers/soc/google/Makefile b/drivers/soc/google/Makefile
+index db9ae7980..3cf5691f6 100644
+--- a/drivers/soc/google/Makefile
++++ b/drivers/soc/google/Makefile
+@@ -6,3 +6,4 @@ obj-$(CONFIG_GS201_AOC_RAILS)	+= gs201-aoc-rails.o
+ obj-$(CONFIG_GS201_CAM_POWER)	+= gs201-cam-power.o
+ obj-y				+= aoc/
+ obj-y				+= cpif/
++obj-$(CONFIG_EXYNOS_GNSS_IF_SPI)	+= gnssif_spi/
+diff --git a/drivers/soc/google/gnssif_spi/Kconfig b/drivers/soc/google/gnssif_spi/Kconfig
+new file mode 100644
+index 000000000..22432974f
+--- /dev/null
++++ b/drivers/soc/google/gnssif_spi/Kconfig
+@@ -0,0 +1,14 @@
++# SPDX-License-Identifier: GPL-2.0-only
++config EXYNOS_GNSS_IF_SPI
++	tristate "Samsung Kepler GNSS interface over SPI"
++	depends on SPI && GPIOLIB && OF
++	select WANT_DEV_COREDUMP
++	help
++	  Google's driver for the Kepler GNSS core in Samsung's S5300 modem,
++	  as in the Pixel 9a. gnss_spi binds the core's SPI device, and
++	  gnssif binds its two request lines and gives the GNSS daemon the
++	  character device /dev/gnss_ipc. The core runs only while the modem
++	  is up, with firmware the daemon loads through the modem driver.
++
++	  To compile this driver as modules, choose M here: the modules will
++	  be called gnss_spi and gnssif.
+diff --git a/drivers/soc/google/gnssif_spi/Makefile b/drivers/soc/google/gnssif_spi/Makefile
+new file mode 100644
+index 000000000..e97a1ed40
+--- /dev/null
++++ b/drivers/soc/google/gnssif_spi/Makefile
+@@ -0,0 +1,6 @@
++# SPDX-License-Identifier: GPL-2.0-only
++obj-$(CONFIG_EXYNOS_GNSS_IF_SPI) += gnss_spi.o
++
++obj-$(CONFIG_EXYNOS_GNSS_IF_SPI) += gnssif.o
++gnssif-y += gnss_main.o gnss_io_device.o gnss_keplerctl_device.o gnss_link_device.o
++gnssif-y += gnss_utils.o
+diff --git a/drivers/soc/google/gnssif_spi/gnss_io_device.c b/drivers/soc/google/gnssif_spi/gnss_io_device.c
+index 0fd47356b..6852c6bfb 100644
+--- a/drivers/soc/google/gnssif_spi/gnss_io_device.c
++++ b/drivers/soc/google/gnssif_spi/gnss_io_device.c
+@@ -9,7 +9,6 @@
+ #include <linux/fs.h>
+ #include <linux/poll.h>
+ #include <linux/irq.h>
+-#include <linux/gpio.h>
+ #include <linux/if_arp.h>
+ #include <linux/ip.h>
+ #include <linux/if_ether.h>
+@@ -57,13 +56,10 @@ static int misc_open(struct inode *inode, struct file *filp)
+ {
+ 	struct io_device *iod = container_of(filp->private_data, struct io_device,
+ 			miscdev);
+-	struct link_device *ld;
+ 	int ref_cnt;
+ 
+ 	filp->private_data = (void *)iod;
+ 
+-	ld = iod->ld;
+-
+ 	ref_cnt = atomic_inc_return(&iod->opened);
+ 
+ 	gif_info("%s (opened %d)\n", iod->name, ref_cnt);
+@@ -85,7 +81,7 @@ static int misc_release(struct inode *inode, struct file *filp)
+ 	return 0;
+ }
+ 
+-static unsigned int misc_poll(struct file *filp, struct poll_table_struct *wait)
++static __poll_t misc_poll(struct file *filp, struct poll_table_struct *wait)
+ {
+ 	struct io_device *iod = (struct io_device *)filp->private_data;
+ 
+@@ -93,7 +89,7 @@ static unsigned int misc_poll(struct file *filp, struct poll_table_struct *wait)
+ 		poll_wait(filp, &iod->wq, wait);
+ 
+ 	if (!skb_queue_empty(&iod->sk_rx_q))
+-		return POLLIN | POLLRDNORM;
++		return EPOLLIN | EPOLLRDNORM;
+ 
+ 	return 0;
+ }
+@@ -121,7 +117,7 @@ static ssize_t misc_write(struct file *filp, const char __user *data,
+ 		return -ENOMEM;
+ 
+ 	if (copy_from_user(buff, data, count)) {
+-		gif_err("%s->%s: ERR! copy_from_user fail (count %ld)\n",
++		gif_err("%s->%s: ERR! copy_from_user fail (count %zu)\n",
+ 			iod->name, ld->name, count);
+ 		kfree(buff);
+ 		return -EFAULT;
+@@ -129,7 +125,7 @@ static ssize_t misc_write(struct file *filp, const char __user *data,
+ 
+ 	ret = ld->send(ld, iod, buff, roundup(count, ALIGNMENT_4BYTE));
+ 	if (ret < 0) {
+-		gif_err("%s->%s: ERR! ld->send fail (err %d, count %ld)\n",
++		gif_err("%s->%s: ERR! ld->send fail (err %d, count %zu)\n",
+ 			iod->name, ld->name, ret, count);
+ 		kfree(buff);
+ 		return ret;
+@@ -139,8 +135,8 @@ static ssize_t misc_write(struct file *filp, const char __user *data,
+ 	return count;
+ }
+ 
+-static ssize_t misc_read(struct file *filp, char *buf, size_t count,
+-			loff_t *fpos)
++static ssize_t misc_read(struct file *filp, char __user *buf, size_t count,
++			 loff_t *fpos)
+ {
+ 	struct io_device *iod = (struct io_device *)filp->private_data;
+ 	struct sk_buff_head *rxq = &iod->sk_rx_q;
+@@ -197,7 +193,7 @@ static const struct file_operations misc_io_fops = {
+ 	.read = misc_read,
+ };
+ 
+-int init_io_device(struct io_device *iod, struct device *dev)
++static int init_io_device(struct io_device *iod, struct device *dev)
+ {
+ 	int ret = 0;
+ 
+diff --git a/drivers/soc/google/gnssif_spi/gnss_keplerctl_device.c b/drivers/soc/google/gnssif_spi/gnss_keplerctl_device.c
+index d005bec9f..397985600 100644
+--- a/drivers/soc/google/gnssif_spi/gnss_keplerctl_device.c
++++ b/drivers/soc/google/gnssif_spi/gnss_keplerctl_device.c
+@@ -6,8 +6,7 @@
+ 
+ #include <linux/init.h>
+ #include <linux/irq.h>
+-#include <linux/gpio.h>
+-#include <linux/of_gpio.h>
++#include <linux/gpio/consumer.h>
+ #include <linux/delay.h>
+ 
+ #include "include/gnss.h"
+@@ -37,19 +36,19 @@ static irqreturn_t kepler_spi_irq_handler(int irq, void *data)
+ 
+ static int kepler_spi_status(struct gnss_ctl *gc)
+ {
+-	return gpio_get_value(gc->gpio_gnss2ap_spi.num);
++	return gpiod_get_value(gc->gpio_gnss2ap_spi.desc);
+ }
+ 
+ static void kepler_send_betp_int(struct gnss_ctl *gc, int value)
+ {
+ 	gif_debug("About to Set ap2gnss_spi value to %d\n", value);
+-	gpio_set_value(gc->gpio_ap2gnss_spi.num, value);
++	gpiod_set_value(gc->gpio_ap2gnss_spi.desc, value);
+ 	gif_debug("complete to set ap2gnss_spi value to %d\n", value);
+ }
+ 
+ static int kepler_betp_int_status(struct gnss_ctl *gc)
+ {
+-	return gpio_get_value(gc->gpio_ap2gnss_spi.num);
++	return gpiod_get_value(gc->gpio_ap2gnss_spi.desc);
+ }
+ 
+ static void gnss_set_ops(struct gnss_ctl *gc)
+@@ -62,29 +61,24 @@ static void gnss_set_ops(struct gnss_ctl *gc)
+ static int init_ctl_device(struct gnss_ctl *gc, struct gnss_pdata *pdata)
+ {
+ 	int ret;
+-	struct platform_device *pdev;
+-	struct device_node *np;
+ 
+ 	gnss_set_ops(gc);
+ 
+ 	dev_set_drvdata(gc->dev, gc);
+ 
+-	pdev = to_platform_device(gc->dev);
+-	np = pdev->dev.of_node;
+-
+ 	/* GNSS2AP SPI INT */
+-	gc->gpio_gnss2ap_spi.num = of_get_named_gpio(np, "gpio_gnss2ap_spi", 0);
+-	if (gc->gpio_gnss2ap_spi.num < 0) {
+-		gif_err("Can't get gpio_gnss2ap_spi!\n");
+-		return -ENODEV;
+-	}
+ 	gc->gpio_gnss2ap_spi.label = "GNSS2AP_SPI";
+-	ret = gpio_request(gc->gpio_gnss2ap_spi.num, gc->gpio_gnss2ap_spi.label);
+-	if (ret) {
+-		gif_err("Request gpio fail - gpio_gnss2ap_spi.num failed(%d)\n", ret);
++	gc->gpio_gnss2ap_spi.desc = devm_gpiod_get(gc->dev, "gnss2ap-spi", GPIOD_IN);
++	if (IS_ERR(gc->gpio_gnss2ap_spi.desc)) {
++		gif_err("Can't get gnss2ap-spi-gpios!\n");
++		return PTR_ERR(gc->gpio_gnss2ap_spi.desc);
++	}
++	ret = gpiod_to_irq(gc->gpio_gnss2ap_spi.desc);
++	if (ret < 0) {
++		gif_err("gnss2ap-spi-gpios has no interrupt (%d)\n", ret);
+ 		return ret;
+ 	}
+-	gc->irq_gnss2ap_spi.num = gpio_to_irq(gc->gpio_gnss2ap_spi.num);
++	gc->irq_gnss2ap_spi.num = ret;
+ 
+ 	/* Disable the interrupt until gnss_main.c probe function finish */
+ 	gif_configure_irq(&gc->irq_gnss2ap_spi, gc->irq_gnss2ap_spi.num,
+@@ -93,54 +87,33 @@ static int init_ctl_device(struct gnss_ctl *gc, struct gnss_pdata *pdata)
+ 	ret = gif_request_irq(&gc->irq_gnss2ap_spi, kepler_spi_irq_handler, gc);
+ 	if (ret) {
+ 		gif_err("Request irq fail - kepler_spi_irq_handler(%d)\n", ret);
+-		goto free_gpio_gnss2ap;
++		return ret;
+ 	}
+ 
++	/* Without a wake source GNSS still works; it can't wake the AP. */
+ 	ret = enable_irq_wake(gc->irq_gnss2ap_spi.num);
+-	if (ret) {
++	if (ret)
+ 		gif_err("Failed to enable wakeup_source - enable_irq_wake(%d)\n", ret);
+-		goto free_gpio_irq;
+-	}
+ 
+-	gc->gpio_ap2gnss_spi.num =
+-				of_get_named_gpio(np, "gpio_ap2gnss_spi", 0);
+-	if (gc->gpio_ap2gnss_spi.num < 0) {
+-		gif_err("Can't get gpio_ap2gnss_spi!\n");
+-		ret = -ENODEV;
+-		goto free_gpio_irq;
+-	}
++	/* The line starts low, as Google's driver sets it. */
+ 	gc->gpio_ap2gnss_spi.label = "AP2GNSS_SPI";
+-	ret = gpio_request(gc->gpio_ap2gnss_spi.num, gc->gpio_ap2gnss_spi.label);
+-	if (ret) {
+-		gif_err("Request gpio fail - gpio_ap2gnss_spi.num failed(%d)\n", ret);
++	gc->gpio_ap2gnss_spi.desc = devm_gpiod_get(gc->dev, "ap2gnss-spi", GPIOD_OUT_LOW);
++	if (IS_ERR(gc->gpio_ap2gnss_spi.desc)) {
++		ret = PTR_ERR(gc->gpio_ap2gnss_spi.desc);
++		gif_err("Can't get ap2gnss-spi-gpios (%d)\n", ret);
+ 		goto free_gpio_irq;
+ 	}
+ 
+-	ret = gpio_direction_output(gc->gpio_ap2gnss_spi.num, 0);
+-	if (ret) {
+-		gif_err("Set gpio direction fail - gpio_ap2gnss_spi.num failed(%d)\n", ret);
+-		goto free_gpio_ap2gnss;
+-	}
+-
+-	/* initialize gpio values to all zero */
+-	gpio_set_value(gc->gpio_ap2gnss_spi.num, 0);
+-
+ 	init_completion(&gc->gnss_rdy_cmpl);
+ 
+ 	atomic_set(&gc->wait_rdy, 0);
+ 	atomic_set(&gc->tx_in_progress, 0);
+ 	atomic_set(&gc->rx_in_progress, 0);
+ 
+-	return ret;
+-
+-free_gpio_ap2gnss:
+-	gpio_free(gc->gpio_ap2gnss_spi.num);
++	return 0;
+ 
+ free_gpio_irq:
+-	free_irq(gc->irq_gnss2ap_spi.num, &gc);
+-
+-free_gpio_gnss2ap:
+-	gpio_free(gc->gpio_gnss2ap_spi.num);
++	free_irq(gc->irq_gnss2ap_spi.num, gc);
+ 
+ 	return ret;
+ 
+diff --git a/drivers/soc/google/gnssif_spi/gnss_link_device.c b/drivers/soc/google/gnssif_spi/gnss_link_device.c
+index abd81efe7..fca0798a6 100644
+--- a/drivers/soc/google/gnssif_spi/gnss_link_device.c
++++ b/drivers/soc/google/gnssif_spi/gnss_link_device.c
+@@ -5,7 +5,6 @@
+  */
+ 
+ #include <linux/irq.h>
+-#include <linux/gpio.h>
+ #include <linux/interrupt.h>
+ #include <linux/skbuff.h>
+ #include <linux/delay.h>
+diff --git a/drivers/soc/google/gnssif_spi/gnss_main.c b/drivers/soc/google/gnssif_spi/gnss_main.c
+index fddc1c233..0d0dd279c 100644
+--- a/drivers/soc/google/gnssif_spi/gnss_main.c
++++ b/drivers/soc/google/gnssif_spi/gnss_main.c
+@@ -3,36 +3,24 @@
+  * Copyright (C) 2022 Samsung Electronics.
+  *
+  */
++#include <linux/devcoredump.h>
+ #include <linux/init.h>
+-#include <linux/gpio.h>
++#include <linux/gpio/consumer.h>
+ #include <linux/module.h>
+ #include <linux/of.h>
+ #include <linux/platform_device.h>
+-#include <linux/platform_data/sscoredump.h>
+ #include <linux/time.h>
++#include <linux/vmalloc.h>
+ 
+ #include "gnss_prj.h"
+ #include "gnss_utils.h"
+ 
+-#define DEVICE_NAME "gnss"
+-
+-static void sscd_release(struct device *dev);
+-
+-static struct sscd_platform_data sscd_pdata;
+-
+-static struct platform_device sscd_dev = {
+-	.name            = DEVICE_NAME,
+-	.driver_override = SSCD_NAME,
+-	.id              = -1,
+-	.dev             = {
+-		.platform_data = &sscd_pdata,
+-		.release       = sscd_release,
+-		},
+-};
+-
+-static void sscd_release(struct device *dev)
++/* Hand a dump to devcoredump, which frees it. */
++static void gnss_set_coredump(struct device *dev, void *dump, size_t len,
++			      const char *reason)
+ {
+-	gif_info("%s: enter\n", __FUNCTION__);
++	gif_err("GNSS coredump: %s (%zu bytes)\n", reason, len);
++	dev_coredumpv(dev, dump, len, GFP_KERNEL);
+ }
+ 
+ static ssize_t coredump_store(struct device *dev, struct device_attribute *attr, const char *buf,
+@@ -43,7 +31,7 @@ static ssize_t coredump_store(struct device *dev, struct device_attribute *attr,
+ 	char *coredump = NULL;
+ 	char *reason = NULL;
+ 	int length = 0;
+-	static time64_t last_trigger_time = 0;
++	static time64_t last_trigger_time;
+ 	time64_t trigger_time = ktime_get_seconds();
+ 
+ 	// Ignore the trigger time less than 30 seconds
+@@ -64,19 +52,18 @@ static ssize_t coredump_store(struct device *dev, struct device_attribute *attr,
+ 		memcpy(reason, buf, length);
+ 		reason[length] = '\0';
+ 		length = strlen(next + 1);
+-		coredump = kmalloc(length, GFP_KERNEL);
++		coredump = vmalloc(length);
+ 		if (!coredump) {
+ 			gif_err("Allocate crash coredump failed\n");
+ 			goto clean;
+ 		}
+ 		memcpy(coredump, next + 1, length);
+-		gnss_set_coredump(coredump, length, reason);
++		gnss_set_coredump(dev, coredump, length, reason);
++		coredump = NULL;
+ 	}
+ clean:
+-	if (reason)
+-		kfree(reason);
+-	if (coredump)
+-		kfree(coredump);
++	kfree(reason);
++	vfree(coredump);
+ 	return count;
+ }
+ 
+@@ -84,8 +71,13 @@ static DEVICE_ATTR_WO(coredump);
+ 
+ static int parse_dt_common_pdata(struct device_node *np, struct gnss_pdata *pdata)
+ {
+-	gif_dt_read_string(np, "device,name", pdata->name);
+-	gif_dt_read_string(np, "device_node_name", pdata->node_name);
++	/*
++	 * Google's device tree names these in device,name and
++	 * device_node_name. They describe no hardware, and the GNSS daemon
++	 * opens /dev/gnss_ipc, so they are fixed here.
++	 */
++	pdata->name = "KEPLER";
++	pdata->node_name = "gnss_ipc";
+ 
+ 	gif_info("device name: %s node name: %s\n", pdata->name, pdata->node_name);
+ 	return 0;
+@@ -120,25 +112,17 @@ static struct gnss_pdata *gnss_if_parse_dt_pdata(struct device *dev)
+ 	return ERR_PTR(-EINVAL);
+ }
+ 
+-static int gnss_remove(struct platform_device *pdev)
++static void gnss_remove(struct platform_device *pdev)
+ {
+ 	struct gnss_ctl *gc = platform_get_drvdata(pdev);
+ 
+ 	gif_disable_irq_sync(&gc->irq_gnss2ap_spi);
+ 
+-	gpio_set_value(gc->gpio_ap2gnss_spi.num, 0);
+-
+-	free_irq(gc->irq_gnss2ap_spi.num, &gc);
+-
+-	gpio_free(gc->gpio_ap2gnss_spi.num);
+-
+-	gpio_free(gc->gpio_gnss2ap_spi.num);
++	gpiod_set_value(gc->gpio_ap2gnss_spi.desc, 0);
+ 
+-	platform_device_unregister(&sscd_dev);
++	free_irq(gc->irq_gnss2ap_spi.num, gc);
+ 
+ 	device_remove_file(&pdev->dev, &dev_attr_coredump);
+-
+-	return 0;
+ }
+ 
+ static int gnss_probe(struct platform_device *pdev)
+@@ -186,8 +170,6 @@ static int gnss_probe(struct platform_device *pdev)
+ 
+ 	platform_set_drvdata(pdev, gc);
+ 
+-	platform_device_register(&sscd_dev);
+-
+ 	if (device_create_file(dev, &dev_attr_coredump))
+ 		gif_err("Unable to create sysfs coredump entry");
+ 
+@@ -230,19 +212,5 @@ static struct platform_driver gnss_driver = {
+ 
+ module_platform_driver(gnss_driver);
+ 
+-int gnss_set_coredump(const char *buf, int buf_len, const char *info)
+-{
+-	struct sscd_platform_data *pdata = dev_get_platdata(&sscd_dev.dev);
+-	struct sscd_segment seg;
+-
+-	if (pdata->sscd_report) {
+-		memset(&seg, 0, sizeof(seg));
+-		seg.addr = (void *)buf;
+-		seg.size = buf_len;
+-		pdata->sscd_report(&sscd_dev, &seg, 1, 0, info);
+-	}
+-	return 0;
+-}
+-
+ MODULE_DESCRIPTION("Exynos GNSS interface driver");
+ MODULE_LICENSE("GPL");
+diff --git a/drivers/soc/google/gnssif_spi/gnss_spi.c b/drivers/soc/google/gnssif_spi/gnss_spi.c
+index 83680d08d..eeec109d1 100644
+--- a/drivers/soc/google/gnssif_spi/gnss_spi.c
++++ b/drivers/soc/google/gnssif_spi/gnss_spi.c
+@@ -95,7 +95,14 @@ static const struct of_device_id gnss_spi_dt_match[] = {
+ };
+ MODULE_DEVICE_TABLE(of, gnss_spi_dt_match);
+ 
++static const struct spi_device_id gnss_spi_ids[] = {
++	{ "gnss-spi" },
++	{ }
++};
++MODULE_DEVICE_TABLE(spi, gnss_spi_ids);
++
+ static struct spi_driver gnss_spi_driver = {
++	.id_table = gnss_spi_ids,
+ 	.probe = gnss_spi_probe,
+ 	.remove = gnss_spi_remove,
+ 	.driver = {
+diff --git a/drivers/soc/google/gnssif_spi/gnss_utils.c b/drivers/soc/google/gnssif_spi/gnss_utils.c
+index ed4b4c9d1..0825d80b8 100644
+--- a/drivers/soc/google/gnssif_spi/gnss_utils.c
++++ b/drivers/soc/google/gnssif_spi/gnss_utils.c
+@@ -8,7 +8,7 @@
+ #include <linux/platform_device.h>
+ #include <linux/interrupt.h>
+ #include <linux/irq.h>
+-#include <linux/gpio.h>
++#include <linux/string.h>
+ 
+ #include "gnss_prj.h"
+ #include "gnss_utils.h"
+@@ -19,7 +19,7 @@ void gif_configure_irq(struct gnss_irq *irq, unsigned int num, const char *name,
+ {
+ 	spin_lock_init(&irq->lock);
+ 	irq->num = num;
+-	strncpy(irq->name, name, sizeof(irq->name) - 1);
++	strscpy(irq->name, name, sizeof(irq->name));
+ 	irq->flags = flags;
+ 	gif_info("name:%s num:%d flags:0x%08lX\n", name, num, flags);
+ }
+diff --git a/drivers/soc/google/gnssif_spi/include/gnss.h b/drivers/soc/google/gnssif_spi/include/gnss.h
+index e7d4cc421..ccbd91faa 100644
+--- a/drivers/soc/google/gnssif_spi/include/gnss.h
++++ b/drivers/soc/google/gnssif_spi/include/gnss.h
+@@ -34,46 +34,10 @@ struct gnss_irq {
+ };
+ 
+ struct gnss_gpio {
+-	unsigned int num;
++	struct gpio_desc *desc;
+ 	const char *label;
+ };
+ 
+-#define gif_dt_read_enum(np, prop, dest) \
+-		do { \
+-				u32 val; \
+-				if (of_property_read_u32(np, prop, &val)) \
+-						return -EINVAL; \
+-				dest = (__typeof__(dest))(val); \
+-		} while (0)
+-
+-#define gif_dt_read_bool(np, prop, dest) \
+-		do { \
+-				u32 val; \
+-				if (of_property_read_u32(np, prop, &val)) \
+-						return -EINVAL; \
+-				dest = val ? true : false; \
+-		} while (0)
+-
+-#define gif_dt_read_string(np, prop, dest) \
+-		do { \
+-				if (of_property_read_string(np, prop, \
+-								(const char **)&dest)) \
+-				return -EINVAL; \
+-		} while (0)
+-
+-#define gif_dt_read_u32(np, prop, dest) \
+-		do { \
+-				u32 val; \
+-				if (of_property_read_u32(np, prop, &val)) \
+-						return -EINVAL; \
+-								dest = val; \
+-		} while (0)
+-#define gif_dt_read_u32_array(np, prop, dest, sz) \
+-		do { \
+-				if (of_property_read_u32_array(np, prop, dest, (sz))) \
+-						return -EINVAL; \
+-		} while (0)
+-
+ #define LOG_TAG "gif: "
+ #define CALLEE  (__func__)
+ #define CALLER  (__builtin_return_address(0))
+@@ -86,10 +50,5 @@ struct gnss_gpio {
+ 		pr_debug(LOG_TAG "%s: " pr_fmt(fmt), __func__, ##__VA_ARGS__)
+ #define gif_info(fmt, ...) \
+ 		pr_info(LOG_TAG "%s: " pr_fmt(fmt), __func__, ##__VA_ARGS__)
+-#define gif_trace(fmt, ...) \
+-		printk(KERN_DEBUG "gif: %s: %d: called(%pF): " fmt, \
+-				__func__, __LINE__, __builtin_return_address(0), ##__VA_ARGS__)
+-
+-int gnss_set_coredump(const char *buf, int buf_len, const char *info);
+ 
+ #endif /* __GNSS_IF_H__ */

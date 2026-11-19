@@ -1,0 +1,34 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: saiththerobo <the.tom.sharp@gmail.com>
+Date: Thu, 15 Oct 2026 15:07:46 +0100
+Subject: [PATCH] dt-bindings: firmware: google,gs101-acpm-ipc: allow assigned
+ clocks
+
+The bootloader leaves ACPM's DVFS domains at fixed rates (the memory bus
+at 2028 MHz on the Pixel 6 Pro) and nothing in Linux scales them yet. Let
+a board set a domain's rate at boot with assigned-clocks.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Signed-off-by: saiththerobo <the.tom.sharp@gmail.com>
+---
+ .../bindings/firmware/google,gs101-acpm-ipc.yaml           | 7 +++++++
+ 1 file changed, 7 insertions(+)
+
+diff --git a/Documentation/devicetree/bindings/firmware/google,gs101-acpm-ipc.yaml b/Documentation/devicetree/bindings/firmware/google,gs101-acpm-ipc.yaml
+index 908037b6b..3594fb906 100644
+--- a/Documentation/devicetree/bindings/firmware/google,gs101-acpm-ipc.yaml
++++ b/Documentation/devicetree/bindings/firmware/google,gs101-acpm-ipc.yaml
+@@ -36,6 +36,13 @@ properties:
+       appropriately with the clock scaling. The argument is the ID of the
+       clock contained by the firmware messages.
+ 
++  assigned-clocks:
++    description:
++      Firmware clocks to set at boot, for a board whose bootloader leaves
++      a domain at a rate nothing else scales yet.
++
++  assigned-clock-rates: true
++
+   mboxes:
+     maxItems: 1
+ 

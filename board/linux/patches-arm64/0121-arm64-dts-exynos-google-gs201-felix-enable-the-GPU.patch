@@ -1,0 +1,48 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: boozedog <code@booze.dog>
+Date: Mon, 19 Oct 2026 16:13:20 -0400
+Subject: [PATCH] arm64: dts: exynos: google: gs201-felix: enable the GPU
+
+The Pixel Fold's Mali-G710 is the same gs201 GPU as the Pixel 7 Pro.
+There is no mali-supply: the G3D rails follow the PMU power domain and
+ACPM.
+
+On 7.3.0-rc6-omandroid-push1-gb60e882f0c1f (built 2026-10-17) Panthor
+1.9.0 bound at 151 MHz. Mali-G710 id 0xa862, shader_present=0x1110055.
+CSF firmware 95a25d71030715381f33105394285e1dcc860a65, interface
+v1.5.0. Probe reported no mali regulator, which matches this node.
+
+glmark2-es2-drm scanned out through the cover simple-framebuffer
+(1080x2092). The renderer was Mali-G710 MC7 (Panfrost), OpenGL ES 3.1,
+Mesa 26.2.4-arch1.1.3.omamobile3. One vsynced scene
+scored 51. No GPU fault.
+
+Signed-off-by: boozedog <code@booze.dog>
+---
+ arch/arm64/boot/dts/exynos/google/gs201-felix.dts | 9 +++++++--
+ 1 file changed, 7 insertions(+), 2 deletions(-)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/gs201-felix.dts b/arch/arm64/boot/dts/exynos/google/gs201-felix.dts
+index 19275f2b2..3dd715dac 100644
+--- a/arch/arm64/boot/dts/exynos/google/gs201-felix.dts
++++ b/arch/arm64/boot/dts/exynos/google/gs201-felix.dts
+@@ -3,8 +3,8 @@
+  * Google Pixel Fold (felix).
+  *
+  * Same GS201 silicon as the Pixel 7 Pro. This board file brings up USB,
+- * the cover framebuffer the bootloader is already scanning, and UFS.
+- * It does not describe either panel or either touch controller. The
++ * the cover framebuffer the bootloader is already scanning, UFS, and the
++ * GPU. It does not describe either panel or either touch controller. The
+  * inner panel has no node that could drive it.
+  */
+ 
+@@ -90,3 +90,8 @@ &ufs_0 {
+ &ufs_0_phy {
+ 	status = "okay";
+ };
++
++&gpu {
++	/* No mali-supply: the G3D rails follow the PMU power domain and ACPM. */
++	status = "okay";
++};

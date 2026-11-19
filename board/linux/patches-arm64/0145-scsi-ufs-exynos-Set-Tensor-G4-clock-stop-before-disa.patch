@@ -1,0 +1,70 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Thu, 22 Oct 2026 16:15:17 -0700
+Subject: [PATCH] scsi: ufs: exynos: Set Tensor G4 clock stop before disable
+
+On the Pixel 9a prototype, shutdown reached the Exynos clock-off callback
+after host clock references had been dropped, then stopped during vendor
+HCI access. Hibern8 and PHY suspension had already completed.
+
+Select PRE_CHANGE for Tensor G4 clock-stop programming so the accesses
+finish while the host clocks remain enabled. Preserve POST_CHANGE for
+other variants and retain the register values and clock-on sequence.
+The controlled prototype test completed this callback and returned to
+native Linux on an ordinary reboot. Diagnostic tracing is excluded.
+
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ drivers/ufs/host/ufs-exynos.c | 11 +++++++++--
+ drivers/ufs/host/ufs-exynos.h |  1 +
+ 2 files changed, 10 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/ufs/host/ufs-exynos.c b/drivers/ufs/host/ufs-exynos.c
+index a7e73cf30..c72432af7 100644
+--- a/drivers/ufs/host/ufs-exynos.c
++++ b/drivers/ufs/host/ufs-exynos.c
+@@ -1145,15 +1145,21 @@ static int exynos_ufs_setup_clocks(struct ufs_hba *hba, bool on,
+ 				   enum ufs_notify_change_status status)
+ {
+ 	struct exynos_ufs *ufs = ufshcd_get_variant(hba);
++	enum ufs_notify_change_status off_status;
+ 
+ 	if (!ufs)
+ 		return 0;
+ 
++	/* Keep vendor registers accessible while programming clock stop. */
++	off_status = POST_CHANGE;
++	if (ufs->opts & EXYNOS_UFS_OPT_CLKSTOP_PRE_CHANGE)
++		off_status = PRE_CHANGE;
++
+ 	if (on && status == PRE_CHANGE) {
+ 		if (ufs->opts & EXYNOS_UFS_OPT_BROKEN_AUTO_CLK_CTRL)
+ 			exynos_ufs_disable_auto_ctrl_hcc(ufs);
+ 		exynos_ufs_ungate_clks(ufs);
+-	} else if (!on && status == POST_CHANGE) {
++	} else if (!on && status == off_status) {
+ 		exynos_ufs_gate_clks(ufs);
+ 		if (ufs->opts & EXYNOS_UFS_OPT_BROKEN_AUTO_CLK_CTRL)
+ 			exynos_ufs_enable_auto_ctrl_hcc(ufs);
+@@ -2533,7 +2539,8 @@ static const struct exynos_ufs_drv_data zumapro_ufs_drvs = {
+ 				  UFSHCD_QUIRK_SKIP_DEF_UNIPRO_TIMEOUT_SETTING,
+ 	.opts			= EXYNOS_UFS_OPT_SKIP_CONFIG_PHY_ATTR |
+ 				  EXYNOS_UFS_OPT_UFSPR_SECURE |
+-				  EXYNOS_UFS_OPT_TIMER_TICK_SELECT,
++				  EXYNOS_UFS_OPT_TIMER_TICK_SELECT |
++				  EXYNOS_UFS_OPT_CLKSTOP_PRE_CHANGE,
+ 	.iocc_mask		= UFS_GS101_SHARABLE,
+ 	.drv_init		= zumapro_ufs_drv_init,
+ 	.pre_link		= zumapro_ufs_pre_link,
+diff --git a/drivers/ufs/host/ufs-exynos.h b/drivers/ufs/host/ufs-exynos.h
+index abe7e4727..ecbf7da13 100644
+--- a/drivers/ufs/host/ufs-exynos.h
++++ b/drivers/ufs/host/ufs-exynos.h
+@@ -245,6 +245,7 @@ struct exynos_ufs {
+ #define EXYNOS_UFS_OPT_SKIP_CONFIG_PHY_ATTR	BIT(5)
+ #define EXYNOS_UFS_OPT_UFSPR_SECURE		BIT(6)
+ #define EXYNOS_UFS_OPT_TIMER_TICK_SELECT	BIT(7)
++#define EXYNOS_UFS_OPT_CLKSTOP_PRE_CHANGE	BIT(8)
+ };
+ 
+ #define for_each_ufs_rx_lane(ufs, i) \

@@ -1,0 +1,64 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Sun, 11 Oct 2026 18:17:30 -0400
+Subject: [PATCH] arm64: dts: exynos: google: gs201-cheetah: enable UFS
+
+Enable UFS on the Pixel 7 Pro. Google drives UFS VCC from GPIO gpp0-1
+with a boot-on fixed regulator. There is no gs201 GPIO support yet, so
+describe it as an always-on fixed regulator, as the bootloader leaves it.
+
+For first bring-up, also add "omandroid.ufs-probe" to the bootargs. The
+initramfs reads it, marks every SCSI disk and partition read-only, and
+prints the partition table. This hunk is bring-up only and not meant
+for upstream.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ .../boot/dts/exynos/google/gs201-cheetah.dts  | 23 ++++++++++++++++++-
+ 1 file changed, 22 insertions(+), 1 deletion(-)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts b/arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts
+index bbaea0a63..537c2d47c 100644
+--- a/arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts
++++ b/arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts
+@@ -19,7 +19,7 @@ / {
+ 
+ 	chosen {
+ 		/* ABL requires bootargs to exist; it appends its own after these. */
+-		bootargs = "console=tty0 fbcon=font:TER16x32 panic=10 clk_ignore_unused pd_ignore_unused rdinit=/init";
++		bootargs = "console=tty0 fbcon=font:TER16x32 panic=10 clk_ignore_unused pd_ignore_unused rdinit=/init omandroid.ufs-probe";
+ 		#address-cells = <2>;
+ 		#size-cells = <1>;
+ 		ranges;
+@@ -34,6 +34,18 @@ framebuffer0: framebuffer@fac00000 {
+ 		};
+ 	};
+ 
++	/*
++	 * UFS VCC. Google drives it from GPIO gpp0-1 (boot-on); there is no
++	 * gs201 GPIO driver yet, so describe it as always on, as the
++	 * bootloader leaves it.
++	 */
++	ufs_0_fixed_vcc_reg: regulator-ufs-vcc {
++		compatible = "regulator-fixed";
++		regulator-name = "ufs-vcc";
++		regulator-always-on;
++		regulator-boot-on;
++	};
++
+ 	reserved-memory {
+ 		#address-cells = <2>;
+ 		#size-cells = <1>;
+@@ -66,3 +78,12 @@ &usbdrd31_phy {
+ &usb_dwc3 {
+ 	status = "okay";
+ };
++
++&ufs_0 {
++	vcc-supply = <&ufs_0_fixed_vcc_reg>;
++	status = "okay";
++};
++
++&ufs_0_phy {
++	status = "okay";
++};

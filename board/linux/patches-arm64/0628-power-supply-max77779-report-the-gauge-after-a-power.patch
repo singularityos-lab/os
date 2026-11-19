@@ -1,0 +1,107 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: den-kloot <1522975+den-kloot@users.noreply.github.com>
+Date: Mon, 9 Nov 2026 14:05:23 +0100
+Subject: [PATCH] power: supply: max77779: report the gauge after a power-on
+ reset
+
+After the pack ran completely flat, the Pixel 9a's MAX77779 fuel gauge
+restarts with Status.POR (bit 1) set and no model reloaded: nothing on
+Linux reloads Google's model. The driver then refuses the gauge for good
+("Firmware model is not ready", -EAGAIN at probe), so there is no battery
+power supply at all, and with it no low-battery shutdown. The pack can run
+flat again, and the gauge stays in that state.
+
+The gauge still measures and runs its power-on configuration. Read on a
+phone in that state (i2cget, gauge unbound): Status 0x0002, FSTAT 0x0008
+(data ready), RepSOC 0x3868 (56 %), VCell 3.90 V, Current positive while
+charging, Temp 37 C. Accept POR once FSTAT reports the data ready, behind
+a module parameter (trust_por, default on), and warn at probe. Nothing is
+written to the gauge either way, and a gauge whose data aren't ready is
+still refused.
+
+The state of charge then comes from the gauge's defaults, not Google's
+model: FullCapRep reads 8.5 Ah (the pack is about 5 Ah). While POR is
+set, withhold what is worked out from that default pack (charge_now,
+charge_full, charge_full_design, time_to_empty_avg, time_to_full_avg:
+-ENODATA) and keep capacity, voltage, current, temperature and status.
+The percentage is still an estimate. Reloading the model, as the Pixel
+8 Pro's overlay does for its gauge, is the real fix.
+
+Measured on a 9a in that state, off the cable from the charger's "Full"
+to shutdown: "Full" reads 73 to 76 %, 10 % comes about five minutes
+before 0 % at roughly 0.55 A, and 0 % arrives at about 3.2 V with the
+phone still running, so a shutdown keyed on the percentage comes before
+the cell is flat.
+
+Assisted-by: LLM
+Signed-off-by: kloot <1522975+den-kloot@users.noreply.github.com>
+---
+ drivers/power/supply/max77779_battery.c | 34 ++++++++++++++++++++++++-
+ 1 file changed, 33 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/power/supply/max77779_battery.c b/drivers/power/supply/max77779_battery.c
+index 106226950..cafb9a685 100644
+--- a/drivers/power/supply/max77779_battery.c
++++ b/drivers/power/supply/max77779_battery.c
+@@ -82,6 +82,17 @@ static const struct regmap_config max77779_regmap = {
+ 	.cache_type = REGCACHE_NONE,
+ };
+ 
++/*
++ * After the pack ran flat the gauge restarts with POR set and no model
++ * reloaded (nothing on Linux reloads it). It still measures and, once FSTAT
++ * says the data are ready, reports state of charge from its power-on
++ * configuration: less exact than with Google's model, far better than no
++ * battery at all. Nothing is written to the gauge either way.
++ */
++static bool trust_por = true;
++module_param(trust_por, bool, 0644);
++MODULE_PARM_DESC(trust_por, "Report the gauge after a power-on reset with no model reloaded (default on)");
++
+ static int max77779_ready(struct max77779_battery *battery, u32 *status)
+ {
+ 	u32 fstat;
+@@ -94,7 +105,9 @@ static int max77779_ready(struct max77779_battery *battery, u32 *status)
+ 	if (ret)
+ 		return ret;
+ 	/* Never clear POR, reload a model, or publish uninitialised data. */
+-	if ((*status & MAX77779_POR) || (fstat & MAX77779_NOT_READY))
++	if (fstat & MAX77779_NOT_READY)
++		return -EAGAIN;
++	if ((*status & MAX77779_POR) && !trust_por)
+ 		return -EAGAIN;
+ 	return 0;
+ }
+@@ -176,6 +189,23 @@ static int max77779_get_property(struct power_supply *supply,
+ 	}
+ 	if (status & MAX77779_ABSENT)
+ 		return -ENODATA;
++	/*
++	 * After a power-on reset with no model reloaded, the charges and the
++	 * time estimates come from the gauge's default pack, not this one:
++	 * withhold them and keep the percentage, voltage and current.
++	 */
++	if (status & MAX77779_POR) {
++		switch (property) {
++		case POWER_SUPPLY_PROP_CHARGE_NOW:
++		case POWER_SUPPLY_PROP_CHARGE_FULL:
++		case POWER_SUPPLY_PROP_CHARGE_FULL_DESIGN:
++		case POWER_SUPPLY_PROP_TIME_TO_EMPTY_AVG:
++		case POWER_SUPPLY_PROP_TIME_TO_FULL_AVG:
++			return -ENODATA;
++		default:
++			break;
++		}
++	}
+ 	ret = regmap_read(battery->map, reg, &raw);
+ 	if (ret)
+ 		return ret;
+@@ -303,6 +333,8 @@ static int max77779_probe(struct i2c_client *client)
+ 	ret = max77779_ready(battery, &raw);
+ 	if (ret)
+ 		return dev_err_probe(dev, ret, "Firmware model is not ready\n");
++	if (raw & MAX77779_POR)
++		dev_warn(dev, "Power-on reset, no model reloaded: state of charge from the gauge's defaults\n");
+ 	battery->temp_valid = max77779_temp_valid(client);
+ 	config.drv_data = battery;
+ 	config.fwnode = dev_fwnode(dev);

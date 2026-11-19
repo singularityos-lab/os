@@ -1,0 +1,56 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Alejandro Garcia <skipper.pelygro@gmail.com>
+Date: Wed, 4 Nov 2026 21:28:00 -0800
+Subject: [PATCH] rtc: s5m: wait for the S2MPG12's read update too
+
+The S2MPG12 (gs201: Pixel 7 and 7 Pro) has the S2MPG10's RTC registers,
+and the same read update: the time registers get a copy of the counters
+on a rising edge of RUDR, and the copy takes time. Commit 210e28ff7eaa
+("rtc: s5m: wait for the S2MPG10's read update before reading the time")
+clears RUDR, waits, sets it and waits again only on the S2MPG10, so the
+S2MPG12 still reads the registers before the copy lands.
+
+On a Pixel 7, 20 suspends through `rtcwake -m freeze -s 30` woke after
+16 s four times and after 67 s once, every wake on the RTC alarm
+(rtc-alarm0 counted one per suspend). Six more, each with a read of
+/sys/class/rtc/rtc0/since_epoch just before rtcwake, showed that read
+45 s ahead of the system clock once and 15 s behind once, while
+rtcwake's own read a moment later was right and all six slept 31 s.
+rtcwake sets its alarm relative to its read, so a wrong first read
+moves the alarm by the same amount.
+
+Take the S2MPG10's path on the S2MPG12 too. With it, the same 20
+suspends each slept 31 s.
+
+Assisted-by: Claude Opus 5.5
+Signed-off-by: Alejandro Garcia <skipper.pelygro@gmail.com>
+---
+ drivers/rtc/rtc-s5m.c | 7 +++++--
+ 1 file changed, 5 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/rtc/rtc-s5m.c b/drivers/rtc/rtc-s5m.c
+index 1ac5cda1b..e38d8b918 100644
+--- a/drivers/rtc/rtc-s5m.c
++++ b/drivers/rtc/rtc-s5m.c
+@@ -357,8 +357,10 @@ static int s5m_rtc_read_time(struct device *dev, struct rtc_time *tm)
+ 		 * read at once, a read could return a time seconds old, and
+ 		 * an alarm set from it fired early or not at all. Clear it
+ 		 * first and wait for the copy, as Google's s2mpg10 driver does.
++		 * The S2MPG12's RTC has the same registers and the same copy.
+ 		 */
+-		if (info->device_type == S2MPG10) {
++		if (info->device_type == S2MPG10 ||
++		    info->device_type == S2MPG12) {
+ 			ret = regmap_clear_bits(info->regmap, info->regs->udr_update,
+ 						info->regs->read_time_udr_mask);
+ 			if (ret)
+@@ -369,7 +371,8 @@ static int s5m_rtc_read_time(struct device *dev, struct rtc_time *tm)
+ 				      info->regs->read_time_udr_mask);
+ 		if (ret)
+ 			goto udr_fail;
+-		if (info->device_type == S2MPG10)
++		if (info->device_type == S2MPG10 ||
++		    info->device_type == S2MPG12)
+ 			usleep_range(1000, 1100);
+ 	}
+ 	ret = regmap_bulk_read(info->regmap, info->regs->time, data,

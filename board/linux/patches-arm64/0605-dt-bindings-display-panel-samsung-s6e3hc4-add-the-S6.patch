@@ -1,0 +1,48 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: saiththerobo <the.tom.sharp@gmail.com>
+Date: Thu, 15 Oct 2026 04:47:00 +0100
+Subject: [PATCH] dt-bindings: display: panel: samsung,s6e3hc4: add the S6E3HC3
+
+The S6E3HC3 in the Pixel 6 Pro is the S6E3HC4's predecessor, with the
+same supplies and reset line. The bootloader leaves it running and its
+driver takes it over without a reset, so reset-gpios is required only
+for the S6E3HC4.
+
+Assisted-by: Claude Opus 5.5
+Signed-off-by: saiththerobo <the.tom.sharp@gmail.com>
+---
+ .../bindings/display/panel/samsung,s6e3hc4.yaml    | 14 ++++++++++++--
+ 1 file changed, 12 insertions(+), 2 deletions(-)
+
+diff --git a/Documentation/devicetree/bindings/display/panel/samsung,s6e3hc4.yaml b/Documentation/devicetree/bindings/display/panel/samsung,s6e3hc4.yaml
+index 39c26ee09..4a5081cea 100644
+--- a/Documentation/devicetree/bindings/display/panel/samsung,s6e3hc4.yaml
++++ b/Documentation/devicetree/bindings/display/panel/samsung,s6e3hc4.yaml
+@@ -20,7 +20,9 @@ allOf:
+ 
+ properties:
+   compatible:
+-    const: samsung,s6e3hc4
++    enum:
++      - samsung,s6e3hc3
++      - samsung,s6e3hc4
+ 
+   reg:
+     maxItems: 1
+@@ -39,7 +41,15 @@ properties:
+ required:
+   - compatible
+   - reg
+-  - reset-gpios
++
++if:
++  properties:
++    compatible:
++      contains:
++        const: samsung,s6e3hc4
++then:
++  required:
++    - reset-gpios
+ 
+ unevaluatedProperties: false
+ 

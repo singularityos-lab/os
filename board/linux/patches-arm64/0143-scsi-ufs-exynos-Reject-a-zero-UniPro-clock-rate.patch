@@ -1,0 +1,28 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Thu, 22 Oct 2026 16:15:17 -0700
+Subject: [PATCH] scsi: ufs: exynos: Reject a zero UniPro clock rate
+
+Require a usable UniPro clock before calculating PCS timing. A missing
+clock rate cannot produce valid link timing and can cause division by
+zero in the Tensor G4 clock-period calculation.
+
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ drivers/ufs/host/ufs-exynos.c | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/drivers/ufs/host/ufs-exynos.c b/drivers/ufs/host/ufs-exynos.c
+index 0239b525b..a7c0813ed 100644
+--- a/drivers/ufs/host/ufs-exynos.c
++++ b/drivers/ufs/host/ufs-exynos.c
+@@ -584,6 +584,9 @@ static int exynos_ufs_get_clk_info(struct exynos_ufs *ufs)
+ 	}
+ 
+ 	ufs->mclk_rate = clk_get_rate(ufs->clk_unipro_main);
++	if (!ufs->mclk_rate)
++		return dev_err_probe(hba->dev, -EINVAL,
++				     "failed to get unipro clock rate\n");
+ 	pclk_rate = clk_get_rate(ufs->clk_hci_core);
+ 	f_min = ufs->pclk_avail_min;
+ 	f_max = ufs->pclk_avail_max;

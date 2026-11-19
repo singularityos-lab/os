@@ -1,0 +1,237 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Thu, 22 Oct 2026 16:15:17 -0700
+Subject: [PATCH] scsi: ufs: exynos: Add Tensor G4 host data
+
+Add the Tensor G4 host and PCS timing sequence from Google
+android-gs-tegu-6.1-android16 GPL source. Discover RX/TX lanes before
+programming their first PCS sequence and retain checked DME operations.
+
+This initial support does not advertise WriteBooster or idle clock gating
+and keeps automatic Hibern8 disabled. It needs the separately described
+G4 PHY, clocks, guarded board wiring and the following clock-stop fix;
+no board node is enabled by this patch.
+
+Link: https://android.googlesource.com/kernel/google-modules/soc/gs/+/204078758737776959ecc85c527a00fd2cabb62f/drivers/ufs/ufs-exynos.c
+Link: https://android.googlesource.com/kernel/google-modules/soc/gs/+/204078758737776959ecc85c527a00fd2cabb62f/drivers/ufs/zuma/
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ drivers/ufs/host/ufs-exynos.c | 184 ++++++++++++++++++++++++++++++++++
+ 1 file changed, 184 insertions(+)
+
+diff --git a/drivers/ufs/host/ufs-exynos.c b/drivers/ufs/host/ufs-exynos.c
+index a7c0813ed..a7e73cf30 100644
+--- a/drivers/ufs/host/ufs-exynos.c
++++ b/drivers/ufs/host/ufs-exynos.c
+@@ -258,6 +258,18 @@ static int gs201_ufs_drv_init(struct exynos_ufs *ufs)
+ 	return gs101_ufs_drv_init(ufs);
+ }
+ 
++static int zumapro_ufs_drv_init(struct exynos_ufs *ufs)
++{
++	u32 reg;
++
++	/* Keep the initial link active: no WriteBooster or idle clock gating. */
++	ufs->hba->spm_lvl = UFS_PM_LVL_5;
++	reg = hci_readl(ufs, HCI_IOP_ACG_DISABLE);
++	hci_writel(ufs, reg & ~HCI_IOP_ACG_DISABLE_EN, HCI_IOP_ACG_DISABLE);
++
++	return exynos_ufs_shareability(ufs);
++}
++
+ static int exynosauto_ufs_drv_init(struct exynos_ufs *ufs)
+ {
+ 	return exynos_ufs_shareability(ufs);
+@@ -2140,6 +2152,160 @@ static int gs101_ufs_pre_pwr_change(struct exynos_ufs *ufs,
+ 	return 0;
+ }
+ 
++static int zumapro_ufs_pre_link(struct exynos_ufs *ufs)
++{
++	struct ufs_hba *hba = ufs->hba;
++	int i, ret;
++	u32 tx_line_reset_period, rx_line_reset_period;
++	u32 period;
++
++	/* Program every PCS lane on the first link attempt too. */
++	ret = ufshcd_dme_get(hba, UIC_ARG_MIB(PA_AVAILRXDATALANES),
++			     &ufs->avail_ln_rx);
++	if (ret)
++		return ret;
++	ret = ufshcd_dme_get(hba, UIC_ARG_MIB(PA_AVAILTXDATALANES),
++			     &ufs->avail_ln_tx);
++	if (ret)
++		return ret;
++	if (!ufs->avail_ln_rx || ufs->avail_ln_rx > 2 ||
++	    ufs->avail_ln_rx != ufs->avail_ln_tx)
++		return -EINVAL;
++
++	/* Google rounds ties down for the PCS clock period. */
++	period = NSEC_PER_SEC / ufs->mclk_rate +
++		 ((NSEC_PER_SEC % ufs->mclk_rate) > (ufs->mclk_rate / 2));
++
++	rx_line_reset_period = (RX_LINE_RESET_TIME * ufs->mclk_rate)
++				/ NSEC_PER_MSEC;
++	tx_line_reset_period = (TX_LINE_RESET_TIME * ufs->mclk_rate)
++				/ NSEC_PER_MSEC;
++
++	unipro_writel(ufs, get_mclk_period_unipro_18(ufs), COMP_CLK_PERIOD);
++
++	ret = ufshcd_dme_set(hba, UIC_ARG_MIB(0x200), 0x40);
++	if (ret)
++		return ret;
++	ret = ufshcd_dme_set(hba, UIC_ARG_MIB(0x202), 0x22);
++	if (ret)
++		return ret;
++
++	for_each_ufs_rx_lane(ufs, i) {
++		ret = ufshcd_dme_set(hba, UIC_ARG_MIB_SEL(VND_RX_CLK_PRD, i),
++				     period);
++		if (ret)
++			return ret;
++		ret = ufshcd_dme_set(hba, UIC_ARG_MIB_SEL(VND_RX_CLK_PRD_EN, i), 0x0);
++		if (ret)
++			return ret;
++		ret = ufshcd_dme_set(hba, UIC_ARG_MIB_SEL(VND_RX_LINERESET_VALUE2, i),
++				     (rx_line_reset_period >> 16) & 0xFF);
++		if (ret)
++			return ret;
++		ret = ufshcd_dme_set(hba, UIC_ARG_MIB_SEL(VND_RX_LINERESET_VALUE1, i),
++				     (rx_line_reset_period >> 8) & 0xFF);
++		if (ret)
++			return ret;
++		ret = ufshcd_dme_set(hba, UIC_ARG_MIB_SEL(VND_RX_LINERESET_VALUE0, i),
++				     (rx_line_reset_period) & 0xFF);
++		if (ret)
++			return ret;
++		ret = ufshcd_dme_set(hba, UIC_ARG_MIB_SEL(0x2f, i), 0x79);
++		if (ret)
++			return ret;
++		ret = ufshcd_dme_set(hba, UIC_ARG_MIB_SEL(0x84, i), 0x1);
++		if (ret)
++			return ret;
++		ret = ufshcd_dme_set(hba, UIC_ARG_MIB_SEL(0x25, i), 0xf6);
++		if (ret)
++			return ret;
++	}
++
++	for_each_ufs_tx_lane(ufs, i) {
++		ret = ufshcd_dme_set(hba, UIC_ARG_MIB_SEL(VND_TX_CLK_PRD, i),
++				     period);
++		if (ret)
++			return ret;
++		ret = ufshcd_dme_set(hba, UIC_ARG_MIB_SEL(VND_TX_CLK_PRD_EN, i),
++				     0x02);
++		if (ret)
++			return ret;
++		ret = ufshcd_dme_set(hba, UIC_ARG_MIB_SEL(VND_TX_LINERESET_PVALUE2, i),
++				     (tx_line_reset_period >> 16) & 0xFF);
++		if (ret)
++			return ret;
++		ret = ufshcd_dme_set(hba, UIC_ARG_MIB_SEL(VND_TX_LINERESET_PVALUE1, i),
++				     (tx_line_reset_period >> 8) & 0xFF);
++		if (ret)
++			return ret;
++		ret = ufshcd_dme_set(hba, UIC_ARG_MIB_SEL(VND_TX_LINERESET_PVALUE0, i),
++				     (tx_line_reset_period) & 0xFF);
++		if (ret)
++			return ret;
++		ret = ufshcd_dme_set(hba, UIC_ARG_MIB_SEL(0x04, i), 1);
++		if (ret)
++			return ret;
++		ret = ufshcd_dme_set(hba, UIC_ARG_MIB_SEL(0x7F, i), 0);
++		if (ret)
++			return ret;
++	}
++
++	ret = ufshcd_dme_set(hba, UIC_ARG_MIB(0x200), 0x0);
++	if (ret)
++		return ret;
++	ret = ufshcd_dme_set(hba, UIC_ARG_MIB(PA_LOCAL_TX_LCC_ENABLE), 0x0);
++	if (ret)
++		return ret;
++	ret = ufshcd_dme_set(hba, UIC_ARG_MIB(N_DEVICEID), 0x0);
++	if (ret)
++		return ret;
++	ret = ufshcd_dme_set(hba, UIC_ARG_MIB(N_DEVICEID_VALID), 0x1);
++	if (ret)
++		return ret;
++	ret = ufshcd_dme_set(hba, UIC_ARG_MIB(T_PEERDEVICEID), 0x1);
++	if (ret)
++		return ret;
++	ret = ufshcd_dme_set(hba, UIC_ARG_MIB(T_CONNECTIONSTATE), CPORT_CONNECTED);
++	if (ret)
++		return ret;
++
++	return 0;
++}
++
++static int zumapro_ufs_post_link(struct exynos_ufs *ufs)
++{
++	static const u32 adapt_offsets[] = { 0x3348, 0x334c };
++	unsigned int i;
++	u32 val;
++
++	/* Round PA adaptation lengths as in the G4 calibration tables. */
++	for (i = 0; i < ARRAY_SIZE(adapt_offsets); i++) {
++		val = unipro_readl(ufs, adapt_offsets[i]);
++		if (val & BIT(7)) {
++			if ((val & GENMASK(6, 0)) < 2)
++				unipro_writel(ufs, 0x82, adapt_offsets[i]);
++		} else {
++			unipro_writel(ufs, val | 3, adapt_offsets[i]);
++		}
++	}
++
++	return gs101_ufs_post_link(ufs);
++}
++
++static int zumapro_ufs_pre_pwr_change(struct exynos_ufs *ufs,
++				      struct ufs_pa_layer_attr *pwr)
++{
++	int ret;
++
++	if (ufshcd_is_hs_mode(pwr)) {
++		ret = ufshcd_dme_set(ufs->hba, UIC_ARG_MIB(PA_TXHSADAPTTYPE), 1);
++		if (ret)
++			return ret;
++	}
++
++	return gs101_ufs_pre_pwr_change(ufs, pwr);
++}
++
+ static const struct ufs_hba_variant_ops ufs_hba_exynos_ops = {
+ 	.name				= "exynos_ufs",
+ 	.init				= exynos_ufs_init,
+@@ -2359,6 +2525,22 @@ static const struct exynos_ufs_drv_data gs201_ufs_drvs = {
+ 	.suspend		= gs101_ufs_suspend,
+ };
+ 
++/* G4 shares the G2 descriptor format, but not its PHY/PCS calibration. */
++static const struct exynos_ufs_drv_data zumapro_ufs_drvs = {
++	.uic_attr		= &gs101_uic_attr,
++	.quirks			= UFSHCI_QUIRK_SKIP_MANUAL_WB_FLUSH_CTRL |
++				  UFSHCD_QUIRK_BROKEN_AUTO_HIBERN8 |
++				  UFSHCD_QUIRK_SKIP_DEF_UNIPRO_TIMEOUT_SETTING,
++	.opts			= EXYNOS_UFS_OPT_SKIP_CONFIG_PHY_ATTR |
++				  EXYNOS_UFS_OPT_UFSPR_SECURE |
++				  EXYNOS_UFS_OPT_TIMER_TICK_SELECT,
++	.iocc_mask		= UFS_GS101_SHARABLE,
++	.drv_init		= zumapro_ufs_drv_init,
++	.pre_link		= zumapro_ufs_pre_link,
++	.post_link		= zumapro_ufs_post_link,
++	.pre_pwr_change		= zumapro_ufs_pre_pwr_change,
++};
++
+ static const struct exynos_ufs_drv_data exynosautov920_ufs_drvs = {
+ 	.uic_attr               = &exynos7_uic_attr,
+ 	.quirks                 = UFSHCD_QUIRK_SKIP_DEF_UNIPRO_TIMEOUT_SETTING,
+@@ -2379,6 +2561,8 @@ static const struct of_device_id exynos_ufs_of_match[] = {
+ 	  .data	      = &gs101_ufs_drvs },
+ 	{ .compatible = "google,gs201-ufs",
+ 	  .data	      = &gs201_ufs_drvs },
++	{ .compatible = "google,zumapro-ufs",
++	  .data	      = &zumapro_ufs_drvs },
+ 	{ .compatible = "samsung,exynos7-ufs",
+ 	  .data	      = &exynos_ufs_drvs },
+ 	{ .compatible = "samsung,exynosautov9-ufs",

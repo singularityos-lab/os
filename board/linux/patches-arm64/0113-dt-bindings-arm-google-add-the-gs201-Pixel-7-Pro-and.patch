@@ -1,0 +1,32 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: boozedog <code@booze.dog>
+Date: Sat, 17 Oct 2026 20:20:08 -0400
+Subject: [PATCH] dt-bindings: arm: google: add the gs201 Pixel 7 Pro and Pixel
+ Fold boards
+
+Document google,gs201-cheetah and google,gs201-felix with the
+google,gs201 fallback. Cheetah's root compatible did not validate
+before this entry.
+
+Signed-off-by: boozedog <code@booze.dog>
+---
+ Documentation/devicetree/bindings/arm/google.yaml | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+diff --git a/Documentation/devicetree/bindings/arm/google.yaml b/Documentation/devicetree/bindings/arm/google.yaml
+index 99961e528..b32987199 100644
+--- a/Documentation/devicetree/bindings/arm/google.yaml
++++ b/Documentation/devicetree/bindings/arm/google.yaml
+@@ -40,6 +40,12 @@ properties:
+               - google,gs101-oriole
+               - google,gs101-raven
+           - const: google,gs101
++      - description: Google Tensor G2 (GS201) boards
++        items:
++          - enum:
++              - google,gs201-cheetah
++              - google,gs201-felix
++          - const: google,gs201
+ 
+   # Bootloader requires empty ect node to be present
+   ect:

@@ -1,0 +1,87 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Adrian Schupp <as@satware.com>
+Date: Sun, 1 Nov 2026 20:30:08 +0100
+Subject: [PATCH] arm64: dts: exynos: google: gs201-cheetah: restore the
+ software reboot reason
+
+Stock ships a second reboot-reason writer for the Pixel 7 Pro besides
+the syscon-reboot-mode node that gs201.dtsi keeps: Google's
+pixel-gs201-reboot.c writes SYSIP_DAT0 and then the RSBM record into
+the MAX77759's MAXQ user memory (BMS_RSBM_VALID | reason into
+GBMS_TAG_RSBM). Give the Pixel 7 Pro that second writer, the
+nvmem-based path the gs101 Pixels carry in gs101-pixel-common.dtsi: an
+nvmem-0 cell of the I2C PMIC (max77759-nvmem, fixed layout) and a
+root-level nvmem-reboot-mode node.
+
+Only mode-bootloader (0x800000fc) is mapped for now: recovery, fastboot
+and charge send ABL into paths nobody has exercised on slot B, and an
+unmapped reason writes nothing, which matches stock. The existing
+syscon-reboot-mode keeps working in parallel; whether ABL needs the
+RSBM write is still being tested.
+
+Signed-off-by: Adrian Schupp <as@satware.com>
+Assisted-by: LLM opencode
+---
+ .../boot/dts/exynos/google/gs201-cheetah.dts  | 42 +++++++++++++++++++
+ 1 file changed, 42 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts b/arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts
+index 7869064b0..8290c2dea 100644
+--- a/arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts
++++ b/arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts
+@@ -120,6 +120,22 @@ button-power {
+ 		};
+ 	};
+ 
++	/*
++	 * Second reboot-reason writer, the nvmem path stock ships besides
++	 * the syscon-reboot-mode node in gs201.dtsi: Google's
++	 * pixel-gs201-reboot.c writes SYSIP_DAT0 and then the RSBM record
++	 * (BMS_RSBM_VALID | reason) into the MAX77759's MAXQ user memory.
++	 * Same shape as gs101-pixel-common.dtsi; only bootloader is mapped
++	 * until the other modes are proven on slot B. Whether ABL needs the
++	 * RSBM write is still being tested.
++	 */
++	reboot-mode {
++		compatible = "nvmem-reboot-mode";
++		nvmem-cells = <&nvmem_reboot_mode>;
++		nvmem-cell-names = "reboot-mode";
++		mode-bootloader = <0x800000fc>;
++	};
++
+ 	/*
+ 	 * UFS VCC. Google drives it from GPIO gpp0-1 (boot-on); there is no
+ 	 * gs201 GPIO driver yet, so describe it as always on, as the
+@@ -677,6 +693,32 @@ gpio {
+ 			interrupt-controller;
+ 			#interrupt-cells = <2>;
+ 		};
++
++		nvmem-0 {
++			compatible = "maxim,max77759-nvmem";
++
++			nvmem-layout {
++				compatible = "fixed-layout";
++				#address-cells = <1>;
++				#size-cells = <1>;
++
++				nvmem_reboot_mode: reboot-mode@0 {
++					reg = <0x0 0x4>;
++				};
++
++				boot-reason@4 {
++					reg = <0x4 0x4>;
++				};
++
++				shutdown-user-flag@8 {
++					reg = <0x8 0x1>;
++				};
++
++				rsoc@a {
++					reg = <0xa 0x2>;
++				};
++			};
++		};
+ 	};
+ };
+ 

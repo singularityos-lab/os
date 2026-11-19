@@ -1,0 +1,130 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Thu, 22 Oct 2026 21:08:06 -0700
+Subject: [PATCH] phy: phy-snps-eusb2: Add Tensor G4 initialization
+
+Google's zumapro USB description selects eUSB PHY version 0x701.
+In its GPL CAL, only clearing the seven-bit PLL charge-pump bias is
+conditional on minor version 1 or 2; minor version 0 keeps the default.
+
+The explicit PHY disable, PHY-reset-only release with its override
+retained, 10 us REXT wait and 1000+28+2500 us calibration wait run for
+every eUSB revision in Google's initiate routine, including zuma's
+0x700. They are not version-0x701-specific behavior.
+
+Add a G4-specific match sharing the Exynos reference-clock setup and
+clocks, clear only the seven-bit bias field and apply that common CAL
+initialization sequence to G4. Keep these sequence additions scoped to
+G4 here so the existing Exynos2200/zuma write and delay path stays
+unchanged. This is a compatibility choice, not a claim that Google's
+older revisions omit the calibration steps.
+
+A host-only trace of the actual init functions matches the existing
+Exynos2200/zuma writes and delays exactly; the G4 trace checks adjacent
+PLL bits, reset ordering and calibration delays. W=1, bindings and the
+combined link pass. No board node is enabled or hardware qualified.
+
+Link: https://android.googlesource.com/kernel/devices/google/zumapro/+/8831630eee2ad095b85ed452944e6353940966a5/dts/zumapro-usb.dtsi#10
+Link: https://android.googlesource.com/kernel/devices/google/zuma/+/42395e8adcb880aa336f0da6bb2a19ed53929c40/dts/zuma-usb.dtsi#276
+Link: https://android.googlesource.com/kernel/google-modules/soc/gs/+/204078758737776959ecc85c527a00fd2cabb62f/drivers/phy/samsung/phy-exynos-eusb.c
+Link: https://android.googlesource.com/kernel/google-modules/soc/gs/+/204078758737776959ecc85c527a00fd2cabb62f/drivers/phy/samsung/eusb-con-reg.h
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ drivers/phy/phy-snps-eusb2.c | 36 ++++++++++++++++++++++++++++++++++--
+ 1 file changed, 34 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/phy/phy-snps-eusb2.c b/drivers/phy/phy-snps-eusb2.c
+index af4fa17ac..54823103f 100644
+--- a/drivers/phy/phy-snps-eusb2.c
++++ b/drivers/phy/phy-snps-eusb2.c
+@@ -24,6 +24,7 @@
+ #define FSEL_48_MHZ_VAL			(0x2)
+ 
+ #define EXYNOS_USB_PHY_CFG_PLLCFG0	(0x8)
++#define EXYNOS_PHY_CFG_PLL_CPBIAS_MASK	GENMASK(6, 0)
+ #define PHY_CFG_PLL_FB_DIV_19_8_MASK	GENMASK(19, 8)
+ #define DIV_19_8_19_2_MHZ_VAL		(0x170)
+ #define DIV_19_8_20_MHZ_VAL		(0x160)
+@@ -314,7 +315,7 @@ static int qcom_eusb2_ref_clk_init(struct snps_eusb2_hsphy *phy)
+ 	return 0;
+ }
+ 
+-static int exynos_snps_eusb2_hsphy_init(struct phy *p)
++static int exynos_snps_eusb2_hsphy_init_common(struct phy *p, bool zumapro)
+ {
+ 	struct snps_eusb2_hsphy *phy = phy_get_drvdata(p);
+ 	int ret;
+@@ -332,6 +333,11 @@ static int exynos_snps_eusb2_hsphy_init(struct phy *p)
+ 	if (ret)
+ 		return ret;
+ 
++	/* G4's eUSB PHY revision requires a zero charge-pump bias. */
++	if (zumapro)
++		snps_eusb2_hsphy_write_mask(phy->base, EXYNOS_USB_PHY_CFG_PLLCFG0,
++					    EXYNOS_PHY_CFG_PLL_CPBIAS_MASK, 0);
++
+ 	/* default parameter: tx fsls-vref */
+ 	snps_eusb2_hsphy_write_mask(phy->base, EXYNOS_PHY_CFG_TX,
+ 				    EXYNOS_PHY_CFG_TX_FSLS_VREF_TUNE_MASK,
+@@ -339,13 +345,20 @@ static int exynos_snps_eusb2_hsphy_init(struct phy *p)
+ 
+ 	snps_eusb2_hsphy_write_mask(phy->base, EXYNOS_USB_PHY_UTMI_TESTSE,
+ 				    TEST_IDDQ, 0);
++	if (zumapro)
++		snps_eusb2_hsphy_write_mask(phy->base, EXYNOS_USB_PHY_HS_PHY_CTRL_COMMON,
++					    PHY_ENABLE, 0);
+ 	fsleep(10); /* required after releasing test_iddq */
+ 
+ 	snps_eusb2_hsphy_write_mask(phy->base, EXYNOS_USB_PHY_HS_PHY_CTRL_RST,
+-				    USB_PHY_RST_MASK, 0);
++				    zumapro ? BIT(0) : USB_PHY_RST_MASK, 0);
++	if (zumapro)
++		fsleep(10); /* REXT calibration before PHY_ENABLE */
+ 
+ 	snps_eusb2_hsphy_write_mask(phy->base, EXYNOS_USB_PHY_HS_PHY_CTRL_COMMON,
+ 				    PHY_ENABLE, PHY_ENABLE);
++	if (zumapro)
++		fsleep(3528); /* REXT calibration, PHY power-up and port reset */
+ 
+ 	snps_eusb2_hsphy_write_mask(phy->base, EXYNOS_USB_PHY_HS_PHY_CTRL_RST,
+ 				    UTMI_PORT_RST_MASK, 0);
+@@ -353,6 +366,16 @@ static int exynos_snps_eusb2_hsphy_init(struct phy *p)
+ 	return 0;
+ }
+ 
++static int exynos_snps_eusb2_hsphy_init(struct phy *p)
++{
++	return exynos_snps_eusb2_hsphy_init_common(p, false);
++}
++
++static int zumapro_snps_eusb2_hsphy_init(struct phy *p)
++{
++	return exynos_snps_eusb2_hsphy_init_common(p, true);
++}
++
+ static const char * const exynos_eusb2_hsphy_clock_names[] = {
+ 	"ref", "bus", "ctrl",
+ };
+@@ -363,6 +386,12 @@ static const struct snps_eusb2_phy_drvdata exynos2200_snps_eusb2_phy = {
+ 	.num_clks	= ARRAY_SIZE(exynos_eusb2_hsphy_clock_names),
+ };
+ 
++static const struct snps_eusb2_phy_drvdata zumapro_snps_eusb2_phy = {
++	.phy_init	= zumapro_snps_eusb2_hsphy_init,
++	.clk_names	= exynos_eusb2_hsphy_clock_names,
++	.num_clks	= ARRAY_SIZE(exynos_eusb2_hsphy_clock_names),
++};
++
+ static int qcom_snps_eusb2_hsphy_init(struct phy *p)
+ {
+ 	struct snps_eusb2_hsphy *phy = phy_get_drvdata(p);
+@@ -613,6 +642,9 @@ static const struct of_device_id snps_eusb2_hsphy_of_match_table[] = {
+ 	}, {
+ 		.compatible = "samsung,exynos2200-eusb2-phy",
+ 		.data = &exynos2200_snps_eusb2_phy,
++	}, {
++		.compatible = "google,zumapro-eusb2-phy",
++		.data = &zumapro_snps_eusb2_phy,
+ 	}, {
+ 		/* sentinel */
+ 	}

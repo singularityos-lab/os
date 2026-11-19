@@ -1,0 +1,198 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Mon, 12 Oct 2026 00:33:06 -0400
+Subject: [PATCH] wifi: brcmfmac: pcie: request the BCM4389 power domains after
+ reset
+
+The BCM4389 splits its backplane into save/restore power domains: PCIe,
+ARM/backplane, MAC aux and MAC main. Unless the host requests them, the
+chip's PMU may keep the ARM/backplane and MAC domains off, and a chip
+reset drops the host's requests. Backplane accesses to a domain that is
+off fault and read back as 0xffffffff, which also hides behind a warm
+chip that some earlier driver had left powered.
+
+Google's driver (bcmdhd) treats the 4378/4387/4389 family as multi-
+backplane chips (siutils.h MULTIBP_CAP()). It requests all four domains
+through the powerctl register (bits 11:8, status in 19:16) of the PCIe
+core, at BAR0 + 0x2000 + 0x1e8, before it resets the chip
+(dhd_pcie.c dhd_bus_pcie_pwr_req_reload_war(), siutils.c
+si_srpwr_request() and si_srpwr_domain_all_mask()), and on PCIe core
+revision 68 and later also asserts the ARM/backplane domain in the DAR
+copy of the register, because "ARM fails to boot" from cold without it
+(dhd_pcie.c dhd_bus_pcie_pwr_req_wl_domain(), pcie_core.h
+DAR_PCIE_PWR_CTRL()). The Pixel 7 Pro's BCM4389 has PCIe core revision
+72. For the ARM CA7 it also sets the BAR coherent-access bits in PCI
+config 0x88 (dhd_pcie.c "CA7 requires coherent bits on",
+pcicfg.h PCIE_BARCOHERENTACCEN_MASK).
+
+For the BCM4389, request all four domains (and the DAR one) once the
+BARs are mapped, before brcmfmac first touches a core, and again before
+and after the watchdog reset; and set the coherent-access bits. The
+requests stay on while the driver is bound, which costs idle power but
+keeps every backplane access safe; releasing them once the firmware
+runs is left for later.
+
+Assisted-by: LLM
+Signed-off-by: Derek Ross <derekross@gmail.com>
+---
+ .../broadcom/brcm80211/brcmfmac/pcie.c        | 105 +++++++++++++++++-
+ 1 file changed, 103 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/pcie.c b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/pcie.c
+index 2173182e1..1c5961036 100644
+--- a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/pcie.c
++++ b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/pcie.c
+@@ -15,6 +15,7 @@
+ #include <linux/sched/signal.h>
+ #include <linux/kthread.h>
+ #include <linux/io.h>
++#include <linux/iopoll.h>
+ #include <linux/random.h>
+ #include <linux/unaligned.h>
+ 
+@@ -155,6 +156,23 @@ static const struct brcmf_firmware_mapping brcmf_pcie_fwnames[] = {
+ #define BRCMF_PCIE_64_PCIE2REG_H2D_MAILBOX_0	0xA20
+ #define BRCMF_PCIE_64_PCIE2REG_H2D_MAILBOX_1	0xA24
+ 
++/* Save/restore power domain requests, in the PCIe core's own registers,
++ * reached through BAR0 + BRCMF_PCIE_BARO_PCIE_ENUM_OFFSET.
++ */
++#define BRCMF_PCIE_PCIE2REG_POWERCTL		0x1E8
++#define BRCMF_PCIE_64_PCIE2REG_DAR_POWERCTL	0xA0C
++#define BRCMF_PCIE_SRPWR_DMN0_PCIE		BIT(0)
++#define BRCMF_PCIE_SRPWR_DMN1_ARMBP		BIT(1)
++#define BRCMF_PCIE_SRPWR_DMN2_MACAUX		BIT(2)
++#define BRCMF_PCIE_SRPWR_DMN3_MACMAIN		BIT(3)
++#define BRCMF_PCIE_SRPWR_DMN_ALL		(BRCMF_PCIE_SRPWR_DMN0_PCIE | \
++						 BRCMF_PCIE_SRPWR_DMN1_ARMBP | \
++						 BRCMF_PCIE_SRPWR_DMN2_MACAUX | \
++						 BRCMF_PCIE_SRPWR_DMN3_MACMAIN)
++#define BRCMF_PCIE_SRPWR_REQON_SHIFT		8
++#define BRCMF_PCIE_SRPWR_STATUS_SHIFT		16
++#define BRCMF_PCIE_SRPWR_TIMEOUT_US		15000
++
+ #define BRCMF_PCIE2_INTA			0x01
+ #define BRCMF_PCIE2_INTB			0x02
+ 
+@@ -282,6 +300,8 @@ static const struct brcmf_firmware_mapping brcmf_pcie_fwnames[] = {
+ #define BRCMF_PCIE_CFGREG_MSI_DATA		0x64
+ #define BRCMF_PCIE_CFGREG_LINK_STATUS_CTRL	0xBC
+ #define BRCMF_PCIE_CFGREG_LINK_STATUS_CTRL2	0xDC
++#define BRCMF_PCIE_CFGREG_SUBSYSTEM_CONTROL	0x88
++#define BRCMF_PCIE_SSCTRL_BAR_COHERENT		0x300
+ #define BRCMF_PCIE_CFGREG_RBAR_CTRL		0x228
+ #define BRCMF_PCIE_CFGREG_PML1_SUB_CTRL1	0x248
+ #define BRCMF_PCIE_CFGREG_REG_BAR2_CONFIG	0x4E0
+@@ -774,6 +794,71 @@ brcmf_pcie_select_core(struct brcmf_pciedev_info *devinfo, u16 coreid)
+ }
+ 
+ 
++/*
++ * Chips with several backplane power domains (the BCM4389 here) power the
++ * ARM/backplane and MAC domains down unless the host asks for them, and
++ * a chip reset drops the host's requests. Backplane accesses to a domain
++ * that is off fault, and read back as 0xffffffff.
++ */
++static bool brcmf_pcie_has_srpwr(struct brcmf_pciedev_info *devinfo)
++{
++	return devinfo->pdev->device == BRCM_PCIE_4389_DEVICE_ID;
++}
++
++static void brcmf_pcie_srpwr_request(struct brcmf_pciedev_info *devinfo)
++{
++	u32 reg = BRCMF_PCIE_BARO_PCIE_ENUM_OFFSET +
++		  BRCMF_PCIE_PCIE2REG_POWERCTL;
++	u32 req = BRCMF_PCIE_SRPWR_DMN_ALL << BRCMF_PCIE_SRPWR_REQON_SHIFT;
++	u32 up = BRCMF_PCIE_SRPWR_DMN_ALL << BRCMF_PCIE_SRPWR_STATUS_SHIFT;
++	u32 dar = BRCMF_PCIE_BARO_PCIE_ENUM_OFFSET +
++		  BRCMF_PCIE_64_PCIE2REG_DAR_POWERCTL;
++	u32 val;
++
++	if (!brcmf_pcie_has_srpwr(devinfo))
++		return;
++
++	val = brcmf_pcie_read_reg32(devinfo, reg);
++	if (val == 0xffffffff) {
++		pci_err(devinfo->pdev, "power control reads 0xffffffff\n");
++		return;
++	}
++	if ((val & req) != req)
++		brcmf_pcie_write_reg32(devinfo, reg, val | req);
++
++	if (readl_poll_timeout(devinfo->regs + reg, val, (val & up) == up, 10,
++			       BRCMF_PCIE_SRPWR_TIMEOUT_US))
++		pci_warn(devinfo->pdev, "power domains not up, powerctl 0x%08x\n",
++			 val);
++	else
++		brcmf_dbg(PCIE, "power domains up, powerctl 0x%08x\n", val);
++
++	/* The ARM also needs the ARM/backplane domain requested through the
++	 * DAR copy of the register, or it fails to boot from cold.
++	 */
++	val = brcmf_pcie_read_reg32(devinfo, dar);
++	req = BRCMF_PCIE_SRPWR_DMN1_ARMBP << BRCMF_PCIE_SRPWR_REQON_SHIFT;
++	if ((val & req) != req)
++		brcmf_pcie_write_reg32(devinfo, dar, val | req);
++}
++
++/* The ARM CA7 needs host accesses through the BARs to be coherent. */
++static void brcmf_pcie_set_bar_coherent(struct brcmf_pciedev_info *devinfo)
++{
++	u32 val;
++
++	if (!brcmf_pcie_has_srpwr(devinfo))
++		return;
++
++	pci_read_config_dword(devinfo->pdev,
++			      BRCMF_PCIE_CFGREG_SUBSYSTEM_CONTROL, &val);
++	if ((val & BRCMF_PCIE_SSCTRL_BAR_COHERENT) !=
++	    BRCMF_PCIE_SSCTRL_BAR_COHERENT)
++		pci_write_config_dword(devinfo->pdev,
++				       BRCMF_PCIE_CFGREG_SUBSYSTEM_CONTROL,
++				       val | BRCMF_PCIE_SSCTRL_BAR_COHERENT);
++}
++
+ static void brcmf_pcie_reset_device(struct brcmf_pciedev_info *devinfo)
+ {
+ 	struct brcmf_core *core;
+@@ -805,7 +890,8 @@ static void brcmf_pcie_reset_device(struct brcmf_pciedev_info *devinfo)
+ 	pci_write_config_dword(devinfo->pdev, BRCMF_PCIE_REG_LINK_STATUS_CTRL,
+ 			       val);
+ 
+-	/* Watchdog reset */
++	/* Watchdog reset, with all power domains up as it starts */
++	brcmf_pcie_srpwr_request(devinfo);
+ 	brcmf_pcie_select_core(devinfo, BCMA_CORE_CHIPCOMMON);
+ 	WRITECC32(devinfo, watchdog, 4);
+ 	msleep(100);
+@@ -815,6 +901,10 @@ static void brcmf_pcie_reset_device(struct brcmf_pciedev_info *devinfo)
+ 	pci_write_config_dword(devinfo->pdev, BRCMF_PCIE_REG_LINK_STATUS_CTRL,
+ 			       lsc);
+ 
++	/* The reset dropped the power domain requests */
++	brcmf_pcie_srpwr_request(devinfo);
++	brcmf_pcie_set_bar_coherent(devinfo);
++
+ 	core = brcmf_chip_get_core(devinfo->ci, BCMA_CORE_PCIE2);
+ 	if (core->rev <= 13) {
+ 		for (i = 0; i < ARRAY_SIZE(cfg_offset); i++) {
+@@ -2001,7 +2091,18 @@ static void brcmf_pcie_buscore_write32(void *ctx, u32 addr, u32 value)
+ 
+ static int brcmf_pcie_buscoreprep(void *ctx)
+ {
+-	return brcmf_pcie_get_resource(ctx);
++	struct brcmf_pciedev_info *devinfo = ctx;
++	int err;
++
++	err = brcmf_pcie_get_resource(devinfo);
++	if (err)
++		return err;
++
++	/* before the first access to a core outside the always-on domain */
++	brcmf_pcie_srpwr_request(devinfo);
++	brcmf_pcie_set_bar_coherent(devinfo);
++
++	return 0;
+ }
+ 
+ 

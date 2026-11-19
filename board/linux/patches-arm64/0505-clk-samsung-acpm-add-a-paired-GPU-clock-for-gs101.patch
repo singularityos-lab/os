@@ -1,0 +1,75 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: saiththerobo <the.tom.sharp@gmail.com>
+Date: Wed, 4 Nov 2026 07:56:16 +0000
+Subject: [PATCH] clk: samsung: acpm: add a paired GPU clock for gs101
+
+The Mali-G78 in gs101 is clocked from two DVFS domains, G3D for the
+shader cores and G3DL2 for the top level and L2. Google's driver moves
+them together from a fixed table and keeps G3DL2 at or above G3D
+throughout (gpu_dvfs_set_new_level() in pixel_gpu_dvfs.c: "When clocking
+down we must set G3D CLK first"). Setting the two clocks one after the
+other from the GPU driver can't keep that order in both directions.
+
+Add gs101 a "gpu" clock as gs201 and zumapro have: its rate is the
+shader rate, and setting it moves G3DL2 to the paired level, raising it
+first going up and lowering it last going down. The pairs are Google's
+gs101 table (gpu_dvfs_table_v2 up to gpu_dvfs_max_freq, 800 MHz), with
+the 151 and 202 MHz rows that stock's 250 MHz gpu_dvfs_min_freq leaves
+out. Unlike gs201's, the clock is writable from the start: the levels
+were run on a Pixel 6 Pro (raven) through devfreq.
+
+The other gs101 clocks are unchanged.
+
+Assisted-by: Claude Opus 5.5
+Signed-off-by: saiththerobo <the.tom.sharp@gmail.com>
+---
+ drivers/clk/samsung/clk-acpm.c | 33 +++++++++++++++++++++++++++++++++
+ 1 file changed, 33 insertions(+)
+
+diff --git a/drivers/clk/samsung/clk-acpm.c b/drivers/clk/samsung/clk-acpm.c
+index 82dae93f4..93f4b89b6 100644
+--- a/drivers/clk/samsung/clk-acpm.c
++++ b/drivers/clk/samsung/clk-acpm.c
+@@ -102,9 +102,42 @@ static const struct acpm_clk_variant gs101_acpm_clks[] = {
+ 	ACPM_CLK("bo"),
+ };
+ 
++/*
++ * gs101 GPU operating points: shader (G3D) rate and the top/L2 (G3DL2) rate
++ * paired with it, in kHz, from Google's gs101 GPU DVFS table
++ * (gpu_dvfs_table_v2 in gs101-gpu.dtsi, the levels up to its
++ * gpu_dvfs_max_freq of 800 MHz). Stock's gpu_dvfs_min_freq of 250 MHz
++ * leaves out the 151 and 202 MHz rows; they are kept, as gs201's are.
++ */
++static const struct acpm_clk_pair gs101_gpu_pairs[] = {
++	{ 151000, 302000 },
++	{ 202000, 302000 },
++	{ 251000, 434000 },
++	{ 302000, 434000 },
++	{ 351000, 603000 },
++	{ 400000, 603000 },
++	{ 471000, 603000 },
++	{ 510000, 750000 },
++	{ 572000, 750000 },
++	{ 701000, 885000 },
++	{ 762000, 996000 },
++};
++
++static const struct acpm_clk_paired gs101_acpm_paired[] = {
++	{
++		.name = "gpu",
++		.id = 5,	/* G3D: shader cores */
++		.id2 = 6,	/* G3DL2: top level and L2 */
++		.pairs = gs101_gpu_pairs,
++		.nr_pairs = ARRAY_SIZE(gs101_gpu_pairs),
++	},
++};
++
+ static const struct acpm_clk_driver_data acpm_clk_gs101 = {
+ 	.clks = gs101_acpm_clks,
+ 	.nr_clks = ARRAY_SIZE(gs101_acpm_clks),
++	.paired = gs101_acpm_paired,
++	.nr_paired = ARRAY_SIZE(gs101_acpm_paired),
+ 	.mbox_chan_id = 0,
+ };
+ 

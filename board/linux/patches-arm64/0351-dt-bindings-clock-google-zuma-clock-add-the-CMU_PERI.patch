@@ -1,0 +1,45 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Lef <me@lefteros.com>
+Date: Sun, 1 Nov 2026 14:59:20 +0200
+Subject: [PATCH] dt-bindings: clock: google,zuma-clock: add the CMU_PERIC1
+ USI9 clocks
+
+USI9 is the I2C bus (hsi2c_9) of the Pixel 8 Pro's battery pack EEPROM,
+which holds the battery ID that picks the fuel gauge model. It sits on
+CMU_PERIC1 like USI11: a user mux, a divider and the IPCLK, PCLK and
+RSTNSYNC gates. Add the five ids after USI11's.
+
+Signed-off-by: Lef <me@lefteros.com>
+Assisted-by: LLM
+---
+ include/dt-bindings/clock/google,zuma.h | 10 +++++++++-
+ 1 file changed, 9 insertions(+), 1 deletion(-)
+
+diff --git a/include/dt-bindings/clock/google,zuma.h b/include/dt-bindings/clock/google,zuma.h
+index fbbae0762..9047729c9 100644
+--- a/include/dt-bindings/clock/google,zuma.h
++++ b/include/dt-bindings/clock/google,zuma.h
+@@ -37,7 +37,10 @@
+ #define CLK_GOUT_HSI0_USI2_IP		9
+ #define CLK_GOUT_HSI0_USI2_PCLK		10
+ 
+-/* CMU_PERIC1: USI11, the I2C bus of the battery, charger and USB-C chips. */
++/*
++ * CMU_PERIC1: USI11, the I2C bus of the battery, charger and USB-C chips, and
++ * USI9, the I2C bus of the battery pack's EEPROM.
++ */
+ #define CLK_MOUT_PERIC1_NOC_USER	1
+ #define CLK_GOUT_GPIO_PERIC1		2
+ #define CLK_GOUT_PERIC1_SYSREG		3
+@@ -46,6 +49,11 @@
+ #define CLK_GOUT_PERIC1_USI11_IPCLK	6
+ #define CLK_GOUT_PERIC1_USI11_PCLK	7
+ #define CLK_GOUT_PERIC1_USI11_RSTNSYNC	8
++#define CLK_MOUT_PERIC1_USI9_USER	9
++#define CLK_DOUT_PERIC1_USI9		10
++#define CLK_GOUT_PERIC1_USI9_IPCLK	11
++#define CLK_GOUT_PERIC1_USI9_PCLK	12
++#define CLK_GOUT_PERIC1_USI9_RSTNSYNC	13
+ 
+ /* CMU_APM: the APM mailbox, its SRAM and the always-on GPIO banks. */
+ #define CLK_APM_PLL_ALV_DIV2		1

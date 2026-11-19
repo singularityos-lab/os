@@ -1,0 +1,35 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: DarekM <149845949+aninmucek@users.noreply.github.com>
+Date: Sat, 7 Nov 2026 20:26:24 +0000
+Subject: [PATCH] arm64: dts: exynos: google: zuma-akita: Fix the storage guard
+ comment
+
+The comment above the UFS host says the init's storage guard runs
+before the disks appear. With UFS built in, it is the other way round:
+on a Pixel 8a the disks attach 0.26 s into boot and /init starts at
+0.28 s. What keeps them safe is that nothing mounts or writes them
+before the guard has set every partition except slot B's boot images
+and userdata read-only, which it had done by 0.61 s. Say that instead.
+
+No change to the DTB.
+
+Assisted-by: Claude Opus 5.5
+Signed-off-by: DarekM <149845949+aninmucek@users.noreply.github.com>
+---
+ arch/arm64/boot/dts/exynos/google/zuma-akita.dts | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/zuma-akita.dts b/arch/arm64/boot/dts/exynos/google/zuma-akita.dts
+index bfa8b6f54..0f01727be 100644
+--- a/arch/arm64/boot/dts/exynos/google/zuma-akita.dts
++++ b/arch/arm64/boot/dts/exynos/google/zuma-akita.dts
+@@ -91,7 +91,8 @@ cont_splash_mem: splash@fac00000 {
+ 
+ /*
+  * Behind the init's storage guard (only slot B's boot images and userdata
+- * writable), which runs before the disks appear.
++ * writable), which sets every partition read-only before anything mounts
++ * them.
+  */
+ &ufs_0 {
+ 	vcc-supply = <&ufs_0_fixed_vcc_reg>;

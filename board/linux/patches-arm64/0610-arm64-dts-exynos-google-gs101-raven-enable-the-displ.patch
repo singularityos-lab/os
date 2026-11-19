@@ -1,0 +1,96 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: saiththerobo <the.tom.sharp@gmail.com>
+Date: Thu, 15 Oct 2026 14:35:44 +0100
+Subject: [PATCH] arm64: dts: exynos: google: gs101-raven: enable the display
+
+gs-decon takes the bootloader's pipeline over from simpledrm: DECON0
+into DSIM0, with the S6E3HC3 panel for brightness, display on/off and
+60/120 Hz. gs-decon also stops the frames with the screen off
+(screen_off), so the DSIM gets no google,decon phandle.
+
+Scanout buffers come from a reusable 92 MiB pool between 2.5 and
+3.5 GiB: DPP0 takes 32-bit addresses with the DPU SysMMU bypassed, and
+its reads from 0xf2c00000 and up hung silently.
+
+The framebuffer node holds the panel's vci (LDO22M) and vddi (BUCKA)
+rails. When gs-decon takes over, simpledrm goes away and releases them;
+the panel lost power and DECON's first shadow update never completed.
+Keep both rails on: the S6E3HC3 driver doesn't switch them.
+
+Assisted-by: Claude Opus 5.5
+Signed-off-by: saiththerobo <the.tom.sharp@gmail.com>
+---
+ .../boot/dts/exynos/google/gs101-raven.dts    | 49 +++++++++++++++++++
+ 1 file changed, 49 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/gs101-raven.dts b/arch/arm64/boot/dts/exynos/google/gs101-raven.dts
+index 266456f9a..164e2dd58 100644
+--- a/arch/arm64/boot/dts/exynos/google/gs101-raven.dts
++++ b/arch/arm64/boot/dts/exynos/google/gs101-raven.dts
+@@ -44,6 +44,22 @@ battery: battery {
+ 		constant-charge-voltage-max-microvolt = <4450000>;
+ 		constant-charge-current-max-microamp = <1466730>;
+ 	};
++
++	reserved-memory {
++		/*
++		 * Scanout buffers for gs-decon: DPP0 takes 32-bit addresses and
++		 * the DPU SysMMU is bypassed (as on cheetah). Five 1440x3120
++		 * XRGB8888 buffers; reusable while unused.
++		 */
++		display_pool: display-pool {
++			compatible = "shared-dma-pool";
++			reusable;
++			size = <0x5c00000>;
++			alignment = <0x0 0x200000>;
++			/* Not in 3.75-4 GiB: DPP0's reads from 0xf2c00000+ hung silently */
++			alloc-ranges = <0x0 0xa0000000 0x40000000>;
++		};
++	};
+ };
+ 
+ &acpm_ipc {
+@@ -155,6 +171,25 @@ &cont_splash_mem {
+ 	status = "okay";
+ };
+ 
++/* The display: gs-decon takes over the bootloader's pipeline from simpledrm */
++&decon0 {
++	memory-region = <&display_pool>, <&cont_splash_mem>;
++	memory-region-names = "pool", "boot-framebuffer";
++	status = "okay";
++};
++
++&dsi0 {
++	#address-cells = <1>;
++	#size-cells = <0>;
++	status = "okay";
++
++	/* brightness, display on/off and 60/120 Hz; the bootloader runs it */
++	panel@0 {
++		compatible = "samsung,s6e3hc3";
++		reg = <0>;
++	};
++};
++
+ &framebuffer0 {
+ 	width = <1440>;
+ 	height = <3120>;
+@@ -342,3 +377,17 @@ haptics@43 {
+ 		cirrus,boost-ctl-microvolt = <7500000>;
+ 	};
+ };
++
++/*
++ * The panel's rails (the framebuffer's vci and vddi supplies). simpledrm
++ * holds them; when gs-decon takes the display over, simpledrm goes away and
++ * releases them, the panel lost power and DECON stalled on its first flip.
++ * The S6E3HC3 driver doesn't switch them, so they stay on.
++ */
++&s2mpg10_ldo22m {
++	regulator-always-on;
++};
++
++&s2mpg11_bucka {
++	regulator-always-on;
++};

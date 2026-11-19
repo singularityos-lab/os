@@ -1,0 +1,220 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Andr=C3=A9=20Draszik?= <andre.draszik@linaro.org>
+Date: Wed, 18 Mar 2026 11:33:31 -0400
+Subject: [PATCH] pmdomain: samsung: implement SMC to save / restore TZ config
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Newer Exynos platforms have a Distributed Trust Zone Protection Control
+(DTZPC) linked to each power domain. It controls the access permissions
+to various registers from secure and non-secure world. An SMC call is
+required to instruct the firmware that the power domain is about to be
+turned off and again once it was turned on. This allows the firmware to
+save and restore the DTZPC configuration. Without, register access to
+various registers becomes impossible from Linux (causing SError), as
+the PoR configuration doesn't allow access.
+
+Neither the requirement for the SMC call, nor its arguments appear to
+be specific to gs101, as at least Exynos E850 also uses the same as can
+be seen in [1], hence prefix the new macros simply with EXYNOS_.
+
+At least on gs101, this SMC call isn't implemented for all power
+domains (e.g. it's missing for HSI2 (UFS)), therefore we issue a test
+SMC to store the configuration during probe, and if it fails we mark a
+domain as always-on to avoid the SErrors and to avoid unnecessarily
+retrying for each domain on/off.
+
+Link: https://lore.kernel.org/all/20230308233822.31180-4-semen.protsenko@linaro.org/ [1]
+Signed-off-by: André Draszik <andre.draszik@linaro.org>
+Link: https://lore.kernel.org/r/20260318-gs101-pd-v8-9-241523460b10@linaro.org
+Signed-off-by: saiththerobo <the.tom.sharp@gmail.com>
+---
+ drivers/pmdomain/samsung/exynos-pm-domains.c | 96 ++++++++++++++++++--
+ 1 file changed, 90 insertions(+), 6 deletions(-)
+
+diff --git a/drivers/pmdomain/samsung/exynos-pm-domains.c b/drivers/pmdomain/samsung/exynos-pm-domains.c
+index 6b0a0f395..d2e00f831 100644
+--- a/drivers/pmdomain/samsung/exynos-pm-domains.c
++++ b/drivers/pmdomain/samsung/exynos-pm-domains.c
+@@ -9,6 +9,7 @@
+ // conjunction with runtime-pm. Support for both device-tree and non-device-tree
+ // based power domain support is included.
+ 
++#include <linux/arm-smccc.h>
+ #include <linux/err.h>
+ #include <linux/platform_device.h>
+ #include <linux/slab.h>
+@@ -16,12 +17,19 @@
+ #include <linux/pm_domain.h>
+ #include <linux/delay.h>
+ #include <linux/of.h>
++#include <linux/of_address.h>
+ #include <linux/pm_runtime.h>
+ #include <linux/regmap.h>
+ 
++#define EXYNOS_SMC_CMD_PREPARE_PD_ONOFF		0x82000410
++#define EXYNOS_GET_IN_PD_DOWN			0
++#define EXYNOS_WAKEUP_PD_DOWN			1
++#define EXYNOS_RUNTIME_PM_TZPC_GROUP		2
++
+ struct exynos_pm_domain_config {
+ 	/* Value for LOCAL_PWR_CFG and STATUS fields for each domain */
+ 	u32 local_pwr_cfg;
++	u32 smc_offset;
+ 	bool use_parent_regmap;
+ };
+ 
+@@ -32,11 +40,28 @@ struct exynos_pm_domain {
+ 	struct regmap *regmap;
+ 	struct device *dev;
+ 	struct generic_pm_domain pd;
+-	u32 local_pwr_cfg;
++	const struct exynos_pm_domain_config *cfg;
+ 	u32 configuration_reg;
+ 	u32 status_reg;
++	phys_addr_t ac_pa;
+ };
+ 
++static int exynos_pd_access_controller_power(struct exynos_pm_domain *pd,
++					     bool power_on)
++{
++	struct arm_smccc_res res;
++
++	if (!pd->ac_pa || !pd->cfg->smc_offset)
++		return 0;
++
++	arm_smccc_smc(EXYNOS_SMC_CMD_PREPARE_PD_ONOFF,
++		      power_on ? EXYNOS_WAKEUP_PD_DOWN : EXYNOS_GET_IN_PD_DOWN,
++		      pd->ac_pa + pd->cfg->smc_offset,
++		      EXYNOS_RUNTIME_PM_TZPC_GROUP, 0, 0, 0, 0, &res);
++
++	return res.a0;
++}
++
+ static int exynos_pd_power(struct generic_pm_domain *domain, bool power_on)
+ {
+ 	struct exynos_pm_domain *pd;
+@@ -45,7 +70,17 @@ static int exynos_pd_power(struct generic_pm_domain *domain, bool power_on)
+ 
+ 	pd = container_of(domain, struct exynos_pm_domain, pd);
+ 
+-	pwr = power_on ? pd->local_pwr_cfg : 0;
++	if (!power_on) {
++		err = exynos_pd_access_controller_power(pd, power_on);
++		if (err) {
++			dev_err(pd->dev,
++				"SMC for power domain %s %sable failed: %d\n",
++				domain->name, power_on ? "en" : "dis", err);
++			return err;
++		}
++	}
++
++	pwr = power_on ? pd->cfg->local_pwr_cfg : 0;
+ 	err = regmap_write(pd->regmap, pd->configuration_reg, pwr);
+ 	if (err) {
+ 		dev_err(pd->dev,
+@@ -60,7 +95,7 @@ static int exynos_pd_power(struct generic_pm_domain *domain, bool power_on)
+ 		unsigned int val;
+ 
+ 		err = regmap_read(pd->regmap, pd->status_reg, &val);
+-		if (err || ((val & pd->local_pwr_cfg) != pwr)) {
++		if (err || ((val & pd->cfg->local_pwr_cfg) != pwr)) {
+ 			cpu_relax();
+ 			usleep_range(80, 100);
+ 			continue;
+@@ -72,9 +107,21 @@ static int exynos_pd_power(struct generic_pm_domain *domain, bool power_on)
+ 	if (!timeout && !err)
+ 		/* Only return timeout if no other error also occurred. */
+ 		err = -ETIMEDOUT;
+-	if (err)
++	if (err) {
+ 		dev_err(pd->dev, "Power domain %s %sable failed: %d\n",
+ 			domain->name, power_on ? "en" : "dis", err);
++		return err;
++	}
++
++	if (power_on) {
++		err = exynos_pd_access_controller_power(pd, power_on);
++		if (err) {
++			dev_err(pd->dev,
++				"SMC for power domain %s %sable failed: %d\n",
++				domain->name, power_on ? "en" : "dis", err);
++			return err;
++		}
++	}
+ 
+ 	return err;
+ }
+@@ -99,6 +146,7 @@ static const struct exynos_pm_domain_config exynos5433_cfg = {
+ 
+ static const struct exynos_pm_domain_config gs101_cfg = {
+ 	.local_pwr_cfg		= BIT(0),
++	.smc_offset		= 0x0204,
+ 	.use_parent_regmap	= true,
+ };
+ 
+@@ -126,6 +174,38 @@ static const char *exynos_get_domain_name(struct device *dev,
+ 	return devm_kstrdup_const(dev, name, GFP_KERNEL);
+ }
+ 
++static int exynos_pd_get_access_controller(struct exynos_pm_domain *pd)
++{
++	struct device_node *ac_np;
++	struct resource ac_res;
++	int ret;
++
++	ac_np = of_parse_phandle(pd->dev->of_node, "samsung,dtzpc", 0);
++	if (!ac_np)
++		return 0;
++
++	ret = of_address_to_resource(ac_np, 0, &ac_res);
++	of_node_put(ac_np);
++	if (ret)
++		return dev_err_probe(pd->dev, ret,
++				     "failed to get access controller\n");
++
++	pd->ac_pa = ac_res.start;
++
++	/*
++	 * For some domains, TZ save/restore might not be implemented. If that
++	 * is the case, simply mark it as always on, as otherwise a power cycle
++	 * will lead to lost TZ configuration, making it impossible to access
++	 * registers from Linux afterwards.
++	 */
++	if (exynos_pd_access_controller_power(pd, false) == -ENOENT) {
++		pd->ac_pa = 0;
++		pd->pd.flags |= GENPD_FLAG_ALWAYS_ON;
++	}
++
++	return 0;
++}
++
+ static int exynos_pd_probe(struct platform_device *pdev)
+ {
+ 	const struct exynos_pm_domain_config *pm_domain_cfg;
+@@ -203,10 +283,14 @@ static int exynos_pd_probe(struct platform_device *pdev)
+ 
+ 	pd->pd.power_off = exynos_pd_power_off;
+ 	pd->pd.power_on = exynos_pd_power_on;
+-	pd->local_pwr_cfg = pm_domain_cfg->local_pwr_cfg;
++	pd->cfg = pm_domain_cfg;
+ 	pd->configuration_reg += 0;
+ 	pd->status_reg += 4;
+ 
++	ret = exynos_pd_get_access_controller(pd);
++	if (ret)
++		return ret;
++
+ 	/*
+ 	 * Some Samsung platforms with bootloaders turning on the splash-screen
+ 	 * and handing it over to the kernel, requires the power-domains to be
+@@ -220,7 +304,7 @@ static int exynos_pd_probe(struct platform_device *pdev)
+ 	if (ret)
+ 		return dev_err_probe(dev, ret, "failed to read status\n");
+ 
+-	on = val & pd->local_pwr_cfg;
++	on = val & pd->cfg->local_pwr_cfg;
+ 
+ 	pm_genpd_init(&pd->pd, NULL, !on);
+ 	ret = of_genpd_add_provider_simple(np, &pd->pd);

@@ -1,0 +1,80 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Chris Gray <chrisgray70@gmail.com>
+Date: Fri, 23 Oct 2026 23:53:02 -0500
+Subject: [PATCH] arm64: dts: exynos: google: gs201-lynx: add the boot
+ framebuffer
+
+ABL leaves DECON0, DSIM0 and the panel running in command mode with
+DPP0 scanning a 1080x2400 buffer at 0xfac00000. Reserve that buffer
+(no-map; on stock it sits in the wifi_region CMA pool, which this tree
+does not have) and describe it as a simple-framebuffer, so simpledrm
+and fbcon can use the panel before there is a panel driver.
+
+Tested on a Pixel 7a from slot B: simpledrm binds the framebuffer and
+fbcon shows the boot log and a shell prompt on the panel. The
+initramfs unmasks DECON0's hardware trigger for this.
+
+Assisted-by: LLM
+Signed-off-by: Chris Gray <chrisgray70@gmail.com>
+---
+ .../boot/dts/exynos/google/gs201-lynx.dts     | 33 ++++++++++++++++---
+ 1 file changed, 29 insertions(+), 4 deletions(-)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/gs201-lynx.dts b/arch/arm64/boot/dts/exynos/google/gs201-lynx.dts
+index eb0c0e8ec..73c0ab686 100644
+--- a/arch/arm64/boot/dts/exynos/google/gs201-lynx.dts
++++ b/arch/arm64/boot/dts/exynos/google/gs201-lynx.dts
+@@ -2,9 +2,9 @@
+ /*
+  * Google Pixel 7a (lynx) - M1 bring-up board file.
+  *
+- * First light only: USB (NCM + ACM) and the cluster watchdogs from
+- * gs201.dtsi. UFS, the panel, touch and the GPU stay disabled, and there
+- * is no simple-framebuffer yet, so the screen keeps the bootloader logo.
++ * First light: USB (NCM + ACM), the cluster watchdogs from gs201.dtsi,
++ * and a simple-framebuffer on the buffer ABL leaves DPP0 scanning out.
++ * UFS, the panel driver, touch and the GPU stay disabled.
+  */
+ 
+ /dts-v1/;
+@@ -33,7 +33,26 @@ B0_IPOP {
+ 
+ 	chosen {
+ 		/* ABL requires bootargs to exist; it appends its own after these. */
+-		bootargs = "console=tty0 panic=10 clk_ignore_unused pd_ignore_unused rdinit=/init";
++		bootargs = "console=tty0 fbcon=font:TER16x32 panic=10 clk_ignore_unused pd_ignore_unused rdinit=/init";
++		#address-cells = <2>;
++		#size-cells = <1>;
++		ranges;
++
++		/*
++		 * ABL leaves DECON0 -> DSIM0 -> panel (sdc-s6e3fc5) running in
++		 * command mode with DPP0 scanning 0xfac00000 (RDMA_BASEADDR_Y8,
++		 * read on this phone). There is no panel driver, so no panel
++		 * phandle; the size comes from this node.
++		 */
++		framebuffer0: framebuffer@fac00000 {
++			compatible = "simple-framebuffer";
++			reg = <0x0 0xfac00000 (1080 * 2400 * 4)>;
++			memory-region = <&cont_splash_mem>;
++			width = <1080>;
++			height = <2400>;
++			stride = <(1080 * 4)>;
++			format = "a8r8g8b8";
++		};
+ 	};
+ 
+ 	/*
+@@ -54,6 +73,12 @@ ramoops@fd3ff000 {
+ 			console-size = <0x200000>;
+ 			pmsg-size = <0x200000>;
+ 		};
++
++		/* Inside stock's wifi_region CMA pool, which this tree does not have. */
++		cont_splash_mem: splash@fac00000 {
++			reg = <0x0 0xfac00000 (1080 * 2400 * 4)>;
++			no-map;
++		};
+ 	};
+ };
+ 

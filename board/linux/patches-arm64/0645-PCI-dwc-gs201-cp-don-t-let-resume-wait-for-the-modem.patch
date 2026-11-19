@@ -1,0 +1,94 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Hiroyuki Ikegami <ikegam@mixallow.net>
+Date: Mon, 9 Nov 2026 20:34:57 +0900
+Subject: [PATCH] PCI: dwc: gs201-cp: don't let resume wait for the modem's
+ link
+
+PCI_DEV_FLAGS_NO_D3 kept the root port out of D3hot, but it can still be
+marked D3cold. The read that does it is pci_power_up()'s read of the
+port's PM control register: with the link down, cp_root_map_bus() maps
+nothing, the read returns all ones, and pci_power_up() marks the port
+D3cold:
+
+  pcieport 0001:00:00.0: Unable to change power state from D3cold to D0, device inaccessible
+
+The suspend-to-idle after that one started from D3cold, so resume again
+waited for the link, which only the modem driver raises, and marked the
+modem disconnected:
+
+  pcieport 0001:00:00.0: Data Link Layer Link Active not set in 100 msec
+  cpif: s51xx_pcie_restore_state: Can't set D0 state!!!!
+  cpif: s51xx_pcie_send_doorbell_int: BME is not set(cnt=10)
+
+Give the devices below the port a zero d3cold_delay, so
+pci_bridge_wait_for_secondary_bus() returns at once and the link stays
+the modem driver's business, as at runtime. This makes the stale D3cold
+mark harmless rather than avoiding it, since the modem's power belongs
+to CPIF. Skipping the wait is safe because the modem is never powered
+down across s2idle, and the modem driver waits for its own link up and
+restores the endpoint's state before it touches the modem. The wait
+could only time out and mark a working modem disconnected, so the zero
+d3cold_delay must stay.
+
+Only with sleep_guard (gs201): the Pixel 9a's devices keep their
+d3cold_delay.
+
+With this and the two changes before it, on a Pixel 7 Pro with the modem
+registered on LTE: eight suspend-to-idle cycles in one boot, all resumed,
+woken by the RTC alarm or the modem's cp2ap_wakeup (an incoming SMS among
+them, received in the second it woke), mobile data working after each,
+no UFS error.
+
+Assisted-by: LLM
+Signed-off-by: Hiroyuki Ikegami <ikegam@mixallow.net>
+---
+ drivers/pci/controller/dwc/pcie-gs201-cp.c | 27 ++++++++++++++++++----
+ 1 file changed, 23 insertions(+), 4 deletions(-)
+
+diff --git a/drivers/pci/controller/dwc/pcie-gs201-cp.c b/drivers/pci/controller/dwc/pcie-gs201-cp.c
+index de7923787..a730f543c 100644
+--- a/drivers/pci/controller/dwc/pcie-gs201-cp.c
++++ b/drivers/pci/controller/dwc/pcie-gs201-cp.c
+@@ -762,6 +762,12 @@ static int cp_msi_setup(struct gs201_pcie_cp *cp)
+ 	return 0;
+ }
+ 
++static int cp_no_d3cold_wait(struct pci_dev *pdev, void *data)
++{
++	pdev->d3cold_delay = 0;
++	return 0;
++}
++
+ static int cp_bus_report(struct pci_dev *pdev, void *data)
+ {
+ 	struct gs201_pcie_cp *cp = data;
+@@ -834,12 +840,25 @@ static int cp_bus(struct gs201_pcie_cp *cp)
+ 	 * left to the PCI core, a system sleep with the link down marked the
+ 	 * root port D3cold, and resume then took the modem as disconnected,
+ 	 * since the link only comes back when the modem driver asks for it.
+-	 * Only where system sleep with the modem up has been tried
+-	 * (sleep_guard, gs201).
++	 * PCI_DEV_FLAGS_NO_D3 keeps it in D0, but a read of its PM control
++	 * register with the link down (pci_power_up() at resume, through
++	 * cp_root_map_bus(), which maps nothing then, so the read is all
++	 * ones) still marks it D3cold, and the next resume would wait up to
++	 * d3cold_delay for a link only the modem driver raises, then mark the
++	 * modem disconnected. The modem keeps its power across s2idle, and
++	 * its driver waits for its own link up and restores the endpoint
++	 * before any access, so that wait has nothing to wait for: keep
++	 * d3cold_delay zero below the port. Both only where system sleep with
++	 * the modem up has been tried (sleep_guard, gs201).
+ 	 */
+-	if (cp->data->sleep_guard)
+-		list_for_each_entry(rp, &cp->bridge->bus->devices, bus_list)
++	if (cp->data->sleep_guard) {
++		list_for_each_entry(rp, &cp->bridge->bus->devices, bus_list) {
+ 			rp->dev_flags |= PCI_DEV_FLAGS_NO_D3;
++			if (rp->subordinate)
++				pci_walk_bus(rp->subordinate,
++					     cp_no_d3cold_wait, NULL);
++		}
++	}
+ 	pci_walk_bus(cp->bridge->bus, cp_bus_report, cp);
+ 	cp_root_win_save(cp);
+ 

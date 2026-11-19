@@ -1,0 +1,83 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: boozedog <code@booze.dog>
+Date: Tue, 27 Oct 2026 12:57:39 -0400
+Subject: [PATCH] arm64: dts: exynos: google: gs201-felix: describe the inner
+ splash
+
+DECON0 scans 1840x2208 from 0xfac00000. That range was ordinary
+System RAM, so a later allocation could overwrite the splash. Reserve
+it and describe it as a second simple-framebuffer. reg matches the
+node address, so dtc does not warn. memory-region still points at the
+reserved splash, and the driver prefers that over reg. The cover node
+stays first. The inner display controller stays disabled.
+
+Assisted-by: LLM
+Signed-off-by: boozedog <code@booze.dog>
+---
+ .../boot/dts/exynos/google/gs201-felix.dts    | 31 ++++++++++++++-----
+ 1 file changed, 24 insertions(+), 7 deletions(-)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/gs201-felix.dts b/arch/arm64/boot/dts/exynos/google/gs201-felix.dts
+index fc9dfd1d7..4230c9af8 100644
+--- a/arch/arm64/boot/dts/exynos/google/gs201-felix.dts
++++ b/arch/arm64/boot/dts/exynos/google/gs201-felix.dts
+@@ -7,8 +7,9 @@
+  * GPU, the volume keys, the hinge hall sensor, the cover touch rails,
+  * and the cover touch controller. The controller stays disabled until
+  * a bring-up overlay enables it. This file does not describe either
+- * panel or the inner touch controller. The inner panel has no node
+- * that could drive it.
++ * panel or the inner touch controller. The inner splash is reserved
++ * and described as a second simple framebuffer. It does not drive
++ * the panel.
+  */
+ 
+ /dts-v1/;
+@@ -31,9 +32,10 @@ chosen {
+ 		/*
+ 		 * ABL requires bootargs and appends its own, including
+ 		 * console=null. Nothing here writes a display register. The
+-		 * framebuffer below is the cover plane read from DPP2 on the
+-		 * first boot (1080x2092 at 0xfc000000). The inner plane, DPP0
+-		 * at 0xfac00000, is not described.
++		 * cover framebuffer is the plane read from DPP2 (1080x2092 at
++		 * 0xfc000000). The inner framebuffer is the plane read from DPP0
++		 * (1840x2208 at 0xfac00000). The cover node stays first so it
++		 * remains the first framebuffer device.
+ 		 */
+ 		bootargs = "console=tty0 panic=10 clk_ignore_unused pd_ignore_unused rdinit=/init";
+ 		#address-cells = <2>;
+@@ -48,6 +50,16 @@ framebuffer0: framebuffer@fc000000 {
+ 			stride = <(1080 * 4)>;
+ 			format = "a8r8g8b8";
+ 		};
++
++		framebuffer1: framebuffer@fac00000 {
++			compatible = "simple-framebuffer";
++			reg = <0x0 0xfac00000 (1840 * 2208 * 4)>;
++			memory-region = <&inner_splash_mem>;
++			width = <1840>;
++			height = <2208>;
++			stride = <(1840 * 4)>;
++			format = "a8r8g8b8";
++		};
+ 	};
+ 
+ 	reserved-memory {
+@@ -56,9 +68,14 @@ reserved-memory {
+ 		ranges;
+ 
+ 		/*
+-		 * The inner plane at 0xfac00000 is left unreserved. DECON0's
+-		 * trigger stays masked.
++		 * Inner splash. DECON0 scans 1840x2208 from here. Reserved so the
++		 * kernel does not allocate it. The inner display node stays disabled.
+ 		 */
++		inner_splash_mem: splash@fac00000 {
++			reg = <0x0 0xfac00000 (1840 * 2208 * 4)>;
++			no-map;
++		};
++
+ 		cont_splash_mem: splash@fc000000 {
+ 			reg = <0x0 0xfc000000 (1080 * 2092 * 4)>;
+ 			no-map;

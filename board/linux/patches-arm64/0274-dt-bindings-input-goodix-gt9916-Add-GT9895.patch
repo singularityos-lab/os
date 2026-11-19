@@ -1,0 +1,26 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Chris Gray <chrisgray70@gmail.com>
+Date: Sat, 24 Oct 2026 10:22:31 -0500
+Subject: [PATCH] dt-bindings: input: goodix,gt9916: Add GT9895
+
+The GT9895 is a Berlin-series controller used over SPI in the Pixel 7a.
+It uses the same register map and supplies as the GT9916.
+
+Assisted-by: LLM
+Signed-off-by: Chris Gray <chrisgray70@gmail.com>
+---
+ .../devicetree/bindings/input/touchscreen/goodix,gt9916.yaml     | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/Documentation/devicetree/bindings/input/touchscreen/goodix,gt9916.yaml b/Documentation/devicetree/bindings/input/touchscreen/goodix,gt9916.yaml
+index c40d92b7f..9a107dbb7 100644
+--- a/Documentation/devicetree/bindings/input/touchscreen/goodix,gt9916.yaml
++++ b/Documentation/devicetree/bindings/input/touchscreen/goodix,gt9916.yaml
+@@ -19,6 +19,7 @@ allOf:
+ properties:
+   compatible:
+     enum:
++      - goodix,gt9895
+       - goodix,gt9897
+       - goodix,gt9916
+ 

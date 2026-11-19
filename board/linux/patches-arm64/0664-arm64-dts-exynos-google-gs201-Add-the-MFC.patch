@@ -1,0 +1,63 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?=C3=81ngel=20Ren=C3=A9?=
+ <17342133+angelrenefm@users.noreply.github.com>
+Date: Sun, 15 Nov 2026 13:51:03 +0100
+Subject: [PATCH] arm64: dts: exynos: google: gs201: Add the MFC
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Describe the gs201 MFC (v15.6), disabled, from Google's MFC-0 node
+(kernel/devices/google/gs201, dts/gs201-mfc.dtsi, branch
+android-gs-pantah-6.1-android16): registers at 0x1c8d0000, GIC SPI 504
+level high.
+
+Its "mfc" clock is the ACPM firmware's MFC DVFS domain, so that s5p-mfc
+can raise the rate while it decodes instead of running at the 100 MHz
+the bootloader leaves; ACPM sets the voltage with it.
+
+The two System MMUs in front of it are not described: they stay in
+bypass, so the MFC sees physical addresses through 32-bit registers, and
+a board that enables it gives it memory below 4 GiB through
+memory-region. No power domain and no CMU_MFC gates either: CMU_MFC is
+not described yet, and the gs201 boards boot with clk_ignore_unused and
+pd_ignore_unused, which leave them on as the bootloader set them. The
+node's comment names the CMU_TOP gate that depends on that flag.
+
+Assisted-by: LLM
+Signed-off-by: Ángel René <17342133+angelrenefm@users.noreply.github.com>
+---
+ arch/arm64/boot/dts/exynos/google/gs201.dtsi | 20 ++++++++++++++++++++
+ 1 file changed, 20 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/gs201.dtsi b/arch/arm64/boot/dts/exynos/google/gs201.dtsi
+index 4f804ecbb..11f0d479e 100644
+--- a/arch/arm64/boot/dts/exynos/google/gs201.dtsi
++++ b/arch/arm64/boot/dts/exynos/google/gs201.dtsi
+@@ -2013,6 +2013,26 @@ dsi0_in: endpoint {
+ 			};
+ 		};
+ 
++		/*
++		 * MFC v15.6 video codec. Its two System MMUs (0x1c870000,
++		 * 0x1c8a0000) are left in bypass and CMU_MFC is not described
++		 * yet, so the firmware and its buffers need memory below 4 GiB
++		 * from the board's memory-region, and the block runs on the
++		 * power domain the bootloader leaves on. Its rate (and voltage)
++		 * is the ACPM firmware's MFC DVFS domain. CMU_TOP's
++		 * gout_cmu_mfc_mfc gate feeds the block too and stays on only
++		 * because the boards boot with clk_ignore_unused: without that
++		 * flag the first register access would hit an unclocked block.
++		 */
++		mfc: video-codec@1c8d0000 {
++			compatible = "google,gs201-mfc";
++			reg = <0x1c8d0000 0x10000>;
++			interrupts = <GIC_SPI 504 IRQ_TYPE_LEVEL_HIGH>;
++			clocks = <&acpm_ipc GS201_CLK_ACPM_DVFS_MFC>;
++			clock-names = "mfc";
++			status = "disabled";
++		};
++
+ 		gpu: gpu@28000000 {
+ 			compatible = "google,gs201-mali", "arm,mali-valhall-csf";
+ 			reg = <0x28000000 0x480000>;

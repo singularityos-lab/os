@@ -1,0 +1,492 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Sun, 1 Nov 2026 13:54:19 -0647
+Subject: [PATCH] mfd: sec: s2mpg14: Add the PMIC interrupt and the RTC alarm
+
+The S2MPG14 (Pixel 9a main PMIC) has the S2MPG12's five PMIC interrupt
+registers, INT1-INT5 at 0x00-0x04 clearing on read with their masks at
+0x05-0x09, routed in-band through IBIM1 and latched by the SoC's VGPIO2AP
+block, which the AP sees as GIC SPI 74. Google's GPL driver gives the
+bit layout (s2mpg14-irq.c, with the order of the sources in
+s2mpg14-register.h).
+
+Add the interrupt chip after the S2MPG12's: mask every source first (all
+eight bits of INT1M-INT5M, as Google's driver does, since regmap-irq only
+masks the bits it knows), then request the line, acknowledge the
+VGPIO2AP latch before each status read and unmask only the PMIC source
+in IBIM1 (nothing handles the power meter, and its regmap is not
+exposed). The ACPM regmaps grow the interrupt block, with INT1-INT5
+precious, and IBIM1, the only common register the driver writes and so
+the only writable one. The RTC cell gets its alarm resource, so the
+rtc-s5m driver enables the alarm it was built with.
+
+The interrupt stays optional, as the binding allows: the Pixel 9a and
+Pixel 8 Pro device trees describe the PMIC without it, and the PMIC's
+regulators supply the eUSB2 PHY and the touchscreen, so failing the
+probe would take USB down with it. Without an interrupt the driver
+writes none of the interrupt registers and registers the RTC without
+the alarm resource (there is no IRQ domain to map it into), as before
+this change. The other PMICs keep their paths.
+
+Tested on the Pixel 9a: /proc/interrupts lists the s2mpg14-pmic chip
+behind GIC SPI 74, a 15 s wakealarm on rtc0 fires (the interrupt count
+advances by one and the alarm clears), the line stays at zero otherwise,
+and the LDOs and the clock behave as before.
+
+Link: https://android.googlesource.com/kernel/google-modules/soc/gs/+/204078758737776959ecc85c527a00fd2cabb62f/drivers/mfd/s2mpg14-irq.c
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ drivers/mfd/sec-acpm.c              |  36 ++++++--
+ drivers/mfd/sec-common.c            |  25 ++++--
+ drivers/mfd/sec-irq.c               | 127 +++++++++++++++++++++++++++-
+ include/linux/mfd/samsung/irq.h     |  78 +++++++++++++++++
+ include/linux/mfd/samsung/s2mpg14.h |  16 ++++
+ 5 files changed, 269 insertions(+), 13 deletions(-)
+
+diff --git a/drivers/mfd/sec-acpm.c b/drivers/mfd/sec-acpm.c
+index ba018ce1c..c644530c4 100644
+--- a/drivers/mfd/sec-acpm.c
++++ b/drivers/mfd/sec-acpm.c
+@@ -43,6 +43,8 @@ struct sec_pmic_acpm_platform_data {
+ 
+ 	/* No interrupt line is wired up for this PMIC (yet). */
+ 	bool no_irq;
++	/* The device tree may leave the interrupt line out. */
++	bool irq_optional;
+ };
+ 
+ static const struct regmap_range s2mpg10_common_registers[] = {
+@@ -564,9 +566,10 @@ static const struct regmap_config s2mpg13_regmap_config_gpio = {
+ 	.cache_type = REGCACHE_NONE,
+ };
+ 
+-/* Expose only the touchscreen and eUSB2 supply controls. */
++/* The revision and the in-band interrupt mask the driver writes. */
+ static const struct regmap_range s2mpg14_common_registers[] = {
+ 	regmap_reg_range(S2MPG14_COMMON_CHIPID, S2MPG14_COMMON_CHIPID),
++	regmap_reg_range(S2MPG14_COMMON_IBIM1, S2MPG14_COMMON_IBIM1),
+ };
+ 
+ static const struct regmap_access_table s2mpg14_common_rd_table = {
+@@ -574,25 +577,27 @@ static const struct regmap_access_table s2mpg14_common_rd_table = {
+ 	.n_yes_ranges = ARRAY_SIZE(s2mpg14_common_registers),
+ };
+ 
+-static const struct regmap_range s2mpg14_common_no_writes[] = {
+-	regmap_reg_range(0, S2MPG14_COMMON_CHIPID),
++static const struct regmap_range s2mpg14_common_wr_registers[] = {
++	regmap_reg_range(S2MPG14_COMMON_IBIM1, S2MPG14_COMMON_IBIM1),
+ };
+ 
+ static const struct regmap_access_table s2mpg14_common_wr_table = {
+-	.no_ranges = s2mpg14_common_no_writes,
+-	.n_no_ranges = ARRAY_SIZE(s2mpg14_common_no_writes),
++	.yes_ranges = s2mpg14_common_wr_registers,
++	.n_yes_ranges = ARRAY_SIZE(s2mpg14_common_wr_registers),
+ };
+ 
+ static const struct regmap_config s2mpg14_regmap_config_common = {
+ 	.name = "common",
+ 	.reg_bits = ACPM_ADDR_BITS,
+ 	.val_bits = 8,
+-	.max_register = S2MPG14_COMMON_CHIPID,
++	.max_register = S2MPG14_COMMON_IBIM1,
+ 	.rd_table = &s2mpg14_common_rd_table,
+ 	.wr_table = &s2mpg14_common_wr_table,
+ };
+ 
++/* The interrupt block, the RTC alarm flag and the touchscreen and eUSB2 supply controls. */
+ static const struct regmap_range s2mpg14_pmic_rd_registers[] = {
++	regmap_reg_range(S2MPG14_PMIC_INT1, S2MPG14_PMIC_INT5M), /* interrupts and their masks */
+ 	regmap_reg_range(S2MPG14_PMIC_STATUS2, S2MPG14_PMIC_STATUS2), /* RTC alarm flag */
+ 	regmap_reg_range(S2MPG14_PMIC_L4M_CTRL, S2MPG14_PMIC_L4M_CTRL),
+ 	regmap_reg_range(S2MPG14_PMIC_L8M_CTRL, S2MPG14_PMIC_L9M_CTRL),
+@@ -601,6 +606,7 @@ static const struct regmap_range s2mpg14_pmic_rd_registers[] = {
+ };
+ 
+ static const struct regmap_range s2mpg14_pmic_wr_registers[] = {
++	regmap_reg_range(S2MPG14_PMIC_INT1M, S2MPG14_PMIC_INT5M),
+ 	regmap_reg_range(S2MPG14_PMIC_L4M_CTRL, S2MPG14_PMIC_L4M_CTRL),
+ 	regmap_reg_range(S2MPG14_PMIC_L9M_CTRL, S2MPG14_PMIC_L9M_CTRL),
+ 	regmap_reg_range(S2MPG14_PMIC_L19M_CTRL, S2MPG14_PMIC_L19M_CTRL),
+@@ -617,6 +623,15 @@ static const struct regmap_access_table s2mpg14_pmic_wr_table = {
+ 	.n_yes_ranges = ARRAY_SIZE(s2mpg14_pmic_wr_registers),
+ };
+ 
++static const struct regmap_range s2mpg14_pmic_precious_registers[] = {
++	regmap_reg_range(S2MPG14_PMIC_INT1, S2MPG14_PMIC_INT5), /* clear on read */
++};
++
++static const struct regmap_access_table s2mpg14_pmic_precious_table = {
++	.yes_ranges = s2mpg14_pmic_precious_registers,
++	.n_yes_ranges = ARRAY_SIZE(s2mpg14_pmic_precious_registers),
++};
++
+ static const struct regmap_config s2mpg14_regmap_config_pmic = {
+ 	.name = "pmic",
+ 	.reg_bits = ACPM_ADDR_BITS,
+@@ -624,6 +639,7 @@ static const struct regmap_config s2mpg14_regmap_config_pmic = {
+ 	.max_register = S2MPG14_PMIC_LDO_CTRL1,
+ 	.rd_table = &s2mpg14_pmic_rd_table,
+ 	.wr_table = &s2mpg14_pmic_wr_table,
++	.precious_table = &s2mpg14_pmic_precious_table,
+ };
+ 
+ /*
+@@ -842,6 +858,12 @@ static int sec_pmic_acpm_probe(struct platform_device *pdev)
+ 
+ 	if (pdata->no_irq) {
+ 		irq = 0;
++	} else if (pdata->irq_optional) {
++		irq = platform_get_irq_optional(pdev, 0);
++		if (irq == -ENXIO)
++			irq = 0;
++		else if (irq < 0)
++			return irq;
+ 	} else {
+ 		irq = platform_get_irq(pdev, 0);
+ 		if (irq < 0)
+@@ -948,7 +970,7 @@ static const struct sec_pmic_acpm_platform_data s2mpg14_data = {
+ 	.regmap_cfg_common = &s2mpg14_regmap_config_common,
+ 	.regmap_cfg_pmic = &s2mpg14_regmap_config_pmic,
+ 	.regmap_cfg_rtc = &s2mpg14_regmap_config_rtc,
+-	.no_irq = true,
++	.irq_optional = true,
+ };
+ 
+ static const struct sec_pmic_acpm_platform_data s2mpg15_data = {
+diff --git a/drivers/mfd/sec-common.c b/drivers/mfd/sec-common.c
+index 47e6b183d..6a40169c4 100644
+--- a/drivers/mfd/sec-common.c
++++ b/drivers/mfd/sec-common.c
+@@ -75,11 +75,21 @@ static const struct mfd_cell s2mpg13_devs[] = {
+ 	MFD_CELL_OF("s2mpg13-gpio", NULL, NULL, 0, 0, "samsung,s2mpg13-gpio"),
+ };
+ 
++static const struct resource s2mpg14_rtc_resources[] = {
++	DEFINE_RES_IRQ_NAMED(S2MPG14_IRQ_RTCA0, "alarm"),
++};
++
++/* The qualified LDOs and the RTC with its alarm; no GPIO or protection writes. */
++static const struct mfd_cell s2mpg14_devs[] = {
++	MFD_CELL_NAME("s2mpg14-regulator"),
++	MFD_CELL_RES("s2mpg14-rtc", s2mpg14_rtc_resources),
++};
++
+ /*
+- * The qualified LDOs and the RTC. No interrupt line is described yet, so
+- * the RTC keeps time without an alarm; no GPIO or protection writes.
++ * Without an interrupt line there is no IRQ domain to map the alarm into,
++ * so the RTC comes up without the resource and keeps time without an alarm.
+  */
+-static const struct mfd_cell s2mpg14_devs[] = {
++static const struct mfd_cell s2mpg14_devs_no_irq[] = {
+ 	MFD_CELL_NAME("s2mpg14-regulator"),
+ 	MFD_CELL_NAME("s2mpg14-rtc"),
+ };
+@@ -293,8 +303,13 @@ int sec_pmic_probe(struct device *dev, int device_type, unsigned int irq,
+ 		num_sec_devs = ARRAY_SIZE(s2mpg13_devs);
+ 		break;
+ 	case S2MPG14:
+-		sec_devs = s2mpg14_devs;
+-		num_sec_devs = ARRAY_SIZE(s2mpg14_devs);
++		if (irq_data) {
++			sec_devs = s2mpg14_devs;
++			num_sec_devs = ARRAY_SIZE(s2mpg14_devs);
++		} else {
++			sec_devs = s2mpg14_devs_no_irq;
++			num_sec_devs = ARRAY_SIZE(s2mpg14_devs_no_irq);
++		}
+ 		break;
+ 	case S2MPG15:
+ 		sec_devs = s2mpg15_devs;
+diff --git a/drivers/mfd/sec-irq.c b/drivers/mfd/sec-irq.c
+index dc6114b14..41975501d 100644
+--- a/drivers/mfd/sec-irq.c
++++ b/drivers/mfd/sec-irq.c
+@@ -15,6 +15,7 @@
+ #include <linux/mfd/samsung/s2mpg10.h>
+ #include <linux/mfd/samsung/s2mpg11.h>
+ #include <linux/mfd/samsung/s2mpg12.h>
++#include <linux/mfd/samsung/s2mpg14.h>
+ #include <linux/mfd/samsung/s2mps11.h>
+ #include <linux/mfd/samsung/s2mps14.h>
+ #include <linux/mfd/samsung/s2mpu02.h>
+@@ -182,6 +183,41 @@ static const struct regmap_irq s2mpg12_pmic_irqs[] = {
+ 	REGMAP_IRQ_REG(S2MPG12_IRQ_WTSR_TIMEOUT, 4, S2MPG12_IRQ_WTSR_TIMEOUT_MASK),
+ };
+ 
++static const struct regmap_irq s2mpg14_pmic_irqs[] = {
++	REGMAP_IRQ_REG(S2MPG14_IRQ_PWRONF, 0, S2MPG14_IRQ_PWRONF_MASK),
++	REGMAP_IRQ_REG(S2MPG14_IRQ_PWRONR, 0, S2MPG14_IRQ_PWRONR_MASK),
++	REGMAP_IRQ_REG(S2MPG14_IRQ_JIGONBF, 0, S2MPG14_IRQ_JIGONBF_MASK),
++	REGMAP_IRQ_REG(S2MPG14_IRQ_JIGONBR, 0, S2MPG14_IRQ_JIGONBR_MASK),
++	REGMAP_IRQ_REG(S2MPG14_IRQ_ACOKBF, 0, S2MPG14_IRQ_ACOKBF_MASK),
++	REGMAP_IRQ_REG(S2MPG14_IRQ_ACOKBR, 0, S2MPG14_IRQ_ACOKBR_MASK),
++	REGMAP_IRQ_REG(S2MPG14_IRQ_PWRON1S, 0, S2MPG14_IRQ_PWRON1S_MASK),
++	REGMAP_IRQ_REG(S2MPG14_IRQ_MRB, 0, S2MPG14_IRQ_MRB_MASK),
++	REGMAP_IRQ_REG(S2MPG14_IRQ_RTC60S, 1, S2MPG14_IRQ_RTC60S_MASK),
++	REGMAP_IRQ_REG(S2MPG14_IRQ_RTCA1, 1, S2MPG14_IRQ_RTCA1_MASK),
++	REGMAP_IRQ_REG(S2MPG14_IRQ_RTCA0, 1, S2MPG14_IRQ_RTCA0_MASK),
++	REGMAP_IRQ_REG(S2MPG14_IRQ_RTC1S, 1, S2MPG14_IRQ_RTC1S_MASK),
++	REGMAP_IRQ_REG(S2MPG14_IRQ_WTSR_COLDRST, 1, S2MPG14_IRQ_WTSR_COLDRST_MASK),
++	REGMAP_IRQ_REG(S2MPG14_IRQ_WTSR, 1, S2MPG14_IRQ_WTSR_MASK),
++	REGMAP_IRQ_REG(S2MPG14_IRQ_WRST, 1, S2MPG14_IRQ_WRST_MASK),
++	REGMAP_IRQ_REG(S2MPG14_IRQ_SMPL, 1, S2MPG14_IRQ_SMPL_MASK),
++	REGMAP_IRQ_REG(S2MPG14_IRQ_120C, 2, S2MPG14_IRQ_INT120C_MASK),
++	REGMAP_IRQ_REG(S2MPG14_IRQ_140C, 2, S2MPG14_IRQ_INT140C_MASK),
++	REGMAP_IRQ_REG(S2MPG14_IRQ_TSD, 2, S2MPG14_IRQ_TSD_MASK),
++	REGMAP_IRQ_REG(S2MPG14_IRQ_SCL_SOFTRST, 2, S2MPG14_IRQ_SCL_SOFTRST_MASK),
++	REGMAP_IRQ_REG(S2MPG14_IRQ_WLWP_ACC, 2, S2MPG14_IRQ_WLWP_ACC_MASK),
++	REGMAP_IRQ_REG(S2MPG14_IRQ_OCP_B1M, 3, S2MPG14_IRQ_OCP_B1M_MASK),
++	REGMAP_IRQ_REG(S2MPG14_IRQ_OCP_B2M, 3, S2MPG14_IRQ_OCP_B2M_MASK),
++	REGMAP_IRQ_REG(S2MPG14_IRQ_OCP_B3M, 3, S2MPG14_IRQ_OCP_B3M_MASK),
++	REGMAP_IRQ_REG(S2MPG14_IRQ_OCP_B4M, 3, S2MPG14_IRQ_OCP_B4M_MASK),
++	REGMAP_IRQ_REG(S2MPG14_IRQ_OCP_B5M, 3, S2MPG14_IRQ_OCP_B5M_MASK),
++	REGMAP_IRQ_REG(S2MPG14_IRQ_OCP_B6M, 3, S2MPG14_IRQ_OCP_B6M_MASK),
++	REGMAP_IRQ_REG(S2MPG14_IRQ_OCP_B7M, 3, S2MPG14_IRQ_OCP_B7M_MASK),
++	REGMAP_IRQ_REG(S2MPG14_IRQ_OCP_B8M, 3, S2MPG14_IRQ_OCP_B8M_MASK),
++	REGMAP_IRQ_REG(S2MPG14_IRQ_OCP_B9M, 4, S2MPG14_IRQ_OCP_B9M_MASK),
++	REGMAP_IRQ_REG(S2MPG14_IRQ_SMPL_TIMEOUT, 4, S2MPG14_IRQ_SMPL_TIMEOUT_MASK),
++	REGMAP_IRQ_REG(S2MPG14_IRQ_WTSR_TIMEOUT, 4, S2MPG14_IRQ_WTSR_TIMEOUT_MASK),
++};
++
+ static const struct regmap_irq s2mps11_irqs[] = {
+ 	REGMAP_IRQ_REG(S2MPS11_IRQ_PWRONF, 0, S2MPS11_IRQ_PWRONF_MASK),
+ 	REGMAP_IRQ_REG(S2MPS11_IRQ_PWRONR, 0, S2MPS11_IRQ_PWRONR_MASK),
+@@ -535,6 +571,20 @@ static const struct regmap_irq_chip s2mpg12_irq_chip_pmic = {
+ 	.num_irqs = ARRAY_SIZE(s2mpg12_pmic_irqs),
+ };
+ 
++/*
++ * The S2MPG14 (Pixel 9a) has the same five PMIC interrupt registers, clear
++ * on read and read as one block, behind the same VGPIO2AP latch.
++ */
++static const struct regmap_irq_chip s2mpg14_irq_chip_pmic = {
++	.name = "s2mpg14-pmic",
++	.domain_suffix = "pmic",
++	.status_base = S2MPG14_PMIC_INT1,
++	.mask_base = S2MPG14_PMIC_INT1M,
++	.num_regs = 5,
++	.irqs = s2mpg14_pmic_irqs,
++	.num_irqs = ARRAY_SIZE(s2mpg14_pmic_irqs),
++};
++
+ static int s2mpg12_irq_ack_vgpio(void *irq_drv_data)
+ {
+ 	struct regmap *vgpio2ap = irq_drv_data;
+@@ -593,6 +643,80 @@ static struct regmap_irq_chip_data *sec_irq_init_s2mpg12(struct sec_pmic_dev *se
+ 	return irq_data;
+ }
+ 
++static int s2mpg14_irq_ack_vgpio(void *irq_drv_data)
++{
++	struct regmap *vgpio2ap = irq_drv_data;
++	unsigned int pend;
++	int ret;
++
++	ret = regmap_read(vgpio2ap, S2MPG14_VGPIO2AP_INTC0_IPEND, &pend);
++	if (!ret && pend)
++		ret = regmap_write(vgpio2ap, S2MPG14_VGPIO2AP_INTC0_IPEND, pend);
++
++	return ret;
++}
++
++static struct regmap_irq_chip_data *sec_irq_init_s2mpg14(struct sec_pmic_dev *sec_pmic)
++{
++	struct device *dev = sec_pmic->dev;
++	struct regmap_irq_chip_data *irq_data;
++	struct regmap_irq_chip *chip;
++	struct regmap *regmap_common, *vgpio2ap;
++	unsigned int reg;
++	int ret;
++
++	/*
++	 * The interrupt is optional. Without it, leave the PMIC's interrupt
++	 * registers as they are: the regulators and the RTC work, without
++	 * the alarm.
++	 */
++	if (!sec_pmic->irq) {
++		dev_info(dev, "no interrupt, so no RTC alarm\n");
++		return NULL;
++	}
++
++	vgpio2ap = syscon_regmap_lookup_by_phandle(dev->of_node, "google,vgpio2ap-sysreg");
++	if (IS_ERR(vgpio2ap))
++		return dev_err_cast_probe(dev, vgpio2ap, "no VGPIO2AP sysreg\n");
++
++	regmap_common = dev_get_regmap(dev, "common");
++	if (!regmap_common)
++		return dev_err_ptr_probe(dev, -EINVAL, "missing common regmap\n");
++
++	chip = devm_kmemdup(dev, &s2mpg14_irq_chip_pmic, sizeof(*chip), GFP_KERNEL);
++	if (!chip)
++		return ERR_PTR(-ENOMEM);
++	chip->handle_pre_irq = s2mpg14_irq_ack_vgpio;
++	chip->irq_drv_data = vgpio2ap;
++
++	/*
++	 * Mask every PMIC source first, as Google's driver does: regmap-irq
++	 * only masks the bits it knows about.
++	 */
++	for (reg = S2MPG14_PMIC_INT1M; reg <= S2MPG14_PMIC_INT5M; reg++) {
++		ret = regmap_write(sec_pmic->regmap_pmic, reg, 0xff);
++		if (ret)
++			return dev_err_ptr_probe(dev, ret, "failed to mask PMIC interrupts\n");
++	}
++
++	ret = devm_regmap_add_irq_chip(dev, sec_pmic->regmap_pmic, sec_pmic->irq,
++				       IRQF_ONESHOT, 0, chip, &irq_data);
++	if (ret)
++		return dev_err_ptr_probe(dev, ret, "Failed to add %s IRQ chip\n", chip->name);
++
++	/*
++	 * Route PMIC events (and only those) to the in-band interrupt. Nothing
++	 * handles the power meter, and its regmap is not exposed, so its source
++	 * stays masked here.
++	 */
++	ret = regmap_write(regmap_common, S2MPG14_COMMON_IBIM1,
++			   0xff & ~S2MPG14_COMMON_IBIM1_PMIC);
++	if (ret)
++		return dev_err_ptr_probe(dev, ret, "failed to unmask PMIC IBI\n");
++
++	return irq_data;
++}
++
+ struct regmap_irq_chip_data *sec_irq_init(struct sec_pmic_dev *sec_pmic)
+ {
+ 	struct regmap_irq_chip_data *sec_irq_chip_data;
+@@ -614,10 +738,11 @@ struct regmap_irq_chip_data *sec_irq_init(struct sec_pmic_dev *sec_pmic)
+ 	case S2MPG12:
+ 		return sec_irq_init_s2mpg12(sec_pmic);
+ 	case S2MPG13:
+-	case S2MPG14:
+ 	case S2MPG15:
+ 		/* No interrupt line described for it yet: LDOs only. */
+ 		return NULL;
++	case S2MPG14:
++		return sec_irq_init_s2mpg14(sec_pmic);
+ 	case S2MPS11X:
+ 		sec_irq_chip = &s2mps11_irq_chip;
+ 		break;
+diff --git a/include/linux/mfd/samsung/irq.h b/include/linux/mfd/samsung/irq.h
+index bed0ea252..cf04af2ba 100644
+--- a/include/linux/mfd/samsung/irq.h
++++ b/include/linux/mfd/samsung/irq.h
+@@ -271,6 +271,84 @@ enum s2mpg11_irq {
+ 	S2MPG11_IRQ_NR,
+ };
+ 
++enum s2mpg14_irq {
++	/* PMIC INT1 */
++	S2MPG14_IRQ_PWRONF,
++	S2MPG14_IRQ_PWRONR,
++	S2MPG14_IRQ_JIGONBF,
++	S2MPG14_IRQ_JIGONBR,
++	S2MPG14_IRQ_ACOKBF,
++	S2MPG14_IRQ_ACOKBR,
++	S2MPG14_IRQ_PWRON1S,
++	S2MPG14_IRQ_MRB,
++#define S2MPG14_IRQ_PWRONF_MASK		BIT(0)
++#define S2MPG14_IRQ_PWRONR_MASK		BIT(1)
++#define S2MPG14_IRQ_JIGONBF_MASK	BIT(2)
++#define S2MPG14_IRQ_JIGONBR_MASK	BIT(3)
++#define S2MPG14_IRQ_ACOKBF_MASK		BIT(4)
++#define S2MPG14_IRQ_ACOKBR_MASK		BIT(5)
++#define S2MPG14_IRQ_PWRON1S_MASK	BIT(6)
++#define S2MPG14_IRQ_MRB_MASK		BIT(7)
++
++	/* PMIC INT2 */
++	S2MPG14_IRQ_RTC60S,
++	S2MPG14_IRQ_RTCA1,
++	S2MPG14_IRQ_RTCA0,
++	S2MPG14_IRQ_RTC1S,
++	S2MPG14_IRQ_WTSR_COLDRST,
++	S2MPG14_IRQ_WTSR,
++	S2MPG14_IRQ_WRST,
++	S2MPG14_IRQ_SMPL,
++#define S2MPG14_IRQ_RTC60S_MASK		BIT(0)
++#define S2MPG14_IRQ_RTCA1_MASK		BIT(1)
++#define S2MPG14_IRQ_RTCA0_MASK		BIT(2)
++#define S2MPG14_IRQ_RTC1S_MASK		BIT(3)
++#define S2MPG14_IRQ_WTSR_COLDRST_MASK	BIT(4)
++#define S2MPG14_IRQ_WTSR_MASK		BIT(5)
++#define S2MPG14_IRQ_WRST_MASK		BIT(6)
++#define S2MPG14_IRQ_SMPL_MASK		BIT(7)
++
++	/* PMIC INT3 */
++	S2MPG14_IRQ_120C,
++	S2MPG14_IRQ_140C,
++	S2MPG14_IRQ_TSD,
++	S2MPG14_IRQ_SCL_SOFTRST,
++	S2MPG14_IRQ_WLWP_ACC,
++#define S2MPG14_IRQ_INT120C_MASK	BIT(0)
++#define S2MPG14_IRQ_INT140C_MASK	BIT(1)
++#define S2MPG14_IRQ_TSD_MASK		BIT(2)
++#define S2MPG14_IRQ_SCL_SOFTRST_MASK	BIT(3)
++#define S2MPG14_IRQ_WLWP_ACC_MASK	BIT(7)
++
++	/* PMIC INT4 */
++	S2MPG14_IRQ_OCP_B1M,
++	S2MPG14_IRQ_OCP_B2M,
++	S2MPG14_IRQ_OCP_B3M,
++	S2MPG14_IRQ_OCP_B4M,
++	S2MPG14_IRQ_OCP_B5M,
++	S2MPG14_IRQ_OCP_B6M,
++	S2MPG14_IRQ_OCP_B7M,
++	S2MPG14_IRQ_OCP_B8M,
++#define S2MPG14_IRQ_OCP_B1M_MASK	BIT(0)
++#define S2MPG14_IRQ_OCP_B2M_MASK	BIT(1)
++#define S2MPG14_IRQ_OCP_B3M_MASK	BIT(2)
++#define S2MPG14_IRQ_OCP_B4M_MASK	BIT(3)
++#define S2MPG14_IRQ_OCP_B5M_MASK	BIT(4)
++#define S2MPG14_IRQ_OCP_B6M_MASK	BIT(5)
++#define S2MPG14_IRQ_OCP_B7M_MASK	BIT(6)
++#define S2MPG14_IRQ_OCP_B8M_MASK	BIT(7)
++
++	/* PMIC INT5 */
++	S2MPG14_IRQ_OCP_B9M,
++	S2MPG14_IRQ_SMPL_TIMEOUT,
++	S2MPG14_IRQ_WTSR_TIMEOUT,
++#define S2MPG14_IRQ_OCP_B9M_MASK	BIT(0)
++#define S2MPG14_IRQ_SMPL_TIMEOUT_MASK	BIT(5)
++#define S2MPG14_IRQ_WTSR_TIMEOUT_MASK	BIT(6)
++
++	S2MPG14_IRQ_NR,
++};
++
+ enum s2mpg12_irq {
+ 	/* PMIC INT1 */
+ 	S2MPG12_IRQ_PWRONF,
+diff --git a/include/linux/mfd/samsung/s2mpg14.h b/include/linux/mfd/samsung/s2mpg14.h
+index b09785f0d..d2fcdebb3 100644
+--- a/include/linux/mfd/samsung/s2mpg14.h
++++ b/include/linux/mfd/samsung/s2mpg14.h
+@@ -9,6 +9,16 @@
+ #include <linux/bits.h>
+ 
+ #define S2MPG14_COMMON_CHIPID		0x0b
++#define S2MPG14_COMMON_IBIM1		0x0f
++/* S2MPG14_COMMON_IBIM1: in-band interrupt sources, 1 = masked */
++#define S2MPG14_COMMON_IBIM1_PMIC	BIT(0)
++#define S2MPG14_COMMON_IBIM1_METER	BIT(1)
++
++/* The PMIC block's interrupt registers: INT1-INT5 clear on read, INT1M-INT5M mask */
++#define S2MPG14_PMIC_INT1		0x00
++#define S2MPG14_PMIC_INT5		0x04
++#define S2MPG14_PMIC_INT1M		0x05
++#define S2MPG14_PMIC_INT5M		0x09
+ #define S2MPG14_PMIC_STATUS2		0x0b
+ #define S2MPG14_PMIC_L4M_CTRL		0x2e
+ #define S2MPG14_PMIC_L8M_CTRL		0x32
+@@ -26,4 +36,10 @@
+  * five scratch registers to 0x30.
+  */
+ 
++/*
++ * The AP sees the PMIC's interrupt as a level through the VGPIO2AP sysreg
++ * block, which latches it in INTC0_IPEND until written back.
++ */
++#define S2MPG14_VGPIO2AP_INTC0_IPEND	0x290
++
+ #endif /* __LINUX_MFD_S2MPG14_H */

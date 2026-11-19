@@ -1,0 +1,198 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Brett-Michael Green <brett@bmgvisualtech.com>
+Date: Fri, 30 Oct 2026 14:45:25 -0400
+Subject: [PATCH] arm64: dts: exynos: google: zuma: add the ALIVE pin
+ controller
+
+Add zuma's ALIVE pin controller at 0x154d0000, controller 0 of the
+driver's zuma data, with its ten banks (gpa0-gpa4, gpa6-gpa10) and its
+wake-up interrupt controller. As in stock's live device tree, each of
+the 50 pins has its own interrupt, SPI 10 to 59 in pin order, level
+high. Like PERIC0 and HSI2UFS, the controller takes the bus-clock
+stand-in, since zuma has no clock driver yet and ABL leaves the clock
+running.
+
+The power and volume keys are on this controller.
+
+Assisted-by: LLM
+Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
+---
+ .../boot/dts/exynos/google/zuma-pinctrl.dtsi  | 133 ++++++++++++++++++
+ arch/arm64/boot/dts/exynos/google/zuma.dtsi   |  13 ++
+ 2 files changed, 146 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/zuma-pinctrl.dtsi b/arch/arm64/boot/dts/exynos/google/zuma-pinctrl.dtsi
+index 581cb8c8a..42e7e7f09 100644
+--- a/arch/arm64/boot/dts/exynos/google/zuma-pinctrl.dtsi
++++ b/arch/arm64/boot/dts/exynos/google/zuma-pinctrl.dtsi
+@@ -7,6 +7,139 @@
+ 
+ #include "gs101-pinctrl.h"
+ 
++&pinctrl_gpio_alive {
++	gpa0: gpa0-gpio-bank {
++		gpio-controller;
++		#gpio-cells = <2>;
++		interrupt-controller;
++		#interrupt-cells = <2>;
++		interrupt-parent = <&gic>;
++		interrupts = <GIC_SPI 10 IRQ_TYPE_LEVEL_HIGH>,
++			     <GIC_SPI 11 IRQ_TYPE_LEVEL_HIGH>,
++			     <GIC_SPI 12 IRQ_TYPE_LEVEL_HIGH>,
++			     <GIC_SPI 13 IRQ_TYPE_LEVEL_HIGH>;
++	};
++
++	gpa1: gpa1-gpio-bank {
++		gpio-controller;
++		#gpio-cells = <2>;
++		interrupt-controller;
++		#interrupt-cells = <2>;
++		interrupt-parent = <&gic>;
++		interrupts = <GIC_SPI 14 IRQ_TYPE_LEVEL_HIGH>,
++			     <GIC_SPI 15 IRQ_TYPE_LEVEL_HIGH>,
++			     <GIC_SPI 16 IRQ_TYPE_LEVEL_HIGH>,
++			     <GIC_SPI 17 IRQ_TYPE_LEVEL_HIGH>,
++			     <GIC_SPI 18 IRQ_TYPE_LEVEL_HIGH>,
++			     <GIC_SPI 19 IRQ_TYPE_LEVEL_HIGH>;
++	};
++
++	gpa2: gpa2-gpio-bank {
++		gpio-controller;
++		#gpio-cells = <2>;
++		interrupt-controller;
++		#interrupt-cells = <2>;
++		interrupt-parent = <&gic>;
++		interrupts = <GIC_SPI 20 IRQ_TYPE_LEVEL_HIGH>,
++			     <GIC_SPI 21 IRQ_TYPE_LEVEL_HIGH>,
++			     <GIC_SPI 22 IRQ_TYPE_LEVEL_HIGH>,
++			     <GIC_SPI 23 IRQ_TYPE_LEVEL_HIGH>;
++	};
++
++	gpa3: gpa3-gpio-bank {
++		gpio-controller;
++		#gpio-cells = <2>;
++		interrupt-controller;
++		#interrupt-cells = <2>;
++		interrupt-parent = <&gic>;
++		interrupts = <GIC_SPI 24 IRQ_TYPE_LEVEL_HIGH>,
++			     <GIC_SPI 25 IRQ_TYPE_LEVEL_HIGH>,
++			     <GIC_SPI 26 IRQ_TYPE_LEVEL_HIGH>,
++			     <GIC_SPI 27 IRQ_TYPE_LEVEL_HIGH>;
++	};
++
++	gpa4: gpa4-gpio-bank {
++		gpio-controller;
++		#gpio-cells = <2>;
++		interrupt-controller;
++		#interrupt-cells = <2>;
++		interrupt-parent = <&gic>;
++		interrupts = <GIC_SPI 28 IRQ_TYPE_LEVEL_HIGH>,
++			     <GIC_SPI 29 IRQ_TYPE_LEVEL_HIGH>;
++	};
++
++	gpa6: gpa6-gpio-bank {
++		gpio-controller;
++		#gpio-cells = <2>;
++		interrupt-controller;
++		#interrupt-cells = <2>;
++		interrupt-parent = <&gic>;
++		interrupts = <GIC_SPI 30 IRQ_TYPE_LEVEL_HIGH>,
++			     <GIC_SPI 31 IRQ_TYPE_LEVEL_HIGH>,
++			     <GIC_SPI 32 IRQ_TYPE_LEVEL_HIGH>,
++			     <GIC_SPI 33 IRQ_TYPE_LEVEL_HIGH>,
++			     <GIC_SPI 34 IRQ_TYPE_LEVEL_HIGH>,
++			     <GIC_SPI 35 IRQ_TYPE_LEVEL_HIGH>;
++	};
++
++	gpa7: gpa7-gpio-bank {
++		gpio-controller;
++		#gpio-cells = <2>;
++		interrupt-controller;
++		#interrupt-cells = <2>;
++		interrupt-parent = <&gic>;
++		interrupts = <GIC_SPI 36 IRQ_TYPE_LEVEL_HIGH>,
++			     <GIC_SPI 37 IRQ_TYPE_LEVEL_HIGH>,
++			     <GIC_SPI 38 IRQ_TYPE_LEVEL_HIGH>,
++			     <GIC_SPI 39 IRQ_TYPE_LEVEL_HIGH>,
++			     <GIC_SPI 40 IRQ_TYPE_LEVEL_HIGH>,
++			     <GIC_SPI 41 IRQ_TYPE_LEVEL_HIGH>,
++			     <GIC_SPI 42 IRQ_TYPE_LEVEL_HIGH>,
++			     <GIC_SPI 43 IRQ_TYPE_LEVEL_HIGH>;
++	};
++
++	gpa8: gpa8-gpio-bank {
++		gpio-controller;
++		#gpio-cells = <2>;
++		interrupt-controller;
++		#interrupt-cells = <2>;
++		interrupt-parent = <&gic>;
++		interrupts = <GIC_SPI 44 IRQ_TYPE_LEVEL_HIGH>,
++			     <GIC_SPI 45 IRQ_TYPE_LEVEL_HIGH>,
++			     <GIC_SPI 46 IRQ_TYPE_LEVEL_HIGH>,
++			     <GIC_SPI 47 IRQ_TYPE_LEVEL_HIGH>;
++	};
++
++	gpa9: gpa9-gpio-bank {
++		gpio-controller;
++		#gpio-cells = <2>;
++		interrupt-controller;
++		#interrupt-cells = <2>;
++		interrupt-parent = <&gic>;
++		interrupts = <GIC_SPI 48 IRQ_TYPE_LEVEL_HIGH>,
++			     <GIC_SPI 49 IRQ_TYPE_LEVEL_HIGH>,
++			     <GIC_SPI 50 IRQ_TYPE_LEVEL_HIGH>,
++			     <GIC_SPI 51 IRQ_TYPE_LEVEL_HIGH>,
++			     <GIC_SPI 52 IRQ_TYPE_LEVEL_HIGH>,
++			     <GIC_SPI 53 IRQ_TYPE_LEVEL_HIGH>,
++			     <GIC_SPI 54 IRQ_TYPE_LEVEL_HIGH>;
++	};
++
++	gpa10: gpa10-gpio-bank {
++		gpio-controller;
++		#gpio-cells = <2>;
++		interrupt-controller;
++		#interrupt-cells = <2>;
++		interrupt-parent = <&gic>;
++		interrupts = <GIC_SPI 55 IRQ_TYPE_LEVEL_HIGH>,
++			     <GIC_SPI 56 IRQ_TYPE_LEVEL_HIGH>,
++			     <GIC_SPI 57 IRQ_TYPE_LEVEL_HIGH>,
++			     <GIC_SPI 58 IRQ_TYPE_LEVEL_HIGH>,
++			     <GIC_SPI 59 IRQ_TYPE_LEVEL_HIGH>;
++	};
++
++};
++
+ &pinctrl_peric0 {
+ 	gpp0: gpp0-gpio-bank {
+ 		gpio-controller;
+diff --git a/arch/arm64/boot/dts/exynos/google/zuma.dtsi b/arch/arm64/boot/dts/exynos/google/zuma.dtsi
+index e47c62529..92bef7f97 100644
+--- a/arch/arm64/boot/dts/exynos/google/zuma.dtsi
++++ b/arch/arm64/boot/dts/exynos/google/zuma.dtsi
+@@ -21,6 +21,7 @@ / {
+ 
+ 	/* The pin controllers are numbered as in Tensor G4's driver data. */
+ 	aliases {
++		pinctrl0 = &pinctrl_gpio_alive;
+ 		pinctrl10 = &pinctrl_hsi2ufs;
+ 		pinctrl11 = &pinctrl_peric0;
+ 	};
+@@ -430,6 +431,18 @@ reboot-mode {
+ 				mode-recovery = <0xff>;
+ 			};
+ 		};
++
++		pinctrl_gpio_alive: pinctrl@154d0000 {
++			compatible = "google,zuma-pinctrl";
++			reg = <0x154d0000 0x1000>;
++			clocks = <&clk_gpio_stub>;
++			clock-names = "pclk";
++
++			wakeup-interrupt-controller {
++				compatible = "google,zuma-wakeup-eint",
++					     "google,zumapro-wakeup-eint";
++			};
++		};
+ 	};
+ };
+ 

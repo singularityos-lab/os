@@ -1,18 +1,24 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Mirko Brombin <9479903+mirkobrombin@users.noreply.github.com>
 Date: Thu, 29 Oct 2026 08:30:00 +0100
-Subject: [PATCH] mm: move anonymous pages to MTS tiers from any cgroup
+Subject: [PATCH 08/11] mm: move anonymous pages to MTS tiers from any cgroup
 
 A domain admitted for a cgroup now covers every cgroup below it, and the deepest admitted domain wins. The exact match left a domain on "/" covering only the root cgroup itself.
 
 Walk the folio mappings without folio_lock_anon_vma_read(): after try_to_migrate() the folio is no longer mapped, so that lock returned no anon_vma and no PTE was ever converted. The folio is locked, which is what rmap_walk() needs.
 
 Freeze the reference held by reclaim before freeing a demoted folio, as the lazyfree path does, instead of freeing it with a live reference.
-
 ---
+ mm/mts_tier.c | 36 +++++++++++++++++++-----------------
+ mm/rmap.c     |  1 -
+ mm/vmscan.c   |  2 ++
+ 3 files changed, 21 insertions(+), 18 deletions(-)
+
+diff --git a/mm/mts_tier.c b/mm/mts_tier.c
+index 42eea6231..138de8d68 100644
 --- a/mm/mts_tier.c
 +++ b/mm/mts_tier.c
-@@ -371,7 +371,7 @@
+@@ -371,7 +371,7 @@ static u64 mts_pd1_cost(struct mts_tier *tier, u16 reuse_q12)
  static struct mts_tier *mts_select_tier(struct mem_cgroup *memcg,
  					u16 reuse_q12)
  {
@@ -21,7 +27,7 @@ Freeze the reference held by reclaim before freeing a demoted folio, as the lazy
  	struct mts_tier *tier = NULL;
  	u64 best_cost = U64_MAX;
  	u32 index;
-@@ -382,24 +382,26 @@
+@@ -382,24 +382,26 @@ static struct mts_tier *mts_select_tier(struct mem_cgroup *memcg,
  	list_for_each_entry(domain, &mts_domains, node) {
  		if (domain->status != MTS_SLO_ADMITTED || !domain->tier_count)
  			continue;
@@ -31,14 +37,7 @@ Freeze the reference held by reclaim before freeing a demoted folio, as the lazy
 -		for (index = 0; index < domain->tier_count; index++) {
 -			struct mts_tier *candidate = domain->tiers[index].tier;
 -			u64 candidate_cost;
-+		if (match && match->cgroup->level >= domain->cgroup->level)
-+			continue;
-+		match = domain;
-+	}
-+	for (index = 0; match && index < match->tier_count; index++) {
-+		struct mts_tier *candidate = match->tiers[index].tier;
-+		u64 candidate_cost;
- 
+-
 -			if (candidate->state != MTS_TIER_ACTIVE)
 -				continue;
 -			candidate_cost = mts_pd1_cost(candidate, reuse_q12);
@@ -50,6 +49,14 @@ Freeze the reference held by reclaim before freeing a demoted folio, as the lazy
 -		if (tier)
 -			kref_get(&tier->kref);
 -		break;
++		if (match && match->cgroup->level >= domain->cgroup->level)
++			continue;
++		match = domain;
++	}
++	for (index = 0; match && index < match->tier_count; index++) {
++		struct mts_tier *candidate = match->tiers[index].tier;
++		u64 candidate_cost;
++
 +		if (candidate->state != MTS_TIER_ACTIVE)
 +			continue;
 +		candidate_cost = mts_pd1_cost(candidate, reuse_q12);
@@ -63,9 +70,11 @@ Freeze the reference held by reclaim before freeing a demoted folio, as the lazy
  	mutex_unlock(&mts_registry_lock);
  	return tier;
  }
+diff --git a/mm/rmap.c b/mm/rmap.c
+index dbffa8107..3074514b7 100644
 --- a/mm/rmap.c
 +++ b/mm/rmap.c
-@@ -2792,7 +2792,6 @@
+@@ -2842,7 +2842,6 @@ bool mts_install_folio_ptes(struct folio *folio)
  	struct rmap_walk_control rwc = {
  		.rmap_one = install_mts_pte,
  		.arg = &install,
@@ -73,9 +82,11 @@ Freeze the reference held by reclaim before freeing a demoted folio, as the lazy
  	};
  
  	rmap_walk(folio, &rwc);
+diff --git a/mm/vmscan.c b/mm/vmscan.c
+index 22feddf4c..a7181819b 100644
 --- a/mm/vmscan.c
 +++ b/mm/vmscan.c
-@@ -1287,6 +1287,8 @@
+@@ -1293,6 +1293,8 @@ static unsigned int shrink_folio_list(struct list_head *folio_list,
  			if (folio_maybe_dma_pinned(folio))
  				goto keep_locked;
  			if (mts_try_demote_folio(folio)) {
@@ -84,6 +95,3 @@ Freeze the reference held by reclaim before freeing a demoted folio, as the lazy
  				folio_unlock(folio);
  				goto free_it;
  			}
--- 
-2.47.0
-

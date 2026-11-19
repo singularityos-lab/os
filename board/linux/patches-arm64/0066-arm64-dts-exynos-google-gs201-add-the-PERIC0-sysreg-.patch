@@ -1,0 +1,214 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Wed, 14 Oct 2026 21:05:05 -0400
+Subject: [PATCH] arm64: dts: exynos: google: gs201: add the PERIC0 sysreg and
+ pin controller
+
+Add the PERIC0 system registers and the PERIC0 pin controller with its
+GPIO banks gpp0-gpp19, as in Google's gs201 device tree. The PERIC0 USI
+blocks select their mode through the sysreg, and the camera modules'
+I2C buses, master clocks and resets, the camera PMIC's bus and several
+other peripherals sit on PERIC0 pins.
+
+The pin controller stays disabled here; boards that use PERIC0 pins
+enable it.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ .../boot/dts/exynos/google/gs201-pinctrl.dtsi | 143 ++++++++++++++++++
+ arch/arm64/boot/dts/exynos/google/gs201.dtsi  |  21 +++
+ 2 files changed, 164 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/gs201-pinctrl.dtsi b/arch/arm64/boot/dts/exynos/google/gs201-pinctrl.dtsi
+index a5217ec5f..d8d653177 100644
+--- a/arch/arm64/boot/dts/exynos/google/gs201-pinctrl.dtsi
++++ b/arch/arm64/boot/dts/exynos/google/gs201-pinctrl.dtsi
+@@ -203,6 +203,149 @@ ts_irq: ts-irq-pins {
+ 	};
+ };
+ 
++&pinctrl_peric0 {
++	gpp0: gpp0-gpio-bank {
++		gpio-controller;
++		#gpio-cells = <2>;
++		interrupt-controller;
++		#interrupt-cells = <2>;
++	};
++
++	gpp1: gpp1-gpio-bank {
++		gpio-controller;
++		#gpio-cells = <2>;
++		interrupt-controller;
++		#interrupt-cells = <2>;
++	};
++
++	gpp2: gpp2-gpio-bank {
++		gpio-controller;
++		#gpio-cells = <2>;
++		interrupt-controller;
++		#interrupt-cells = <2>;
++	};
++
++	gpp3: gpp3-gpio-bank {
++		gpio-controller;
++		#gpio-cells = <2>;
++		interrupt-controller;
++		#interrupt-cells = <2>;
++	};
++
++	gpp4: gpp4-gpio-bank {
++		gpio-controller;
++		#gpio-cells = <2>;
++		interrupt-controller;
++		#interrupt-cells = <2>;
++	};
++
++	gpp5: gpp5-gpio-bank {
++		gpio-controller;
++		#gpio-cells = <2>;
++		interrupt-controller;
++		#interrupt-cells = <2>;
++	};
++
++	gpp6: gpp6-gpio-bank {
++		gpio-controller;
++		#gpio-cells = <2>;
++		interrupt-controller;
++		#interrupt-cells = <2>;
++	};
++
++	gpp7: gpp7-gpio-bank {
++		gpio-controller;
++		#gpio-cells = <2>;
++		interrupt-controller;
++		#interrupt-cells = <2>;
++	};
++
++	gpp8: gpp8-gpio-bank {
++		gpio-controller;
++		#gpio-cells = <2>;
++		interrupt-controller;
++		#interrupt-cells = <2>;
++	};
++
++	gpp9: gpp9-gpio-bank {
++		gpio-controller;
++		#gpio-cells = <2>;
++		interrupt-controller;
++		#interrupt-cells = <2>;
++	};
++
++	gpp10: gpp10-gpio-bank {
++		gpio-controller;
++		#gpio-cells = <2>;
++		interrupt-controller;
++		#interrupt-cells = <2>;
++	};
++
++	gpp11: gpp11-gpio-bank {
++		gpio-controller;
++		#gpio-cells = <2>;
++		interrupt-controller;
++		#interrupt-cells = <2>;
++	};
++
++	gpp12: gpp12-gpio-bank {
++		gpio-controller;
++		#gpio-cells = <2>;
++		interrupt-controller;
++		#interrupt-cells = <2>;
++	};
++
++	gpp13: gpp13-gpio-bank {
++		gpio-controller;
++		#gpio-cells = <2>;
++		interrupt-controller;
++		#interrupt-cells = <2>;
++	};
++
++	gpp14: gpp14-gpio-bank {
++		gpio-controller;
++		#gpio-cells = <2>;
++		interrupt-controller;
++		#interrupt-cells = <2>;
++	};
++
++	gpp15: gpp15-gpio-bank {
++		gpio-controller;
++		#gpio-cells = <2>;
++		interrupt-controller;
++		#interrupt-cells = <2>;
++	};
++
++	gpp16: gpp16-gpio-bank {
++		gpio-controller;
++		#gpio-cells = <2>;
++		interrupt-controller;
++		#interrupt-cells = <2>;
++	};
++
++	gpp17: gpp17-gpio-bank {
++		gpio-controller;
++		#gpio-cells = <2>;
++		interrupt-controller;
++		#interrupt-cells = <2>;
++	};
++
++	gpp18: gpp18-gpio-bank {
++		gpio-controller;
++		#gpio-cells = <2>;
++		interrupt-controller;
++		#interrupt-cells = <2>;
++	};
++
++	gpp19: gpp19-gpio-bank {
++		gpio-controller;
++		#gpio-cells = <2>;
++		interrupt-controller;
++		#interrupt-cells = <2>;
++	};
++
++};
++
+ &pinctrl_peric1 {
+ 	gpp20: gpp20-gpio-bank {
+ 		gpio-controller;
+diff --git a/arch/arm64/boot/dts/exynos/google/gs201.dtsi b/arch/arm64/boot/dts/exynos/google/gs201.dtsi
+index e41ddfdff..b6f7a6456 100644
+--- a/arch/arm64/boot/dts/exynos/google/gs201.dtsi
++++ b/arch/arm64/boot/dts/exynos/google/gs201.dtsi
+@@ -18,6 +18,7 @@ / {
+ 	aliases {
+ 		pinctrl0 = &pinctrl_gpio_alive;
+ 		pinctrl1 = &pinctrl_far_alive;
++		pinctrl4 = &pinctrl_peric0;
+ 		pinctrl5 = &pinctrl_peric1;
+ 	};
+ 
+@@ -290,6 +291,26 @@ cmu_peric0: clock-controller@10800000 {
+ 			clock-names = "oscclk", "bus", "ip";
+ 		};
+ 
++		sysreg_peric0: syscon@10820000 {
++			compatible = "google,gs201-peric0-sysreg", "syscon";
++			reg = <0x10820000 0x10000>;
++			clocks = <&cmu_peric0 CLK_GOUT_PERIC0_SYSREG_PERIC0_PCLK>;
++		};
++
++		/*
++		 * Off by default: only Bluetooth (BT_REG_ON, BT_DEV_WAKE on gpp16)
++		 * and the haptics I2C bus (gpp16-0/1) use it so far, and both are
++		 * still at bring-up.
++		 */
++		pinctrl_peric0: pinctrl@10840000 {
++			compatible = "google,gs201-pinctrl";
++			reg = <0x10840000 0x1000>;
++			clocks = <&cmu_peric0 CLK_GOUT_PERIC0_GPIO_PERIC0_PCLK>;
++			clock-names = "pclk";
++			interrupts = <GIC_SPI 664 IRQ_TYPE_LEVEL_HIGH>;
++			status = "disabled";
++		};
++
+ 		cmu_peric1: clock-controller@10c00000 {
+ 			compatible = "google,gs201-cmu-peric1";
+ 			reg = <0x10c00000 0x10000>;

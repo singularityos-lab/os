@@ -1,0 +1,38 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Gr-linkk <280405187+Gr-linkk@users.noreply.github.com>
+Date: Sat, 7 Nov 2026 21:29:06 -0700
+Subject: [PATCH] spi: s3c64xx: stop chunked PIO transfers after a wait error
+
+When a nonfinal PIO chunk wait fails, the loop can continue and overwrite
+the error with the result of a later chunk. That can report success for
+an incomplete transfer and issue more I/O after the failure.
+
+Break after the existing error and DMA cleanup, leaving the first error
+intact and retaining the final restoration of the original transfer
+buffers and length. DMA transfers are already single-pass.
+
+An actual-function host fixture covers 708 PIO/DMA cases with modeled
+8-bit FIFO64 endpoints, including errors at different chunk positions
+and partial completion. The unpatched control reproduces error masking.
+The fixture is retained locally and is not published. ARM64 W=1
+compilation passes; device fault injection was not performed.
+
+Fixes: 0af7af7da651 ("spi: spi-s3c64xx: Allow higher transfer lengths in polling IO mode")
+Assisted-by: LLM
+Signed-off-by: Gr-linkk <280405187+Gr-linkk@users.noreply.github.com>
+---
+ drivers/spi/spi-s3c64xx.c | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/drivers/spi/spi-s3c64xx.c b/drivers/spi/spi-s3c64xx.c
+index 59ca74c27..34c726801 100644
+--- a/drivers/spi/spi-s3c64xx.c
++++ b/drivers/spi/spi-s3c64xx.c
+@@ -967,6 +967,7 @@ static int s3c64xx_spi_transfer_one(struct spi_controller *host,
+ 					dev_err(&spi->dev, "RX residue: %d\n", s.residue);
+ 				}
+ 			}
++			break;
+ 		} else {
+ 			s3c64xx_flush_fifo(sdd);
+ 		}

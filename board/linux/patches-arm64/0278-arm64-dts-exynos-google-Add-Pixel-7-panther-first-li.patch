@@ -1,0 +1,139 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Alejandro Garcia <skipper.pelygro@gmail.com>
+Date: Tue, 27 Oct 2026 21:03:15 -0700
+Subject: [PATCH] arm64: dts: exynos: google: Add Pixel 7 (panther) first-light
+ board
+
+Add a first-light board file for the Pixel 7: USB (NCM and ACM gadget),
+the cluster watchdogs from gs201.dtsi, and a simple-framebuffer on the
+buffer ABL leaves the panel scanning out. UFS, the panel, touch and the
+GPU stay disabled.
+
+panther has the standard package of gs201: stock reports
+ro.boot.hw.soc.pkg_mode 0 and soc_id 0x09855001 in its live tree, so
+this DTB matches on soc_id as cheetah's does. ABL accepted it.
+
+ABL leaves DPP0 scanning 0xfac00000 (RDMA_BASEADDR_Y8, read on the
+phone) for the 1080x2400 sdc-s6e3fc3 panel; the buffer is reserved and
+described as a simple-framebuffer. ramoops uses stock's address and
+layout, so a log from this kernel can be read after a warm reboot into
+stock on slot A.
+
+The board dtbo for ABL (board_id 0x30406, board_rev 0x10000), the
+display trigger and the image packing live in the omarchy-mobile
+repository (device/panther).
+
+Tested on a Pixel 7 (bootloader cloudripper-17.0-15902555) from slot
+B: the kernel boots, both watchdogs are stopped at probe, the console
+shows on the panel, and SSH over the USB NCM gadget works.
+
+Assisted-by: Claude Opus 5.5
+Signed-off-by: Alejandro Garcia <skipper.pelygro@gmail.com>
+---
+ arch/arm64/boot/dts/exynos/google/Makefile    |  2 +
+ .../boot/dts/exynos/google/gs201-panther.dts  | 78 +++++++++++++++++++
+ 2 files changed, 80 insertions(+)
+ create mode 100644 arch/arm64/boot/dts/exynos/google/gs201-panther.dts
+
+diff --git a/arch/arm64/boot/dts/exynos/google/Makefile b/arch/arm64/boot/dts/exynos/google/Makefile
+index 0ecac5f36..35e586793 100644
+--- a/arch/arm64/boot/dts/exynos/google/Makefile
++++ b/arch/arm64/boot/dts/exynos/google/Makefile
+@@ -6,6 +6,7 @@ dtb-$(CONFIG_ARCH_EXYNOS) += \
+ 	gs201-cheetah.dtb \
+ 	gs201-felix.dtb \
+ 	gs201-lynx.dtb \
++	gs201-panther.dtb \
+ 	zuma-husky.dtb
+ 
+ # ABL applies board overlays, so keep symbols for labels
+@@ -14,4 +15,5 @@ DTC_FLAGS_gs101-raven += -@
+ DTC_FLAGS_gs201-cheetah += -@
+ DTC_FLAGS_gs201-felix += -@
+ DTC_FLAGS_gs201-lynx += -@
++DTC_FLAGS_gs201-panther += -@
+ DTC_FLAGS_zuma-husky += -@
+diff --git a/arch/arm64/boot/dts/exynos/google/gs201-panther.dts b/arch/arm64/boot/dts/exynos/google/gs201-panther.dts
+new file mode 100644
+index 000000000..936a87241
+--- /dev/null
++++ b/arch/arm64/boot/dts/exynos/google/gs201-panther.dts
+@@ -0,0 +1,78 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * Google Pixel 7 (panther) - first-light board file.
++ *
++ * USB (NCM + ACM), the cluster watchdogs from gs201.dtsi and a
++ * simple-framebuffer on the buffer ABL leaves DPP0 scanning out. The panel
++ * driver, touch, the GPU and UFS stay disabled.
++ */
++
++/dts-v1/;
++
++#include "gs201.dtsi"
++
++/ {
++	model = "Google Pixel 7";
++	compatible = "google,gs201-panther", "google,gs201";
++
++	/*
++	 * ABL's base-DTB match: product id 0x09855000 | major revision (B0 is
++	 * 1). Stock reports pkg_mode 0 and soc_id 0x09855001 in its live tree.
++	 */
++	soc_id = <0x09855001 0x0>;
++
++	chosen {
++		/* ABL requires bootargs to exist; it appends its own after these. */
++		bootargs = "console=tty0 panic=10 clk_ignore_unused pd_ignore_unused rdinit=/init";
++		#address-cells = <2>;
++		#size-cells = <1>;
++		ranges;
++
++		/*
++		 * ABL leaves DECON0 -> DSIM0 -> panel (sdc-s6e3fc3) running in
++		 * command mode with DPP0 scanning 0xfac00000 (RDMA_BASEADDR_Y8,
++		 * read on this phone). There is no panel driver, so no panel
++		 * phandle; the size comes from this node.
++		 */
++		framebuffer0: framebuffer@fac00000 {
++			compatible = "simple-framebuffer";
++			reg = <0x0 0xfac00000 (1080 * 2400 * 4)>;
++			memory-region = <&cont_splash_mem>;
++			width = <1080>;
++			height = <2400>;
++			stride = <(1080 * 4)>;
++			format = "a8r8g8b8";
++		};
++	};
++
++	reserved-memory {
++		#address-cells = <2>;
++		#size-cells = <1>;
++		ranges;
++
++		/*
++		 * Stock's region and layout (ramoops_mem@fd3ff000 in its live
++		 * tree), so a log from this kernel can be read after a warm
++		 * reboot into slot A.
++		 */
++		ramoops@fd3ff000 {
++			compatible = "ramoops";
++			reg = <0x0 0xfd3ff000 0x400000>;
++			console-size = <0x200000>;
++			pmsg-size = <0x200000>;
++		};
++
++		cont_splash_mem: splash@fac00000 {
++			reg = <0x0 0xfac00000 (1080 * 2400 * 4)>;
++			no-map;
++		};
++	};
++};
++
++&usbdrd31_phy {
++	status = "okay";
++};
++
++&usb_dwc3 {
++	status = "okay";
++};

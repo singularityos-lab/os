@@ -1,0 +1,29 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Chris Gray <chrisgray70@gmail.com>
+Date: Wed, 11 Nov 2026 12:22:43 -0600
+Subject: [PATCH] dt-bindings: net: brcmfmac: allow BCM4389 PCI identity with
+ fallback
+
+Allow the BCM4389 PCI identity together with the existing fullmac
+fallback. Other compatible forms retain their existing schema.
+
+Assisted-by: LLM
+Signed-off-by: Chris Gray <chrisgray70@gmail.com>
+---
+ .../devicetree/bindings/net/wireless/brcm,bcm4329-fmac.yaml    | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/Documentation/devicetree/bindings/net/wireless/brcm,bcm4329-fmac.yaml b/Documentation/devicetree/bindings/net/wireless/brcm,bcm4329-fmac.yaml
+index c4d11ce4f..ccd262038 100644
+--- a/Documentation/devicetree/bindings/net/wireless/brcm,bcm4329-fmac.yaml
++++ b/Documentation/devicetree/bindings/net/wireless/brcm,bcm4329-fmac.yaml
+@@ -53,6 +53,9 @@ properties:
+               - cypress,cyw43012-fmac
+               - infineon,cyw43439-fmac
+           - const: brcm,bcm4329-fmac
++      - items:
++          - const: pci14e4,4441
++          - const: brcm,bcm4329-fmac
+       - enum:
+           - brcm,bcm4329-fmac
+           - pci14e4,43dc  # BCM4355

@@ -1,7 +1,7 @@
-From 468e69220d9f3b04ca1d9f549087f68fcf092e3c Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Mirko Brombin <9479903+mirkobrombin@users.noreply.github.com>
 Date: Sat, 18 Jul 2026 17:26:31 +0100
-Subject: [PATCH 1/2] uapi: freeze the MTS v0.2 descriptor and tier contract
+Subject: [PATCH 01/11] uapi: freeze the MTS v0.2 descriptor and tier contract
 
 Give userspace one versioned contract before the observe-mode collector
 starts producing data. The descriptor remains one atomic 64-bit word. Tier
@@ -23,7 +23,7 @@ Signed-off-by: Mirko Brombin <9479903+mirkobrombin@users.noreply.github.com>
 
 diff --git a/Documentation/userspace-api/mts.rst b/Documentation/userspace-api/mts.rst
 new file mode 100644
-index 0000000..e2b7339
+index 000000000..e2b73391c
 --- /dev/null
 +++ b/Documentation/userspace-api/mts.rst
 @@ -0,0 +1,85 @@
@@ -113,10 +113,10 @@ index 0000000..e2b7339
 +Implementations must not substitute provider-specific bucket boundaries in
 +normalized output.
 diff --git a/MAINTAINERS b/MAINTAINERS
-index c8d4b91..6ae074c 100644
+index 9a227b1a9..301e720f8 100644
 --- a/MAINTAINERS
 +++ b/MAINTAINERS
-@@ -17171,6 +17171,16 @@ T:	git git://git.kernel.org/pub/scm/linux/kernel/git/akpm/mm
+@@ -17583,6 +17583,16 @@ T:	git git://git.kernel.org/pub/scm/linux/kernel/git/akpm/mm
  F:	include/uapi/asm-generic/mman-common.h
  F:	mm/madvise.c
  
@@ -135,7 +135,7 @@ index c8d4b91..6ae074c 100644
  M:	Richard Weinberger <richard@nod.at>
 diff --git a/include/uapi/linux/mts.h b/include/uapi/linux/mts.h
 new file mode 100644
-index 0000000..12db525
+index 000000000..12db52554
 --- /dev/null
 +++ b/include/uapi/linux/mts.h
 @@ -0,0 +1,163 @@
@@ -302,6 +302,3 @@ index 0000000..12db525
 +#define MTS_IOC_QUERY_ATTR _IOWR(MTS_IOC_MAGIC, 0x03, struct mts_query_attr_v2)
 +
 +#endif /* _UAPI_LINUX_MTS_UAPI_V2_H */
--- 
-2.51.1
-

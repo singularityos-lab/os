@@ -1,0 +1,27 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Brett-Michael Green <brett@bmgvisualtech.com>
+Date: Sat, 31 Oct 2026 12:44:58 -0400
+Subject: [PATCH] dt-bindings: gpu: mali-valhall-csf: Add the Tensor G3 GPU
+
+The Tensor G3 (zuma) has a Mali-G715, arch 11.8.10 r1p2 on the
+Pixel 8 Pro, like the Tensor G4's. Add its compatible, so that panthor
+can match its integration-specific cache hash, as it does zumapro's.
+
+Assisted-by: LLM
+Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
+---
+ Documentation/devicetree/bindings/gpu/arm,mali-valhall-csf.yaml | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/Documentation/devicetree/bindings/gpu/arm,mali-valhall-csf.yaml b/Documentation/devicetree/bindings/gpu/arm,mali-valhall-csf.yaml
+index e1951820a..353235e89 100644
+--- a/Documentation/devicetree/bindings/gpu/arm,mali-valhall-csf.yaml
++++ b/Documentation/devicetree/bindings/gpu/arm,mali-valhall-csf.yaml
+@@ -19,6 +19,7 @@ properties:
+       - items:
+           - enum:
+               - google,gs201-mali         # G710
++              - google,zuma-mali          # G715
+               - google,zumapro-mali       # G715 family
+               - mediatek,mt8196-mali
+               - nxp,imx95-mali            # G310

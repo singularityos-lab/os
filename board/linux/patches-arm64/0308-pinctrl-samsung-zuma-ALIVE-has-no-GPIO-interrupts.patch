@@ -1,0 +1,30 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Brett-Michael Green <brett@bmgvisualtech.com>
+Date: Fri, 30 Oct 2026 14:51:26 -0400
+Subject: [PATCH] pinctrl: samsung: zuma: ALIVE has no GPIO interrupts
+
+All of zuma's ALIVE banks are wake-up EINT banks, each pin on its own
+GIC interrupt, so the controller has no interrupt for GPIO EINTs.
+exynos_eint_gpio_init() only serves EINT_TYPE_GPIO banks, and without
+an interrupt on the controller node it logs "irq number not available"
+at every boot. Drop it from ALIVE, as gs101's ALIVE controller does.
+
+Fixes: 6d5bc3a01525 ("pinctrl: samsung: Add Tensor G3 pin banks")
+Assisted-by: LLM
+Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
+---
+ drivers/pinctrl/samsung/pinctrl-exynos-arm64.c | 1 -
+ 1 file changed, 1 deletion(-)
+
+diff --git a/drivers/pinctrl/samsung/pinctrl-exynos-arm64.c b/drivers/pinctrl/samsung/pinctrl-exynos-arm64.c
+index 74bcc3806..bab951eb0 100644
+--- a/drivers/pinctrl/samsung/pinctrl-exynos-arm64.c
++++ b/drivers/pinctrl/samsung/pinctrl-exynos-arm64.c
+@@ -2658,7 +2658,6 @@ static const struct samsung_pin_ctrl zuma_pin_ctrl[] __initconst = {
+ 		/* Controller 0: ALIVE */
+ 		.pin_banks	= zuma_pin_alive,
+ 		.nr_banks	= ARRAY_SIZE(zuma_pin_alive),
+-		.eint_gpio_init	= exynos_eint_gpio_init,
+ 		.eint_wkup_init	= exynos_eint_wkup_init,
+ 	}, {
+ 		/* Controller 1: CUSTOM */

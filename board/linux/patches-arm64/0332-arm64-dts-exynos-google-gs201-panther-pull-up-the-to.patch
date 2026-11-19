@@ -1,0 +1,41 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Alejandro Garcia <skipper.pelygro@gmail.com>
+Date: Sat, 31 Oct 2026 14:07:18 -0700
+Subject: [PATCH] arm64: dts: exynos: google: gs201-panther: pull up the touch
+ interrupt
+
+Google's panther touch file sets a pull-up on the FT3658's interrupt
+pin, gpa7-0 (&ts_irq in gs201-panther-touch.dtsi, EXYNOS_PIN_PULL_UP),
+and the Pixel 7's live device tree has it (ts-irq, samsung,pin-pud = 3).
+The shared gs201 group has no pull, as the Pixel 7 Pro wants, so
+override it in this board file only. Touch worked without it, since the
+controller drives the line; this matches stock.
+
+Tested on a Pixel 7 from slot B (7.3.0-rc6), together with the next
+patch: the live device tree has samsung,pin-pud = 3 in ts-irq-pins,
+pinctrl reports gpa7-0 in that group, and the controller probes (chip
+id 0x56, firmware 0x16) and reports touches across the panel.
+
+Suggested-by: Derek Ross <derekross@gmail.com>
+Assisted-by: Claude Opus 5.5
+Signed-off-by: Alejandro Garcia <skipper.pelygro@gmail.com>
+---
+ arch/arm64/boot/dts/exynos/google/gs201-panther.dts | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/gs201-panther.dts b/arch/arm64/boot/dts/exynos/google/gs201-panther.dts
+index 8c42276bf..b55b87138 100644
+--- a/arch/arm64/boot/dts/exynos/google/gs201-panther.dts
++++ b/arch/arm64/boot/dts/exynos/google/gs201-panther.dts
+@@ -229,6 +229,11 @@ haptics: haptic-driver@43 {
+  * Touchscreen: a FocalTech FT3658 on USI0 SPI, wired as the Pixel 7 Pro's
+  * S3908 (chip select gpp20-3, interrupt gpa7-0, reset gpp23-2).
+  */
++&ts_irq {
++	/* Stock pulls the interrupt line up on this phone, not on the 7 Pro */
++	samsung,pin-pud = <GS101_PIN_PULL_UP>;
++};
++
+ &usi0 {
+ 	samsung,mode = <USI_MODE_SPI>;
+ 	status = "okay";

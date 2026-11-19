@@ -1,0 +1,383 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Mon, 12 Oct 2026 00:01:17 -0400
+Subject: [PATCH] clk: samsung: acpm: add gs201 with a paired GPU clock
+
+The gs201 (Tensor G2) ACPM firmware has the same 14 DVFS domains as
+gs101, in the same order (Google's acpm_dvfs_gs201.h), on DVFS channel 0
+(acpm-ipc-channel of cal_if in the stock device tree).
+
+The Mali-G710 is clocked from two of them: G3D for the shader cores and
+G3DL2 for the top level and L2. Google's kbase always moves them
+together, from a fixed table, and keeps G3DL2 >= G3D by raising G3DL2
+first and lowering it last (pixel_gpu_dvfs.c). A devfreq/OPP consumer
+such as Panthor sets one clock, so add a "gpu" clock that does this: its
+rate is the shader rate, and setting it moves G3DL2 to the paired level.
+The pairs are Google's gs201 GPU table (gpu_dvfs_table_v1, 202-848 MHz;
+the v2 table needs levels this ECT lacks, and the stock kernel lists the
+v1 levels at boot) plus the 151 MHz boot level of both domains.
+
+For a staged bring-up the GPU clock is capped by a module parameter,
+gs201_gpu_max_khz. It defaults to 0, which makes the clock read-only:
+every request rounds to 151 MHz and nothing is sent to the firmware.
+
+The gs201 clocks are CLK_GET_RATE_NOCACHE, so their rate is what the
+firmware reports, not the last request.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ drivers/clk/samsung/clk-acpm.c | 264 ++++++++++++++++++++++++++++++++-
+ 1 file changed, 256 insertions(+), 8 deletions(-)
+
+diff --git a/drivers/clk/samsung/clk-acpm.c b/drivers/clk/samsung/clk-acpm.c
+index 7680bc8c5..996e69d9d 100644
+--- a/drivers/clk/samsung/clk-acpm.c
++++ b/drivers/clk/samsung/clk-acpm.c
+@@ -13,8 +13,10 @@
+ #include <linux/err.h>
+ #include <linux/firmware/samsung/exynos-acpm-protocol.h>
+ #include <linux/module.h>
++#include <linux/moduleparam.h>
+ #include <linux/platform_device.h>
+ #include <linux/types.h>
++#include <linux/units.h>
+ 
+ struct acpm_clk {
+ 	u32 id;
+@@ -27,12 +29,55 @@ struct acpm_clk_variant {
+ 	const char *name;
+ };
+ 
++/**
++ * struct acpm_clk_pair - one operating point of a two-domain clock.
++ * @rate:	rate of the clock (the primary domain), in kHz.
++ * @rate2:	rate of the secondary domain at that point, in kHz.
++ */
++struct acpm_clk_pair {
++	u32 rate;
++	u32 rate2;
++};
++
++/**
++ * struct acpm_clk_paired - a clock that moves two DVFS domains together.
++ * @name:	clock name.
++ * @id:		DVFS domain whose rate is the clock's rate.
++ * @id2:	DVFS domain set to the paired rate. Its rate is never below
++ *		the primary domain's: it is raised first and lowered last.
++ * @pairs:	operating points, in ascending order of @rate.
++ * @nr_pairs:	number of operating points.
++ * @max_khz:	optional cap on the rate, in kHz. If it points to 0, the
++ *		clock is read-only.
++ */
++struct acpm_clk_paired {
++	const char *name;
++	u32 id;
++	u32 id2;
++	const struct acpm_clk_pair *pairs;
++	unsigned int nr_pairs;
++	const unsigned int *max_khz;
++};
++
+ struct acpm_clk_driver_data {
+ 	const struct acpm_clk_variant *clks;
+ 	unsigned int nr_clks;
++	const struct acpm_clk_paired *paired;
++	unsigned int nr_paired;
++	unsigned long flags;
++	unsigned int mbox_chan_id;
++};
++
++struct acpm_clk_paired_hw {
++	struct clk_hw hw;
++	const struct acpm_clk_paired *data;
+ 	unsigned int mbox_chan_id;
++	struct acpm_handle *handle;
++	struct device *dev;
+ };
+ 
++#define to_acpm_clk_paired(clk) container_of(clk, struct acpm_clk_paired_hw, hw)
++
+ #define to_acpm_clk(clk) container_of(clk, struct acpm_clk, hw)
+ 
+ #define ACPM_CLK(cname)					\
+@@ -63,6 +108,61 @@ static const struct acpm_clk_driver_data acpm_clk_gs101 = {
+ 	.mbox_chan_id = 0,
+ };
+ 
++/*
++ * gs201 GPU operating points: shader (G3D) rate and the top/L2 (G3DL2) rate
++ * paired with it, in kHz. 202-848 MHz are Google's gs201 GPU DVFS table
++ * (gpu_dvfs_table_v1 in gs201-gpu.dtsi; its v2 table needs 633 and 434 MHz
++ * levels that the Pixel 7 ECT does not have). 151 MHz is the boot and resume
++ * level of both domains in the ECT (MINMAX_G3D, MINMAX_G3DL2).
++ */
++static const struct acpm_clk_pair gs201_gpu_pairs[] = {
++	{ 151000, 151000 },
++	{ 202000, 302000 },
++	{ 251000, 302000 },
++	{ 302000, 470000 },
++	{ 351000, 470000 },
++	{ 400000, 603000 },
++	{ 471000, 603000 },
++	{ 510000, 750000 },
++	{ 572000, 750000 },
++	{ 701000, 885000 },
++	{ 762000, 996000 },
++	{ 848000, 996000 },
++};
++
++/*
++ * Staged bring-up: the GPU clock never goes above this rate. 0 (the default)
++ * makes the clock read-only: every request rounds to the lowest point and
++ * none reaches the firmware. Set it at runtime through
++ * /sys/module/clk_acpm/parameters/gs201_gpu_max_khz.
++ */
++static unsigned int gs201_gpu_max_khz;
++module_param(gs201_gpu_max_khz, uint, 0644);
++MODULE_PARM_DESC(gs201_gpu_max_khz,
++		 "gs201: highest GPU shader rate in kHz, 0 = read-only (default)");
++
++static const struct acpm_clk_paired gs201_acpm_paired[] = {
++	{
++		.name = "gpu",
++		.id = 5,	/* G3D: shader cores */
++		.id2 = 6,	/* G3DL2: top level and L2 */
++		.pairs = gs201_gpu_pairs,
++		.nr_pairs = ARRAY_SIZE(gs201_gpu_pairs),
++		.max_khz = &gs201_gpu_max_khz,
++	},
++};
++
++/* The DVFS domains are the same as gs101's, in the same order. */
++static const struct acpm_clk_driver_data acpm_clk_gs201 = {
++	.clks = gs101_acpm_clks,
++	.nr_clks = ARRAY_SIZE(gs101_acpm_clks),
++	.paired = gs201_acpm_paired,
++	.nr_paired = ARRAY_SIZE(gs201_acpm_paired),
++	/* Show the firmware's rate, not the last one asked for. */
++	.flags = CLK_GET_RATE_NOCACHE,
++	.mbox_chan_id = 0,
++};
++
+ static unsigned long acpm_clk_recalc_rate(struct clk_hw *hw,
+ 					  unsigned long parent_rate)
+ {
+@@ -88,19 +188,133 @@ static const struct clk_ops acpm_clk_ops = {
+ };
+ 
+ static int acpm_clk_register(struct device *dev, struct acpm_clk *aclk,
+-			     const char *name)
++			     const char *name, unsigned long flags)
+ {
+ 	struct clk_init_data init = {};
+ 
+ 	init.name = name;
+ 	init.ops = &acpm_clk_ops;
++	init.flags = flags;
+ 	aclk->hw.init = &init;
+ 
+ 	return devm_clk_hw_register(dev, &aclk->hw);
+ }
+ 
++static unsigned long acpm_clk_paired_recalc_rate(struct clk_hw *hw,
++						 unsigned long parent_rate)
++{
++	struct acpm_clk_paired_hw *clk = to_acpm_clk_paired(hw);
++
++	return clk->handle->ops->dvfs.get_rate(clk->handle, clk->mbox_chan_id,
++					       clk->data->id);
++}
++
++/* The highest operating point at or below @rate and the cap, else the lowest. */
++static const struct acpm_clk_pair *
++acpm_clk_paired_find(const struct acpm_clk_paired *data, unsigned long rate)
++{
++	const struct acpm_clk_pair *pair = &data->pairs[0];
++	unsigned long khz = rate / HZ_PER_KHZ;
++	unsigned int i;
++
++	if (data->max_khz)
++		khz = min_t(unsigned long, khz, READ_ONCE(*data->max_khz));
++
++	for (i = 1; i < data->nr_pairs; i++)
++		if (data->pairs[i].rate <= khz)
++			pair = &data->pairs[i];
++
++	return pair;
++}
++
++static int acpm_clk_paired_determine_rate(struct clk_hw *hw,
++					  struct clk_rate_request *req)
++{
++	struct acpm_clk_paired_hw *clk = to_acpm_clk_paired(hw);
++
++	req->rate = acpm_clk_paired_find(clk->data, req->rate)->rate *
++		    HZ_PER_KHZ;
++
++	return 0;
++}
++
++static int acpm_clk_paired_set_rate(struct clk_hw *hw, unsigned long rate,
++				    unsigned long parent_rate)
++{
++	struct acpm_clk_paired_hw *clk = to_acpm_clk_paired(hw);
++	const struct acpm_clk_paired *data = clk->data;
++	const struct acpm_clk_pair *pair = acpm_clk_paired_find(data, rate);
++	struct acpm_handle *handle = clk->handle;
++	unsigned int chan = clk->mbox_chan_id;
++	unsigned long cur;
++	int ret;
++
++	if (pair->rate * HZ_PER_KHZ != rate)
++		return -EINVAL;
++
++	/* Read-only: leave the firmware's state alone. */
++	if (data->max_khz && !READ_ONCE(*data->max_khz)) {
++		dev_dbg(clk->dev, "%s: read-only, %u kHz not sent\n",
++			data->name, pair->rate);
++		return 0;
++	}
++
++	cur = handle->ops->dvfs.get_rate(handle, chan, data->id);
++
++	dev_dbg(clk->dev, "%s: %lu -> %u kHz (%u kHz on domain %u)\n",
++		data->name, cur / HZ_PER_KHZ, pair->rate, pair->rate2,
++		data->id2);
++
++	/*
++	 * Keep the secondary domain at or above the primary one throughout:
++	 * raise it first when going up, lower it last when going down. If the
++	 * second request fails, the domains are left in an allowed state.
++	 */
++	if (rate > cur) {
++		ret = handle->ops->dvfs.set_rate(handle, chan, data->id2,
++						 pair->rate2 * HZ_PER_KHZ);
++		if (!ret)
++			ret = handle->ops->dvfs.set_rate(handle, chan, data->id,
++							 rate);
++	} else {
++		ret = handle->ops->dvfs.set_rate(handle, chan, data->id, rate);
++		if (!ret)
++			ret = handle->ops->dvfs.set_rate(handle, chan,
++							 data->id2,
++							 pair->rate2 * HZ_PER_KHZ);
++	}
++
++	if (ret)
++		dev_err(clk->dev, "%s: setting %u kHz failed: %d\n",
++			data->name, pair->rate, ret);
++
++	return ret;
++}
++
++static const struct clk_ops acpm_clk_paired_ops = {
++	.recalc_rate = acpm_clk_paired_recalc_rate,
++	.determine_rate = acpm_clk_paired_determine_rate,
++	.set_rate = acpm_clk_paired_set_rate,
++};
++
++static int acpm_clk_paired_register(struct device *dev,
++				    struct acpm_clk_paired_hw *clk,
++				    unsigned long flags)
++{
++	struct clk_init_data init = {};
++
++	init.name = clk->data->name;
++	init.ops = &acpm_clk_paired_ops;
++	init.flags = flags;
++	clk->hw.init = &init;
++
++	return devm_clk_hw_register(dev, &clk->hw);
++}
++
+ static int acpm_clk_probe(struct platform_device *pdev)
+ {
++	const struct acpm_clk_driver_data *drv_data;
++	struct acpm_clk_paired_hw *paired = NULL;
+ 	struct acpm_handle *acpm_handle;
+ 	struct clk_hw_onecell_data *clk_data;
+ 	struct clk_hw **hws;
+@@ -109,13 +323,16 @@ static int acpm_clk_probe(struct platform_device *pdev)
+ 	unsigned int mbox_chan_id;
+ 	int i, err, count;
+ 
++	drv_data = (const struct acpm_clk_driver_data *)
++		   platform_get_device_id(pdev)->driver_data;
++
+ 	acpm_handle = devm_acpm_get_by_node(dev, dev->parent->of_node);
+ 	if (IS_ERR(acpm_handle))
+ 		return dev_err_probe(dev, PTR_ERR(acpm_handle),
+ 				     "Failed to get acpm handle\n");
+ 
+-	count = acpm_clk_gs101.nr_clks;
+-	mbox_chan_id = acpm_clk_gs101.mbox_chan_id;
++	count = drv_data->nr_clks + drv_data->nr_paired;
++	mbox_chan_id = drv_data->mbox_chan_id;
+ 
+ 	clk_data = devm_kzalloc(dev, struct_size(clk_data, hws, count),
+ 				GFP_KERNEL);
+@@ -125,11 +342,12 @@ static int acpm_clk_probe(struct platform_device *pdev)
+ 	clk_data->num = count;
+ 	hws = clk_data->hws;
+ 
+-	aclks = devm_kcalloc(dev, count, sizeof(*aclks), GFP_KERNEL);
++	aclks = devm_kcalloc(dev, drv_data->nr_clks, sizeof(*aclks),
++			     GFP_KERNEL);
+ 	if (!aclks)
+ 		return -ENOMEM;
+ 
+-	for (i = 0; i < count; i++) {
++	for (i = 0; i < drv_data->nr_clks; i++) {
+ 		struct acpm_clk *aclk = &aclks[i];
+ 
+ 		/*
+@@ -142,8 +360,32 @@ static int acpm_clk_probe(struct platform_device *pdev)
+ 
+ 		hws[i] = &aclk->hw;
+ 
+-		err = acpm_clk_register(dev, aclk,
+-					acpm_clk_gs101.clks[i].name);
++		err = acpm_clk_register(dev, aclk, drv_data->clks[i].name,
++					drv_data->flags);
++		if (err)
++			return dev_err_probe(dev, err,
++					     "Failed to register clock\n");
++	}
++
++	/* Paired clocks follow the DVFS domains in the clock index space. */
++	if (drv_data->nr_paired) {
++		paired = devm_kcalloc(dev, drv_data->nr_paired,
++				      sizeof(*paired), GFP_KERNEL);
++		if (!paired)
++			return -ENOMEM;
++	}
++
++	for (i = 0; i < drv_data->nr_paired; i++) {
++		struct acpm_clk_paired_hw *clk = &paired[i];
++
++		clk->data = &drv_data->paired[i];
++		clk->handle = acpm_handle;
++		clk->mbox_chan_id = mbox_chan_id;
++		clk->dev = dev;
++
++		hws[drv_data->nr_clks + i] = &clk->hw;
++
++		err = acpm_clk_paired_register(dev, clk, drv_data->flags);
+ 		if (err)
+ 			return dev_err_probe(dev, err,
+ 					     "Failed to register clock\n");
+@@ -154,7 +396,13 @@ static int acpm_clk_probe(struct platform_device *pdev)
+ }
+ 
+ static const struct platform_device_id acpm_clk_id[] = {
+-	{ .name = "gs101-acpm-clk" },
++	{
++		.name = "gs101-acpm-clk",
++		.driver_data = (kernel_ulong_t)&acpm_clk_gs101,
++	}, {
++		.name = "gs201-acpm-clk",
++		.driver_data = (kernel_ulong_t)&acpm_clk_gs201,
++	},
+ 	{ }
+ };
+ MODULE_DEVICE_TABLE(platform, acpm_clk_id);

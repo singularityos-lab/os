@@ -1,0 +1,27 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Mon, 12 Oct 2026 01:33:49 -0400
+Subject: [PATCH] dt-bindings: vendor-prefixes: add android
+
+Add the prefix used by the Android Open Source Project's device tree
+bindings, such as Trusty's "android,trusty-smc-v1".
+
+Assisted-by: LLM
+Signed-off-by: Derek Ross <derekross@gmail.com>
+---
+ Documentation/devicetree/bindings/vendor-prefixes.yaml | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/Documentation/devicetree/bindings/vendor-prefixes.yaml b/Documentation/devicetree/bindings/vendor-prefixes.yaml
+index 9530e0c16..27bc3ab20 100644
+--- a/Documentation/devicetree/bindings/vendor-prefixes.yaml
++++ b/Documentation/devicetree/bindings/vendor-prefixes.yaml
+@@ -138,6 +138,8 @@ patternProperties:
+     description: Anbernic
+   "^andestech,.*":
+     description: Andes Technology Corporation
++  "^android,.*":
++    description: Android Open Source Project
+   "^anlogic,.*":
+     description: Shanghai Anlogic Infotech Co., Ltd.
+   "^anvo,.*":

@@ -1,0 +1,82 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Alejandro Garcia <skipper.pelygro@gmail.com>
+Date: Tue, 27 Oct 2026 21:03:34 -0700
+Subject: [PATCH] arm64: dts: exynos: google: gs201-panther: enable UFS
+
+Enable the UFS host and its PHY. VCC is the fixed always-on regulator
+cheetah and lynx use: stock drives it from gpp0-1 (boot-on), and the
+bootloader leaves it on.
+
+omamobile.ufs-probe tells the omarchy-mobile initramfs to load the UFS
+drivers and apply its storage guard, which leaves only slot B's boot
+images and userdata writable.
+
+Tested on a Pixel 7 from slot B: four LUNs and 55 partitions enumerate,
+with the same names and numbers as stock's by-name map, and the guard
+leaves sda20-24 (slot B's boot images) and sda31 (userdata) read-write.
+The Arch root on userdata boots from it.
+
+Assisted-by: Claude Opus 5.5
+Signed-off-by: Alejandro Garcia <skipper.pelygro@gmail.com>
+---
+ .../boot/dts/exynos/google/gs201-panther.dts  | 29 ++++++++++++++++---
+ 1 file changed, 25 insertions(+), 4 deletions(-)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/gs201-panther.dts b/arch/arm64/boot/dts/exynos/google/gs201-panther.dts
+index 936a87241..c57880a45 100644
+--- a/arch/arm64/boot/dts/exynos/google/gs201-panther.dts
++++ b/arch/arm64/boot/dts/exynos/google/gs201-panther.dts
+@@ -2,9 +2,9 @@
+ /*
+  * Google Pixel 7 (panther) - first-light board file.
+  *
+- * USB (NCM + ACM), the cluster watchdogs from gs201.dtsi and a
+- * simple-framebuffer on the buffer ABL leaves DPP0 scanning out. The panel
+- * driver, touch, the GPU and UFS stay disabled.
++ * USB (NCM + ACM), the cluster watchdogs from gs201.dtsi, a
++ * simple-framebuffer on the buffer ABL leaves DPP0 scanning out, and UFS.
++ * The panel driver, touch and the GPU stay disabled.
+  */
+ 
+ /dts-v1/;
+@@ -23,7 +23,7 @@ / {
+ 
+ 	chosen {
+ 		/* ABL requires bootargs to exist; it appends its own after these. */
+-		bootargs = "console=tty0 panic=10 clk_ignore_unused pd_ignore_unused rdinit=/init";
++		bootargs = "console=tty0 panic=10 clk_ignore_unused pd_ignore_unused rdinit=/init omamobile.ufs-probe";
+ 		#address-cells = <2>;
+ 		#size-cells = <1>;
+ 		ranges;
+@@ -45,6 +45,18 @@ framebuffer0: framebuffer@fac00000 {
+ 		};
+ 	};
+ 
++	/*
++	 * UFS VCC. Stock drives it from GPIO gpp0-1 (boot-on), as on
++	 * cheetah; there is no gs201 GPIO driver yet, so describe it as
++	 * always on, as the bootloader leaves it.
++	 */
++	ufs_0_fixed_vcc_reg: regulator-ufs-vcc {
++		compatible = "regulator-fixed";
++		regulator-name = "ufs-vcc";
++		regulator-always-on;
++		regulator-boot-on;
++	};
++
+ 	reserved-memory {
+ 		#address-cells = <2>;
+ 		#size-cells = <1>;
+@@ -76,3 +88,12 @@ &usbdrd31_phy {
+ &usb_dwc3 {
+ 	status = "okay";
+ };
++
++&ufs_0 {
++	vcc-supply = <&ufs_0_fixed_vcc_reg>;
++	status = "okay";
++};
++
++&ufs_0_phy {
++	status = "okay";
++};

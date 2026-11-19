@@ -1,0 +1,37 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Lef <me@lefteros.com>
+Date: Sun, 1 Nov 2026 13:14:36 +0200
+Subject: [PATCH] dt-bindings: soc: samsung: exynos-sysreg: add
+ google,zuma-peric1-sysreg
+
+USI11 is at 0x10cb00c0 and its SW_CONF is at offset 0xc of the PERIC1
+sysreg (0x10c21000), as in Google's devicetree. Add the zuma compatible to
+the list of sysregs and to the condition that groups the PERIC sysregs of
+the other Google SoCs.
+
+Signed-off-by: Lef <me@lefteros.com>
+Assisted-by: LLM
+---
+ .../devicetree/bindings/soc/samsung/samsung,exynos-sysreg.yaml  | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/Documentation/devicetree/bindings/soc/samsung/samsung,exynos-sysreg.yaml b/Documentation/devicetree/bindings/soc/samsung/samsung,exynos-sysreg.yaml
+index 2a181df90..8cb6ce85d 100644
+--- a/Documentation/devicetree/bindings/soc/samsung/samsung,exynos-sysreg.yaml
++++ b/Documentation/devicetree/bindings/soc/samsung/samsung,exynos-sysreg.yaml
+@@ -28,6 +28,7 @@ properties:
+               - google,gs201-peric1-sysreg
+               - google,gs201-vgpio2ap-sysreg
+               - google,zuma-hsi0-sysreg
++              - google,zuma-peric1-sysreg
+               - google,zuma-ufs-sysreg
+               - google,zumapro-apm-sysreg
+               - google,zumapro-hsi0-sysreg
+@@ -116,6 +117,7 @@ allOf:
+               - google,gs201-hsi2-sysreg
+               - google,gs201-peric0-sysreg
+               - google,gs201-peric1-sysreg
++              - google,zuma-peric1-sysreg
+               - google,zumapro-apm-sysreg
+               - google,zumapro-hsi0-sysreg
+               - google,zumapro-peric0-sysreg

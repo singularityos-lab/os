@@ -1,0 +1,341 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Mon, 12 Oct 2026 12:59:56 -0400
+Subject: [PATCH] power: supply: max77759: add a battery temperature guard
+
+Nothing limits charging by temperature on a mainline Pixel: the stock
+phone does it in software (Google's google_battery), from a step
+charging table in its device tree. Outside 0-55 C it doesn't charge;
+elsewhere the float voltage and the charge current depend on the
+temperature band and on how far the cell has charged:
+
+  0-10 C:  up to 4.30 V, 30 %/10 % of capacity
+  10-20 C: up to 4.45 V, 50 %/30 %/30 %
+  20-42 C: up to 4.45 V, 100 %/70 %/50 %
+  42-46 C: up to 4.45 V, 80 %/50 %/50 %
+  46-48 C: up to 4.30 V, 50 %/50 %
+  48-55 C: up to 4.20 V, 30 %
+
+for voltage tiers up to 4.20, 4.30 and 4.45 V.
+
+Add that policy behind a temp_guard module parameter, off by default.
+Every 30 s it reads the battery's temp and voltage_now from the power
+supply named by guard_psy, picks the band (moving to a more restrictive
+one at once, to a less restrictive one only 2 C inside it) and the tier
+(rising only, within a band), and sets the float voltage and fast charge
+current, never above the battery description's limits. Outside the
+bands, or without a reading, it puts the charger in buck-only mode (0x4):
+the phone keeps running from USB and the battery rests. Turning the
+parameter off restores the description's limits.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ drivers/power/supply/max77759_charger.c | 232 +++++++++++++++++++++++-
+ include/linux/mfd/max77759.h            |   1 +
+ 2 files changed, 231 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/power/supply/max77759_charger.c b/drivers/power/supply/max77759_charger.c
+index 8e6d6e252..572279b06 100644
+--- a/drivers/power/supply/max77759_charger.c
++++ b/drivers/power/supply/max77759_charger.c
+@@ -12,6 +12,7 @@
+ #include <linux/interrupt.h>
+ #include <linux/irq.h>
+ #include <linux/linear_range.h>
++#include <linux/math64.h>
+ #include <linux/mfd/max77759.h>
+ #include <linux/module.h>
+ #include <linux/mutex.h>
+@@ -38,6 +39,43 @@ module_param(default_ilim_ua, uint, 0444);
+ MODULE_PARM_DESC(default_ilim_ua,
+ 		 "Input current limit in uA for a source that advertises no current: used from probe until a tcpm-source reports, and for Type-C default power. 0 (default) keeps charging off in both cases. At most 900000.");
+ 
++/*
++ * Battery temperature guard: the step-charging policy of the stock phone
++ * (Google's google,battery node on gs201 phones: chg-temp-limits,
++ * chg-cv-limits, chg-cc-limits). Off by default.
++ */
++static bool temp_guard;
++module_param(temp_guard, bool, 0644);
++MODULE_PARM_DESC(temp_guard,
++		 "Limit charging by battery temperature as the stock phone does: no charge below 0 or from 55 C, lower float voltage and current outside 10-46 C. Reads the battery power supply named by guard_psy every 30 s. Default off.");
++
++static char guard_psy[32] = "max170xx_battery";
++module_param_string(guard_psy, guard_psy, sizeof(guard_psy), 0444);
++MODULE_PARM_DESC(guard_psy, "Battery power supply whose temp and voltage_now the guard reads");
++
++#define GUARD_PERIOD_MS			30000
++#define GUARD_HYST_DECIC		20	/* 2.0 C into a band before relaxing */
++#define GUARD_NBANDS			6
++#define GUARD_NTIERS			3
++
++/* Band i is [guard_temp_decic[i], guard_temp_decic[i + 1]), in 0.1 C */
++static const int guard_temp_decic[GUARD_NBANDS + 1] = {
++	0, 100, 200, 420, 460, 480, 550
++};
++
++/* Tier j charges up to guard_cv_mv[j] */
++static const u32 guard_cv_mv[GUARD_NTIERS] = { 4200, 4300, 4450 };
++
++/* Charge current per band and tier, in percent of the design capacity */
++static const u8 guard_cc_pct[GUARD_NBANDS][GUARD_NTIERS] = {
++	{  30, 10,  0 },	/*  0-10 C */
++	{  50, 30, 30 },	/* 10-20 C */
++	{ 100, 70, 50 },	/* 20-42 C */
++	{  80, 50, 50 },	/* 42-46 C */
++	{  50, 50,  0 },	/* 46-48 C */
++	{  30,  0,  0 },	/* 48-55 C */
++};
++
+ #define FOREACH_IRQ(S)			\
+ 	S(AICL),			\
+ 	S(CHGIN),			\
+@@ -92,6 +130,16 @@ struct max77759_charger {
+ 	int irqs[NUM_IRQS];
+ 	struct mutex lock; /* protects the state below */
+ 	enum max77759_chgr_mode mode;
++	bool inhibit;	/* charge suspended by the temperature guard */
++
++	/* Temperature guard */
++	struct delayed_work guard_work;
++	bool guard_active;
++	int guard_band;		/* -1: charging inhibited */
++	int guard_tier;
++	u32 fv_max_mv;		/* limits from the battery description */
++	u32 cc_max_ua;
++	u32 design_uah;
+ };
+ 
+ static inline int unlock_prot_regs(struct max77759_charger *chg, bool unlock)
+@@ -425,6 +473,17 @@ static const struct power_supply_desc max77759_charger_desc = {
+ 	.get_property = max77759_charger_get_property,
+ };
+ 
++/* The mode the hardware gets: buck only while the guard inhibits charging */
++static int charger_write_mode(struct max77759_charger *chg,
++			      enum max77759_chgr_mode mode)
++{
++	if (mode == MAX77759_CHGR_MODE_CHG_BUCK_ON && chg->inhibit)
++		mode = MAX77759_CHGR_MODE_BUCK_ON;
++
++	return regmap_update_bits(chg->regmap, MAX77759_CHGR_REG_CHG_CNFG_00,
++				  MAX77759_CHGR_REG_CHG_CNFG_00_MODE, mode);
++}
++
+ static int charger_set_mode(struct max77759_charger *chg,
+ 			    enum max77759_chgr_mode mode)
+ {
+@@ -443,8 +502,7 @@ static int charger_set_mode(struct max77759_charger *chg,
+ 		return -EINVAL;
+ 	}
+ 
+-	ret = regmap_update_bits(chg->regmap, MAX77759_CHGR_REG_CHG_CNFG_00,
+-				 MAX77759_CHGR_REG_CHG_CNFG_00_MODE, mode);
++	ret = charger_write_mode(chg, mode);
+ 	if (ret)
+ 		return ret;
+ 
+@@ -567,7 +625,11 @@ static int max77759_charger_init(struct max77759_charger *chg)
+ 	} else {
+ 		fv = info->constant_charge_voltage_max_uv / 1000;
+ 		fast_chg_curr = info->constant_charge_current_max_ua;
++		if (info->charge_full_design_uah > 0)
++			chg->design_uah = info->charge_full_design_uah;
+ 	}
++	chg->fv_max_mv = fv;
++	chg->cc_max_ua = fast_chg_curr;
+ 
+ 	ret = set_fast_charge_current_limit(chg, fast_chg_curr);
+ 	if (ret)
+@@ -727,6 +789,163 @@ static void max77759_charger_leave_charging(void *data)
+ 	charger_set_mode(chg, MAX77759_CHGR_MODE_CHG_BUCK_ON);
+ }
+ 
++static int guard_classify(int decic)
++{
++	int i;
++
++	if (decic < guard_temp_decic[0] || decic >= guard_temp_decic[GUARD_NBANDS])
++		return -1;
++	for (i = 0; i < GUARD_NBANDS - 1; i++)
++		if (decic < guard_temp_decic[i + 1])
++			break;
++	return i;
++}
++
++/* Charging allowed in a band, for comparing how restrictive two bands are */
++static unsigned int guard_band_score(int band)
++{
++	return band < 0 ? 0 : guard_cc_pct[band][0];
++}
++
++/*
++ * Move to a more restrictive band at once; to a less restrictive one only
++ * when the temperature is GUARD_HYST_DECIC inside it on both sides.
++ */
++static int guard_next_band(int cur, int decic)
++{
++	int band = guard_classify(decic);
++
++	/* First reading (cur -2): take it as it is */
++	if (cur < -1 || band == cur ||
++	    guard_band_score(band) < guard_band_score(cur))
++		return band;
++	if (guard_classify(decic - GUARD_HYST_DECIC) == band &&
++	    guard_classify(decic + GUARD_HYST_DECIC) == band)
++		return band;
++	return cur;
++}
++
++/* Highest tier of a band that may charge at all */
++static int guard_top_tier(int band)
++{
++	int t;
++
++	for (t = GUARD_NTIERS - 1; t > 0; t--)
++		if (guard_cc_pct[band][t])
++			break;
++	return t;
++}
++
++static int guard_read(int *decic, int *uv)
++{
++	union power_supply_propval val;
++	struct power_supply *psy;
++	int ret;
++
++	psy = power_supply_get_by_name(guard_psy);
++	if (!psy)
++		return -ENODEV;
++
++	ret = power_supply_get_property(psy, POWER_SUPPLY_PROP_TEMP, &val);
++	if (!ret) {
++		*decic = val.intval;
++		ret = power_supply_get_property(psy, POWER_SUPPLY_PROP_VOLTAGE_NOW,
++						&val);
++		*uv = val.intval;
++	}
++	power_supply_put(psy);
++
++	return ret;
++}
++
++static void guard_set_inhibit(struct max77759_charger *chg, bool inhibit)
++{
++	guard(mutex)(&chg->lock);
++
++	if (chg->inhibit == inhibit)
++		return;
++	chg->inhibit = inhibit;
++	if (chg->mode == MAX77759_CHGR_MODE_CHG_BUCK_ON)
++		charger_write_mode(chg, chg->mode);
++}
++
++/* Back to the limits from the battery description, charging allowed */
++static void guard_release(struct max77759_charger *chg)
++{
++	set_float_voltage_limit(chg, chg->fv_max_mv);
++	set_fast_charge_current_limit(chg, chg->cc_max_ua);
++	guard_set_inhibit(chg, false);
++	chg->guard_active = false;
++	chg->guard_band = -2;
++	dev_info(chg->dev, "temperature guard off\n");
++}
++
++static void guard_work_item(struct work_struct *work)
++{
++	struct max77759_charger *chg =
++		container_of(work, struct max77759_charger, guard_work.work);
++	int decic = 0, uv = 0, band, tier;
++	bool read_ok;
++	u32 fv, cc;
++
++	if (!temp_guard) {
++		if (chg->guard_active)
++			guard_release(chg);
++		goto out;
++	}
++
++	if (!chg->guard_active) {
++		chg->guard_active = true;
++		chg->guard_band = -2;
++		dev_info(chg->dev, "temperature guard on (%s)\n", guard_psy);
++	}
++
++	/* No reading, no charging */
++	read_ok = !guard_read(&decic, &uv);
++	band = read_ok ? guard_next_band(chg->guard_band, decic) : -1;
++
++	if (band < 0) {
++		if (chg->guard_band != -1 && !read_ok)
++			dev_warn(chg->dev, "no reading from %s: charging inhibited\n",
++				 guard_psy);
++		else if (chg->guard_band != -1)
++			dev_info(chg->dev, "battery %s%d.%d C: charging inhibited\n",
++				 decic < 0 ? "-" : "", abs(decic) / 10,
++				 abs(decic) % 10);
++		chg->guard_band = -1;
++		guard_set_inhibit(chg, true);
++		goto out;
++	}
++
++	/* Tiers only rise within a band, as the voltage does while charging */
++	if (band != chg->guard_band)
++		chg->guard_tier = 0;
++	tier = chg->guard_tier;
++	while (tier < GUARD_NTIERS - 1 && uv >= guard_cv_mv[tier] * 1000)
++		tier++;
++	tier = min(tier, guard_top_tier(band));
++
++	fv = min(guard_cv_mv[guard_top_tier(band)], chg->fv_max_mv);
++	cc = div_u64((u64)chg->design_uah * guard_cc_pct[band][tier], 100);
++	cc = min(cc, chg->cc_max_ua);
++
++	if (band != chg->guard_band || tier != chg->guard_tier)
++		dev_info(chg->dev,
++			 "battery %s%d.%d C, %d mV: band %d-%d C, float %u mV, charge %u uA\n",
++			 decic < 0 ? "-" : "", abs(decic) / 10, abs(decic) % 10,
++			 uv / 1000,
++			 guard_temp_decic[band] / 10, guard_temp_decic[band + 1] / 10,
++			 fv, cc);
++
++	set_float_voltage_limit(chg, fv);
++	set_fast_charge_current_limit(chg, cc);
++	guard_set_inhibit(chg, false);
++	chg->guard_band = band;
++	chg->guard_tier = tier;
++out:
++	schedule_delayed_work(&chg->guard_work, msecs_to_jiffies(GUARD_PERIOD_MS));
++}
++
+ static void max77759_charger_log_state(struct max77759_charger *chg,
+ 				       const char *when)
+ {
+@@ -833,6 +1052,15 @@ static int max77759_charger_probe(struct platform_device *pdev)
+ 	if (ret)
+ 		return ret;
+ 
++	/* 4926 mAh: the battery in our device tree, if it doesn't say */
++	if (!chg->design_uah)
++		chg->design_uah = 4926000;
++	chg->guard_band = -2;
++	ret = devm_delayed_work_autocancel(dev, &chg->guard_work, guard_work_item);
++	if (ret)
++		return dev_err_probe(dev, ret, "Failed to initialize guard work\n");
++	schedule_delayed_work(&chg->guard_work, 0);
++
+ 	max77759_charger_log_state(chg, "probed");
+ 
+ 	return 0;
+diff --git a/include/linux/mfd/max77759.h b/include/linux/mfd/max77759.h
+index 7c0b13219..10f400e97 100644
+--- a/include/linux/mfd/max77759.h
++++ b/include/linux/mfd/max77759.h
+@@ -205,6 +205,7 @@ enum max77759_chgr_chg_dtls_states {
+ 
+ enum max77759_chgr_mode {
+ 	MAX77759_CHGR_MODE_OFF = 0x0,
++	MAX77759_CHGR_MODE_BUCK_ON = 0x4,
+ 	MAX77759_CHGR_MODE_CHG_BUCK_ON = 0x5,
+ 	MAX77759_CHGR_MODE_OTG_BOOST_ON = 0xA,
+ };

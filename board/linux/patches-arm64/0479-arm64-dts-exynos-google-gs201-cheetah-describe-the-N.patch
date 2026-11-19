@@ -1,0 +1,61 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Mon, 12 Oct 2026 13:26:58 -0400
+Subject: [PATCH] arm64: dts: exynos: google: gs201-cheetah: describe the NFC
+ controller
+
+The ST54J's NCI controller is at 0x08 on I2C 8 (shared with the haptics
+driver), with its interrupt on gpa9-1 and reset on gph1-5 (HSI1), as in
+the stock device tree. Only the NFC side is described; the secure element
+is not. Disabled until it is proven on the phone.
+
+Assisted-by: LLM
+Signed-off-by: Derek Ross <derekross@gmail.com>
+---
+ .../boot/dts/exynos/google/gs201-cheetah.dts  | 26 +++++++++++++++++++
+ 1 file changed, 26 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts b/arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts
+index c271f2f62..fa30e17bb 100644
+--- a/arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts
++++ b/arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts
+@@ -693,6 +693,23 @@ haptics: haptic-driver@43 {
+ 		cirrus,lra-f0-hz = <145>;
+ 		cirrus,lra-redc-micro-ohms = <13000000>;
+ 	};
++
++	/*
++	 * NFC: the NCI controller of the ST54J (NFC + eSE combo) at 0x08,
++	 * IRQ on gpa9-1, reset on gph1-5 (HSI1). Stock: st21nfc@8. The eSE
++	 * side (SPI, reset gph1-4) is left alone: no ese-present here.
++	 * The reference clock is the PMU's CLKOUT1 pad, which stock enables
++	 * while the device is open. Disabled until the nfc-test overlay.
++	 */
++	nfc@8 {
++		compatible = "st,st54j-i2c", "st,st21nfcc-i2c";
++		reg = <0x08>;
++		interrupts-extended = <&gpa9 1 IRQ_TYPE_LEVEL_HIGH>;
++		reset-gpios = <&gph1 5 GPIO_ACTIVE_HIGH>;
++		pinctrl-0 = <&nfc_rst>;
++		pinctrl-names = "default";
++		status = "disabled";
++	};
+ };
+ 
+ /*
+@@ -894,6 +911,15 @@ wlan_dev_wake: wlan-dev-wake-pins {
+ 	};
+ };
+ 
++&pinctrl_hsi1 {
++	/* As stock: only the power-down state; the driver owns the level. */
++	nfc_rst: nfc-rst-pins {
++		samsung,pins = "gph1-5";
++		samsung,pin-con-pdn = <GS101_PIN_PDN_PREV>;
++		samsung,pin-pud-pdn = <GS101_PIN_PULL_NONE>;
++	};
++};
++
+ /*
+  * Modem: Samsung S5300 on PCIe GEN4A_0 (HSI1), with its control lines from
+  * the stock cpif node and its shared memory from stock's cp_shmem node (IPC,

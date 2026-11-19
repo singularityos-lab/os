@@ -1,0 +1,64 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Tue, 13 Oct 2026 12:22:42 -0400
+Subject: [PATCH] PCI: dwc: gs201-cp: show the link speed and who powers the
+ modem
+
+The status file's "cp" field is the debugfs steps' own power-on flag.
+When the modem driver owns the modem's lines it is always 0, which read
+as "modem off" while the modem was powered and its ROM was waiting on
+the link (first modem boot). Print "-" then.
+
+Also print the trained speed and width while the link is up: the
+LTSSM state alone does not tell the ROM's Gen1 link from the boot
+loader's Gen3 one.
+
+Assisted-by: LLM
+Signed-off-by: Derek Ross <derekross@gmail.com>
+---
+ drivers/pci/controller/dwc/pcie-gs201-cp.c | 18 +++++++++++++++---
+ 1 file changed, 15 insertions(+), 3 deletions(-)
+
+diff --git a/drivers/pci/controller/dwc/pcie-gs201-cp.c b/drivers/pci/controller/dwc/pcie-gs201-cp.c
+index 94a18e9af..e157878d3 100644
+--- a/drivers/pci/controller/dwc/pcie-gs201-cp.c
++++ b/drivers/pci/controller/dwc/pcie-gs201-cp.c
+@@ -1602,6 +1602,7 @@ static int cp_status_show(struct seq_file *s, void *unused)
+ {
+ 	struct gs201_pcie_cp *cp = s->private;
+ 	unsigned int i, iso = 0, reg;
++	u16 lnksta;
+ 
+ 	mutex_lock(&cp->lock);
+ 	if (!cp->has_lines)
+@@ -1617,9 +1618,13 @@ static int cp_status_show(struct seq_file *s, void *unused)
+ 	regmap_read(cp->pmu, cp->pmu_offset, &iso);
+ 	seq_printf(s, "PMU %#x: %#x (bit 0: 0 = PHY isolated)\n",
+ 		   cp->pmu_offset, iso);
+-	seq_printf(s, "state: cp %d, phy %d/%d, link %d, atu %d\n",
+-		   cp->cp_powered, cp->phy_inited, cp->phy_on, cp->link_up,
+-		   cp->atu_done);
++	/* "cp" is only known for the debugfs steps' own power-on */
++	if (cp->has_lines)
++		seq_printf(s, "state: cp %d, ", cp->cp_powered);
++	else
++		seq_puts(s, "state: cp -, ");
++	seq_printf(s, "phy %d/%d, link %d, atu %d\n", cp->phy_inited,
++		   cp->phy_on, cp->link_up, cp->atu_done);
+ 	seq_printf(s, "faults: %#x, ctrl irq %s\n", READ_ONCE(cp->faults),
+ 		   cp->ctrl_irq_on ? "on" : "off");
+ 	for (i = 0, reg = 0; i < CP_MSI_QUEUES; i++)
+@@ -1628,6 +1633,13 @@ static int cp_status_show(struct seq_file *s, void *unused)
+ 	seq_printf(s, "MSI %s, irqs %s, queue blocks %u, registered %#x\n",
+ 		   cp->msi_ready ? "ready" : "not set up",
+ 		   cp->msi_irqs_on ? "on" : "off", cp_msi_queue_count(cp), reg);
++	if (cp->link_up && cp->exp_cap) {
++		lnksta = dw_pcie_readw_dbi(&cp->pci, cp->exp_cap + PCI_EXP_LNKSTA);
++		seq_printf(s, "link Gen%u x%u (target Gen%u)\n",
++			   (unsigned int)FIELD_GET(PCI_EXP_LNKSTA_CLS, lnksta),
++			   (unsigned int)FIELD_GET(PCI_EXP_LNKSTA_NLW, lnksta),
++			   cp->speed);
++	}
+ 	if (cp->phy_inited)
+ 		seq_printf(s, "LTSSM %#lx, IRQ0/1/2 %#x %#x %#x\n",
+ 			   FIELD_GET(CP_ELBI_LTSSM_MASK,

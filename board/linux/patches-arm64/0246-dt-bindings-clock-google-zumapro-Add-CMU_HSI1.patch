@@ -1,0 +1,118 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Tue, 27 Oct 2026 08:29:53 -0647
+Subject: [PATCH] dt-bindings: clock: google,zumapro: Add CMU_HSI1
+
+CMU_HSI1 clocks the HSI1 block's GPIO bank (the modem's control lines,
+the haptics reset). Describe it in the common Tensor G4 clock binding
+with its three inputs: the oscillator, CMU_TOP's HSI1 NoC clock and the
+board's 400 MHz ALT fixed clock. Allow a power domain for it as for
+HSI0, which firmware keeps on today. Add CMU_TOP's HSI1 branch at the
+end of the TOP block and the 7 CMU_HSI1 identifiers in a new block,
+leaving the existing ones unchanged.
+
+Link: https://android.googlesource.com/kernel/google-modules/soc/gs/+/204078758737776959ecc85c527a00fd2cabb62f/drivers/soc/google/cal-if/zuma/cmucal-node.c
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ .../bindings/clock/google,zumapro-clock.yaml  | 36 ++++++++++++++++++-
+ include/dt-bindings/clock/google,zumapro.h    | 12 +++++++
+ 2 files changed, 47 insertions(+), 1 deletion(-)
+
+diff --git a/Documentation/devicetree/bindings/clock/google,zumapro-clock.yaml b/Documentation/devicetree/bindings/clock/google,zumapro-clock.yaml
+index 3c2ff4cb7..baa959e5e 100644
+--- a/Documentation/devicetree/bindings/clock/google,zumapro-clock.yaml
++++ b/Documentation/devicetree/bindings/clock/google,zumapro-clock.yaml
+@@ -17,6 +17,8 @@ description: |
+   ALT and TCXO inputs are board-level fixed clocks.
+   CMU_G3D supplies the GPU's core, coregroup and stacks clocks from its two
+   PLLs and CMU_TOP's G3D NoC, global and switch clocks.
++  CMU_HSI1 supplies the HSI1 GPIO bank's clock; its ALT input is a
++  board-level fixed clock.
+   The external oscillator supplies the PLL reference and oscillator mux
+   paths.
+   Clock identifiers are defined in dt-bindings/clock/google,zumapro.h.
+@@ -27,6 +29,7 @@ properties:
+       - google,zumapro-cmu-top
+       - google,zumapro-cmu-g3d
+       - google,zumapro-cmu-hsi0
++      - google,zumapro-cmu-hsi1
+       - google,zumapro-cmu-hsi2
+       - google,zumapro-cmu-peric0
+       - google,zumapro-cmu-misc
+@@ -88,7 +91,30 @@ allOf:
+             - const: peri
+             - const: alt
+             - const: tcxo
+-    else:
++  - if:
++      properties:
++        compatible:
++          const: google,zumapro-cmu-hsi1
++    then:
++      properties:
++        clocks:
++          items:
++            - description: External oscillator reference clock
++            - description: HSI1 NoC clock from CMU_TOP
++            - description: HSI1 ALT input clock
++        clock-names:
++          items:
++            - const: oscclk
++            - const: bus
++            - const: alt
++  - if:
++      properties:
++        compatible:
++          not:
++            enum:
++              - google,zumapro-cmu-hsi0
++              - google,zumapro-cmu-hsi1
++    then:
+       properties:
+         power-domains: false
+   - if:
+@@ -193,6 +219,14 @@ examples:
+         clock-names = "oscclk", "bus";
+     };
+ 
++    clock-controller@12000000 {
++        compatible = "google,zumapro-cmu-hsi1";
++        reg = <0x12000000 0x8000>;
++        #clock-cells = <1>;
++        clocks = <&oscclk>, <&cmu_top CLK_DOUT_HSI1_NOC>, <&hsi1_alt>;
++        clock-names = "oscclk", "bus", "alt";
++    };
++
+     clock-controller@1ee00000 {
+         compatible = "google,zumapro-cmu-g3d";
+         reg = <0x1ee00000 0x8000>;
+diff --git a/include/dt-bindings/clock/google,zumapro.h b/include/dt-bindings/clock/google,zumapro.h
+index e80a48eae..ddc7b70a6 100644
+--- a/include/dt-bindings/clock/google,zumapro.h
++++ b/include/dt-bindings/clock/google,zumapro.h
+@@ -47,6 +47,9 @@
+ #define CLK_SHARED0_D3		41
+ #define CLK_SHARED1_D2		42
+ #define CLK_SHARED1_D3		43
++#define CLK_MOUT_HSI1_NOC		44
++#define CLK_GOUT_HSI1_NOC		45
++#define CLK_DOUT_HSI1_NOC		46
+ 
+ /* CMU_HSI0. */
+ #define CLK_FOUT_HSI0_USB		1
+@@ -93,6 +96,15 @@
+ #define CLK_GOUT_G3D_COREGROUP		18
+ #define CLK_GOUT_G3D_STACKS		19
+ 
++/* CMU_HSI1. */
++#define CLK_MOUT_HSI1_NOC_USER		1
++#define CLK_MOUT_HSI1_ALT_USER		2
++#define CLK_MOUT_HSI1_NOC_LOCAL		3
++#define CLK_GOUT_HSI1_ALT		4
++#define CLK_DOUT_HSI1_ALT		5
++#define CLK_GOUT_GPIO_HSI1		6
++#define CLK_GOUT_HSI1_CMU		7
++
+ /* CMU_HSI2. */
+ #define CLK_MOUT_HSI2_NOC_USER	1
+ #define CLK_MOUT_HSI2_UFS_USER	2

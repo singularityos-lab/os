@@ -1,0 +1,120 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Lef <me@lefteros.com>
+Date: Sun, 1 Nov 2026 13:14:36 +0200
+Subject: [PATCH] dt-bindings: clock: google,zuma-clock: add CMU_PERIC1
+
+CMU_PERIC1 supplies USI11, the I2C bus of the Pixel 8 Pro's MAX77759
+fuel gauge, charger, Type-C controller and PMIC. Its NoC and USI input
+clocks come from CMU_TOP.
+
+Register layout and parents are from Google's GPL cal-if/zuma tables
+(android-gs-shusky-6.1-android16).
+
+Signed-off-by: Lef <me@lefteros.com>
+Assisted-by: LLM
+---
+ .../bindings/clock/google,zuma-clock.yaml     | 28 +++++++++++++++++++
+ include/dt-bindings/clock/google,zuma.h       | 18 +++++++++++-
+ 2 files changed, 45 insertions(+), 1 deletion(-)
+
+diff --git a/Documentation/devicetree/bindings/clock/google,zuma-clock.yaml b/Documentation/devicetree/bindings/clock/google,zuma-clock.yaml
+index cd708ab08..11d78ddd4 100644
+--- a/Documentation/devicetree/bindings/clock/google,zuma-clock.yaml
++++ b/Documentation/devicetree/bindings/clock/google,zuma-clock.yaml
+@@ -13,6 +13,8 @@ description: |
+   CMU_TOP supplies the HSI0 NoC and peripheral clocks to CMU_HSI0 from its
+   shared PLLs. CMU_HSI0 supplies USI2, the touchscreen's SPI, from the HSI0
+   peripheral clock; its NoC path also takes the board-level HSI0 ALT clock.
++  CMU_TOP also supplies the PERIC1 NoC and USI input clocks to CMU_PERIC1,
++  which supplies USI11, the I2C bus of the battery, charger and USB-C chips.
+   CMU_APM supplies the APM mailbox, its internal memory and the always-on
+   GPIO banks from the always-on ALV PLL and the oscillator.
+   The external oscillator supplies the PLL reference and the oscillator mux
+@@ -25,6 +27,7 @@ properties:
+       - google,zuma-cmu-top
+       - google,zuma-cmu-apm
+       - google,zuma-cmu-hsi0
++      - google,zuma-cmu-peric1
+ 
+   reg:
+     maxItems: 1
+@@ -80,6 +83,22 @@ allOf:
+             - const: bus
+             - const: peri
+             - const: alt
++  - if:
++      properties:
++        compatible:
++          const: google,zuma-cmu-peric1
++    then:
++      properties:
++        clocks:
++          items:
++            - description: External oscillator reference clock
++            - description: PERIC1 NoC clock from CMU_TOP
++            - description: PERIC1 USI input clock from CMU_TOP
++        clock-names:
++          items:
++            - const: oscclk
++            - const: bus
++            - const: ip
+ 
+ additionalProperties: false
+ 
+@@ -104,4 +123,13 @@ examples:
+         clock-names = "oscclk", "bus", "peri", "alt";
+     };
+ 
++    clock-controller@10c00000 {
++        compatible = "google,zuma-cmu-peric1";
++        reg = <0x10c00000 0x8000>;
++        #clock-cells = <1>;
++        clocks = <&oscclk>, <&cmu_top CLK_DOUT_PERIC1_NOC>,
++                 <&cmu_top CLK_DOUT_PERIC1_IP>;
++        clock-names = "oscclk", "bus", "ip";
++    };
++
+ ...
+diff --git a/include/dt-bindings/clock/google,zuma.h b/include/dt-bindings/clock/google,zuma.h
+index 45aef7817..fbbae0762 100644
+--- a/include/dt-bindings/clock/google,zuma.h
++++ b/include/dt-bindings/clock/google,zuma.h
+@@ -2,7 +2,7 @@
+ #ifndef _DT_BINDINGS_CLOCK_GOOGLE_ZUMA_H
+ #define _DT_BINDINGS_CLOCK_GOOGLE_ZUMA_H
+ 
+-/* CMU_TOP: the HSI0 NoC and peripheral clock paths. */
++/* CMU_TOP: the HSI0 and PERIC1 NoC and peripheral clock paths. */
+ #define CLK_FOUT_SHARED0		1
+ #define CLK_FOUT_SHARED1		2
+ #define CLK_FOUT_SHARED2		3
+@@ -18,6 +18,12 @@
+ #define CLK_MOUT_HSI0_PERI		13
+ #define CLK_GOUT_HSI0_PERI		14
+ #define CLK_DOUT_HSI0_PERI		15
++#define CLK_MOUT_PERIC1_NOC		16
++#define CLK_MOUT_PERIC1_IP		17
++#define CLK_GOUT_PERIC1_NOC		18
++#define CLK_GOUT_PERIC1_IP		19
++#define CLK_DOUT_PERIC1_NOC		20
++#define CLK_DOUT_PERIC1_IP		21
+ 
+ /* CMU_HSI0: USI2, the touchscreen's SPI. */
+ #define CLK_GOUT_HSI0_ALT		1
+@@ -31,6 +37,16 @@
+ #define CLK_GOUT_HSI0_USI2_IP		9
+ #define CLK_GOUT_HSI0_USI2_PCLK		10
+ 
++/* CMU_PERIC1: USI11, the I2C bus of the battery, charger and USB-C chips. */
++#define CLK_MOUT_PERIC1_NOC_USER	1
++#define CLK_GOUT_GPIO_PERIC1		2
++#define CLK_GOUT_PERIC1_SYSREG		3
++#define CLK_MOUT_PERIC1_USI11_USER	4
++#define CLK_DOUT_PERIC1_USI11		5
++#define CLK_GOUT_PERIC1_USI11_IPCLK	6
++#define CLK_GOUT_PERIC1_USI11_PCLK	7
++#define CLK_GOUT_PERIC1_USI11_RSTNSYNC	8
++
+ /* CMU_APM: the APM mailbox, its SRAM and the always-on GPIO banks. */
+ #define CLK_APM_PLL_ALV_DIV2		1
+ #define CLK_APM_PLL_ALV_DIV4		2

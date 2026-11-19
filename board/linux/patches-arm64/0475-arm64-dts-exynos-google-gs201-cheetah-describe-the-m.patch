@@ -1,0 +1,45 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Mon, 12 Oct 2026 19:08:20 -0400
+Subject: [PATCH] arm64: dts: exynos: google: gs201-cheetah: describe the
+ modem's shared memory
+
+Give the modem node the three regions stock's cp_shmem node lists for
+the S5300, in stock's index order: IPC buffers (0xea400000, 8 MiB), the
+MSI page (0xf6200000) and the packet buffers (0xe8000000, 32 MiB). All
+three are reserved no-map already; nothing maps them until the modem
+driver runs.
+
+Assisted-by: LLM
+Signed-off-by: Derek Ross <derekross@gmail.com>
+---
+ arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts | 13 +++++++++++++
+ 1 file changed, 13 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts b/arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts
+index 51f752c9e..c271f2f62 100644
+--- a/arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts
++++ b/arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts
+@@ -894,9 +894,22 @@ wlan_dev_wake: wlan-dev-wake-pins {
+ 	};
+ };
+ 
++/*
++ * Modem: Samsung S5300 on PCIe GEN4A_0 (HSI1), with its control lines from
++ * the stock cpif node and its shared memory from stock's cp_shmem node (IPC,
++ * MSI page, packet buffers). Raw levels, as Google's CPIF drives them. The
++ * link driver (pcie-gs201-cp) drives the lines while this node is enabled;
++ * the modem driver (CPIF) takes them, and the memory, from this node when
++ * an overlay disables it for the link driver (MODEM-PLAN.md M3). Disabled
++ * until the modem-link-test or modem-cpif-test overlay, which also enable
++ * the HSI1 pin controller.
++ */
+ &pcie_0 {
+ 	modem {
+ 		compatible = "samsung,s5300-modem";
++		memory-region = <&{/reserved-memory/cp-rmem@ea400000}>,
++				<&cp_msi_mem>,
++				<&{/reserved-memory/cp-rmem1@e8000000}>;
+ 		ap2cp-pda-active-gpios = <&gph1 1 GPIO_ACTIVE_HIGH>;
+ 		ap2cp-cp-pwr-on-gpios = <&gph1 2 GPIO_ACTIVE_HIGH>;
+ 		ap2cp-nreset-gpios = <&gph1 3 GPIO_ACTIVE_HIGH>;

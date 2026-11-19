@@ -1,0 +1,128 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Thu, 22 Oct 2026 22:00:02 -0700
+Subject: [PATCH] regulator: s2mps11: Add S2MPG14 eUSB2 supply outputs
+
+Describe LDO8M, LDO9M and LDO19M for USB supplies. LDO8M uses a separate
+two-bit enable field, while LDO9M and LDO19M use two upper bits in their
+selector registers. The touchscreen outputs use a single enable bit,
+so their masks cannot be reused for these supplies.
+
+Keep voltage selectors firmware-owned and use masked enable/disable
+operations. Register S2MPG14 outputs only when an available DT node
+describes them, retaining the explicit board-description policy.
+
+An undescribed output has no constraints permitting a status change and
+is skipped by unused-regulator cleanup. A described output without a
+consumer can instead be disabled unless regulator-always-on protects it.
+The first-light board must keep inherited USB rails always-on at their
+decoded voltages until a consumer owns them. Other PMIC variants retain
+their registration policy.
+
+Link: https://android.googlesource.com/kernel/google-modules/soc/gs/+/204078758737776959ecc85c527a00fd2cabb62f/drivers/regulator/s2mpg14-regulator.c
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ drivers/regulator/s2mps11.c | 69 +++++++++++++++++++++++++++++++++++--
+ 1 file changed, 67 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/regulator/s2mps11.c b/drivers/regulator/s2mps11.c
+index 1d1818020..e8ddc34ae 100644
+--- a/drivers/regulator/s2mps11.c
++++ b/drivers/regulator/s2mps11.c
+@@ -2270,8 +2270,8 @@ static const struct regulator_desc s2mpu05_regulators[] = {
+ };
+ 
+ /*
+- * Only LDO4M and LDO25M have been qualified on S2MPG14. Both switch with
+- * bit7; the low six voltage-selector bits remain firmware-owned here.
++ * Voltage selectors remain firmware-owned. Enable fields vary between
++ * outputs; LDO8M shares its enable register with other regulators.
+  */
+ static const struct regulator_ops s2mpg14_ldo_ops = {
+ 	.list_voltage		= regulator_list_voltage_linear,
+@@ -2298,6 +2298,54 @@ static const struct regulator_desc s2mpg14_regulators[] = {
+ 		.enable_reg = S2MPG14_PMIC_L4M_CTRL,
+ 		.enable_mask = BIT(7),
+ 		.enable_time = 128,
++	}, {
++		.name = "ldo8m",
++		.id = 7,
++		.of_match = of_match_ptr("ldo8m"),
++		.regulators_node = of_match_ptr("regulators"),
++		.ops = &s2mpg14_ldo_ops,
++		.type = REGULATOR_VOLTAGE,
++		.owner = THIS_MODULE,
++		.min_uV = 300000,
++		.uV_step = 12500,
++		.n_voltages = 128,
++		.vsel_reg = S2MPG14_PMIC_L8M_CTRL,
++		.vsel_mask = GENMASK(6, 0),
++		.enable_reg = S2MPG14_PMIC_LDO_CTRL1,
++		.enable_mask = GENMASK(1, 0),
++		.enable_time = 128,
++	}, {
++		.name = "ldo9m",
++		.id = 8,
++		.of_match = of_match_ptr("ldo9m"),
++		.regulators_node = of_match_ptr("regulators"),
++		.ops = &s2mpg14_ldo_ops,
++		.type = REGULATOR_VOLTAGE,
++		.owner = THIS_MODULE,
++		.min_uV = 725000,
++		.uV_step = 12500,
++		.n_voltages = 64,
++		.vsel_reg = S2MPG14_PMIC_L9M_CTRL,
++		.vsel_mask = GENMASK(5, 0),
++		.enable_reg = S2MPG14_PMIC_L9M_CTRL,
++		.enable_mask = GENMASK(7, 6),
++		.enable_time = 128,
++	}, {
++		.name = "ldo19m",
++		.id = 18,
++		.of_match = of_match_ptr("ldo19m"),
++		.regulators_node = of_match_ptr("regulators"),
++		.ops = &s2mpg14_ldo_ops,
++		.type = REGULATOR_VOLTAGE,
++		.owner = THIS_MODULE,
++		.min_uV = 1800000,
++		.uV_step = 25000,
++		.n_voltages = 64,
++		.vsel_reg = S2MPG14_PMIC_L19M_CTRL,
++		.vsel_mask = GENMASK(5, 0),
++		.enable_reg = S2MPG14_PMIC_L19M_CTRL,
++		.enable_mask = GENMASK(7, 6),
++		.enable_time = 128,
+ 	}, {
+ 		.name = "ldo25m",
+ 		.id = 24,
+@@ -2350,6 +2398,19 @@ static int s2mps11_handle_ext_control(struct s2mps11_info *s2mps11,
+ 	return ret;
+ }
+ 
++/* Leave firmware-owned outputs alone unless the board describes them. */
++static bool s2mpg14_regulator_is_described(struct device *dev,
++					   const struct regulator_desc *desc)
++{
++	struct device_node *regulators __free(device_node) =
++		of_get_child_by_name(dev->of_node, desc->regulators_node);
++	struct device_node *node __free(device_node) =
++		of_get_child_by_name(regulators, desc->of_match);
++
++	return of_device_is_available(regulators) &&
++	       of_device_is_available(node);
++}
++
+ static int s2mps11_pmic_probe(struct platform_device *pdev)
+ {
+ 	struct sec_pmic_dev *iodev = dev_get_drvdata(pdev->dev.parent);
+@@ -2454,6 +2515,10 @@ static int s2mps11_pmic_probe(struct platform_device *pdev)
+ 		else
+ 			rdesc = &regulators[i];
+ 
++		if (s2mps11->dev_type == S2MPG14 &&
++		    !s2mpg14_regulator_is_described(&pdev->dev, rdesc))
++			continue;
++
+ 		regulator = devm_regulator_register(&pdev->dev,
+ 						    rdesc, &config);
+ 		if (IS_ERR(regulator))

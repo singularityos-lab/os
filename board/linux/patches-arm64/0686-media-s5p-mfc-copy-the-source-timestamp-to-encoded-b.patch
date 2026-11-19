@@ -1,0 +1,60 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?=C3=81ngel=20Ren=C3=A9?=
+ <17342133+angelrenefm@users.noreply.github.com>
+Date: Sat, 14 Nov 2026 19:27:01 +0100
+Subject: [PATCH] media: s5p-mfc: copy the source timestamp to encoded buffers
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The encoder never sets the timestamp of a CAPTURE buffer, so every
+encoded frame comes out with timestamp 0. GStreamer's V4L2 encoders
+match encoded frames to their input by timestamp and attach all of them
+to frame 0.
+
+Give the encoded buffer the timestamp of the source buffer the firmware
+reports as done with it.
+
+Assisted-by: LLM
+Signed-off-by: Ángel René <17342133+angelrenefm@users.noreply.github.com>
+---
+ drivers/media/platform/samsung/s5p-mfc/s5p_mfc_enc.c | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_enc.c b/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_enc.c
+index 8e1aed6f7..8acde744f 100644
+--- a/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_enc.c
++++ b/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_enc.c
+@@ -1236,6 +1236,7 @@ static int enc_post_frame_start(struct s5p_mfc_ctx *ctx)
+ 	int slice_type;
+ 	unsigned int strm_size;
+ 	bool src_ready;
++	u64 timestamp = 0;
+ 
+ 	slice_type = s5p_mfc_hw_call(dev->mfc_ops, get_enc_slice_type, dev);
+ 	strm_size = s5p_mfc_hw_call(dev->mfc_ops, get_enc_strm_size, dev);
+@@ -1263,6 +1264,7 @@ static int enc_post_frame_start(struct s5p_mfc_ctx *ctx)
+ 					== mb_c_1_addr) {
+ 				list_del(&mb_entry->list);
+ 				ctx->src_queue_cnt--;
++				timestamp = mb_entry->b->vb2_buf.timestamp;
+ 				vb2_buffer_done(&mb_entry->b->vb2_buf,
+ 						VB2_BUF_STATE_DONE);
+ 				break;
+@@ -1284,6 +1286,7 @@ static int enc_post_frame_start(struct s5p_mfc_ctx *ctx)
+ 					== mb_c_1_addr) {
+ 				list_del(&mb_entry->list);
+ 				ctx->ref_queue_cnt--;
++				timestamp = mb_entry->b->vb2_buf.timestamp;
+ 				vb2_buffer_done(&mb_entry->b->vb2_buf,
+ 						VB2_BUF_STATE_DONE);
+ 				break;
+@@ -1319,6 +1322,8 @@ static int enc_post_frame_start(struct s5p_mfc_ctx *ctx)
+ 			mb_entry->b->flags |= V4L2_BUF_FLAG_BFRAME;
+ 			break;
+ 		}
++		/* The frame just encoded is the source buffer found above */
++		mb_entry->b->vb2_buf.timestamp = timestamp;
+ 		vb2_set_plane_payload(&mb_entry->b->vb2_buf, 0, strm_size);
+ 		vb2_buffer_done(&mb_entry->b->vb2_buf, VB2_BUF_STATE_DONE);
+ 	}

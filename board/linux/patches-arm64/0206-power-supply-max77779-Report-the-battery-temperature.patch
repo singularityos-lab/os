@@ -1,0 +1,128 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Tue, 27 Oct 2026 03:25:56 -0647
+Subject: [PATCH] power: supply: max77779: Report the battery temperature
+
+The gauge measures the battery thermistor in TEMP (0x1b, signed 1/256
+degC). The first version left it out because Google's driver reports a
+fixed 22 C instead on firmware revision 1 below subrevision 15, and this
+driver had no revision check.
+
+Read the revision from the chip's PMIC function (0x66, registers 0x62 and
+0x63) with plain SMBus reads, so a PMIC driver can still claim that
+address, and report TEMP only on firmware that measures it. When the
+revision can't be read, temperature stays withheld.
+
+On a Pixel 9a (firmware 3.26) TEMP reads 36.2 C on the charger, and the
+charger's step-charging table uses it.
+
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ drivers/power/supply/max77779_battery.c | 41 ++++++++++++++++++++++++-
+ 1 file changed, 40 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/power/supply/max77779_battery.c b/drivers/power/supply/max77779_battery.c
+index 1e113081a..d5a9dfe2a 100644
+--- a/drivers/power/supply/max77779_battery.c
++++ b/drivers/power/supply/max77779_battery.c
+@@ -19,17 +19,24 @@
+ #define MAX77779_DESIGNCAP	0x18
+ #define MAX77779_AVGVCELL		0x19
+ #define MAX77779_VCELL		0x1a
++#define MAX77779_TEMP		0x1b	/* thermistor, signed 1/256 degC */
+ #define MAX77779_DEVNAME		0x21
+ #define MAX77779_FSTAT		0x3d
+ #define MAX77779_POR		BIT(1)
+ #define MAX77779_ABSENT		BIT(3)
+ #define MAX77779_NOT_READY	GENMASK(1, 0)
+ 
++/* The PMIC function of the same chip, a second I2C address */
++#define MAX77779_PMIC_ADDR	0x66
++#define MAX77779_PMIC_FW_REV	0x62
++#define MAX77779_PMIC_FW_SUB_REV	0x63
++
+ struct max77779_battery {
+ 	struct regmap *map;
+ 	struct power_supply *supply;
+ 	struct delayed_work poll;
+ 	u32 rsense;
++	bool temp_valid;
+ };
+ 
+ static bool max77779_readable(struct device *dev, unsigned int reg)
+@@ -45,6 +52,7 @@ static bool max77779_readable(struct device *dev, unsigned int reg)
+ 	case MAX77779_VCELL:
+ 	case MAX77779_DEVNAME:
+ 	case MAX77779_FSTAT:
++	case MAX77779_TEMP:
+ 		return true;
+ 	default:
+ 		return false;
+@@ -100,6 +108,15 @@ static int max77779_get_property(struct power_supply *supply,
+ 	case POWER_SUPPLY_PROP_PRESENT:
+ 		value->intval = !(status & MAX77779_ABSENT);
+ 		return 0;
++	case POWER_SUPPLY_PROP_TEMP:
++		if (!battery->temp_valid)
++			return -ENODATA;
++		ret = regmap_read(battery->map, MAX77779_TEMP, &reg);
++		if (ret)
++			return ret;
++		/* tenths of a degree from the signed 1/256 degC register */
++		value->intval = ((s16)reg * 10) / 256;
++		return 0;
+ 	case POWER_SUPPLY_PROP_STATUS:
+ 		/* The charger and external-power detection are separate devices. */
+ 		value->intval = POWER_SUPPLY_STATUS_UNKNOWN;
+@@ -160,6 +177,7 @@ static int max77779_get_property(struct power_supply *supply,
+ static const enum power_supply_property max77779_properties[] = {
+ 	POWER_SUPPLY_PROP_PRESENT,
+ 	POWER_SUPPLY_PROP_STATUS,
++	POWER_SUPPLY_PROP_TEMP,
+ 	POWER_SUPPLY_PROP_TECHNOLOGY,
+ 	POWER_SUPPLY_PROP_MODEL_NAME,
+ 	POWER_SUPPLY_PROP_CAPACITY,
+@@ -194,6 +212,25 @@ static void max77779_cancel_poll(void *data)
+ 	cancel_delayed_work_sync(&battery->poll);
+ }
+ 
++/*
++ * Google's driver reports a fixed 22 C instead of TEMP on firmware revision
++ * 1 below subrevision 15. The revision is in the chip's PMIC function, at a
++ * second address on the same bus; read it without claiming that address, so
++ * a PMIC driver can still bind there. Unknown firmware: no temperature.
++ */
++static bool max77779_temp_valid(struct i2c_client *client)
++{
++	union i2c_smbus_data rev, sub;
++
++	if (i2c_smbus_xfer(client->adapter, MAX77779_PMIC_ADDR, 0, I2C_SMBUS_READ,
++			   MAX77779_PMIC_FW_REV, I2C_SMBUS_BYTE_DATA, &rev) ||
++	    i2c_smbus_xfer(client->adapter, MAX77779_PMIC_ADDR, 0, I2C_SMBUS_READ,
++			   MAX77779_PMIC_FW_SUB_REV, I2C_SMBUS_BYTE_DATA, &sub))
++		return false;
++	dev_dbg(&client->dev, "Firmware %u.%u\n", rev.byte, sub.byte);
++	return rev.byte > 1 || (rev.byte == 1 && sub.byte >= 15);
++}
++
+ static int max77779_probe(struct i2c_client *client)
+ {
+ 	struct power_supply_config config = {};
+@@ -221,6 +258,7 @@ static int max77779_probe(struct i2c_client *client)
+ 	ret = max77779_ready(battery, &raw);
+ 	if (ret)
+ 		return dev_err_probe(dev, ret, "Firmware model is not ready\n");
++	battery->temp_valid = max77779_temp_valid(client);
+ 	config.drv_data = battery;
+ 	config.fwnode = dev_fwnode(dev);
+ 	battery->supply = devm_power_supply_register(dev, &max77779_supply, &config);
+@@ -231,7 +269,8 @@ static int max77779_probe(struct i2c_client *client)
+ 	if (ret)
+ 		return ret;
+ 	queue_delayed_work(system_freezable_wq, &battery->poll, 30 * HZ);
+-	dev_info(dev, "Read-only fuel gauge; firmware model retained\n");
++	dev_info(dev, "Read-only fuel gauge; firmware model retained; temperature %s\n",
++		 battery->temp_valid ? "reported" : "withheld (firmware unknown or uncalibrated)");
+ 	return 0;
+ }
+ 

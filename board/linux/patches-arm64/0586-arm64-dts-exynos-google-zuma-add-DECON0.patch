@@ -1,0 +1,39 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Brett-Michael Green <brett@bmgvisualtech.com>
+Date: Sat, 31 Oct 2026 14:39:45 -0400
+Subject: [PATCH] arm64: dts: exynos: google: zuma: add DECON0
+
+Describe zuma's DECON0 with its DPP0 read DMA window and its frame start,
+frame done and extra interrupts, from the Pixel 8 Pro's stock node, as
+zumapro.dtsi does. It is disabled: a board enables it with its scanout
+pool and boot framebuffer.
+
+Assisted-by: LLM
+Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
+---
+ arch/arm64/boot/dts/exynos/google/zuma.dtsi | 12 ++++++++++++
+ 1 file changed, 12 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/zuma.dtsi b/arch/arm64/boot/dts/exynos/google/zuma.dtsi
+index 3e7f5ce27..aa1618802 100644
+--- a/arch/arm64/boot/dts/exynos/google/zuma.dtsi
++++ b/arch/arm64/boot/dts/exynos/google/zuma.dtsi
+@@ -879,6 +879,18 @@ firmware-sram@0 {
+ 			};
+ 		};
+ 
++		/* Scans out what the bootloader set up; no panel or clock control. */
++		decon0: display-controller@19470000 {
++			compatible = "google,zuma-decon";
++			reg = <0x19470000 0x2000>, <0x19900000 0x1000>;
++			reg-names = "main", "dma";
++			interrupts = <GIC_SPI 243 IRQ_TYPE_LEVEL_HIGH>,
++				     <GIC_SPI 242 IRQ_TYPE_LEVEL_HIGH>,
++				     <GIC_SPI 241 IRQ_TYPE_LEVEL_HIGH>;
++			interrupt-names = "frame_start", "frame_done", "extra";
++			status = "disabled";
++		};
++
+ 		cmu_top: clock-controller@26040000 {
+ 			compatible = "google,zuma-cmu-top";
+ 			reg = <0x26040000 0x8000>;

@@ -1,0 +1,131 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Wed, 28 Oct 2026 05:11:57 -0647
+Subject: [PATCH] arm64: dts: exynos: google: zumapro-tegu: Add the fuel gauge
+ and USB-C port controller
+
+The Pixel 9a's MAX77779 sits on hsi2c6 (USI6, pins gpp12-0/1, 950 kHz as
+stock): its fuel gauge at 0x36 with the board's 2 mOhm shunt, and its
+USB-C port controller at 0x25, interrupting on gpa8-3 (active low, as
+stock's max77759tcpc@25). The port is described as a sink with a dual
+data role and is not linked to the USB controller's role switch yet:
+the USB controller stays a peripheral, as today.
+
+gpa8 becomes an interrupt controller with its four EINT SPIs (44-47).
+
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ .../boot/dts/exynos/google/zumapro-tegu.dts   | 65 +++++++++++++++++++
+ 1 file changed, 65 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/zumapro-tegu.dts b/arch/arm64/boot/dts/exynos/google/zumapro-tegu.dts
+index 20e72a61a..848dd690c 100644
+--- a/arch/arm64/boot/dts/exynos/google/zumapro-tegu.dts
++++ b/arch/arm64/boot/dts/exynos/google/zumapro-tegu.dts
+@@ -12,6 +12,7 @@
+ #include <dt-bindings/gpio/gpio.h>
+ #include <dt-bindings/input/linux-event-codes.h>
+ #include <dt-bindings/leds/common.h>
++#include <dt-bindings/usb/pd.h>
+ #include "../exynos-pinctrl.h"
+ #include "zumapro.dtsi"
+ #include "zumapro-reserved-memory.dtsi"
+@@ -290,6 +291,16 @@ &gpa6 {
+ 		     <GIC_SPI 35 IRQ_TYPE_LEVEL_HIGH>;
+ };
+ 
++/* The USB-C port controller's interrupt (gpa8-3). */
++&gpa8 {
++	interrupt-controller;
++	#interrupt-cells = <2>;
++	interrupts = <GIC_SPI 44 IRQ_TYPE_LEVEL_HIGH>,
++		     <GIC_SPI 45 IRQ_TYPE_LEVEL_HIGH>,
++		     <GIC_SPI 46 IRQ_TYPE_LEVEL_HIGH>,
++		     <GIC_SPI 47 IRQ_TYPE_LEVEL_HIGH>;
++};
++
+ &gpn0 {
+ 	interrupt-controller;
+ 	#interrupt-cells = <2>;
+@@ -333,6 +344,42 @@ led {
+ 	};
+ };
+ 
++/*
++ * The MAX77779's bus: its fuel gauge and its USB-C port controller, a sink
++ * with no link to the USB controller's role yet.
++ */
++&hsi2c6 {
++	clock-frequency = <950000>;
++	pinctrl-names = "default";
++	pinctrl-0 = <&hsi2c6_bus>;
++	status = "okay";
++
++	usb_tcpc: tcpc@25 {
++		compatible = "maxim,max77779-tcpc";
++		reg = <0x25>;
++		interrupt-parent = <&gpa8>;
++		interrupts = <3 IRQ_TYPE_LEVEL_LOW>;
++		pinctrl-names = "default";
++		pinctrl-0 = <&usb_pd_irq>;
++
++		connector {
++			compatible = "usb-c-connector";
++			label = "USB-C";
++			data-role = "dual";
++			power-role = "sink";
++			self-powered;
++			op-sink-microwatt = <2600000>;
++			sink-pdos = <PDO_FIXED(5000, 3000, PDO_FIXED_USB_COMM)>;
++		};
++	};
++
++	fuel_gauge: fuel-gauge@36 {
++		compatible = "maxim,max77779-fg";
++		reg = <0x36>;
++		shunt-resistor-micro-ohms = <2000>;
++	};
++};
++
+ /* The haptics: a CS40L26 on the 9a's LRA, with Google's limits for it. */
+ &hsi2c9 {
+ 	clock-frequency = <100000>;
+@@ -358,6 +405,13 @@ haptic-driver@43 {
+ 
+ &pinctrl_alive {
+ 	status = "okay";
++
++	usb_pd_irq: usb-pd-irq-pins {
++		samsung,pins = "gpa8-3";
++		samsung,pin-function = <EXYNOS_PIN_FUNC_EINT>;
++		samsung,pin-pud = <EXYNOS_PIN_PULL_UP>;
++		samsung,pin-drv = <0>;
++	};
+ };
+ 
+ &pinctrl_custom_alive {
+@@ -397,6 +451,13 @@ hsi2c4_bus: hsi2c4-bus-pins {
+ 		samsung,pin-drv = <0>;
+ 	};
+ 
++	hsi2c6_bus: hsi2c6-bus-pins {
++		samsung,pins = "gpp12-0", "gpp12-1";
++		samsung,pin-function = <EXYNOS_PIN_FUNC_3>;
++		samsung,pin-pud = <EXYNOS_PIN_PULL_NONE>;
++		samsung,pin-drv = <0>;
++	};
++
+ 	touch_reset_held: touch-reset-held-pins {
+ 		samsung,pins = "gpp1-1";
+ 		samsung,pin-function = <EXYNOS_PIN_FUNC_OUTPUT>;
+@@ -521,6 +582,10 @@ &usi4 {
+ 	status = "okay";
+ };
+ 
++&usi6 {
++	status = "okay";
++};
++
+ &usi9 {
+ 	status = "okay";
+ };

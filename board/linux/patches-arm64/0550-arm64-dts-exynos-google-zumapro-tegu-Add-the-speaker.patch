@@ -1,0 +1,69 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Sat, 31 Oct 2026 11:22:26 -0643
+Subject: [PATCH] arm64: dts: exynos: google: zumapro-tegu: Add the speaker
+ amplifiers
+
+The Pixel 9a's two speakers have a TI TAS2572 each on I2C19 (HSI0's
+USI4): the top one at 0x48 with its reset on gpp6-3, the bottom one at
+0x49 with its reset on gph2-1, as in Google's GPL
+zumapro-tegu-audio-common-tas2572.dtsi. Describe them one node each:
+the tas2781 driver takes one register profile (RCA file) per node, and
+the TAS2572 profiles in linux-firmware cover one device.
+
+Booted on the Pixel 9a:
+7.3.0-rc6-omamobile-tegu-s2mpg15-m1-g991042e2eff3-dirty with these
+nodes applied as an overlay at runtime: both bind to tasdev-codec, and
+with the AoC sound card both speakers play through PipeWire.
+
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ .../boot/dts/exynos/google/zumapro-tegu.dts   | 28 +++++++++++++++++++
+ 1 file changed, 28 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/zumapro-tegu.dts b/arch/arm64/boot/dts/exynos/google/zumapro-tegu.dts
+index 76a95c1b0..b12564d63 100644
+--- a/arch/arm64/boot/dts/exynos/google/zumapro-tegu.dts
++++ b/arch/arm64/boot/dts/exynos/google/zumapro-tegu.dts
+@@ -363,6 +363,30 @@ &gpu {
+ 	status = "okay";
+ };
+ 
++/*
++ * The speaker amplifiers, two TAS2572s: top at 0x48 (reset gpp6-3) and
++ * bottom at 0x49 (reset gph2-1). One node each, since the tas2781 driver
++ * takes one register profile per node and TI's TAS2572 profiles cover one
++ * device. The AoC sound card names them Top and Bottom.
++ */
++&hsi2c19 {
++	status = "okay";
++
++	tas2572_top: amplifier@48 {
++		compatible = "ti,tas2572", "ti,tas2781";
++		reg = <0x48>;
++		reset-gpios = <&gpp6 3 GPIO_ACTIVE_HIGH>;
++		#sound-dai-cells = <0>;
++	};
++
++	tas2572_bottom: amplifier@49 {
++		compatible = "ti,tas2572", "ti,tas2781";
++		reg = <0x49>;
++		reset-gpios = <&gph2 1 GPIO_ACTIVE_HIGH>;
++		#sound-dai-cells = <0>;
++	};
++};
++
+ /* The torch: a TI LM3644 flash driver, both LED outputs on one white LED. */
+ &hsi2c4 {
+ 	clock-frequency = <100000>;
+@@ -687,6 +711,10 @@ &usi4 {
+ 	status = "okay";
+ };
+ 
++&usi4_hsi0 {
++	status = "okay";
++};
++
+ &usi6 {
+ 	status = "okay";
+ };

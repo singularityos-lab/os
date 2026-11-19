@@ -1,0 +1,32 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Mon, 12 Oct 2026 01:48:40 -0400
+Subject: [PATCH] kthread: export kthread_set_per_cpu()
+
+A module that creates its own per-CPU kthreads with kthread_create_on_cpu()
+and parks them across CPU hotplug needs kthread_set_per_cpu(): without
+KTHREAD_IS_PER_CPU, kthread_unpark() does not rebind the thread when its
+CPU comes back, and waking it while the CPU is online but not yet active
+lets the scheduler move it to another CPU for good.
+
+The Trusty driver is such a module: its nop threads must run on their
+own CPU, since Trusty runs its work on the CPU that calls into it.
+
+Assisted-by: LLM
+Signed-off-by: Derek Ross <derekross@gmail.com>
+---
+ kernel/kthread.c | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/kernel/kthread.c b/kernel/kthread.c
+index a3f95c904..35afbff03 100644
+--- a/kernel/kthread.c
++++ b/kernel/kthread.c
+@@ -649,6 +649,7 @@ void kthread_set_per_cpu(struct task_struct *k, int cpu)
+ 	kthread->cpu = cpu;
+ 	set_bit(KTHREAD_IS_PER_CPU, &kthread->flags);
+ }
++EXPORT_SYMBOL_GPL(kthread_set_per_cpu);
+ 
+ bool kthread_is_per_cpu(struct task_struct *p)
+ {

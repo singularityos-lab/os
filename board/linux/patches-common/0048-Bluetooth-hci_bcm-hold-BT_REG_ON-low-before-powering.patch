@@ -1,0 +1,123 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: saiththerobo <the.tom.sharp@gmail.com>
+Date: Tue, 20 Oct 2026 17:00:21 +0100
+Subject: [PATCH] Bluetooth: hci_bcm: hold BT_REG_ON low before powering up a
+ BCM4389
+
+On the Pixel 6 Pro (BCM4389C1 over UART) about one boot in five the chip
+answered neither the baud rate change nor HCI_Reset until a PMIC reset.
+Holding the shutdown line (BT_REG_ON) low for 30 ms before raising it,
+as Google's driver for the BCM4389 does, fixed it: 15 boots out of 15
+came up.
+
+The line is already low by then: bcm_serdev_probe() powers the chip
+down, and so does every close. What the wait really adds is 30 ms
+between the UART being opened (and its flow control set up) and
+BT_REG_ON rising. Why the chip needs that is not known; it is enough
+here and matches Google's sequence.
+
+Add it as match data, power_on_delay_ms, and set it for brcm,bcm4389-bt
+only, so other hci_bcm users see no change. The line is driven low once
+more before the wait, so the wait starts from a known level.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Signed-off-by: saiththerobo <the.tom.sharp@gmail.com>
+---
+ drivers/bluetooth/hci_bcm.c | 28 +++++++++++++++++++++++++++-
+ 1 file changed, 27 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/bluetooth/hci_bcm.c b/drivers/bluetooth/hci_bcm.c
+index 53825ca7b..f7f2228c4 100644
+--- a/drivers/bluetooth/hci_bcm.c
++++ b/drivers/bluetooth/hci_bcm.c
+@@ -19,6 +19,7 @@
+ #include <linux/platform_device.h>
+ #include <linux/regulator/consumer.h>
+ #include <linux/clk.h>
++#include <linux/delay.h>
+ #include <linux/gpio/consumer.h>
+ #include <linux/gpio/machine.h>
+ #include <linux/tty.h>
+@@ -56,6 +57,8 @@
+  * @no_uart_clock_set: UART clock set command for >3Mbps mode is unavailable
+  * @max_autobaud_speed: max baudrate supported by device in autobaud mode
+  * @max_speed: max baudrate supported
++ * @power_on_delay_ms: time to hold the shutdown line low, UART open, before
++ *	raising it
+  */
+ struct bcm_device_data {
+ 	bool	no_early_set_baudrate;
+@@ -63,6 +66,7 @@ struct bcm_device_data {
+ 	bool	no_uart_clock_set;
+ 	u32	max_autobaud_speed;
+ 	u32	max_speed;
++	u32	power_on_delay_ms;
+ };
+ 
+ /**
+@@ -108,6 +112,8 @@ struct bcm_device_data {
+  * @pcm_int_params: keep the initial PCM configuration
+  * @use_autobaud_mode: start Bluetooth device in autobaud mode
+  * @max_autobaud_speed: max baudrate supported by device in autobaud mode
++ * @power_on_delay_ms: time to hold the shutdown line low, UART open, before
++ *	raising it
+  */
+ struct bcm_device {
+ 	/* Must be the first member, hci_serdev.c expects this. */
+@@ -149,6 +155,7 @@ struct bcm_device {
+ 	bool			use_autobaud_mode;
+ 	u8			pcm_int_params[5];
+ 	u32			max_autobaud_speed;
++	u32			power_on_delay_ms;
+ };
+ 
+ /* generic bcm uart resources */
+@@ -294,6 +301,20 @@ static int bcm_gpio_set_power(struct bcm_device *dev, bool powered)
+ 			goto err_lpo_clk_disable;
+ 	}
+ 
++	/*
++	 * Some chips (the BCM4389) need the shutdown line held low for a
++	 * while, with the UART already open, before it is raised, as Google's
++	 * driver does. The line is low from probe or the last power-off; drive
++	 * it low anyway so the wait starts from a known level.
++	 */
++	if (powered && !dev->res_enabled && dev->shutdown &&
++	    dev->power_on_delay_ms) {
++		err = dev->set_shutdown(dev, false);
++		if (err)
++			goto err_txco_clk_disable;
++		msleep(dev->power_on_delay_ms);
++	}
++
+ 	err = dev->set_shutdown(dev, powered);
+ 	if (err)
+ 		goto err_txco_clk_disable;
+@@ -1567,6 +1588,7 @@ static int bcm_serdev_probe(struct serdev_device *serdev)
+ 		bcmdev->no_early_set_baudrate = data->no_early_set_baudrate;
+ 		bcmdev->drive_rts_on_open = data->drive_rts_on_open;
+ 		bcmdev->no_uart_clock_set = data->no_uart_clock_set;
++		bcmdev->power_on_delay_ms = data->power_on_delay_ms;
+ 		if (data->max_speed && bcmdev->oper_speed > data->max_speed)
+ 			bcmdev->oper_speed = data->max_speed;
+ 	}
+@@ -1586,6 +1608,10 @@ static struct bcm_device_data bcm4354_device_data = {
+ 	.no_early_set_baudrate = true,
+ };
+ 
++static struct bcm_device_data bcm4389_device_data = {
++	.power_on_delay_ms = 30,
++};
++
+ static struct bcm_device_data bcm43438_device_data = {
+ 	.drive_rts_on_open = true,
+ };
+@@ -1608,7 +1634,7 @@ static const struct of_device_id bcm_bluetooth_of_match[] = {
+ 	{ .compatible = "brcm,bcm43430a1-bt" },
+ 	{ .compatible = "brcm,bcm43438-bt", .data = &bcm43438_device_data },
+ 	{ .compatible = "brcm,bcm4349-bt", .data = &bcm43438_device_data },
+-	{ .compatible = "brcm,bcm4389-bt" },
++	{ .compatible = "brcm,bcm4389-bt", .data = &bcm4389_device_data },
+ 	{ .compatible = "brcm,bcm43540-bt", .data = &bcm4354_device_data },
+ 	{ .compatible = "brcm,bcm4335a0" },
+ 	{ .compatible = "cypress,cyw4373a0-bt", .data = &cyw4373a0_device_data },

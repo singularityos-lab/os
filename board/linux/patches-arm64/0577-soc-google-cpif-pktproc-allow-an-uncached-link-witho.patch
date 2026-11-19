@@ -1,0 +1,101 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Mon, 2 Nov 2026 16:16:28 -0647
+Subject: [PATCH] soc: google: cpif: pktproc: allow an uncached link without IO
+ coherency
+
+The packet processor refused any device tree whose
+pktproc_dl_use_hw_iocc differed from CONFIG_LINK_DEVICE_PCIE_IOCC, and
+that option is always on. zumapro's modem link turns IO coherency on
+only when the device tree gives it samsung,sysreg, which the Pixel 9a's
+doesn't yet, so its cpif node says use_hw_iocc 0 with every region
+uncached, as the 9a's bring-up stack runs it (CP ONLINE and thousands of
+link cycles, with cpif built without LINK_DEVICE_PCIE_IOCC). The
+in-tree cpif refused that node:
+
+  cpif: pktproc_get_info: iocc:0 max_packet_size:1584 baaw:0
+  cpif: pktproc_get_info: PCIe IOCC config and dt are inconsistent
+
+What the option decides is whether the software cache maintenance for a
+cached downlink buffer region is built. A link without IO coherency
+needs it only when that region is cached, so refuse just that case, and
+keep refusing use_hw_iocc 1 without the option. The uplink has no such
+maintenance in either build, so refuse its cached regions without IO
+coherency whatever the option, not only when it is off.
+
+gs201's device tree (use_hw_iocc 1, regions cached) passes as before.
+
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ drivers/soc/google/cpif/Kconfig           |  5 ++++-
+ drivers/soc/google/cpif/link_rx_pktproc.c | 16 ++++++++++++++--
+ drivers/soc/google/cpif/link_tx_pktproc.c |  3 +--
+ 3 files changed, 19 insertions(+), 5 deletions(-)
+
+diff --git a/drivers/soc/google/cpif/Kconfig b/drivers/soc/google/cpif/Kconfig
+index 6c618fa9c..c0209f8c0 100644
+--- a/drivers/soc/google/cpif/Kconfig
++++ b/drivers/soc/google/cpif/Kconfig
+@@ -57,7 +57,10 @@ config LINK_DEVICE_PCIE_IOCC
+ 	  The gs201 modem link driver turns IO coherency on for the link at
+ 	  every link-up, before the modem may DMA, so the packet processor
+ 	  treats its cacheable regions as coherent, as stock does
+-	  (pantah_defconfig: CONFIG_LINK_DEVICE_PCIE_IOCC=y).
++	  (pantah_defconfig: CONFIG_LINK_DEVICE_PCIE_IOCC=y). On zumapro it
++	  does so only when the device tree gives it samsung,sysreg; a link
++	  without it sets pktproc_dl_use_hw_iocc and pktproc_ul_use_hw_iocc
++	  to 0 and keeps the packet processor's regions uncached.
+ 
+ config CP_PKTPROC
+ 	bool "Packet processor, downlink (bring-up)"
+diff --git a/drivers/soc/google/cpif/link_rx_pktproc.c b/drivers/soc/google/cpif/link_rx_pktproc.c
+index 9581e13bb..ebaf595e1 100644
+--- a/drivers/soc/google/cpif/link_rx_pktproc.c
++++ b/drivers/soc/google/cpif/link_rx_pktproc.c
+@@ -1816,11 +1816,23 @@ static int pktproc_get_info(struct pktproc_adaptor *ppa, struct device_node *np)
+ 	}
+ #endif
+ 
+-	/* Check if config and dt are consistent */
+-	if (ppa->use_hw_iocc != IS_ENABLED(CONFIG_LINK_DEVICE_PCIE_IOCC)) {
++	/*
++	 * Check if config and dt are consistent. A link without IO coherency
++	 * (zumapro's without samsung,sysreg) says use_hw_iocc 0, and is fine
++	 * as long as its buffers are uncached: the cache maintenance that
++	 * cached buffers would need is built only without
++	 * LINK_DEVICE_PCIE_IOCC. pktproc_create() refuses cached info and
++	 * descriptor regions without IO coherency either way.
++	 */
++	if (ppa->use_hw_iocc && !IS_ENABLED(CONFIG_LINK_DEVICE_PCIE_IOCC)) {
+ 		mif_err("PCIe IOCC config and dt are inconsistent\n");
+ 		return -EINVAL;
+ 	}
++	if (!ppa->use_hw_iocc && ppa->buff_rgn_cached &&
++	    IS_ENABLED(CONFIG_LINK_DEVICE_PCIE_IOCC)) {
++		mif_err("cached buffers without IOCC need LINK_DEVICE_PCIE_IOCC off\n");
++		return -EINVAL;
++	}
+ 
+ 	pktproc_adjust_size(ppa);
+ 
+diff --git a/drivers/soc/google/cpif/link_tx_pktproc.c b/drivers/soc/google/cpif/link_tx_pktproc.c
+index 5cef06197..a04f982ed 100644
+--- a/drivers/soc/google/cpif/link_tx_pktproc.c
++++ b/drivers/soc/google/cpif/link_tx_pktproc.c
+@@ -422,7 +422,7 @@ int pktproc_create_ul(struct platform_device *pdev, struct mem_link_device *mld,
+ 		return ret;
+ 	}
+ 
+-#if !IS_ENABLED(CONFIG_LINK_DEVICE_PCIE_IOCC)
++	/* The uplink has no cache maintenance, whatever the config */
+ 	if (!ppa_ul->use_hw_iocc && ppa_ul->info_rgn_cached) {
+ 		mif_err("cannot support sw iocc based caching on info region\n");
+ 		return -EINVAL;
+@@ -437,7 +437,6 @@ int pktproc_create_ul(struct platform_device *pdev, struct mem_link_device *mld,
+ 		mif_err("cannot support sw iocc based caching on buff region\n");
+ 		return -EINVAL;
+ 	}
+-#endif
+ 
+ 	/* Get base addr */
+ 	mif_info("memaddr:0x%lx memsize:0x%08x\n", memaddr, memsize);

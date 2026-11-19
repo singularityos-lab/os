@@ -1,0 +1,542 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Mon, 12 Oct 2026 12:56:52 -0400
+Subject: [PATCH] soc: google: add the gs201 AoC System MMU windows
+
+The AoC firmware addresses its carve-out and a few AP peripherals at
+fixed AoC addresses, and its image header lists the map: six windows,
+all multiples of 1 MiB (for example the 48 MiB carve-out at 0x94000000
+seen at 0x98000000). Install exactly those as first-level sections and
+nothing else, instead of a full IOMMU driver.
+
+The block is in BLK_AOC, whose registers abort while it is off, so the
+driver touches no register on its own: the AoC driver calls
+aoc_sysmmu_dump() and aoc_sysmmu_enable() once BLK_AOC is on. The enable
+sequence, QoS and TLB setup follow Google's samsung-iommu driver and the
+stock device tree. VID 0 is translated by default, with stall on fault;
+faults are logged with their VID and AxID. The empty=1 parameter installs
+an empty table as a negative test.
+
+Assisted-by: LLM
+Signed-off-by: Derek Ross <derekross@gmail.com>
+---
+ drivers/soc/google/Kconfig                  |   7 +
+ drivers/soc/google/Makefile                 |   1 +
+ drivers/soc/google/gs201-aoc-sysmmu.c       | 448 ++++++++++++++++++++
+ include/linux/soc/google/gs201-aoc-sysmmu.h |  26 ++
+ 4 files changed, 482 insertions(+)
+ create mode 100644 drivers/soc/google/gs201-aoc-sysmmu.c
+ create mode 100644 include/linux/soc/google/gs201-aoc-sysmmu.h
+
+diff --git a/drivers/soc/google/Kconfig b/drivers/soc/google/Kconfig
+index 9373dfbbb..138548d7a 100644
+--- a/drivers/soc/google/Kconfig
++++ b/drivers/soc/google/Kconfig
+@@ -26,6 +26,13 @@ config GOOGLE_GSA_TRUSTY
+ 	  only the mailbox command can be tried (aoc_cmd_mbox=1), which no
+ 	  Google kernel uses.
+ 
++config GS201_AOC_SYSMMU
++	tristate "gs201 AoC System MMU static windows"
++	help
++	  Programs the AoC's System MMU with the fixed windows its firmware
++	  expects (from the firmware image header), as 1 MiB sections. Used by
++	  the AoC driver.
++
+ endmenu
+ 
+ endif
+diff --git a/drivers/soc/google/Makefile b/drivers/soc/google/Makefile
+index deb0eada3..2ffbb3a12 100644
+--- a/drivers/soc/google/Makefile
++++ b/drivers/soc/google/Makefile
+@@ -1,2 +1,3 @@
+ # SPDX-License-Identifier: GPL-2.0-only
+ obj-$(CONFIG_GOOGLE_GSA)	+= gsa.o
++obj-$(CONFIG_GS201_AOC_SYSMMU)	+= gs201-aoc-sysmmu.o
+diff --git a/drivers/soc/google/gs201-aoc-sysmmu.c b/drivers/soc/google/gs201-aoc-sysmmu.c
+new file mode 100644
+index 000000000..2b9f8472f
+--- /dev/null
++++ b/drivers/soc/google/gs201-aoc-sysmmu.c
+@@ -0,0 +1,448 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * Static translation table for the gs201 AoC System MMU
++ *
++ * The AoC (audio and sensor DSP) reaches DRAM and a few AP peripherals
++ * through its own Samsung System MMU (v8, "ASOC", at 0x1a090000; only the
++ * AoC uses it). The AoC firmware addresses them at fixed AoC addresses and
++ * carries the map in its image header, as 1 MiB-granular windows, e.g. its
++ * 48 MiB carve-out at 0x94000000 seen at 0x98000000. This driver installs
++ * those windows as first-level sections and nothing else; any other access
++ * faults and is logged with its VID.
++ *
++ * The block sits in BLK_AOC, whose registers abort while it is powered
++ * down, so nothing here touches a register on its own: the AoC driver calls
++ * aoc_sysmmu_dump()/aoc_sysmmu_enable() once BLK_AOC is on.
++ *
++ * Register map, table format and enable sequence follow Google's driver,
++ * google-modules/soc/gs/drivers/iommu/samsung-iommu.[ch] (sysmmu_reg_set,
++ * __sysmmu_enable(), __sysmmu_enable_vid(), the v8 fault handler).
++ *
++ * The AoC's traffic arrives on VID 0. "vids" can translate others too (only
++ * the AoC is behind this System MMU, so that is harmless); fault lines name
++ * the VID. Faults stall the access until the interrupt handler clears them,
++ * as Google's driver configures this block. QoS and the TLB setup are the
++ * stock device tree's (sysmmu_asoc: qos 15, default_tlb, tlb_property).
++ *
++ * Copyright (C) 2020 Samsung Electronics Co., Ltd.
++ */
++
++#include <linux/bits.h>
++#include <linux/dma-mapping.h>
++#include <linux/interrupt.h>
++#include <linux/io.h>
++#include <linux/module.h>
++#include <linux/of.h>
++#include <linux/of_platform.h>
++#include <linux/platform_device.h>
++#include <linux/sizes.h>
++#include <linux/soc/google/gs201-aoc-sysmmu.h>
++
++#define REG_MMU_CTRL			0x0000
++#define REG_MMU_CFG			0x0004
++#define REG_MMU_STATUS			0x0008
++#define REG_MMU_VERSION			0x0034
++#define REG_INT_STATUS			0x0060
++#define REG_INT_CLEAR			0x0064
++#define REG_MMU_CAPA0			0x0870
++#define REG_MMU_CAPA1			0x0874
++
++/* Without VM support (sysmmu_reg_set[REG_IDX_DEFAULT]) */
++#define REG_FLPT_BASE			0x000c
++#define REG_ALL_INV			0x0010
++#define REG_FAULT_VA			0x0070
++#define REG_FAULT_INFO			0x0078
++
++/* With VM support (sysmmu_reg_set[REG_IDX_VM]) */
++#define REG_CTRL_VM(n)			(0x8000 + (n) * 0x1000)
++#define REG_CFG_VM(n)			(0x8004 + (n) * 0x1000)
++#define REG_FLPT_BASE_VM(n)		(0x800c + (n) * 0x1000)
++#define REG_ALL_INV_VM(n)		(0x8010 + (n) * 0x1000)
++#define REG_FAULT_VA_VM(n)		(0x1000 + (n) * 0x10)
++#define REG_FAULT_INFO_VM(n)		(0x1004 + (n) * 0x10)
++
++#define CTRL_MMU_ENABLE			BIT(0)
++#define CTRL_MMU_BLOCK			BIT(1)
++#define CTRL_FAULT_STALL_MODE		BIT(3)
++#define CTRL_VID_ENABLE			BIT(0)
++#define CAPA1_VCR_ENABLED		BIT(14)
++
++#define MMU_RAW_VER(reg)		(((reg) >> 17) & 0x7fff)
++#define MMU_MAJ_VER(val)		((val) >> 11)
++#define MMU_MIN_VER(val)		(((val) >> 4) & 0x7f)
++
++#define NUM_LV1ENTRIES			SZ_64K
++#define LV1_TABLE_SIZE			(NUM_LV1ENTRIES * sizeof(u32))
++#define SECT_ORDER			20
++#define SECT_SIZE			BIT(SECT_ORDER)
++#define PG_ENT_SHIFT			4
++#define LV1_SECT			2
++#define PT_BASE_SHIFT			12
++#define MAX_VIDS			8
++
++#define CFG_QOS_OVRRIDE			BIT(11)
++#define CFG_QOS(n)			(((n) & 0xfU) << 7)
++#define CAPA1_NUM_TLB(reg)		(((reg) >> 4) & 0xff)
++#define REG_TLB_CFG(n)			(0x2000 + (n) * 0x20 + 0x4)
++#define REG_TLB_MATCH_CFG(n)		(0x2000 + (n) * 0x20 + 0x8)
++#define REG_TLB_MATCH_ID(n)		(0x2000 + (n) * 0x20 + 0x14)
++#define TLB_CFG_MASK(reg)		((reg) & (GENMASK(7, 5) | GENMASK(3, 2) | GENMASK(1, 1)))
++#define TLB_MATCH_CFG_MASK(reg)		((reg) & (GENMASK(31, 16) | GENMASK(9, 8)))
++
++/* Stock sysmmu_asoc: qos, sysmmu,default_tlb, sysmmu,tlb_property */
++#define ASOC_QOS			15
++#define ASOC_DEFAULT_TLB		0x0a
++static const struct {
++	u32 index, cfg, match_cfg, match_id;
++} asoc_tlb[] = {
++	{ 1, 0x0a, 0x300, 0x300010 },
++	{ 2, 0x0a, 0x300, 0x3c0008 },
++	{ 3, 0x0a, 0x300, 0x3c000c },
++	{ 4, 0x0a, 0x300, 0x3c0000 },
++};
++
++static unsigned int vids = BIT(0);
++module_param(vids, uint, 0444);
++MODULE_PARM_DESC(vids, "Bitmask of VIDs to translate (default: VID 0, which the AoC uses)");
++
++static bool empty;
++module_param(empty, bool, 0444);
++MODULE_PARM_DESC(empty, "Negative test: install an empty table, so every AoC access faults");
++
++struct aoc_sysmmu {
++	struct device *dev;
++	void __iomem *base;
++	int irq;
++	u32 *table;
++	dma_addr_t table_dma;
++	u32 vid_mask;
++	bool vm;
++	bool irq_on;
++	bool enabled;
++	u32 saved_ctrl;
++	u32 saved_ctrl_vm[MAX_VIDS];
++};
++
++void aoc_sysmmu_dump(struct aoc_sysmmu *mmu, const char *when)
++{
++	u32 ver = readl(mmu->base + REG_MMU_VERSION);
++	u32 capa1 = readl(mmu->base + REG_MMU_CAPA1);
++	unsigned int v;
++
++	mmu->vm = capa1 & CAPA1_VCR_ENABLED;
++	dev_info(mmu->dev,
++		 "%s: version %#x (v%u.%u) ctrl %#x cfg %#x status %#x int %#x capa0 %#x capa1 %#x (%s)\n",
++		 when, ver, MMU_MAJ_VER(MMU_RAW_VER(ver)),
++		 MMU_MIN_VER(MMU_RAW_VER(ver)), readl(mmu->base + REG_MMU_CTRL),
++		 readl(mmu->base + REG_MMU_CFG), readl(mmu->base + REG_MMU_STATUS),
++		 readl(mmu->base + REG_INT_STATUS),
++		 readl(mmu->base + REG_MMU_CAPA0), capa1,
++		 mmu->vm ? "8 VIDs" : "no VM");
++
++	if (!mmu->vm) {
++		dev_info(mmu->dev, "%s: table at %#llx\n", when,
++			 (u64)readl(mmu->base + REG_FLPT_BASE) << PT_BASE_SHIFT);
++		return;
++	}
++	for (v = 0; v < MAX_VIDS; v++)
++		dev_info(mmu->dev, "%s: VID %u ctrl %#x cfg %#x table at %#llx\n",
++			 when, v, readl(mmu->base + REG_CTRL_VM(v)),
++			 readl(mmu->base + REG_CFG_VM(v)),
++			 (u64)readl(mmu->base + REG_FLPT_BASE_VM(v)) << PT_BASE_SHIFT);
++}
++EXPORT_SYMBOL_GPL(aoc_sysmmu_dump);
++
++static irqreturn_t aoc_sysmmu_irq(int irq, void *data)
++{
++	struct aoc_sysmmu *mmu = data;
++	u32 status, info;
++	unsigned int v;
++	u64 addr;
++
++	status = readl(mmu->base + REG_INT_STATUS);
++	if (!status)
++		return IRQ_NONE;
++
++	/* Four interrupt bits per VID: PTW access, page fault, multi-hit, access */
++	v = __ffs(status) / 4;
++	if (mmu->vm) {
++		addr = readl(mmu->base + REG_FAULT_VA_VM(v));
++		info = readl(mmu->base + REG_FAULT_INFO_VM(v));
++	} else {
++		addr = readl(mmu->base + REG_FAULT_VA);
++		info = readl(mmu->base + REG_FAULT_INFO);
++	}
++	addr |= (u64)((info >> 28) & 0xf) << 32;
++
++	dev_err_ratelimited(mmu->dev,
++			    "blocked %s at %#llx (int %#x, VID %u, type %u, AxID %#x)\n",
++			    (info & BIT(20)) ? "WRITE" : "READ", addr, status,
++			    v, __ffs(status) % 4, info & 0xffff);
++
++	writel(status, mmu->base + REG_INT_CLEAR);
++	return IRQ_HANDLED;
++}
++
++static int aoc_sysmmu_fill(struct aoc_sysmmu *mmu,
++			   const struct aoc_sysmmu_window *win, unsigned int n)
++{
++	unsigned int i;
++	u32 off;
++
++	memset(mmu->table, 0, LV1_TABLE_SIZE);
++	if (empty) {
++		dev_info(mmu->dev, "empty table: every AoC access will fault\n");
++		return 0;
++	}
++
++	for (i = 0; i < n; i++) {
++		const struct aoc_sysmmu_window *w = &win[i];
++
++		if (!IS_ALIGNED(w->iova, SECT_SIZE) ||
++		    !IS_ALIGNED(w->pa, SECT_SIZE) ||
++		    !IS_ALIGNED(w->size, SECT_SIZE) || !w->size ||
++		    w->pa + w->size > BIT_ULL(36) ||
++		    (u64)w->iova + w->size > BIT_ULL(32)) {
++			dev_err(mmu->dev, "window %u (%#x -> %pa, %#x) is not 1 MiB sections\n",
++				i, w->iova, &w->pa, w->size);
++			return -EINVAL;
++		}
++		for (off = 0; off < w->size; off += SECT_SIZE) {
++			u32 *ent = &mmu->table[(w->iova + off) >> SECT_ORDER];
++
++			if (*ent) {
++				dev_err(mmu->dev, "window %u overlaps at %#x\n",
++					i, w->iova + off);
++				return -EINVAL;
++			}
++			*ent = (u32)((w->pa + off) >> PG_ENT_SHIFT) | LV1_SECT;
++		}
++		dev_info(mmu->dev, "window %u: %#010x -> %pa, %u MiB\n",
++			 i, w->iova, &w->pa, w->size >> SECT_ORDER);
++	}
++	return 0;
++}
++
++/**
++ * aoc_sysmmu_enable() - install @n windows and turn translation on
++ *
++ * BLK_AOC must be on. Returns 0 or a negative error (nothing enabled).
++ */
++int aoc_sysmmu_enable(struct aoc_sysmmu *mmu,
++		      const struct aoc_sysmmu_window *win, unsigned int n)
++{
++	unsigned int v, ntlb;
++	u32 cfg;
++	int ret;
++
++	if (mmu->enabled)
++		return -EBUSY;
++
++	aoc_sysmmu_dump(mmu, "before");
++	mmu->vid_mask = mmu->vm ? (vids & 0xff) : BIT(0);
++	if (!mmu->vid_mask)
++		return -EINVAL;
++
++	if (!mmu->table) {
++		/* 256 KiB, naturally aligned (Google: "FLPD must be aligned in 256KB") */
++		mmu->table = (u32 *)__get_free_pages(GFP_KERNEL,
++						     get_order(LV1_TABLE_SIZE));
++		if (!mmu->table)
++			return -ENOMEM;
++	}
++	ret = aoc_sysmmu_fill(mmu, win, n);
++	if (ret)
++		return ret;
++
++	/* The table walker is not coherent: map it for the device (cleans) */
++	mmu->table_dma = dma_map_single(mmu->dev, mmu->table, LV1_TABLE_SIZE,
++					DMA_TO_DEVICE);
++	if (dma_mapping_error(mmu->dev, mmu->table_dma))
++		return -ENOMEM;
++	if (mmu->table_dma != virt_to_phys(mmu->table)) {
++		dev_err(mmu->dev, "table bounced to %pad\n", &mmu->table_dma);
++		dma_unmap_single(mmu->dev, mmu->table_dma, LV1_TABLE_SIZE,
++				 DMA_TO_DEVICE);
++		return -EINVAL;
++	}
++
++	if (!mmu->irq_on) {
++		ret = request_irq(mmu->irq, aoc_sysmmu_irq, 0, dev_name(mmu->dev),
++				  mmu);
++		if (ret) {
++			dma_unmap_single(mmu->dev, mmu->table_dma, LV1_TABLE_SIZE,
++					 DMA_TO_DEVICE);
++			return ret;
++		}
++		mmu->irq_on = true;
++	}
++
++	/*
++	 * As __sysmmu_enable(): block, QoS and TLBs (__sysmmu_init_config()),
++	 * then per VID table base, flush, enable with stall on fault, then
++	 * enable.
++	 */
++	mmu->saved_ctrl = readl(mmu->base + REG_MMU_CTRL);
++	writel(mmu->saved_ctrl | CTRL_MMU_BLOCK, mmu->base + REG_MMU_CTRL);
++	cfg = readl(mmu->base + REG_MMU_CFG);
++	cfg &= ~CFG_QOS(0xf);
++	cfg |= CFG_QOS_OVRRIDE | CFG_QOS(ASOC_QOS);
++	ntlb = CAPA1_NUM_TLB(readl(mmu->base + REG_MMU_CAPA1));
++	writel(TLB_CFG_MASK(ASOC_DEFAULT_TLB), mmu->base + REG_TLB_CFG(0));
++	for (v = 0; v < ARRAY_SIZE(asoc_tlb); v++) {
++		u32 i = asoc_tlb[v].index;
++
++		if (i >= ntlb)
++			continue;
++		writel(TLB_CFG_MASK(asoc_tlb[v].cfg), mmu->base + REG_TLB_CFG(i));
++		writel(TLB_MATCH_CFG_MASK(asoc_tlb[v].match_cfg),
++		       mmu->base + REG_TLB_MATCH_CFG(i));
++		writel(asoc_tlb[v].match_id, mmu->base + REG_TLB_MATCH_ID(i));
++	}
++	writel(cfg, mmu->base + REG_MMU_CFG);
++
++	if (mmu->vm) {
++		for (v = 0; v < MAX_VIDS; v++) {
++			u32 ctrl;
++
++			if (!(BIT(v) & mmu->vid_mask))
++				continue;
++			writel(mmu->table_dma >> PT_BASE_SHIFT,
++			       mmu->base + REG_FLPT_BASE_VM(v));
++			writel(1, mmu->base + REG_ALL_INV_VM(v));
++			ctrl = readl(mmu->base + REG_CTRL_VM(v));
++			mmu->saved_ctrl_vm[v] = ctrl;
++			writel(ctrl | CTRL_FAULT_STALL_MODE | CTRL_VID_ENABLE,
++			       mmu->base + REG_CTRL_VM(v));
++		}
++	} else {
++		writel(mmu->table_dma >> PT_BASE_SHIFT, mmu->base + REG_FLPT_BASE);
++		writel(1, mmu->base + REG_ALL_INV);
++	}
++	writel(mmu->saved_ctrl | CTRL_MMU_ENABLE, mmu->base + REG_MMU_CTRL);
++	mmu->enabled = true;
++
++	aoc_sysmmu_dump(mmu, "enabled");
++	dev_info(mmu->dev, "translating VIDs %#x, table at %pad\n",
++		 mmu->vid_mask, &mmu->table_dma);
++	return 0;
++}
++EXPORT_SYMBOL_GPL(aoc_sysmmu_enable);
++
++/* Restore the registers as found. BLK_AOC must be on. */
++void aoc_sysmmu_disable(struct aoc_sysmmu *mmu)
++{
++	unsigned int v;
++
++	if (!mmu->enabled)
++		return;
++	writel(mmu->saved_ctrl | CTRL_MMU_BLOCK, mmu->base + REG_MMU_CTRL);
++	if (mmu->vm)
++		for (v = 0; v < MAX_VIDS; v++)
++			if (BIT(v) & mmu->vid_mask)
++				writel(mmu->saved_ctrl_vm[v],
++				       mmu->base + REG_CTRL_VM(v));
++	writel(mmu->saved_ctrl, mmu->base + REG_MMU_CTRL);
++	if (mmu->irq_on) {
++		free_irq(mmu->irq, mmu);
++		mmu->irq_on = false;
++	}
++	dma_unmap_single(mmu->dev, mmu->table_dma, LV1_TABLE_SIZE,
++			 DMA_TO_DEVICE);
++	mmu->enabled = false;
++}
++EXPORT_SYMBOL_GPL(aoc_sysmmu_disable);
++
++/**
++ * aoc_sysmmu_get() - the System MMU a client's "google,sysmmu" names
++ *
++ * Return: the System MMU (device reference held), or an ERR_PTR();
++ * -EPROBE_DEFER until it has probed.
++ */
++struct aoc_sysmmu *aoc_sysmmu_get(struct device *client)
++{
++	struct platform_device *pdev;
++	struct device_node *np;
++	struct aoc_sysmmu *mmu;
++
++	np = of_parse_phandle(client->of_node, "google,sysmmu", 0);
++	if (!np)
++		return ERR_PTR(-ENODEV);
++	pdev = of_find_device_by_node(np);
++	of_node_put(np);
++	if (!pdev)
++		return ERR_PTR(-EPROBE_DEFER);
++	mmu = platform_get_drvdata(pdev);
++	if (!mmu) {
++		put_device(&pdev->dev);
++		return ERR_PTR(-EPROBE_DEFER);
++	}
++	return mmu;
++}
++EXPORT_SYMBOL_GPL(aoc_sysmmu_get);
++
++void aoc_sysmmu_put(struct aoc_sysmmu *mmu)
++{
++	put_device(mmu->dev);
++}
++EXPORT_SYMBOL_GPL(aoc_sysmmu_put);
++
++static int aoc_sysmmu_probe(struct platform_device *pdev)
++{
++	struct device *dev = &pdev->dev;
++	struct aoc_sysmmu *mmu;
++	int ret;
++
++	mmu = devm_kzalloc(dev, sizeof(*mmu), GFP_KERNEL);
++	if (!mmu)
++		return -ENOMEM;
++	mmu->dev = dev;
++
++	/* Mapped only; BLK_AOC may be off, so no register is read here */
++	mmu->base = devm_platform_ioremap_resource(pdev, 0);
++	if (IS_ERR(mmu->base))
++		return PTR_ERR(mmu->base);
++
++	mmu->irq = platform_get_irq(pdev, 0);
++	if (mmu->irq < 0)
++		return mmu->irq;
++
++	ret = dma_set_mask(dev, DMA_BIT_MASK(36));
++	if (ret)
++		return ret;
++
++	platform_set_drvdata(pdev, mmu);
++	dev_info(dev, "ready (registers untouched until BLK_AOC is on)%s\n",
++		 empty ? ", empty table (negative test)" : "");
++	return 0;
++}
++
++static void aoc_sysmmu_remove(struct platform_device *pdev)
++{
++	struct aoc_sysmmu *mmu = platform_get_drvdata(pdev);
++
++	/* The AoC driver disables translation before it lets go */
++	WARN_ON(mmu->enabled);
++	if (mmu->table)
++		free_pages((unsigned long)mmu->table, get_order(LV1_TABLE_SIZE));
++}
++
++static const struct of_device_id aoc_sysmmu_of_match[] = {
++	{ .compatible = "google,gs201-aoc-sysmmu" },
++	{ }
++};
++MODULE_DEVICE_TABLE(of, aoc_sysmmu_of_match);
++
++static struct platform_driver aoc_sysmmu_driver = {
++	.probe = aoc_sysmmu_probe,
++	.remove = aoc_sysmmu_remove,
++	.driver = {
++		.name = "gs201-aoc-sysmmu",
++		.of_match_table = aoc_sysmmu_of_match,
++		.suppress_bind_attrs = true,
++	},
++};
++module_platform_driver(aoc_sysmmu_driver);
++
++MODULE_DESCRIPTION("gs201 AoC System MMU static translation windows");
++MODULE_LICENSE("GPL");
+diff --git a/include/linux/soc/google/gs201-aoc-sysmmu.h b/include/linux/soc/google/gs201-aoc-sysmmu.h
+new file mode 100644
+index 000000000..a62811ed1
+--- /dev/null
++++ b/include/linux/soc/google/gs201-aoc-sysmmu.h
+@@ -0,0 +1,26 @@
++/* SPDX-License-Identifier: GPL-2.0-only */
++#ifndef __LINUX_SOC_GOOGLE_GS201_AOC_SYSMMU_H
++#define __LINUX_SOC_GOOGLE_GS201_AOC_SYSMMU_H
++
++#include <linux/types.h>
++
++struct device;
++struct aoc_sysmmu;
++
++/* One translation window: AoC address -> physical, 1 MiB granular */
++struct aoc_sysmmu_window {
++	u32 iova;
++	phys_addr_t pa;
++	u32 size;
++};
++
++struct aoc_sysmmu *aoc_sysmmu_get(struct device *client);
++void aoc_sysmmu_put(struct aoc_sysmmu *mmu);
++
++/* All of these touch BLK_AOC registers: call only while BLK_AOC is on */
++void aoc_sysmmu_dump(struct aoc_sysmmu *mmu, const char *when);
++int aoc_sysmmu_enable(struct aoc_sysmmu *mmu,
++		      const struct aoc_sysmmu_window *win, unsigned int n);
++void aoc_sysmmu_disable(struct aoc_sysmmu *mmu);
++
++#endif /* __LINUX_SOC_GOOGLE_GS201_AOC_SYSMMU_H */

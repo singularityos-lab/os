@@ -1,0 +1,46 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Tue, 27 Oct 2026 04:57:39 -0647
+Subject: [PATCH] nfc: nci: don't log unhandled proprietary notifications as
+ errors
+
+A notification in the proprietary group (GID 0xF) that the driver has
+no handler for is the controller vendor's own and is dropped anyway, but
+nci_ntf_packet() logs each one with pr_err(). Some controllers send them
+continuously: the ST54L on the Pixel 9a, driven by nxp-nci as a plain NCI
+controller, sends opcode 0xf02 on every discovery cycle, about 14 times a
+second while polling, so the kernel log filled with
+
+  nci: nci_ntf_packet: unsupported ntf opcode 0xf02
+
+Log them at debug level instead. Unknown notifications outside the
+proprietary group still go through the switch below.
+
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ net/nfc/nci/ntf.c | 12 ++++++++----
+ 1 file changed, 8 insertions(+), 4 deletions(-)
+
+diff --git a/net/nfc/nci/ntf.c b/net/nfc/nci/ntf.c
+index f5c9a8ab7..e2758152d 100644
+--- a/net/nfc/nci/ntf.c
++++ b/net/nfc/nci/ntf.c
+@@ -1001,10 +1001,14 @@ void nci_ntf_packet(struct nci_dev *ndev, struct sk_buff *skb)
+ 	skb_pull(skb, NCI_CTRL_HDR_SIZE);
+ 
+ 	if (nci_opcode_gid(ntf_opcode) == NCI_GID_PROPRIETARY) {
+-		if (nci_prop_ntf_packet(ndev, ntf_opcode, skb) == -ENOTSUPP) {
+-			pr_err("unsupported ntf opcode 0x%x\n",
+-			       ntf_opcode);
+-		}
++		/*
++		 * Proprietary notifications are the controller vendor's own:
++		 * one the driver has no handler for is ignored, not an error.
++		 * Some controllers send them on every discovery cycle.
++		 */
++		if (nci_prop_ntf_packet(ndev, ntf_opcode, skb) == -ENOTSUPP)
++			pr_debug("unhandled proprietary ntf opcode 0x%x\n",
++				 ntf_opcode);
+ 
+ 		goto end;
+ 	}

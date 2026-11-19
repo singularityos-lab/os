@@ -1,0 +1,45 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?=C3=81ngel=20Ren=C3=A9?=
+ <17342133+angelrenefm@users.noreply.github.com>
+Date: Sat, 14 Nov 2026 00:57:49 +0100
+Subject: [PATCH] media: s5p-mfc: let dynamic DPB clients queue more capture
+ buffers
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The CAPTURE queue is capped at the minimum the stream needs plus
+MFC_MAX_EXTRA_DPB (5). That fits a fixed DPB, which the firmware takes
+whole at INIT_BUFFERS. With dynamic DPB (MFC v15) the firmware only
+holds the frames it still references or has not shown yet, and every
+other buffer the client keeps, a player's display queue among them,
+comes out of those five.
+
+mpv 0.41 on the Pixel 7 shows the problem: with its default gpu-next
+output it keeps more decoded frames queued than the five spare ones,
+the decoder runs out of free buffers after the first frame and the
+picture freezes. With dynamic DPB, cap the queue at MFC_MAX_BUFFERS
+(32) only, the driver's own limit for any queue; FFmpeg's
+h264_v4l2m2m asks for 20 by default. vb2 already falls back to fewer
+buffers when the memory runs short.
+
+Assisted-by: LLM
+Signed-off-by: Ángel René <17342133+angelrenefm@users.noreply.github.com>
+---
+ drivers/media/platform/samsung/s5p-mfc/s5p_mfc_dec.c | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_dec.c b/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_dec.c
+index 6d7f093b4..653f7efa6 100644
+--- a/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_dec.c
++++ b/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_dec.c
+@@ -966,7 +966,8 @@ static int s5p_mfc_queue_setup(struct vb2_queue *vq,
+ 		/* Setup buffer count */
+ 		if (*buf_count < ctx->pb_count)
+ 			*buf_count = ctx->pb_count;
+-		if (*buf_count > ctx->pb_count + MFC_MAX_EXTRA_DPB)
++		if (!dev->dynamic_dpb &&
++		    *buf_count > ctx->pb_count + MFC_MAX_EXTRA_DPB)
+ 			*buf_count = ctx->pb_count + MFC_MAX_EXTRA_DPB;
+ 		if (*buf_count > MFC_MAX_BUFFERS)
+ 			*buf_count = MFC_MAX_BUFFERS;

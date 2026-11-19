@@ -1,0 +1,98 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Brett-Michael Green <brett@bmgvisualtech.com>
+Date: Thu, 22 Oct 2026 12:54:14 -0400
+Subject: [PATCH] watchdog: s3c2410_wdt: add zuma
+
+zuma keeps gs101's cluster 0 PMU registers (NONCPU_INT_EN 0x1244,
+NONCPU_OUT 0x1220) and reset status (0x3b44, bits 0 and 1), moves
+cluster 1's to 0x1544 and 0x1520, and has the counter enable at bit 4
+of NONCPU_OUT for both clusters (Google's GPL s3c2410_wdt for zuma, and
+stock's boot log: NONCPU_OUT 0x33fff10 and 0x10 once enabled).
+
+Its bootloader hands over with both watchdogs counting, so until this
+driver takes them over the phone resets about 80 s into boot.
+
+Assisted-by: LLM
+Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
+---
+ drivers/watchdog/s3c2410_wdt.c | 39 ++++++++++++++++++++++++++++++++++
+ 1 file changed, 39 insertions(+)
+
+diff --git a/drivers/watchdog/s3c2410_wdt.c b/drivers/watchdog/s3c2410_wdt.c
+index d45ba57c6..288e6ff15 100644
+--- a/drivers/watchdog/s3c2410_wdt.c
++++ b/drivers/watchdog/s3c2410_wdt.c
+@@ -84,6 +84,10 @@
+ #define GS_CLUSTER2_NONCPU_INT_EN		0x1644
+ #define GS_RST_STAT_REG_OFFSET			0x3B44
+ 
++#define ZUMA_CLUSTER1_NONCPU_OUT		0x1520
++#define ZUMA_CLUSTER1_NONCPU_INT_EN		0x1544
++#define ZUMA_CNT_EN_WDT_BIT			4
++
+ #define EXYNOS990_CLUSTER2_NONCPU_OUT		0x1620
+ #define EXYNOS990_CLUSTER2_NONCPU_INT_EN	0x1644
+ #define EXYNOS990_CLUSTER2_WDTRESET_BIT		23
+@@ -344,6 +348,36 @@ static const struct s3c2410_wdt_variant drv_data_gs101_cl1 = {
+ 		  QUIRK_HAS_DBGACK_BIT,
+ };
+ 
++/*
++ * zuma keeps gs101's cluster 0 PMU registers and reset status, moves cluster
++ * 1's, and has the counter enable at bit 4 of NONCPU_OUT for both.
++ */
++static const struct s3c2410_wdt_variant drv_data_zuma_cl0 = {
++	.mask_reset_reg = GS_CLUSTER0_NONCPU_INT_EN,
++	.mask_bit = 2,
++	.mask_reset_inv = true,
++	.rst_stat_reg = GS_RST_STAT_REG_OFFSET,
++	.rst_stat_bit = 0,
++	.cnt_en_reg = GS_CLUSTER0_NONCPU_OUT,
++	.cnt_en_bit = ZUMA_CNT_EN_WDT_BIT,
++	.quirks = QUIRK_HAS_PMU_RST_STAT | QUIRK_HAS_PMU_MASK_RESET |
++		  QUIRK_HAS_PMU_CNT_EN | QUIRK_HAS_WTCLRINT_REG |
++		  QUIRK_HAS_DBGACK_BIT,
++};
++
++static const struct s3c2410_wdt_variant drv_data_zuma_cl1 = {
++	.mask_reset_reg = ZUMA_CLUSTER1_NONCPU_INT_EN,
++	.mask_bit = 2,
++	.mask_reset_inv = true,
++	.rst_stat_reg = GS_RST_STAT_REG_OFFSET,
++	.rst_stat_bit = 1,
++	.cnt_en_reg = ZUMA_CLUSTER1_NONCPU_OUT,
++	.cnt_en_bit = ZUMA_CNT_EN_WDT_BIT,
++	.quirks = QUIRK_HAS_PMU_RST_STAT | QUIRK_HAS_PMU_MASK_RESET |
++		  QUIRK_HAS_PMU_CNT_EN | QUIRK_HAS_WTCLRINT_REG |
++		  QUIRK_HAS_DBGACK_BIT,
++};
++
+ static const struct s3c2410_wdt_variant drv_data_exynosautov920_cl0 = {
+ 	.mask_reset_reg = EXYNOSAUTOV920_CLUSTER0_NONCPU_INT_EN,
+ 	.mask_bit = 2,
+@@ -375,6 +409,8 @@ static const struct of_device_id s3c2410_wdt_match[] = {
+ 	  .data = &drv_data_gs101_cl0 },
+ 	{ .compatible = "google,gs201-wdt",
+ 	  .data = &drv_data_gs101_cl0 },
++	{ .compatible = "google,zuma-wdt",
++	  .data = &drv_data_zuma_cl0 },
+ 	{ .compatible = "samsung,s3c6410-wdt",
+ 	  .data = &drv_data_s3c6410 },
+ 	{ .compatible = "samsung,exynos5250-wdt",
+@@ -709,6 +745,7 @@ s3c2410_get_wdt_drv_data(struct platform_device *pdev, struct s3c2410_wdt *wdt)
+ 	if (variant == &drv_data_exynos850_cl0 ||
+ 	    variant == &drv_data_exynosautov9_cl0 ||
+ 	    variant == &drv_data_gs101_cl0 ||
++	    variant == &drv_data_zuma_cl0 ||
+ 	    variant == &drv_data_exynosautov920_cl0 ||
+ 	    variant == &drv_data_exynos990_cl0) {
+ 		u32 index;
+@@ -729,6 +766,8 @@ s3c2410_get_wdt_drv_data(struct platform_device *pdev, struct s3c2410_wdt *wdt)
+ 				variant = &drv_data_exynosautov9_cl1;
+ 			else if (variant == &drv_data_gs101_cl0)
+ 				variant = &drv_data_gs101_cl1;
++			else if (variant == &drv_data_zuma_cl0)
++				variant = &drv_data_zuma_cl1;
+ 			else if (variant == &drv_data_exynosautov920_cl0)
+ 				variant = &drv_data_exynosautov920_cl1;
+ 			break;

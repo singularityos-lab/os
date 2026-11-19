@@ -1,0 +1,33 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Mon, 9 Nov 2026 13:35:30 -0643
+Subject: [PATCH] arm64: dts: exynos: google: zumapro-tegu: Give the main PMIC
+ its interrupt
+
+Without an interrupt the S2MPG14 driver supplies its rails but none of
+the PMIC's events reach the host ("no interrupt, so no RTC alarm" at
+boot), so rtc0 has no wake alarm: on the Pixel 9a a suspend with an RTC
+alarm armed slept until a key was pressed (2026-11-09, on the published
+tree). The interrupt is GIC SPI 74, latched by the VGPIO2AP sysreg, as
+the gs201 boards' nodes have it; wakeup-source makes the alarm a wake
+source, the first one for suspend.
+
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ arch/arm64/boot/dts/exynos/google/zumapro-tegu.dts | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/zumapro-tegu.dts b/arch/arm64/boot/dts/exynos/google/zumapro-tegu.dts
+index 5e7eb363f..764142419 100644
+--- a/arch/arm64/boot/dts/exynos/google/zumapro-tegu.dts
++++ b/arch/arm64/boot/dts/exynos/google/zumapro-tegu.dts
+@@ -202,6 +202,9 @@ &acpm_ipc {
+ 
+ 	pmic-1 {
+ 		compatible = "samsung,s2mpg14-pmic";
++		interrupts = <GIC_SPI 74 IRQ_TYPE_LEVEL_HIGH>;
++		google,vgpio2ap-sysreg = <&sysreg_vgpio2ap>;
++		wakeup-source;
+ 
+ 		regulators {
+ 			touch_avdd: ldo4m {

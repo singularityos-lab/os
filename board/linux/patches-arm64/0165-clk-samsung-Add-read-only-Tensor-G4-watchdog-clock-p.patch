@@ -1,0 +1,170 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Fri, 23 Oct 2026 01:01:02 -0700
+Subject: [PATCH] clk: samsung: Add read-only Tensor G4 watchdog clock paths
+
+Describe the TOP mux/gate/divider and MISC user mux/NOCP divider and two
+watchdog PCLK gates from the pinned GPL CMUCAL tables. Reuse the existing
+PLL outputs and preserve the exact ordered parent selection. Keep all
+seven nodes read-only and add none to manual or suspend register lists.
+
+The legacy CMU helper continues after parent-clock enablement fails.
+Use a separate MISC probe that returns on that error before mapping or
+registering its clocks, and retains the successful bus reference. Probe
+only during initialization so deferred binding cannot reach freed clock
+tables. Existing controller probe behavior is unchanged.
+
+Source-extracted sanitizer tests verify six failure/success paths. Table,
+style, ARM64 W=1 object, binding and combined Image/modules link checks
+pass without new diagnostics. No board node is enabled or hardware
+qualified. New TOP fields still require per-register access qualification
+before deploying a kernel that registers them.
+
+Source: Google's GPL SoC modules at
+204078758737776959ecc85c527a00fd2cabb62f,
+drivers/soc/google/cal-if/zuma/cmucal-{node,sfr}.c and
+drivers/clk/gs/clk-zuma.c.
+
+Register the probe-once MISC driver at subsys init, after normal OF
+population at arch init, so the matching platform device exists before
+the one-shot probe. The ordinary legacy CMU init phase stays unchanged.
+
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ drivers/clk/samsung/clk-zumapro.c | 82 ++++++++++++++++++++++++++++++-
+ 1 file changed, 81 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/clk/samsung/clk-zumapro.c b/drivers/clk/samsung/clk-zumapro.c
+index 89427169d..9701926b7 100644
+--- a/drivers/clk/samsung/clk-zumapro.c
++++ b/drivers/clk/samsung/clk-zumapro.c
+@@ -9,6 +9,7 @@
+  * and dividers retain firmware settings; no PLL rate table is supplied.
+  */
+ 
++#include <linux/clk.h>
+ #include <linux/clk-provider.h>
+ #include <linux/of.h>
+ #include <linux/platform_device.h>
+@@ -71,6 +72,8 @@ static const struct samsung_mux_clock top_muxes[] __initconst = {
+ 	      0x1098, 0, 2, 0, CLK_MUX_READ_ONLY),
+ 	MUX_F(CLK_MOUT_HSI2_PCIE, "zumapro_mout_hsi2_pcie", hsi2_pcie_parents,
+ 	      0x10b4, 0, 1, 0, CLK_MUX_READ_ONLY),
++	MUX_F(CLK_MOUT_MISC_NOC, "zumapro_mout_misc_noc", peric0_noc_parents,
++	      0x10d0, 0, 2, 0, CLK_MUX_READ_ONLY),
+ };
+ 
+ /* The hardware order is mux -> gate -> divider. */
+@@ -85,6 +88,12 @@ static const struct samsung_gate_clock top_gates[] __initconst = {
+ 	     0x20dc, 21, CLK_IGNORE_UNUSED, 0),
+ };
+ 
++/* Preserve the inherited MISC gate; even TOP registration must not switch it. */
++static const struct samsung_gate_clock top_ro_gates[] __initconst = {
++	GATE(CLK_GOUT_MISC_NOC, "zumapro_gout_misc_noc", "zumapro_mout_misc_noc",
++	     0x20f4, 21, CLK_IGNORE_UNUSED, 0),
++};
++
+ static const struct samsung_div_clock top_dividers[] __initconst = {
+ 	DIV_F(CLK_DOUT_HSI2_NOC, "zumapro_dout_hsi2_noc", "zumapro_gout_hsi2_noc",
+ 	      0x18a8, 0, 4, 0, CLK_DIVIDER_READ_ONLY),
+@@ -99,6 +108,8 @@ static const struct samsung_div_clock top_dividers[] __initconst = {
+ 	      "zumapro_mout_hsi0_peri", 0x1890, 0, 4, 0, CLK_DIVIDER_READ_ONLY),
+ 	DIV_F(CLK_DOUT_HSI2_PCIE, "zumapro_dout_hsi2_pcie", "zumapro_gout_hsi2_pcie",
+ 	      0x18ac, 0, 3, 0, CLK_DIVIDER_READ_ONLY),
++	DIV_F(CLK_DOUT_MISC_NOC, "zumapro_dout_misc_noc", "zumapro_gout_misc_noc",
++	      0x18c4, 0, 4, 0, CLK_DIVIDER_READ_ONLY),
+ };
+ 
+ /* Only these branch gates are put under manual CCF control. */
+@@ -115,9 +126,11 @@ static const struct samsung_cmu_info top_cmu __initconst = {
+ 	.nr_mux_clks = ARRAY_SIZE(top_muxes),
+ 	.gate_clks = top_gates,
+ 	.nr_gate_clks = ARRAY_SIZE(top_gates),
++	.ro_gate_clks = top_ro_gates,
++	.nr_ro_gate_clks = ARRAY_SIZE(top_ro_gates),
+ 	.div_clks = top_dividers,
+ 	.nr_div_clks = ARRAY_SIZE(top_dividers),
+-	.nr_clk_ids = CLK_DOUT_HSI2_PCIE + 1,
++	.nr_clk_ids = CLK_DOUT_MISC_NOC + 1,
+ 	.clk_regs = top_regs,
+ 	.nr_clk_regs = ARRAY_SIZE(top_regs),
+ };
+@@ -240,6 +253,36 @@ static const struct samsung_cmu_info peric0_cmu __initconst = {
+ 	.clk_name = "bus",
+ };
+ 
++/* CMU_MISC, 0x10010000. Read-only firmware-on watchdog bus paths. */
++PNAME(misc_noc_user_parents) = { "oscclk", "zumapro_dout_misc_noc" };
++
++static const struct samsung_mux_clock misc_muxes[] __initconst = {
++	MUX_F(CLK_MOUT_MISC_NOC_USER, "zumapro_misc_noc_user", misc_noc_user_parents,
++	      0x600, 4, 1, 0, CLK_MUX_READ_ONLY),
++};
++
++static const struct samsung_div_clock misc_dividers[] __initconst = {
++	DIV_F(CLK_DOUT_MISC_NOCP, "zumapro_misc_nocp", "zumapro_misc_noc_user",
++	      0x1808, 0, 3, 0, CLK_DIVIDER_READ_ONLY),
++};
++
++static const struct samsung_gate_clock misc_ro_gates[] __initconst = {
++	GATE(CLK_GOUT_WDT_CLUSTER0, "zumapro_wdt_cluster0", "zumapro_misc_nocp",
++	     0x2164, 21, CLK_IGNORE_UNUSED, 0),
++	GATE(CLK_GOUT_WDT_CLUSTER1, "zumapro_wdt_cluster1", "zumapro_misc_nocp",
++	     0x2168, 21, CLK_IGNORE_UNUSED, 0),
++};
++
++static const struct samsung_cmu_info misc_cmu __initconst = {
++	.mux_clks = misc_muxes,
++	.nr_mux_clks = ARRAY_SIZE(misc_muxes),
++	.div_clks = misc_dividers,
++	.nr_div_clks = ARRAY_SIZE(misc_dividers),
++	.ro_gate_clks = misc_ro_gates,
++	.nr_ro_gate_clks = ARRAY_SIZE(misc_ro_gates),
++	.nr_clk_ids = CLK_GOUT_WDT_CLUSTER1 + 1,
++};
++
+ static int __init zumapro_cmu_probe(struct platform_device *pdev)
+ {
+ 	const struct samsung_cmu_info *cmu = device_get_match_data(&pdev->dev);
+@@ -268,3 +311,40 @@ static int __init zumapro_cmu_init(void)
+ 	return platform_driver_register(&zumapro_cmu_driver);
+ }
+ core_initcall(zumapro_cmu_init);
++
++static int __init zumapro_misc_probe(struct platform_device *pdev)
++{
++	struct clk *bus;
++
++	/* The legacy helper continues after a bus error; do not use it. */
++	bus = devm_clk_get_enabled(&pdev->dev, "bus");
++	if (IS_ERR(bus))
++		return dev_err_probe(&pdev->dev, PTR_ERR(bus),
++				     "cannot retain MISC bus clock\n");
++
++	/* No manual setup or save/restore list for firmware-owned clocks. */
++	if (!samsung_cmu_register_one(pdev->dev.of_node, &misc_cmu))
++		return -ENODEV;
++
++	return 0;
++}
++
++static const struct of_device_id zumapro_misc_match[] = {
++	{ .compatible = "google,zumapro-cmu-misc" },
++	{ }
++};
++
++static struct platform_driver zumapro_misc_driver = {
++	.driver = {
++		.name = "zumapro-cmu-misc",
++		.of_match_table = zumapro_misc_match,
++		.suppress_bind_attrs = true,
++	},
++};
++
++static int __init zumapro_misc_init(void)
++{
++	/* Init-only clock tables must not be used by a later deferred probe. */
++	return platform_driver_probe(&zumapro_misc_driver, zumapro_misc_probe);
++}
++subsys_initcall(zumapro_misc_init);

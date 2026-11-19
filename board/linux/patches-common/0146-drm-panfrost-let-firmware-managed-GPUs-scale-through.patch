@@ -1,0 +1,89 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: saiththerobo <the.tom.sharp@gmail.com>
+Date: Wed, 4 Nov 2026 07:56:27 +0000
+Subject: [PATCH] drm/panfrost: let firmware-managed GPUs scale through devfreq
+
+On gs101 the APM firmware (ACPM) sets the G3D voltages together with the
+G3D and G3D L2 clock rates, so the four GPU rails need no OPP voltages,
+and panfrost skipped devfreq altogether because the GPU has more than
+one supply: the GPU ran at the 151 MHz the bootloader left.
+
+Add GPU_PM_FW_DVFS for such GPUs: devfreq then sets rates only. The L2
+clock is the clock provider's business: on gs101 one ACPM clock moves
+both domains together, in the order the firmware needs.
+
+Assisted-by: Claude Opus 5.5
+Signed-off-by: saiththerobo <the.tom.sharp@gmail.com>
+---
+ drivers/gpu/drm/panfrost/panfrost_devfreq.c | 5 +++--
+ drivers/gpu/drm/panfrost/panfrost_device.h  | 5 ++++-
+ drivers/gpu/drm/panfrost/panfrost_drv.c     | 6 +++++-
+ 3 files changed, 12 insertions(+), 4 deletions(-)
+
+diff --git a/drivers/gpu/drm/panfrost/panfrost_devfreq.c b/drivers/gpu/drm/panfrost/panfrost_devfreq.c
+index b51c30778..bc113f58c 100644
+--- a/drivers/gpu/drm/panfrost/panfrost_devfreq.c
++++ b/drivers/gpu/drm/panfrost/panfrost_devfreq.c
+@@ -126,8 +126,9 @@ int panfrost_devfreq_init(struct panfrost_device *pfdev)
+ 	struct thermal_cooling_device *cooling;
+ 	struct panfrost_devfreq *pfdevfreq = &pfdev->pfdevfreq;
+ 	unsigned long freq = ULONG_MAX;
++	bool fw_dvfs = pfdev->comp->pm_features & BIT(GPU_PM_FW_DVFS);
+ 
+-	if (pfdev->comp->num_supplies > 1) {
++	if (pfdev->comp->num_supplies > 1 && !fw_dvfs) {
+ 		/*
+ 		 * GPUs with more than 1 supply require platform-specific handling:
+ 		 * continue without devfreq
+@@ -140,7 +141,7 @@ int panfrost_devfreq_init(struct panfrost_device *pfdev)
+ 	if (ret)
+ 		return ret;
+ 
+-	ret = devm_pm_opp_set_regulators(dev, pfdev->comp->supply_names);
++	ret = fw_dvfs ? 0 : devm_pm_opp_set_regulators(dev, pfdev->comp->supply_names);
+ 	if (ret) {
+ 		/* Continue if the optional regulator is missing */
+ 		if (ret != -ENODEV) {
+diff --git a/drivers/gpu/drm/panfrost/panfrost_device.h b/drivers/gpu/drm/panfrost/panfrost_device.h
+index 1fe1554f2..681d43667 100644
+--- a/drivers/gpu/drm/panfrost/panfrost_device.h
++++ b/drivers/gpu/drm/panfrost/panfrost_device.h
+@@ -43,11 +43,14 @@ enum panfrost_drv_comp_bits {
+  * @GPU_PM_VREG_OFF: Allow turning off regulators during system suspend
+  * @GPU_PM_RT: Allow disabling clocks and asserting the reset control during
+  *  system runtime suspend
++ * @GPU_PM_FW_DVFS: Firmware sets the GPU voltages with the clock rates, so
++ *  devfreq sets rates only, whatever the number of supplies
+  */
+ enum panfrost_gpu_pm {
+ 	GPU_PM_CLK_DIS,
+ 	GPU_PM_VREG_OFF,
+-	GPU_PM_RT
++	GPU_PM_RT,
++	GPU_PM_FW_DVFS,
+ };
+ 
+ /**
+diff --git a/drivers/gpu/drm/panfrost/panfrost_drv.c b/drivers/gpu/drm/panfrost/panfrost_drv.c
+index c7ba90874..ead8412b4 100644
+--- a/drivers/gpu/drm/panfrost/panfrost_drv.c
++++ b/drivers/gpu/drm/panfrost/panfrost_drv.c
+@@ -1079,13 +1079,17 @@ static const struct panfrost_compatible default_data = {
+ 	.pm_domain_names = NULL,
+ };
+ 
+-/* gs101 (Pixel 6): the G3D rails, all always-on; no DVFS yet */
++/*
++ * gs101 (Pixel 6): the G3D rails, all always-on. The APM firmware (ACPM)
++ * sets their voltages with the G3D and G3D L2 clock rates.
++ */
+ static const char * const gs101_supplies[] = { "mali", "g3d-l2", "g3d-m", "int-m", NULL };
+ static const struct panfrost_compatible gs101_data = {
+ 	.num_supplies = ARRAY_SIZE(gs101_supplies) - 1,
+ 	.supply_names = gs101_supplies,
+ 	.num_pm_domains = 1, /* optional */
+ 	.pm_domain_names = NULL,
++	.pm_features = BIT(GPU_PM_FW_DVFS),
+ 	.gpu_quirks = BIT(GPU_QUIRK_FORCE_AARCH64_PGTABLE),
+ };
+ 

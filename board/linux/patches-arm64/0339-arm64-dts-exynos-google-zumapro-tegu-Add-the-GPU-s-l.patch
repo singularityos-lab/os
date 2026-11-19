@@ -1,0 +1,54 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Tue, 27 Oct 2026 11:51:28 -0647
+Subject: [PATCH] arm64: dts: exynos: google: zumapro-tegu: Add the GPU's
+ levels to 890 MHz
+
+With gpu-thermal throttling the GPU, add the 9a's GPU levels above 649
+MHz: 723, 807, 850 and 890 MHz. The table's top, 940 MHz, stays out
+until it has run on the 9a.
+
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ .../boot/dts/exynos/google/zumapro-tegu.dts   | 21 +++++++++++++++++--
+ 1 file changed, 19 insertions(+), 2 deletions(-)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/zumapro-tegu.dts b/arch/arm64/boot/dts/exynos/google/zumapro-tegu.dts
+index 95dfe0fbd..d68fd18f8 100644
+--- a/arch/arm64/boot/dts/exynos/google/zumapro-tegu.dts
++++ b/arch/arm64/boot/dts/exynos/google/zumapro-tegu.dts
+@@ -76,8 +76,9 @@ key-volume-up {
+ 
+ 	/*
+ 	 * The GPU's levels: the shader rates of the Pixel 9a's GPU DVFS table
+-	 * up to 649 MHz, each with its paired L2 rate through the ACPM "gpu"
+-	 * clock. The levels above, to 940 MHz, wait for a GPU thermal zone.
++	 * up to 890 MHz, each with its paired L2 rate through the ACPM "gpu"
++	 * clock; gpu-thermal throttles them from 85 C. 940 MHz, the table's
++	 * top, is left out until it has run on the 9a.
+ 	 */
+ 	gpu_opp: opp-table-gpu {
+ 		compatible = "operating-points-v2";
+@@ -117,6 +118,22 @@ opp-580000000 {
+ 		opp-649000000 {
+ 			opp-hz = /bits/ 64 <649000000>;
+ 		};
++
++		opp-723000000 {
++			opp-hz = /bits/ 64 <723000000>;
++		};
++
++		opp-807000000 {
++			opp-hz = /bits/ 64 <807000000>;
++		};
++
++		opp-850000000 {
++			opp-hz = /bits/ 64 <850000000>;
++		};
++
++		opp-890000000 {
++			opp-hz = /bits/ 64 <890000000>;
++		};
+ 	};
+ 
+ 	/* UFS VCC, switched by gpp0-1 as on stock. */

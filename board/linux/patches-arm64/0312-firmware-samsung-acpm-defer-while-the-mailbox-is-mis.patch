@@ -1,0 +1,52 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Brett-Michael Green <brett@bmgvisualtech.com>
+Date: Sat, 31 Oct 2026 11:49:20 -0400
+Subject: [PATCH] firmware: samsung: acpm: defer while the mailbox is missing
+
+The channel loop skips a channel that gets no mailbox, so that one bad
+channel doesn't fail the rest. -EPROBE_DEFER isn't such a channel: it
+only means the mailbox driver hasn't probed yet. When ACPM probes
+first, every channel is skipped, the probe succeeds with "16 channels,
+0 usable" and never retries, and everything behind ACPM fails for the
+whole boot. On the Pixel 8 Pro the touchscreen then can't enable its
+supply ("error -ENODEV: enabling vdd").
+
+This happens when a module load or `udevadm trigger` binds ACPM ahead
+of the mailbox, or with fw_devlink=permissive, which drops the
+supplier ordering.
+
+Return -EPROBE_DEFER from the probe instead, so it runs again once the
+mailbox is there. Keep skipping the channels for any other error, and
+the ones whose queues are outside the SRAM. The channels already
+requested are freed by the devm action, and the per-channel buffers
+are devm allocations.
+
+Fixes: c8e4c99a7852 ("firmware: samsung: acpm: skip channels the AP cannot use")
+Assisted-by: LLM
+Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
+---
+ drivers/firmware/samsung/exynos-acpm.c | 10 ++++++++--
+ 1 file changed, 8 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/firmware/samsung/exynos-acpm.c b/drivers/firmware/samsung/exynos-acpm.c
+index 45f3a5616..cbe830b98 100644
+--- a/drivers/firmware/samsung/exynos-acpm.c
++++ b/drivers/firmware/samsung/exynos-acpm.c
+@@ -738,9 +738,15 @@ static int acpm_channels_init(struct acpm_info *acpm)
+ 
+ 		achan->chan = mbox_request_channel(cl, 0);
+ 		if (IS_ERR(achan->chan)) {
+-			dev_warn(dev, "chan %d: no mailbox channel (%pe), skipped\n",
+-				 i, achan->chan);
++			ret = PTR_ERR(achan->chan);
+ 			achan->chan = NULL;
++			/* The mailbox may simply not have probed yet. */
++			if (ret == -EPROBE_DEFER)
++				return dev_err_probe(dev, ret,
++						     "chan %d: no mailbox channel yet\n",
++						     i);
++			dev_warn(dev, "chan %d: no mailbox channel (%pe), skipped\n",
++				 i, ERR_PTR(ret));
+ 			continue;
+ 		}
+ 

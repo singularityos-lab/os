@@ -1,0 +1,28 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Sun, 11 Oct 2026 16:32:06 -0400
+Subject: [PATCH] soc: samsung: exynos-pmu: add Google gs201 compatible
+
+The gs201 (Tensor G2) PMU matches gs101: same secure register access
+through SMC and the same CPU inform and interrupt generator layout.
+Reuse the gs101 data.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ drivers/soc/samsung/exynos-pmu.c | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/drivers/soc/samsung/exynos-pmu.c b/drivers/soc/samsung/exynos-pmu.c
+index c764f35fb..1e7769db9 100644
+--- a/drivers/soc/samsung/exynos-pmu.c
++++ b/drivers/soc/samsung/exynos-pmu.c
+@@ -125,6 +125,9 @@ static const struct of_device_id exynos_pmu_of_device_ids[] = {
+ 	{
+ 		.compatible = "google,gs101-pmu",
+ 		.data = &gs101_pmu_data,
++	}, {
++		.compatible = "google,gs201-pmu",
++		.data = &gs101_pmu_data,
+ 	}, {
+ 		.compatible = "samsung,exynos3250-pmu",
+ 		.data = exynos_pmu_data_arm_ptr(exynos3250_pmu_data),

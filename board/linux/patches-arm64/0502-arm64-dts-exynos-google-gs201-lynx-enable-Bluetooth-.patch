@@ -1,0 +1,195 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jean-Paul Florencio <jpflorencio@version-tracker.app>
+Date: Thu, 29 Oct 2026 15:11:09 +0000
+Subject: [PATCH] arm64: dts: exynos: google: gs201-lynx: enable Bluetooth on
+ the APM UART
+
+The Pixel 7a carries the WCN6855 BT core on the APM USI1 UART (ttySAC18
+in Google's kernel), as cheetah carries its BCM4389. Enable cmu_apm,
+usi_apm1, serial_apm1, pinctrl_peric0 and pinctrl_hsi2, and describe
+the controller as qcom,wcn6855-bt powered by a qcom,wcn6855-pmu node
+(pwrseq-qcom-wcn): BT_EN on gpp16-2, and the 0.95 V buck shared with
+Wi-Fi on gph2-5 as the sequencer's input, a fixed regulator with the
+7 ms ramp stock btpower waits before BT_EN. The sequencer then holds
+BT_EN high and waits 50 ms. No wlan-enable-gpios is given: WLAN_EN
+(gph2-4) stays low until a PCIe node takes the sequencer's wlan target.
+
+With this node Bluetooth owns gph2-5 and drops it on power-off: off is
+BT_EN low and then the regulators, so the buck goes down whenever
+Bluetooth goes down (stock btpower never drops it), including once at
+every boot while the controller has no address yet. The five PMIC rails
+behind the chip's I/O, 1.3 V and 1.9 V inputs are an always-on stand-in
+regulator: stock's device tree names no supply on its cnss2 or btpower
+node, so which PMIC regulators feed them is unknown. No device-wake or
+host-wake line is described, so Bluetooth cannot wake the phone.
+
+max-speed is 3 Mbaud: at 3.2 Mbaud every TLV segment of the firmware
+download answers with "Frame reassembly failed (-84)" on this UART; 1, 2
+and 3 Mbaud work.
+
+Tested on one phone (chip revision 0x400c0210; untested on 0x400c1211)
+with hci_uart/btqca, pwrseq-qcom-wcn and linux-firmware's
+qca/hpbtfw21.tlv + hpnv21.bin, on 7.3.0-rc6-omamobile-lynx-wifi1 with
+this file's DTB: the sequencer holds the buck (five users), BT_EN and
+gph2-5 read high, firmware loaded 3 s after boot, controller powered,
+a 20 s scan sees the neighbours, and unbinding the serdev driver drops
+both pins and disables the buck. The controller reports no public
+address; userspace sets the one the bootloader publishes in
+/chosen/config/bt_addr. Facts and log excerpts: derekross/omarchy-mobile#98
+and device/lynx/NOTES.md there.
+
+These nodes must be enabled in the boot DTB: enabling cmu_apm through a
+runtime overlay oopses, since gs201_cmu_probe is __init.
+
+Assisted-by: LLM
+Signed-off-by: Jean-Paul Florencio <jpflorencio@version-tracker.app>
+---
+ .../boot/dts/exynos/google/gs201-lynx.dts     | 138 ++++++++++++++++++
+ 1 file changed, 138 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/gs201-lynx.dts b/arch/arm64/boot/dts/exynos/google/gs201-lynx.dts
+index 5c0bfb1bc..b43ff60ba 100644
+--- a/arch/arm64/boot/dts/exynos/google/gs201-lynx.dts
++++ b/arch/arm64/boot/dts/exynos/google/gs201-lynx.dts
+@@ -167,3 +167,141 @@ &usi0 {
+ 	samsung,mode = <USI_MODE_SPI>;
+ 	status = "okay";
+ };
++
++/*
++ * Bluetooth: the WCN6855 BT core on the APM USI1 UART (ttySAC18 in Google's
++ * kernel), as on cheetah. Its power is the qcom,wcn6855-pmu sequencer below:
++ * the shared 0.95 V buck on gph2-5 comes up first with its 7 ms ramp, then
++ * BT_EN (gpp16-2), then 50 ms. Off is BT_EN low and then the buck, so
++ * Bluetooth owns gph2-5 and drops it on power-off until a Wi-Fi node takes
++ * the sequencer's wlan target. WLAN_EN (gph2-4) is left out until there is
++ * a PCIe node. 3.2 Mbaud garbles every frame on this UART; 3 Mbaud works.
++ */
++/ {
++	lynx_wcn_buck: regulator-wcn-buck {
++		compatible = "regulator-fixed";
++		regulator-name = "lynx-wcn-0p95-buck";
++		regulator-min-microvolt = <950000>;
++		regulator-max-microvolt = <950000>;
++		gpio = <&gph2 5 GPIO_ACTIVE_HIGH>;
++		enable-active-high;
++		startup-delay-us = <7000>;
++	};
++
++	/*
++	 * Stand-in for the PMIC rails behind the chip's I/O, 1.3 V and 1.9 V
++	 * inputs. Stock's device tree names no supply on its cnss2 or btpower
++	 * node (only the three GPIOs), so which PMIC regulators feed them is
++	 * unknown; they are on at boot and the host never switches them.
++	 */
++	lynx_wcn_pmic: regulator-wcn-pmic {
++		compatible = "regulator-fixed";
++		regulator-name = "lynx-wcn-pmic-rails";
++		regulator-always-on;
++	};
++
++	wcn6855-pmu {
++		compatible = "qcom,wcn6855-pmu";
++		pinctrl-0 = <&bt_reg_on>;
++		pinctrl-names = "default";
++
++		bt-enable-gpios = <&gpp16 2 GPIO_ACTIVE_HIGH>;
++
++		vddaon-supply = <&lynx_wcn_buck>;
++		vddpmu-supply = <&lynx_wcn_buck>;
++		vddpmumx-supply = <&lynx_wcn_buck>;
++		vddpmucx-supply = <&lynx_wcn_buck>;
++		vddrfa0p95-supply = <&lynx_wcn_buck>;
++		vddio-supply = <&lynx_wcn_pmic>;
++		vddrfa1p3-supply = <&lynx_wcn_pmic>;
++		vddrfa1p9-supply = <&lynx_wcn_pmic>;
++		vddpcie1p3-supply = <&lynx_wcn_pmic>;
++		vddpcie1p9-supply = <&lynx_wcn_pmic>;
++
++		regulators {
++			vreg_pmu_rfa_cmn_0p8: ldo0 {
++				regulator-name = "vreg_pmu_rfa_cmn_0p8";
++			};
++
++			vreg_pmu_aon_0p8: ldo1 {
++				regulator-name = "vreg_pmu_aon_0p8";
++			};
++
++			vreg_pmu_wlcx_0p8: ldo2 {
++				regulator-name = "vreg_pmu_wlcx_0p8";
++			};
++
++			vreg_pmu_wlmx_0p8: ldo3 {
++				regulator-name = "vreg_pmu_wlmx_0p8";
++			};
++
++			vreg_pmu_btcmx_0p8: ldo4 {
++				regulator-name = "vreg_pmu_btcmx_0p8";
++			};
++
++			vreg_pmu_pcie_1p8: ldo5 {
++				regulator-name = "vreg_pmu_pcie_1p8";
++			};
++
++			vreg_pmu_pcie_0p9: ldo6 {
++				regulator-name = "vreg_pmu_pcie_0p9";
++			};
++
++			vreg_pmu_rfa_0p8: ldo7 {
++				regulator-name = "vreg_pmu_rfa_0p8";
++			};
++
++			vreg_pmu_rfa_1p2: ldo8 {
++				regulator-name = "vreg_pmu_rfa_1p2";
++			};
++
++			vreg_pmu_rfa_1p7: ldo9 {
++				regulator-name = "vreg_pmu_rfa_1p7";
++			};
++		};
++	};
++};
++
++&cmu_apm {
++	status = "okay";
++};
++
++/* gph2 (the buck's GPIO) is on HSI2, disabled in gs201.dtsi. */
++&pinctrl_hsi2 {
++	status = "okay";
++};
++
++&pinctrl_peric0 {
++	status = "okay";
++
++	bt_reg_on: bt-reg-on-pins {
++		samsung,pins = "gpp16-2";
++		samsung,pin-function = <GS101_PIN_FUNC_OUTPUT>;
++		samsung,pin-pud = <GS101_PIN_PULL_NONE>;
++		samsung,pin-drv = <GS101_PIN_DRV_2_5_MA>;
++	};
++};
++
++&serial_apm1 {
++	status = "okay";
++
++	bluetooth {
++		compatible = "qcom,wcn6855-bt";
++
++		vddrfacmn-supply = <&vreg_pmu_rfa_cmn_0p8>;
++		vddaon-supply = <&vreg_pmu_aon_0p8>;
++		vddwlcx-supply = <&vreg_pmu_wlcx_0p8>;
++		vddwlmx-supply = <&vreg_pmu_wlmx_0p8>;
++		vddbtcmx-supply = <&vreg_pmu_btcmx_0p8>;
++		vddrfa0p8-supply = <&vreg_pmu_rfa_0p8>;
++		vddrfa1p2-supply = <&vreg_pmu_rfa_1p2>;
++		vddrfa1p7-supply = <&vreg_pmu_rfa_1p7>;
++
++		/* 3.2 Mbaud garbles every frame on this UART; 1, 2 and 3 Mbaud work. */
++		max-speed = <3000000>;
++	};
++};
++
++&usi_apm1 {
++	status = "okay";
++};

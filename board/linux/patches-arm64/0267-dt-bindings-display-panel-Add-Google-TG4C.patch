@@ -1,0 +1,88 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Tue, 27 Oct 2026 12:05:24 -0647
+Subject: [PATCH] dt-bindings: display: panel: Add Google TG4C
+
+The TG4C is the 1080x2424 command-mode AMOLED panel of the Google
+Pixel 9a, on four DSI lanes with a TE line, at 60 or 120 Hz. Google
+drives it with DSC 1.2, two 540x24 slices at 8 bits per pixel. Its
+supplies and reset follow Google's tegu device tree (vci, vddi, vddd,
+reset), as the S6E3HC4's do.
+
+Link: https://android.googlesource.com/kernel/devices/google/tegu/+/6276884d9940694b25a6934671918ec8ac412ee8/dts/zuma-tegu-connector.dtsi
+Link: https://android.googlesource.com/kernel/google-modules/display/panels/tegu/+/e3a801fb038fdd1bbaec36d387f27bd99f10757a/panel-gs-tg4c.c
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ .../bindings/display/panel/google,tg4c.yaml   | 63 +++++++++++++++++++
+ 1 file changed, 63 insertions(+)
+ create mode 100644 Documentation/devicetree/bindings/display/panel/google,tg4c.yaml
+
+diff --git a/Documentation/devicetree/bindings/display/panel/google,tg4c.yaml b/Documentation/devicetree/bindings/display/panel/google,tg4c.yaml
+new file mode 100644
+index 000000000..081caf0e7
+--- /dev/null
++++ b/Documentation/devicetree/bindings/display/panel/google,tg4c.yaml
+@@ -0,0 +1,63 @@
++# SPDX-License-Identifier: GPL-2.0-only OR BSD-2-Clause
++%YAML 1.2
++---
++$id: http://devicetree.org/schemas/display/panel/google,tg4c.yaml#
++$schema: http://devicetree.org/meta-schemas/core.yaml#
++
++title: Google TG4C AMOLED DSI panel
++
++description:
++  The TG4C is the 1080x2424 command-mode AMOLED panel of the Google Pixel
++  9a. It takes DSC 1.2 compressed pixel data (two 540x24 slices at 8 bits
++  per pixel) over four MIPI DSI lanes, reports its refresh timing on a
++  tearing effect (TE) line and runs at 60 or 120 Hz.
++
++maintainers:
++  - W4HO <87742609+W4HO-ham@users.noreply.github.com>
++
++allOf:
++  - $ref: panel-common.yaml#
++
++properties:
++  compatible:
++    const: google,tg4c
++
++  reg:
++    maxItems: 1
++
++  reset-gpios: true
++
++  vddi-supply:
++    description: I/O supply
++
++  vddd-supply:
++    description: Digital core supply
++
++  vci-supply:
++    description: Analog supply
++
++required:
++  - compatible
++  - reg
++
++unevaluatedProperties: false
++
++examples:
++  - |
++    #include <dt-bindings/gpio/gpio.h>
++
++    dsi {
++        #address-cells = <1>;
++        #size-cells = <0>;
++
++        panel@0 {
++            compatible = "google,tg4c";
++            reg = <0>;
++            reset-gpios = <&gpp0 0 GPIO_ACTIVE_LOW>;
++            vci-supply = <&vci>;
++            vddi-supply = <&vddi>;
++            vddd-supply = <&vddd>;
++        };
++    };
++
++...

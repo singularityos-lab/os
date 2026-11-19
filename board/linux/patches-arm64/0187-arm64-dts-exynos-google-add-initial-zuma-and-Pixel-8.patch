@@ -1,0 +1,369 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Brett-Michael Green <brett@bmgvisualtech.com>
+Date: Thu, 22 Oct 2026 16:06:21 -0400
+Subject: [PATCH] arm64: dts: exynos: google: add initial zuma and Pixel 8 Pro
+ support
+
+A minimal zuma (Tensor G3) description: nine CPUs (4x Cortex-A510,
+4x Cortex-A715, 1x Cortex-X3) on PSCI, the GICv3, the architected
+timer, the fixed DRAM carve-outs firmware owns, ramoops in stock's
+layout, and the DWC3 controller, added disabled (the next commits
+give it its PHYs and enable it). Values come from a retail Pixel 8
+Pro's live device tree and Google's GPL zuma tree.
+
+The parts of stock's base DTB the bootloader reads or patches follow
+stock: /ect carries the ECT location (stock's base DTBs have size
+0x53000, which the bootloader rewrites to 0x14000), /memory has the
+first DRAM bank, and none of the reservations the bootloader inserts
+itself (pkvm_guest_firmware, sec_dram, sec_pt) are listed. Nor is
+debug_kinfo_reserved, the page at 0xfd3fe000: stock's base DTB carries
+it, and the bootloader adds it to a tree without it. The debug
+carve-out ends there, as stock's dss_log_reserved does, so the two
+don't overlap.
+
+zuma's bootloader matches the base DTB on a /soc_compatible node
+rather than /soc_id; the husky board file carries the B0/B1 FOPLP
+entries a retail phone matches. Label stubs let the bootloader's
+debug-policy overlay apply.
+
+No clock, pinctrl or power-domain providers yet. The framebuffer, the
+watchdogs and the reboot mode come in later commits.
+
+dtbs_check: only the two stock-style "description" labels in
+/soc_compatible remain unvalidated.
+
+Tested on a Pixel 8 Pro, with the DWC3 enabled: the bootloader boots
+the kernel with this description and the initramfs runs (the DWC3
+fails to probe until its PHYs are described). With the debug carve-out
+ending at 0xfd3fe000, the bootloader's debug_kinfo_reserved node is in
+the booted tree and the kernel reports no reserved-memory overlap.
+
+Assisted-by: LLM
+Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
+---
+ arch/arm64/boot/dts/exynos/google/Makefile    |   4 +-
+ .../boot/dts/exynos/google/zuma-husky.dts     |  52 ++++
+ arch/arm64/boot/dts/exynos/google/zuma.dtsi   | 236 ++++++++++++++++++
+ 3 files changed, 291 insertions(+), 1 deletion(-)
+ create mode 100644 arch/arm64/boot/dts/exynos/google/zuma-husky.dts
+ create mode 100644 arch/arm64/boot/dts/exynos/google/zuma.dtsi
+
+diff --git a/arch/arm64/boot/dts/exynos/google/Makefile b/arch/arm64/boot/dts/exynos/google/Makefile
+index 24c983edb..0ecac5f36 100644
+--- a/arch/arm64/boot/dts/exynos/google/Makefile
++++ b/arch/arm64/boot/dts/exynos/google/Makefile
+@@ -5,7 +5,8 @@ dtb-$(CONFIG_ARCH_EXYNOS) += \
+ 	gs101-raven.dtb \
+ 	gs201-cheetah.dtb \
+ 	gs201-felix.dtb \
+-	gs201-lynx.dtb
++	gs201-lynx.dtb \
++	zuma-husky.dtb
+ 
+ # ABL applies board overlays, so keep symbols for labels
+ DTC_FLAGS_gs101-oriole += -@
+@@ -13,3 +14,4 @@ DTC_FLAGS_gs101-raven += -@
+ DTC_FLAGS_gs201-cheetah += -@
+ DTC_FLAGS_gs201-felix += -@
+ DTC_FLAGS_gs201-lynx += -@
++DTC_FLAGS_zuma-husky += -@
+diff --git a/arch/arm64/boot/dts/exynos/google/zuma-husky.dts b/arch/arm64/boot/dts/exynos/google/zuma-husky.dts
+new file mode 100644
+index 000000000..c9d34fb72
+--- /dev/null
++++ b/arch/arm64/boot/dts/exynos/google/zuma-husky.dts
+@@ -0,0 +1,52 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * Google Pixel 8 Pro (husky) - first-light board file.
++ */
++
++/dts-v1/;
++
++#include "zuma.dtsi"
++
++/ {
++	model = "Google Pixel 8 Pro";
++	compatible = "google,zuma-husky", "google,zuma";
++
++	/*
++	 * zuma's ABL picks the base DTB by matching these children against
++	 * the SoC's product id, revision and package; there is no /soc_id.
++	 * A retail husky has a B0/B1 FOPLP part (stock base DTB 2, which
++	 * carries exactly these two).
++	 */
++	soc_compatible {
++		B0_FOPLP {
++			description = "B0,FOPLP";
++			product_id = <0x9865>;
++			major = <1>;
++			minor = <0>;
++			pkg_mode = <0>;
++		};
++
++		B1_FOPLP {
++			description = "B1,FOPLP";
++			product_id = <0x9865>;
++			major = <1>;
++			minor = <1>;
++			pkg_mode = <0>;
++		};
++	};
++
++	chosen {
++		/* ABL requires bootargs to exist; it appends its own after these. */
++		bootargs = "console=tty0 panic=10 clk_ignore_unused pd_ignore_unused rdinit=/init";
++		#address-cells = <2>;
++		#size-cells = <1>;
++		ranges;
++
++		/*
++		 * No simple-framebuffer yet: the live tree names no splash
++		 * carve-out, and the address is read from DPP's RDMA base
++		 * register on a booted phone before it goes here (as on the
++		 * Pixel 7 Pro and the Fold), never guessed.
++		 */
++	};
++};
+diff --git a/arch/arm64/boot/dts/exynos/google/zuma.dtsi b/arch/arm64/boot/dts/exynos/google/zuma.dtsi
+new file mode 100644
+index 000000000..e14d431e6
+--- /dev/null
++++ b/arch/arm64/boot/dts/exynos/google/zuma.dtsi
+@@ -0,0 +1,236 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * Google Zuma (Tensor G3) SoC - minimal description for first light.
++ *
++ * Addresses, interrupts and reservations are the ones a retail Pixel 8 Pro
++ * (husky) runs with: its live device tree and Google's GPL zuma tree
++ * (android-gs-shusky-6.1-android16). Nothing here is copied from gs101 or
++ * gs201. No clock, pinctrl or power-domain providers yet: the bootloader
++ * leaves what first light needs running, and the board's bootargs carry
++ * clk_ignore_unused and pd_ignore_unused.
++ */
++
++#include <dt-bindings/interrupt-controller/arm-gic.h>
++#include <dt-bindings/interrupt-controller/irq.h>
++
++/ {
++	compatible = "google,zuma";
++	#address-cells = <2>;
++	#size-cells = <1>;
++	interrupt-parent = <&gic>;
++
++	/*
++	 * Required by the Pixel bootloader (ABL). zuma's stock base DTB
++	 * carries the ECT location here rather than an empty node.
++	 */
++	ect {
++		parameter_address = <0x90000000>;
++		parameter_size = <0x53000>;
++	};
++
++	/*
++	 * Stock's base DTB has the first DRAM bank; ABL adds the others
++	 * and may update this node rather than create one.
++	 */
++	memory@80000000 {
++		device_type = "memory";
++		reg = <0x0 0x80000000 0x80000000>;
++	};
++
++	/* Target of the ABL-applied debug-policy (dpm partition) overlay. */
++	dpm: dpm { };
++
++	/*
++	 * Labels the user-build debug-policy overlay targets besides &dpm
++	 * (Google zuma-dpm-user.dtsi): stubs, so it applies to this tree.
++	 */
++	dpm-stubs {
++		itmon: itmon { status = "disabled"; };
++		log_arrdumppanic: log-arrdumppanic { status = "disabled"; };
++		log_bcm: log-bcm { status = "disabled"; };
++		log_preslcdump: log-preslcdump { status = "disabled"; };
++		log_slcdump: log-slcdump { status = "disabled"; };
++	};
++
++	cpus {
++		#address-cells = <1>;
++		#size-cells = <0>;
++
++		cpu-map {
++			cluster0 {
++				core0 { cpu = <&cpu0>; };
++				core1 { cpu = <&cpu1>; };
++				core2 { cpu = <&cpu2>; };
++				core3 { cpu = <&cpu3>; };
++				core4 { cpu = <&cpu4>; };
++				core5 { cpu = <&cpu5>; };
++				core6 { cpu = <&cpu6>; };
++				core7 { cpu = <&cpu7>; };
++				core8 { cpu = <&cpu8>; };
++			};
++		};
++
++		/*
++		 * Four Cortex-A510, four Cortex-A715 and one Cortex-X3 (MIDR
++		 * parts 0xd46, 0xd4d, 0xd4e). Capacities are stock's.
++		 */
++		cpu0: cpu@0 {
++			device_type = "cpu";
++			compatible = "arm,cortex-a510";
++			reg = <0x000>;
++			enable-method = "psci";
++			capacity-dmips-mhz = <193>;
++		};
++		cpu1: cpu@100 {
++			device_type = "cpu";
++			compatible = "arm,cortex-a510";
++			reg = <0x100>;
++			enable-method = "psci";
++			capacity-dmips-mhz = <193>;
++		};
++		cpu2: cpu@200 {
++			device_type = "cpu";
++			compatible = "arm,cortex-a510";
++			reg = <0x200>;
++			enable-method = "psci";
++			capacity-dmips-mhz = <193>;
++		};
++		cpu3: cpu@300 {
++			device_type = "cpu";
++			compatible = "arm,cortex-a510";
++			reg = <0x300>;
++			enable-method = "psci";
++			capacity-dmips-mhz = <193>;
++		};
++		cpu4: cpu@400 {
++			device_type = "cpu";
++			compatible = "arm,cortex-a715";
++			reg = <0x400>;
++			enable-method = "psci";
++			capacity-dmips-mhz = <927>;
++		};
++		cpu5: cpu@500 {
++			device_type = "cpu";
++			compatible = "arm,cortex-a715";
++			reg = <0x500>;
++			enable-method = "psci";
++			capacity-dmips-mhz = <927>;
++		};
++		cpu6: cpu@600 {
++			device_type = "cpu";
++			compatible = "arm,cortex-a715";
++			reg = <0x600>;
++			enable-method = "psci";
++			capacity-dmips-mhz = <927>;
++		};
++		cpu7: cpu@700 {
++			device_type = "cpu";
++			compatible = "arm,cortex-a715";
++			reg = <0x700>;
++			enable-method = "psci";
++			capacity-dmips-mhz = <927>;
++		};
++		cpu8: cpu@800 {
++			device_type = "cpu";
++			compatible = "arm,cortex-x3";
++			reg = <0x800>;
++			enable-method = "psci";
++			capacity-dmips-mhz = <1024>;
++		};
++	};
++
++	psci {
++		compatible = "arm,psci-1.0";
++		method = "smc";
++	};
++
++	timer {
++		compatible = "arm,armv8-timer";
++		interrupts = <GIC_PPI 13 IRQ_TYPE_LEVEL_LOW>,
++			     <GIC_PPI 14 IRQ_TYPE_LEVEL_LOW>,
++			     <GIC_PPI 11 IRQ_TYPE_LEVEL_LOW>,
++			     <GIC_PPI 10 IRQ_TYPE_LEVEL_LOW>;
++		/* Stock sets it: 24.576 MHz. */
++		clock-frequency = <24576000>;
++	};
++
++	/*
++	 * Fixed DRAM carve-outs from the live device tree, without the regions
++	 * ABL adds itself: pkvm_guest_firmware, sec_dram and sec_pt, and
++	 * debug_kinfo_reserved (in stock's base DTB, added by ABL to a tree
++	 * without it). Firmware, co-processors or the bootloader own these, so
++	 * the kernel must not use them, whether or not a driver for the owner
++	 * exists yet.
++	 * Stock leaves ect-binary, seclog and the three CP regions mapped for
++	 * the drivers that read them; with no such driver here they are
++	 * no-map, like the rest, on purpose.
++	 * Dynamically placed pools (CMA, GCMA) are left out.
++	 */
++	reserved-memory {
++		#address-cells = <2>;
++		#size-cells = <1>;
++		ranges;
++
++		ect-binary@90000000 { reg = <0x0 0x90000000 0x60000>; no-map; };
++		gsa@90200000 { reg = <0x0 0x90200000 0x400000>; no-map; };
++		gxp@91300000 { reg = <0x0 0x91300000 0x1100000>; no-map; };
++		tpu-fw@93000000 { reg = <0x0 0x93000000 0x1000000>; no-map; };
++		aoc@94000000 { reg = <0x0 0x94000000 0x3000000>; no-map; };
++		xhci-dma@97000000 { reg = <0x0 0x97000000 0x400000>; no-map; };
++		seclog@c3000000 { reg = <0x0 0xc3000000 0x90000>; no-map; };
++		/* debug-snapshot: header through log_s2d_extract */
++		dss@d8100000 { reg = <0x0 0xd8100000 0x5f20000>; no-map; };
++		cp-rmem1@e8000000 { reg = <0x0 0xe8000000 0x2000000>; no-map; };
++		cp-rmem@ea400000 { reg = <0x0 0xea400000 0xc00000>; no-map; };
++		cp-msi@f6200000 { reg = <0x0 0xf6200000 0x1000>; no-map; };
++		abl@f8800000 { reg = <0x0 0xf8800000 0x1000000>; no-map; };
++		debug@fd3f0000 { reg = <0x0 0xfd3f0000 0xe000>; no-map; };
++		/*
++		 * Stock's ramoops layout. zuma's user-build bootloader does not
++		 * keep it across a warm reset (even stock's own console log is
++		 * gone after one), so for now this only reserves the region.
++		 */
++		ramoops@fd3ff000 {
++			compatible = "ramoops";
++			reg = <0x0 0xfd3ff000 0x400000>;
++			console-size = <0x200000>;
++			pmsg-size = <0x200000>;
++		};
++		bldr-log@fd800000 { reg = <0x0 0xfd800000 0x100000>; no-map; };
++	};
++
++	soc: soc@0 {
++		compatible = "simple-bus";
++		#address-cells = <1>;
++		#size-cells = <1>;
++		ranges = <0x0 0x0 0x0 0x40000000>;
++
++		gic: interrupt-controller@10400000 {
++			compatible = "arm,gic-v3";
++			#interrupt-cells = <3>;
++			#address-cells = <0>;
++			interrupt-controller;
++			reg = <0x10400000 0x10000>,	/* GICD */
++			      <0x10440000 0x200000>;	/* GICR, nine CPUs */
++			interrupts = <GIC_PPI 9 IRQ_TYPE_LEVEL_HIGH>;
++		};
++
++		/*
++		 * The DWC3 controller. Stock has it in peripheral mode behind
++		 * Google's exynos9-dwusb glue, with an eUSB2 PHY at 0x11100000
++		 * and a Samsung eUSB2 repeater on I2C (0x3e). ABL leaves both
++		 * set up from fastboot [I], so the first-light gate tries the
++		 * bare core without a PHY node; a PHY driver comes next.
++		 */
++		usb_dwc3: usb@11210000 {
++			compatible = "snps,dwc3";
++			reg = <0x11210000 0x10000>;
++			interrupts = <GIC_SPI 402 IRQ_TYPE_LEVEL_HIGH>;
++			dr_mode = "peripheral";
++			maximum-speed = "high-speed";
++			snps,dis_u2_susphy_quirk;
++			snps,dis_u3_susphy_quirk;
++			status = "disabled";
++		};
++	};
++};

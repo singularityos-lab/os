@@ -1,0 +1,27 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Brett-Michael Green <brett@bmgvisualtech.com>
+Date: Fri, 30 Oct 2026 16:34:26 -0400
+Subject: [PATCH] dt-bindings: soc: samsung: exynos-sysreg: Add the Tensor G3
+ HSI0 sysreg
+
+HSI0's system registers hold the USI mode of the touchscreen's USI2.
+Like zuma's UFS sysreg, it takes no clock: HSI0 is firmware-owned.
+
+Assisted-by: LLM
+Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
+---
+ .../devicetree/bindings/soc/samsung/samsung,exynos-sysreg.yaml   | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/Documentation/devicetree/bindings/soc/samsung/samsung,exynos-sysreg.yaml b/Documentation/devicetree/bindings/soc/samsung/samsung,exynos-sysreg.yaml
+index 5acd0e0ef..2a181df90 100644
+--- a/Documentation/devicetree/bindings/soc/samsung/samsung,exynos-sysreg.yaml
++++ b/Documentation/devicetree/bindings/soc/samsung/samsung,exynos-sysreg.yaml
+@@ -27,6 +27,7 @@ properties:
+               - google,gs201-peric0-sysreg
+               - google,gs201-peric1-sysreg
+               - google,gs201-vgpio2ap-sysreg
++              - google,zuma-hsi0-sysreg
+               - google,zuma-ufs-sysreg
+               - google,zumapro-apm-sysreg
+               - google,zumapro-hsi0-sysreg

@@ -1,0 +1,81 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Tue, 27 Oct 2026 14:58:20 -0647
+Subject: [PATCH] clk: samsung: zumapro: Add the PERIC1 USI10 clocks
+
+Add USI10's user mux and divider, read-only like USI9's, and its IPCLK,
+PCLK and RSTNSYNC gates as gates Linux controls: USI10 is the I2C bus of
+the Pixel 9a's RT9470, whose boost supplies VBUS for USB host mode, and
+nothing else uses it.
+
+Registers from Google's zuma CAL (cmucal-sfr.c): user mux 0x630, divider
+0x180c, gates 0x2040, 0x2044 and 0x2090; USI9's entries there match the
+offsets this driver already uses.
+
+Tested on the Pixel 9a (7.3.0-rc6-omamobile-tegu-s2mpg15-m1, this
+CMU_PERIC1 code apart from one comment) with USI10 as I2C at 400 kHz:
+the RT9470 at 0x5b answers (INFO 0x49), and its OTG_EN bit turns its
+boost on (ICSTAT 0xf, the TCPC reports VBUS present). Idle, the IPCLK
+gate reads off.
+
+Link: https://android.googlesource.com/kernel/google-modules/soc/gs/+/204078758737776959ecc85c527a00fd2cabb62f/drivers/soc/google/cal-if/zuma/cmucal-sfr.c
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ drivers/clk/samsung/clk-zumapro.c | 19 ++++++++++++++++++-
+ 1 file changed, 18 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/clk/samsung/clk-zumapro.c b/drivers/clk/samsung/clk-zumapro.c
+index 44e3f211b..8ffb0e505 100644
+--- a/drivers/clk/samsung/clk-zumapro.c
++++ b/drivers/clk/samsung/clk-zumapro.c
+@@ -557,17 +557,22 @@ static const struct samsung_cmu_info hsi1_cmu __initconst = {
+  */
+ PNAME(mout_peric1_noc_user_parents) = { "oscclk", "zumapro_dout_peric1_noc" };
+ PNAME(mout_peric1_usi9_user_parents) = { "oscclk", "zumapro_dout_peric1_ip" };
++PNAME(mout_peric1_usi10_user_parents) = { "oscclk", "zumapro_dout_peric1_ip" };
+ 
+ static const struct samsung_mux_clock peric1_muxes[] __initconst = {
+ 	MUX_F(CLK_MOUT_PERIC1_NOC_USER, "zumapro_mout_peric1_noc_user",
+ 	      mout_peric1_noc_user_parents, 0x610, 4, 1, 0, CLK_MUX_READ_ONLY),
+ 	MUX_F(CLK_MOUT_PERIC1_USI9_USER, "zumapro_mout_peric1_usi9_user",
+ 	      mout_peric1_usi9_user_parents, 0x690, 4, 1, 0, CLK_MUX_READ_ONLY),
++	MUX_F(CLK_MOUT_PERIC1_USI10_USER, "zumapro_mout_peric1_usi10_user",
++	      mout_peric1_usi10_user_parents, 0x630, 4, 1, 0, CLK_MUX_READ_ONLY),
+ };
+ 
+ static const struct samsung_div_clock peric1_dividers[] __initconst = {
+ 	DIV_F(CLK_DOUT_PERIC1_USI9, "zumapro_dout_peric1_usi9",
+ 	      "zumapro_mout_peric1_usi9_user", 0x1824, 0, 4, 0, CLK_DIVIDER_READ_ONLY),
++	DIV_F(CLK_DOUT_PERIC1_USI10, "zumapro_dout_peric1_usi10",
++	      "zumapro_mout_peric1_usi10_user", 0x180c, 0, 4, 0, CLK_DIVIDER_READ_ONLY),
+ };
+ 
+ static const struct samsung_gate_clock peric1_ro_gates[] __initconst = {
+@@ -583,6 +588,16 @@ static const struct samsung_gate_clock peric1_ro_gates[] __initconst = {
+ 	     "zumapro_dout_peric1_usi9", 0x20a0, 21, CLK_IGNORE_UNUSED, 0),
+ };
+ 
++/* USI10, the I2C bus of the Pixel 9a's OTG boost: gates Linux turns on */
++static const struct samsung_gate_clock peric1_gates[] __initconst = {
++	GATE(CLK_GOUT_PERIC1_USI10_IPCLK, "zumapro_gout_peric1_usi10_ipclk",
++	     "zumapro_dout_peric1_usi10", 0x2040, 21, 0, 0),
++	GATE(CLK_GOUT_PERIC1_USI10_PCLK, "zumapro_gout_peric1_usi10_pclk",
++	     "zumapro_mout_peric1_noc_user", 0x2044, 21, 0, 0),
++	GATE(CLK_GOUT_PERIC1_USI10_RSTNSYNC, "zumapro_gout_peric1_usi10_rstnsync",
++	     "zumapro_dout_peric1_usi10", 0x2090, 21, 0, 0),
++};
++
+ static const struct samsung_cmu_info peric1_cmu __initconst = {
+ 	.mux_clks = peric1_muxes,
+ 	.nr_mux_clks = ARRAY_SIZE(peric1_muxes),
+@@ -590,7 +605,9 @@ static const struct samsung_cmu_info peric1_cmu __initconst = {
+ 	.nr_div_clks = ARRAY_SIZE(peric1_dividers),
+ 	.ro_gate_clks = peric1_ro_gates,
+ 	.nr_ro_gate_clks = ARRAY_SIZE(peric1_ro_gates),
+-	.nr_clk_ids = CLK_GOUT_PERIC1_USI9_RSTNSYNC + 1,
++	.gate_clks = peric1_gates,
++	.nr_gate_clks = ARRAY_SIZE(peric1_gates),
++	.nr_clk_ids = CLK_GOUT_PERIC1_USI10_RSTNSYNC + 1,
+ 	.clk_name = "bus",
+ };
+ 

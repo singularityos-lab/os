@@ -1,0 +1,98 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Lef <me@lefteros.com>
+Date: Fri, 6 Nov 2026 06:50:26 +0200
+Subject: [PATCH] dt-bindings: clock: google,zuma-clock: add CMU_PERIC0 and
+ PERIC1 USI0
+
+Add the clock IDs for PERIC1's USI0 (the haptics driver's I2C bus on
+the Pixel 8 Pro), the PERIC0 NoC and peripheral paths in CMU_TOP, and
+the new CMU_PERIC0 with USI14 (the rear flash LED's I2C bus), and the
+google,zuma-cmu-peric0 compatible.
+
+Signed-off-by: Lef <me@lefteros.com>
+---
+ .../bindings/clock/google,zuma-clock.yaml     | 17 ++++++++++++++
+ include/dt-bindings/clock/google,zuma.h       | 23 +++++++++++++++++++
+ 2 files changed, 40 insertions(+)
+
+diff --git a/Documentation/devicetree/bindings/clock/google,zuma-clock.yaml b/Documentation/devicetree/bindings/clock/google,zuma-clock.yaml
+index 11d78ddd4..b4f124506 100644
+--- a/Documentation/devicetree/bindings/clock/google,zuma-clock.yaml
++++ b/Documentation/devicetree/bindings/clock/google,zuma-clock.yaml
+@@ -27,6 +27,7 @@ properties:
+       - google,zuma-cmu-top
+       - google,zuma-cmu-apm
+       - google,zuma-cmu-hsi0
++      - google,zuma-cmu-peric0
+       - google,zuma-cmu-peric1
+ 
+   reg:
+@@ -83,6 +84,22 @@ allOf:
+             - const: bus
+             - const: peri
+             - const: alt
++  - if:
++      properties:
++        compatible:
++          const: google,zuma-cmu-peric0
++    then:
++      properties:
++        clocks:
++          items:
++            - description: External oscillator reference clock
++            - description: PERIC0 NoC clock from CMU_TOP
++            - description: PERIC0 USI input clock from CMU_TOP
++        clock-names:
++          items:
++            - const: oscclk
++            - const: bus
++            - const: ip
+   - if:
+       properties:
+         compatible:
+diff --git a/include/dt-bindings/clock/google,zuma.h b/include/dt-bindings/clock/google,zuma.h
+index 0f8b127ff..a226cae5a 100644
+--- a/include/dt-bindings/clock/google,zuma.h
++++ b/include/dt-bindings/clock/google,zuma.h
+@@ -25,6 +25,14 @@
+ #define CLK_DOUT_PERIC1_NOC		20
+ #define CLK_DOUT_PERIC1_IP		21
+ 
++/* CMU_TOP: the PERIC0 NoC and peripheral clock paths. */
++#define CLK_MOUT_PERIC0_NOC		22
++#define CLK_MOUT_PERIC0_IP		23
++#define CLK_GOUT_PERIC0_NOC		24
++#define CLK_GOUT_PERIC0_IP		25
++#define CLK_DOUT_PERIC0_NOC		26
++#define CLK_DOUT_PERIC0_IP		27
++
+ /* CMU_HSI0: USI2, the touchscreen's SPI. */
+ #define CLK_GOUT_HSI0_ALT		1
+ #define CLK_MOUT_HSI0_NOC_USER		2
+@@ -54,6 +62,11 @@
+ #define CLK_GOUT_PERIC1_USI9_IPCLK	11
+ #define CLK_GOUT_PERIC1_USI9_PCLK	12
+ #define CLK_GOUT_PERIC1_USI9_RSTNSYNC	13
++#define CLK_MOUT_PERIC1_USI0_USER	14
++#define CLK_DOUT_PERIC1_USI0		15
++#define CLK_GOUT_PERIC1_USI0_IPCLK	16
++#define CLK_GOUT_PERIC1_USI0_PCLK	17
++#define CLK_GOUT_PERIC1_USI0_RSTNSYNC	18
+ 
+ /* CMU_APM: the APM mailbox, its SRAM, the always-on GPIO banks, the USI1 UART and the SYSREG. */
+ #define CLK_APM_PLL_ALV_DIV2		1
+@@ -76,4 +89,14 @@
+ #define CLK_GOUT_APM_USI1_UART_RSTNSYNC	18
+ #define CLK_GOUT_APM_SYSREG		19
+ 
++/* CMU_PERIC0: USI14, the I2C bus of the rear flash LED. */
++#define CLK_MOUT_PERIC0_NOC_USER	1
++#define CLK_GOUT_GPIO_PERIC0		2
++#define CLK_GOUT_PERIC0_SYSREG		3
++#define CLK_MOUT_PERIC0_USI14_USER	4
++#define CLK_DOUT_PERIC0_USI14		5
++#define CLK_GOUT_PERIC0_USI14_IPCLK	6
++#define CLK_GOUT_PERIC0_USI14_PCLK	7
++#define CLK_GOUT_PERIC0_USI14_RSTNSYNC	8
++
+ #endif /* _DT_BINDINGS_CLOCK_GOOGLE_ZUMA_H */

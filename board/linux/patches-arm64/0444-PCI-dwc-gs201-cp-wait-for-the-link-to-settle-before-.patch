@@ -1,0 +1,121 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Tue, 13 Oct 2026 08:56:08 -0400
+Subject: [PATCH] PCI: dwc: gs201-cp: wait for the link to settle before using
+ it
+
+The first L0 after training can be a transient: the S5300's firmware
+asks for Gen3 and the link retrains from Gen1, passing through Recovery.
+Google's exynos_pcie_rc_establish_link() waits 3 ms after L0, retries
+the link while it is below its target speed, and waits for L0 (to
+L1_IDLE) again before anything touches the endpoint. Here the link
+waited 3 ms and only logged the speed, so the secure ATU setup and the
+first configuration reads could meet a link in Recovery.
+
+After the 3 ms, wait up to 48 ms (Google's MAX_TIMEOUT polls) for the
+LTSSM to be in L0 to L1_IDLE with link training over, and fail the try
+otherwise. Retry a link below the target speed, as Google does, but keep
+it on the last try rather than failing the power-on.
+
+Assisted-by: LLM
+Signed-off-by: Derek Ross <derekross@gmail.com>
+---
+ drivers/pci/controller/dwc/pcie-gs201-cp.c | 54 ++++++++++++++++++++--
+ 1 file changed, 49 insertions(+), 5 deletions(-)
+
+diff --git a/drivers/pci/controller/dwc/pcie-gs201-cp.c b/drivers/pci/controller/dwc/pcie-gs201-cp.c
+index a5d449d14..dbf32179c 100644
+--- a/drivers/pci/controller/dwc/pcie-gs201-cp.c
++++ b/drivers/pci/controller/dwc/pcie-gs201-cp.c
+@@ -147,6 +147,8 @@ MODULE_PARM_DESC(watch_lines, "Log every edge on the modem's cp2ap lines, with i
+ #define CP_LINK_TIMEOUT_US		48000
+ #define CP_LINK_TRIES			3
+ #define CP_SPEED_SETTLE_US		3000	/* Gen1 -> Gen3 change */
++#define CP_SETTLE_POLL_US		10
++#define CP_SETTLE_TIMEOUT_US		48000	/* Google: MAX_TIMEOUT polls */
+ #define CP_OFF_SLOW_GAP_MS		1000	/* cp_off_slow: between edges */
+ #define CP_L2_POLL_US			10
+ #define CP_L2_TIMEOUT_US		20000
+@@ -800,8 +802,48 @@ static void cp_link_down(struct gs201_pcie_cp *cp)
+ 	cp->atu_done = false;
+ }
+ 
++/*
++ * After the first L0, as exynos_pcie_rc_establish_link(): the link can
++ * still be retraining from Gen1 towards the target, so wait the settle
++ * time, then for training to have ended in L0 (or L0s/L1) before anything
++ * touches the endpoint. A link below the target speed is retried, as
++ * Google does, except on the last try, which keeps it.
++ */
++static int cp_link_settle(struct gs201_pcie_cp *cp, unsigned int speed,
++			  bool last)
++{
++	struct dw_pcie *pci = &cp->pci;
++	u8 cap = dw_pcie_find_capability(pci, PCI_CAP_ID_EXP);
++	u16 lnksta = 0;
++	u32 ltssm = 0;
++	int ret;
++
++	fsleep(CP_SPEED_SETTLE_US);
++	ret = read_poll_timeout(cp_elbi_read, ltssm,
++				FIELD_GET(CP_ELBI_LTSSM_MASK, ltssm) >= DW_PCIE_LTSSM_L0 &&
++				FIELD_GET(CP_ELBI_LTSSM_MASK, ltssm) <= CP_LTSSM_L1_IDLE &&
++				!(cap && (dw_pcie_readw_dbi(pci, cap + PCI_EXP_LNKSTA) &
++					  PCI_EXP_LNKSTA_LT)),
++				CP_SETTLE_POLL_US, CP_SETTLE_TIMEOUT_US, false,
++				cp, CP_ELBI_LTSSM_STATE);
++	if (cap)
++		lnksta = dw_pcie_readw_dbi(pci, cap + PCI_EXP_LNKSTA);
++	if (ret) {
++		dev_warn(cp->dev, "link did not settle: LTSSM %#lx, LNKSTA %#x\n",
++			 FIELD_GET(CP_ELBI_LTSSM_MASK, ltssm), lnksta);
++		return ret;
++	}
++	if (FIELD_GET(PCI_EXP_LNKSTA_CLS, lnksta) < speed && !last) {
++		dev_info(cp->dev, "link at Gen%u, below Gen%u: retrying\n",
++			 (unsigned int)FIELD_GET(PCI_EXP_LNKSTA_CLS, lnksta), speed);
++		return -EAGAIN;
++	}
++
++	return 0;
++}
++
+ /* exynos_pcie_rc_establish_link(), one try */
+-static int cp_link_try(struct gs201_pcie_cp *cp, unsigned int speed)
++static int cp_link_try(struct gs201_pcie_cp *cp, unsigned int speed, bool last)
+ {
+ 	u32 val;
+ 	int ret;
+@@ -844,10 +886,13 @@ static int cp_link_try(struct gs201_pcie_cp *cp, unsigned int speed)
+ 				 FIELD_GET(CP_ELBI_LTSSM_MASK, val) ==
+ 				 DW_PCIE_LTSSM_L0,
+ 				 CP_LINK_POLL_US, CP_LINK_TIMEOUT_US);
+-	if (ret)
++	if (ret) {
+ 		dev_warn(cp->dev, "no L0, LTSSM %#lx\n",
+ 			 FIELD_GET(CP_ELBI_LTSSM_MASK, val));
+-	return ret;
++		return ret;
++	}
++
++	return cp_link_settle(cp, speed, last);
+ }
+ 
+ static int cp_link_up(struct gs201_pcie_cp *cp, unsigned int speed)
+@@ -877,7 +922,7 @@ static int cp_link_up(struct gs201_pcie_cp *cp, unsigned int speed)
+ 	}
+ 
+ 	for (try = 1; try <= CP_LINK_TRIES; try++) {
+-		ret = cp_link_try(cp, speed);
++		ret = cp_link_try(cp, speed, try == CP_LINK_TRIES);
+ 		if (!ret)
+ 			break;
+ 		gpiod_set_value_cansleep(cp->perst, 1);
+@@ -888,7 +933,6 @@ static int cp_link_up(struct gs201_pcie_cp *cp, unsigned int speed)
+ 	if (ret)
+ 		return ret;
+ 
+-	fsleep(CP_SPEED_SETTLE_US);
+ 	cap = dw_pcie_find_capability(pci, PCI_CAP_ID_EXP);
+ 	lnksta = cap ? dw_pcie_readw_dbi(pci, cap + PCI_EXP_LNKSTA) : 0;
+ 	dev_info(cp->dev, "link up: Gen%u x%u (target Gen%u), try %u\n",

@@ -1,7 +1,7 @@
-From 3d4290e44462472dda8e8945970730cdbfa0207a Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Mirko Brombin <9479903+mirkobrombin@users.noreply.github.com>
 Date: Sat, 18 Jul 2026 19:13:40 +0100
-Subject: [PATCH 3/3] mm: add generation-checked native object tiers
+Subject: [PATCH 03/11] mm: add generation-checked native object tiers
 
 Register FD-scoped declarative tiers through /dev/mts and keep provider identity behind the MTS object interface. Store authoritative pages by slot, validate every fill with CRC32, and reject stale generations.
 
@@ -19,10 +19,10 @@ Signed-off-by: Mirko Brombin <9479903+mirkobrombin@users.noreply.github.com>
  create mode 100644 mm/mts_tier.c
 
 diff --git a/MAINTAINERS b/MAINTAINERS
-index 6ae074c..815706b 100644
+index 301e720f8..8f0813339 100644
 --- a/MAINTAINERS
 +++ b/MAINTAINERS
-@@ -17179,7 +17179,7 @@ F:	Documentation/userspace-api/mts.rst
+@@ -17591,7 +17591,7 @@ F:	Documentation/userspace-api/mts.rst
  F:	include/linux/mts.h
  F:	include/trace/events/mts.h
  F:	include/uapi/linux/mts.h
@@ -32,7 +32,7 @@ index 6ae074c..815706b 100644
  MEMORY TECHNOLOGY DEVICES (MTD)
  M:	Miquel Raynal <miquel.raynal@bootlin.com>
 diff --git a/include/linux/mts.h b/include/linux/mts.h
-index 569953c..ec5dc22 100644
+index 569953c1b..ec5dc22b9 100644
 --- a/include/linux/mts.h
 +++ b/include/linux/mts.h
 @@ -2,9 +2,16 @@
@@ -92,7 +92,7 @@ index 569953c..ec5dc22 100644
 +
  #endif /* _LINUX_MTS_H */
 diff --git a/mm/Kconfig b/mm/Kconfig
-index 47e993a..73a31a8 100644
+index 3a38e8553..bdb9f64b2 100644
 --- a/mm/Kconfig
 +++ b/mm/Kconfig
 @@ -29,6 +29,16 @@ config MTS_OBSERVE
@@ -113,7 +113,7 @@ index 47e993a..73a31a8 100644
  	bool "Compressed cache for swap pages"
  	depends on SWAP
 diff --git a/mm/Makefile b/mm/Makefile
-index dda833d..b9d8581 100644
+index 9575f76a7..3d319818c 100644
 --- a/mm/Makefile
 +++ b/mm/Makefile
 @@ -78,6 +78,7 @@ endif
@@ -126,7 +126,7 @@ index dda833d..b9d8581 100644
  ifdef CONFIG_CMA
 diff --git a/mm/mts_tier.c b/mm/mts_tier.c
 new file mode 100644
-index 0000000..02a138f
+index 000000000..02a138f2d
 --- /dev/null
 +++ b/mm/mts_tier.c
 @@ -0,0 +1,461 @@
@@ -591,6 +591,3 @@ index 0000000..02a138f
 +	return misc_register(&mts_control_device);
 +}
 +subsys_initcall(mts_tier_init);
--- 
-2.51.1
-

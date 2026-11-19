@@ -1,0 +1,40 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Brett-Michael Green <brett@bmgvisualtech.com>
+Date: Sat, 31 Oct 2026 15:05:12 -0400
+Subject: [PATCH] drm: google: gs-dsim-cmd: Add the Pixel 8 Pro's link timers
+
+Add the command-mode timers for the Pixel 8 Pro's HK3 link, so gs-decon
+can switch it between 60 and 120 Hz. The 60 Hz pair is the bootloader's
+(UNDERRUN_CTRL 0x2235, CMD_TE_CTRL1 0x34c53c1e). At 120 Hz the TE
+protect and timeout fields are halved, as for the other two links, and
+the underrun is Google's dsim_calc_underrun() for 4 lanes at 1368
+Mbit/s, DSC 3:1, 1344x2992 and HK3's TE idle of 350 us with a 1 %
+variance: the same formula gives the bootloader's 60 Hz value exactly.
+
+Assisted-by: LLM
+Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
+---
+ drivers/gpu/drm/google/gs-dsim-cmd.c | 10 ++++++++++
+ 1 file changed, 10 insertions(+)
+
+diff --git a/drivers/gpu/drm/google/gs-dsim-cmd.c b/drivers/gpu/drm/google/gs-dsim-cmd.c
+index a332f8b0f..cdb67ffd0 100644
+--- a/drivers/gpu/drm/google/gs-dsim-cmd.c
++++ b/drivers/gpu/drm/google/gs-dsim-cmd.c
+@@ -123,6 +123,16 @@ static const struct gs_dsim_rate gs_dsim_rates[][2] = {
+ 		{ .hz = 60, .underrun = 0x18c8, .te_ctrl1 = 0x2a82306d },
+ 		{ .hz = 120, .underrun = 0x02a0, .te_ctrl1 = 0x15411836 },
+ 	},
++	/*
++	 * Pixel 8 Pro, HK3: 4 lanes at 1368 Mbit/s (word clock 85.5 MHz),
++	 * DSC 3:1, 1344x2992, TE idle 350 us. Google's dsim_calc_underrun()
++	 * gives the bootloader's 60 Hz value exactly at that rate, so the
++	 * 120 Hz one is the formula's too.
++	 */
++	{
++		{ .hz = 60, .underrun = 0x2235, .te_ctrl1 = 0x34c53c1e },
++		{ .hz = 120, .underrun = 0x06a7, .te_ctrl1 = 0x1a621e0f },
++	},
+ };
+ 
+ struct gs_dsim {

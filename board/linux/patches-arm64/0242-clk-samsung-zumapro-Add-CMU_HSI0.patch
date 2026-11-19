@@ -1,0 +1,200 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Tue, 27 Oct 2026 01:06:08 -0647
+Subject: [PATCH] clk: samsung: zumapro: Add CMU_HSI0
+
+Register CMU_HSI0 on the common exynos_arm64_register_cmu() path, with
+its bus input. CMU_TOP's two HSI0 branch gates, GATE_CLKCMU_HSI0_NOC
+(0x20bc) and GATE_CLKCMU_HSI0_PERI (0x20c0), become read-only gates
+between the HSI0 muxes and dividers, as MISC's is, so the bus input runs
+through a gate the framework sees and a gate found closed in manual mode
+fails the probe. The USB PLL, the muxes and the dividers keep the settings
+firmware left; the eUSB2, USB, ALT and sysreg gates are read-only gates.
+Only the USI2 source, IP and APB gates and its divider are writable, for
+the touchscreen's SPI20.
+
+The three USI2 gates are in clk_regs, so exynos_arm64_init_clocks() puts
+them in manual mode at probe, and their state is saved and restored with
+the CMU. That is how the Pixel 9a has run since
+2026-10-24: touch on SPI20 at every boot, with suspend and resume, on the
+7.3.0-rc6 integration kernels.
+
+On the Pixel 9a the eUSB2 PHY's reference runs at 19.2 MHz.
+MUX_CLK_HSI0_USB20_REF selects DOUT_HSI0_USB (the USB PLL at 614.4 MHz,
+divided by 32), not the TCXO user mux, which selects the 26 MHz TCXO
+input. The snps-eusb2 driver programmed FSEL 0 and FB_DIV 0x170, its
+19.2 MHz row.
+
+Those readings, the clk_summary and the PHY's, come from the integration
+kernel 7.3.0-rc6-omamobile-tegu-s2mpg15-m1-g991042e2eff3-dirty, whose
+clk-zumapro.c (blob 7f689a677a4d) has this commit's 22 HSI0 entries
+unchanged, plus the USI3 and USI4 clocks for later work and without the
+two CMU_TOP gates, which are new here.
+
+Link: https://android.googlesource.com/kernel/google-modules/soc/gs/+/204078758737776959ecc85c527a00fd2cabb62f/drivers/soc/google/cal-if/zuma/cmucal-sfr.c
+Link: https://android.googlesource.com/kernel/google-modules/soc/gs/+/204078758737776959ecc85c527a00fd2cabb62f/drivers/soc/google/cal-if/zuma/cmucal-node.c
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ drivers/clk/samsung/clk-zumapro.c | 112 ++++++++++++++++++++++++++++--
+ 1 file changed, 107 insertions(+), 5 deletions(-)
+
+diff --git a/drivers/clk/samsung/clk-zumapro.c b/drivers/clk/samsung/clk-zumapro.c
+index 9701926b7..4a78ccb97 100644
+--- a/drivers/clk/samsung/clk-zumapro.c
++++ b/drivers/clk/samsung/clk-zumapro.c
+@@ -5,7 +5,8 @@
+  * Register layout and parents derived from Google's GPL CMUCAL tables in
+  * cal-if/zuma/cmucal-{sfr,node}.c, Copyright 2022 Samsung Electronics Co., Ltd.
+  * Google's G4 integration also uses cal-if/zuma; the name is intentional.
+- * UFS, supply GPIO and the PCIe reference path are described. PLLs, muxes
++ * UFS, supply GPIO, the PCIe reference path and HSI0 (USB, eUSB2, the
++ * touchscreen's USI2) are described. PLLs, muxes
+  * and dividers retain firmware settings; no PLL rate table is supplied.
+  */
+ 
+@@ -92,6 +93,10 @@ static const struct samsung_gate_clock top_gates[] __initconst = {
+ static const struct samsung_gate_clock top_ro_gates[] __initconst = {
+ 	GATE(CLK_GOUT_MISC_NOC, "zumapro_gout_misc_noc", "zumapro_mout_misc_noc",
+ 	     0x20f4, 21, CLK_IGNORE_UNUSED, 0),
++	GATE(CLK_GOUT_HSI0_NOC, "zumapro_gout_hsi0_noc", "zumapro_mout_hsi0_noc",
++	     0x20bc, 21, CLK_IGNORE_UNUSED, 0),
++	GATE(CLK_GOUT_HSI0_PERI, "zumapro_gout_hsi0_peri", "zumapro_mout_hsi0_peri",
++	     0x20c0, 21, CLK_IGNORE_UNUSED, 0),
+ };
+ 
+ static const struct samsung_div_clock top_dividers[] __initconst = {
+@@ -101,11 +106,10 @@ static const struct samsung_div_clock top_dividers[] __initconst = {
+ 	      0x18b0, 0, 4, 0, CLK_DIVIDER_READ_ONLY),
+ 	DIV_F(CLK_DOUT_PERIC0_NOC, "zumapro_dout_peric0_noc",
+ 	      "zumapro_gout_peric0_noc", 0x18e8, 0, 4, 0, CLK_DIVIDER_READ_ONLY),
+-	/* HSI0 branch gates remain firmware-owned; only read their rate path. */
+-	DIV_F(CLK_DOUT_HSI0_NOC, "zumapro_dout_hsi0_noc", "zumapro_mout_hsi0_noc",
++	DIV_F(CLK_DOUT_HSI0_NOC, "zumapro_dout_hsi0_noc", "zumapro_gout_hsi0_noc",
+ 	      0x188c, 0, 4, 0, CLK_DIVIDER_READ_ONLY),
+ 	DIV_F(CLK_DOUT_HSI0_PERI, "zumapro_dout_hsi0_peri",
+-	      "zumapro_mout_hsi0_peri", 0x1890, 0, 4, 0, CLK_DIVIDER_READ_ONLY),
++	      "zumapro_gout_hsi0_peri", 0x1890, 0, 4, 0, CLK_DIVIDER_READ_ONLY),
+ 	DIV_F(CLK_DOUT_HSI2_PCIE, "zumapro_dout_hsi2_pcie", "zumapro_gout_hsi2_pcie",
+ 	      0x18ac, 0, 3, 0, CLK_DIVIDER_READ_ONLY),
+ 	DIV_F(CLK_DOUT_MISC_NOC, "zumapro_dout_misc_noc", "zumapro_gout_misc_noc",
+@@ -130,7 +134,7 @@ static const struct samsung_cmu_info top_cmu __initconst = {
+ 	.nr_ro_gate_clks = ARRAY_SIZE(top_ro_gates),
+ 	.div_clks = top_dividers,
+ 	.nr_div_clks = ARRAY_SIZE(top_dividers),
+-	.nr_clk_ids = CLK_DOUT_MISC_NOC + 1,
++	.nr_clk_ids = CLK_GOUT_HSI0_PERI + 1,
+ 	.clk_regs = top_regs,
+ 	.nr_clk_regs = ARRAY_SIZE(top_regs),
+ };
+@@ -227,6 +231,103 @@ static const struct samsung_cmu_info hsi2_cmu __initconst = {
+ 	.clk_name = "bus",
+ };
+ 
++/* CMU_HSI0. Firmware keeps the domain powered; there is no local PM. */
++PNAME(mout_hsi0_tcxo_user_parents) = { "oscclk", "hsi0-tcxo" };
++PNAME(mout_hsi0_usb20_ref_parents) = { "zumapro_dout_hsi0_usb", "zumapro_mout_hsi0_tcxo_user" };
++PNAME(mout_hsi0_noc_user_parents) = { "oscclk", "zumapro_dout_hsi0_noc" };
++PNAME(mout_hsi0_alt_user_parents) = { "oscclk", "zumapro_gout_hsi0_alt" };
++PNAME(mout_hsi0_noc_local_parents) = { "zumapro_mout_hsi0_noc_user", "zumapro_mout_hsi0_alt_user" };
++PNAME(mout_hsi0_peri_user_parents) = { "oscclk", "zumapro_dout_hsi0_peri" };
++PNAME(mout_hsi0_usi2_local_parents) = { "zumapro_mout_hsi0_peri_user", "oscclk" };
++
++static const struct samsung_pll_clock hsi0_plls[] __initconst = {
++	PLL(pll_0822x, CLK_FOUT_HSI0_USB, "zumapro_fout_hsi0_usb", "oscclk",
++	    0x000, 0x10c, NULL),
++};
++
++static const struct samsung_mux_clock hsi0_muxes[] __initconst = {
++	MUX_F(CLK_MOUT_HSI0_TCXO_USER, "zumapro_mout_hsi0_tcxo_user", mout_hsi0_tcxo_user_parents,
++	      0x630, 4, 1, 0, CLK_MUX_READ_ONLY),
++	MUX_F(CLK_MOUT_HSI0_USB20_REF, "zumapro_mout_hsi0_usb20_ref", mout_hsi0_usb20_ref_parents,
++	      0x1004, 0, 1, 0, CLK_MUX_READ_ONLY),
++	MUX_F(CLK_MOUT_HSI0_NOC_USER, "zumapro_mout_hsi0_noc_user", mout_hsi0_noc_user_parents,
++	      0x620, 4, 1, 0, CLK_MUX_READ_ONLY),
++	MUX_F(CLK_MOUT_HSI0_ALT_USER, "zumapro_mout_hsi0_alt_user", mout_hsi0_alt_user_parents,
++	      0x600, 4, 1, 0, CLK_MUX_READ_ONLY),
++	MUX_F(CLK_MOUT_HSI0_NOC_LOCAL, "zumapro_mout_hsi0_noc_local", mout_hsi0_noc_local_parents,
++	      0x1000, 0, 1, 0, CLK_MUX_READ_ONLY),
++	MUX_F(CLK_MOUT_HSI0_PERI_USER, "zumapro_mout_hsi0_peri_user", mout_hsi0_peri_user_parents,
++	      0x680, 4, 1, 0, CLK_MUX_READ_ONLY),
++	MUX_F(CLK_MOUT_HSI0_USI2_LOCAL, "zumapro_mout_hsi0_usi2_local",
++	      mout_hsi0_usi2_local_parents,
++	      0x101c, 0, 1, 0, CLK_MUX_READ_ONLY),
++};
++
++static const struct samsung_div_clock hsi0_dividers[] __initconst = {
++	DIV_F(CLK_DOUT_HSI0_USB, "zumapro_dout_hsi0_usb", "zumapro_fout_hsi0_usb",
++	      0x1804, 0, 6, 0, CLK_DIVIDER_READ_ONLY),
++	DIV_F(CLK_DOUT_HSI0_EUSB, "zumapro_dout_hsi0_eusb", "zumapro_mout_hsi0_noc_local",
++	      0x180c, 0, 2, 0, CLK_DIVIDER_READ_ONLY),
++	DIV_F(CLK_DOUT_HSI0_USI2, "zumapro_dout_hsi0_usi2", "zumapro_gout_hsi0_usi2_source",
++	      0x181c, 0, 4, 0, 0),
++};
++
++static const struct samsung_gate_clock hsi0_gates[] __initconst = {
++	GATE(CLK_GOUT_HSI0_USI2_SOURCE, "zumapro_gout_hsi0_usi2_source",
++	     "zumapro_mout_hsi0_usi2_local",
++	     0x2120, 21, CLK_IGNORE_UNUSED, 0),
++	GATE(CLK_GOUT_HSI0_USI2_IP, "zumapro_gout_hsi0_usi2_ip", "zumapro_dout_hsi0_usi2",
++	     0x20fc, 21, CLK_IGNORE_UNUSED | CLK_SET_RATE_PARENT, 0),
++	GATE(CLK_GOUT_HSI0_USI2_PCLK, "zumapro_gout_hsi0_usi2_pclk", "zumapro_mout_hsi0_noc_local",
++	     0x2100, 21, CLK_IGNORE_UNUSED, 0),
++};
++
++/*
++ * Firmware-owned gates are observed, never switched. A zero CG_VAL is an
++ * unavailable clock, not permission to force it on. Runtime auto-gating
++ * and power-off remain outside this firmware-on handoff.
++ */
++static const struct samsung_gate_clock hsi0_ro_gates[] __initconst = {
++	GATE(CLK_GOUT_HSI0_ALT, "zumapro_gout_hsi0_alt", "hsi0-alt",
++	     0x204c, 21, CLK_IGNORE_UNUSED, 0),
++	GATE(CLK_GOUT_HSI0_EUSB_REF, "zumapro_gout_hsi0_eusb_ref", "zumapro_mout_hsi0_usb20_ref",
++	     0x20dc, 21, CLK_IGNORE_UNUSED, 0),
++	GATE(CLK_GOUT_HSI0_EUSB_BUS, "zumapro_gout_hsi0_eusb_bus", "zumapro_dout_hsi0_eusb",
++	     0x20d8, 21, CLK_IGNORE_UNUSED, 0),
++	GATE(CLK_GOUT_HSI0_EUSB_CTRL, "zumapro_gout_hsi0_eusb_ctrl", "zumapro_mout_hsi0_noc_local",
++	     0x20b8, 21, CLK_IGNORE_UNUSED, 0),
++	GATE(CLK_GOUT_HSI0_SYSREG, "zumapro_gout_hsi0_sysreg", "zumapro_mout_hsi0_noc_local",
++	     0x208c, 21, CLK_IGNORE_UNUSED, 0),
++	GATE(CLK_GOUT_HSI0_USB_SUBCTL, "zumapro_gout_hsi0_usb_subctl",
++	     "zumapro_mout_hsi0_noc_local",
++	     0x20a0, 21, CLK_IGNORE_UNUSED, 0),
++	GATE(CLK_GOUT_HSI0_USB_LINK, "zumapro_gout_hsi0_usb_link", "zumapro_mout_hsi0_noc_local",
++	     0x20a4, 21, CLK_IGNORE_UNUSED, 0),
++	GATE(CLK_GOUT_HSI0_USB_SUSPEND, "zumapro_gout_hsi0_usb_suspend",
++	     "zumapro_mout_hsi0_usb20_ref",
++	     0x20e4, 21, CLK_IGNORE_UNUSED, 0),
++};
++
++/* Same USI2 manual-mode operations qualified with the SPI20 touch path. */
++static const unsigned long hsi0_regs[] __initconst = { 0x2120, 0x20fc, 0x2100 };
++
++static const struct samsung_cmu_info hsi0_cmu __initconst = {
++	.pll_clks = hsi0_plls,
++	.nr_pll_clks = ARRAY_SIZE(hsi0_plls),
++	.mux_clks = hsi0_muxes,
++	.nr_mux_clks = ARRAY_SIZE(hsi0_muxes),
++	.div_clks = hsi0_dividers,
++	.nr_div_clks = ARRAY_SIZE(hsi0_dividers),
++	.gate_clks = hsi0_gates,
++	.nr_gate_clks = ARRAY_SIZE(hsi0_gates),
++	.ro_gate_clks = hsi0_ro_gates,
++	.nr_ro_gate_clks = ARRAY_SIZE(hsi0_ro_gates),
++	.nr_clk_ids = CLK_GOUT_HSI0_USB_SUSPEND + 1,
++	.clk_regs = hsi0_regs,
++	.nr_clk_regs = ARRAY_SIZE(hsi0_regs),
++	.clk_name = "bus",
++};
++
+ /* CMU_PERIC0, 0x10800000. Only the UFS VCC GPIO clock is controlled. */
+ PNAME(peric0_noc_user_parents) = { "oscclk", "zumapro_dout_peric0_noc" };
+ 
+@@ -292,6 +393,7 @@ static int __init zumapro_cmu_probe(struct platform_device *pdev)
+ }
+ 
+ static const struct of_device_id zumapro_cmu_match[] = {
++	{ .compatible = "google,zumapro-cmu-hsi0", .data = &hsi0_cmu },
+ 	{ .compatible = "google,zumapro-cmu-hsi2", .data = &hsi2_cmu },
+ 	{ .compatible = "google,zumapro-cmu-peric0", .data = &peric0_cmu },
+ 	{ }

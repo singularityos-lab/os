@@ -1,0 +1,928 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Mon, 12 Oct 2026 01:55:03 -0400
+Subject: [PATCH] Input: add a Cirrus Logic CS40L26 haptics driver
+
+Add a minimal driver for the CS40L26, as used for vibration in Pixel 7
+phones. It follows the sequence of Cirrus Logic's GPL driver for this
+part: quiesce and kill the ROM firmware, load cs40l26.wmfw and the
+cs40l26.bin wavetable through cs_dsp, apply the revision A1 errata and
+the boost-short test through the firmware's power-on sequence, start
+the RAM firmware and set the board's boost limits and actuator values.
+
+Vibration goes through the memoryless force-feedback layer (FF_RUMBLE,
+and FF_PERIODIC emulated on top of it), so feedbackd and other evdev
+users work unchanged. The magnitude drives the firmware's buzz
+generator at the actuator's resonant frequency; every buzz is capped
+in the firmware by the max_buzz_ms parameter.
+
+Firmware controls are looked up by name and by the low 16 bits of the
+algorithm ID, since RAM firmware builds relocate the upper bits.
+
+Not supported yet: hibernation (the DSP is kept out of it while bound),
+the interrupt, RAM waveform effects, gain, brownout prevention and
+calibration.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ drivers/input/misc/Kconfig         |  15 +
+ drivers/input/misc/Makefile        |   1 +
+ drivers/input/misc/cs40l26-vibra.c | 851 +++++++++++++++++++++++++++++
+ 3 files changed, 867 insertions(+)
+ create mode 100644 drivers/input/misc/cs40l26-vibra.c
+
+diff --git a/drivers/input/misc/Kconfig b/drivers/input/misc/Kconfig
+index 169768e3d..40b261c83 100644
+--- a/drivers/input/misc/Kconfig
++++ b/drivers/input/misc/Kconfig
+@@ -158,6 +158,21 @@ config INPUT_BMA150
+ 	  To compile this driver as a module, choose M here: the
+ 	  module will be called bma150.
+ 
++config INPUT_CS40L26_VIBRA
++	tristate "Cirrus Logic CS40L26 haptic driver"
++	depends on I2C
++	select REGMAP_I2C
++	select FW_CS_DSP
++	select INPUT_FF_MEMLESS
++	help
++	  Say Y here to enable force-feedback (rumble) support for the
++	  Cirrus Logic CS40L26 boosted haptic driver, as used in Google
++	  Pixel phones. The driver loads the part's RAM firmware
++	  (cs40l26.wmfw) and plays vibration through its buzz generator.
++
++	  To compile this driver as a module, choose M here: the
++	  module will be called cs40l26-vibra.
++
+ config INPUT_CS40L50_VIBRA
+ 	tristate "CS40L50 Haptic Driver support"
+ 	depends on MFD_CS40L50_CORE
+diff --git a/drivers/input/misc/Makefile b/drivers/input/misc/Makefile
+index 1339619f0..6b60235d4 100644
+--- a/drivers/input/misc/Makefile
++++ b/drivers/input/misc/Makefile
+@@ -31,6 +31,7 @@ obj-$(CONFIG_INPUT_CMA3000)		+= cma3000_d0x.o
+ obj-$(CONFIG_INPUT_CMA3000_I2C)		+= cma3000_d0x_i2c.o
+ obj-$(CONFIG_INPUT_COBALT_BTNS)		+= cobalt_btns.o
+ obj-$(CONFIG_INPUT_CPCAP_PWRBUTTON)	+= cpcap-pwrbutton.o
++obj-$(CONFIG_INPUT_CS40L26_VIBRA)	+= cs40l26-vibra.o
+ obj-$(CONFIG_INPUT_CS40L50_VIBRA)	+= cs40l50-vibra.o
+ obj-$(CONFIG_INPUT_DA7280_HAPTICS)	+= da7280.o
+ obj-$(CONFIG_INPUT_DA9052_ONKEY)	+= da9052_onkey.o
+diff --git a/drivers/input/misc/cs40l26-vibra.c b/drivers/input/misc/cs40l26-vibra.c
+new file mode 100644
+index 000000000..eec458349
+--- /dev/null
++++ b/drivers/input/misc/cs40l26-vibra.c
+@@ -0,0 +1,851 @@
++// SPDX-License-Identifier: GPL-2.0
++/*
++ * Cirrus Logic CS40L26 boosted haptic driver, minimal force-feedback support
++ *
++ * The CS40L26 is a Halo Core DSP with a boosted class-D amplifier for linear
++ * resonant actuators. Its ROM firmware boots out of reset; this driver kills
++ * the core, loads the RAM firmware (cs40l26.wmfw) and the wavetable
++ * (cs40l26.bin) through cs_dsp, applies the board's boost limits and then
++ * plays vibration through the firmware's buzz generator, driven by the
++ * memoryless force-feedback layer (FF_RUMBLE and FF_PERIODIC).
++ *
++ * The sequence and register layout follow Cirrus Logic's GPL driver for this
++ * part as shipped in Google's Pixel kernels (google-modules/amplifiers/cs40l26).
++ * Not supported yet: hibernation (the DSP is kept out of hibernate while the
++ * driver is bound), the IRQ (mailbox writes are polled; amplifier errors are
++ * not released), RAM/OWT waveforms, gain, brownout prevention and calibration.
++ */
++
++#include <linux/bitfield.h>
++#include <linux/delay.h>
++#include <linux/firmware.h>
++#include <linux/firmware/cirrus/cs_dsp.h>
++#include <linux/firmware/cirrus/wmfw.h>
++#include <linux/gpio/consumer.h>
++#include <linux/i2c.h>
++#include <linux/input.h>
++#include <linux/iopoll.h>
++#include <linux/minmax.h>
++#include <linux/module.h>
++#include <linux/of.h>
++#include <linux/regmap.h>
++#include <linux/regulator/consumer.h>
++#include <linux/workqueue.h>
++
++/* Control port registers */
++#define CS40L26_DEVID			0x0000
++#define CS40L26_REVID			0x0004
++#define CS40L26_TEST_KEY_CTRL		0x0040
++#define CS40L26_GLOBAL_ENABLES		0x2014
++#define CS40L26_ERROR_RELEASE		0x2034
++#define CS40L26_PWRMGT_CTL		0x2900
++#define CS40L26_REFCLK_INPUT		0x2c04
++#define CS40L26_PLL_REFCLK_DETECT_0	0x2c28
++#define CS40L26_VBST_CTL_1		0x3800
++#define CS40L26_VBST_CTL_2		0x3804
++#define CS40L26_BST_IPK_CTL		0x3808
++#define CS40L26_TEST_LBST		0x391c
++#define CS40L26_TST_DAC_MSM_CONFIG	0x7404
++#define CS40L26_VIRTUAL1_MBOX_1		0x13020
++
++/* DSP memory and core */
++#define CS40L26_XMEM_PACKED_0		0x2000000
++#define CS40L26_SYS_INFO_ID		0x25e0000
++#define CS40L26_XMEM_UNPACKED24_0	0x2800000
++#define CS40L26_CORE_BASE		0x2b80000
++#define CS40L26_CCM_CORE_CONTROL	0x2bc1000
++#define CS40L26_YMEM_PACKED_0		0x2c00000
++#define CS40L26_YMEM_UNPACKED24_0	0x3400000
++#define CS40L26_PMEM_0			0x3800000
++#define CS40L26_LASTREG			0x3c7dfe8
++
++#define CS40L26_CCM_CORE_KILL		0x00000080
++#define CS40L26_CCM_CORE_RESET		0x00000281
++
++/* ROM firmware locations, revisions A1, B0 and B1 */
++#define CS40L26_ROM_PM_CUR_STATE	0x2800370
++#define CS40L26_ROM_HALO_STATE		0x2800fa8
++#define CS40L26_ROM_EVENT_MAP		0x2806fc4
++
++/* IDs */
++#define CS40L26_DEVID_MASK		GENMASK(23, 0)
++#define CS40L26_REVID_MASK		GENMASK(7, 0)
++#define CS40L26_DEVID_A			0x40a260
++#define CS40L26_DEVID_L27_A		0x40a270
++#define CS40L26_REVID_A1		0xa1
++#define CS40L26_REVID_B0		0xb0
++#define CS40L26_REVID_B1		0xb1
++
++/* Bits and values */
++#define CS40L26_GLOBAL_EN		BIT(0)
++#define CS40L26_BST_SHORT_ERR		BIT(2)
++#define CS40L26_MEM_RDY			BIT(1)
++#define CS40L26_PLL_REFCLK_OPEN_LOOP	BIT(11)
++#define CS40L26_SPK_DEFAULT_HIZ		BIT(28)
++#define CS40L26_SPK_DEFAULT_HIZ_H16	0x1133
++#define CS40L26_BST_CTL_MASK		GENMASK(7, 0)
++#define CS40L26_BST_CTL_SEL_MASK	GENMASK(1, 0)
++#define CS40L26_BST_CTL_LIM_EN		BIT(2)
++#define CS40L26_EVENT_MAP_GPI_DISABLE	0x1ff
++#define CS40L26_TEST_KEY_UNLOCK1	0x55
++#define CS40L26_TEST_KEY_UNLOCK2	0xaa
++#define CS40L26_TEST_KEY_LOCK		0x00
++#define CS40L26_DISABLE_EXPL_MODE	0x0100c080
++
++#define CS40L26_BST_IPK_UA_MIN		800000
++#define CS40L26_BST_IPK_UA_MAX		4800000
++#define CS40L26_BST_IPK_UA_STEP		50000
++#define CS40L26_BST_UV_MIN		2500000
++#define CS40L26_BST_UV_MAX		11000000
++#define CS40L26_BST_UV_STEP		50000
++
++/* Mailbox */
++#define CS40L26_MBOX_PREVENT_HIBER	0x02000003
++#define CS40L26_MBOX_STOP_PLAYBACK	0x05000000
++#define CS40L26_BUZZGEN_INDEX		0x01800081	/* BUZZ_EFFECTS2 */
++
++/* Firmware algorithms (ROM IDs; RAM builds differ above bit 15) */
++#define CS40L26_ALGO_ID_MASK		GENMASK(15, 0)
++#define CS40L26_BUZZGEN_ALGO		0x1f202
++#define CS40L26_PM_ALGO			0x1f206
++#define CS40L26_VIBEGEN_ALGO		0x100bd
++
++#define CS40L26_DSP_STATE_SHUTDOWN	1
++#define CS40L26_DSP_STATE_STANDBY	2
++#define CS40L26_DSP_STATE_ACTIVE	3
++#define CS40L26_HALO_STATE_RUN		2
++
++/* Timing */
++#define CS40L26_RESET_PULSE_US		1500
++#define CS40L26_CP_READY_US		6000
++#define CS40L26_BST_SETTLE_US		10000
++#define CS40L26_POLL_US			1000
++#define CS40L26_MBOX_TRIES		10
++#define CS40L26_STATE_TIMEOUT_US	1000000
++
++/* Buzz generator */
++#define CS40L26_BUZZ_FREQ_MIN		100
++#define CS40L26_BUZZ_FREQ_MAX		250
++#define CS40L26_BUZZ_LEVEL_MAX		0xff
++#define CS40L26_BUZZ_DURATION_UNIT_MS	4
++
++#define CS40L26_FW_NAME			"cs40l26.wmfw"
++#define CS40L26_WT_NAME			"cs40l26.bin"
++
++static unsigned int max_buzz_ms = 10000;
++module_param(max_buzz_ms, uint, 0644);
++MODULE_PARM_DESC(max_buzz_ms, "Upper limit for one buzz, in ms; the firmware stops it there");
++
++enum cs40l26_wseqs {
++	CS40L26_PSEQ,
++	CS40L26_NUM_WSEQS,
++};
++
++struct cs40l26 {
++	struct device *dev;
++	struct regmap *regmap;
++	struct gpio_desc *reset_gpio;
++	struct input_dev *input;
++	struct cs_dsp dsp;
++	struct cs_dsp_wseq wseqs[CS40L26_NUM_WSEQS];
++	struct mutex lock;		/* serializes mailbox and buzz writes */
++	struct work_struct play_work;
++	spinlock_t level_lock;		/* protects level */
++	unsigned int level;		/* requested buzz level, 0 = stop */
++	bool playing;
++	u32 devid;
++	u32 revid;
++	u32 bst_ipk_ua;
++	u32 bst_uv;
++	u32 f0_hz;
++	u32 redc_uohm;
++};
++
++static const struct regmap_config cs40l26_regmap = {
++	.reg_bits = 32,
++	.val_bits = 32,
++	.reg_stride = 4,
++	.reg_format_endian = REGMAP_ENDIAN_BIG,
++	.val_format_endian = REGMAP_ENDIAN_BIG,
++	.max_register = CS40L26_LASTREG,
++	.cache_type = REGCACHE_NONE,
++};
++
++static const struct cs_dsp_region cs40l26_dsp_regions[] = {
++	{ .type = WMFW_HALO_PM_PACKED, .base = CS40L26_PMEM_0 },
++	{ .type = WMFW_HALO_XM_PACKED, .base = CS40L26_XMEM_PACKED_0 },
++	{ .type = WMFW_HALO_YM_PACKED, .base = CS40L26_YMEM_PACKED_0 },
++	{ .type = WMFW_ADSP2_XM, .base = CS40L26_XMEM_UNPACKED24_0 },
++	{ .type = WMFW_ADSP2_YM, .base = CS40L26_YMEM_UNPACKED24_0 },
++};
++
++/* Revision A1/B0/B1 errata, applied by the firmware's power-on sequence */
++static const struct reg_sequence cs40l26_a1_errata[] = {
++	{ CS40L26_PLL_REFCLK_DETECT_0, 0x00000000 },
++	{ CS40L26_TEST_KEY_CTRL, CS40L26_TEST_KEY_UNLOCK1 },
++	{ CS40L26_TEST_KEY_CTRL, CS40L26_TEST_KEY_UNLOCK2 },
++	{ CS40L26_TEST_LBST, CS40L26_DISABLE_EXPL_MODE },
++	{ CS40L26_TEST_KEY_CTRL, CS40L26_TEST_KEY_LOCK },
++};
++
++/*
++ * Write a mailbox command and wait until the firmware clears it. The part
++ * NAKs the first access while it wakes, so the write itself is retried.
++ */
++static int cs40l26_mbox_write(struct cs40l26 *cs40l26, u32 cmd)
++{
++	unsigned int val;
++	int i, ret;
++
++	for (i = 0; i < CS40L26_MBOX_TRIES; i++) {
++		ret = regmap_write(cs40l26->regmap, CS40L26_VIRTUAL1_MBOX_1, cmd);
++		if (!ret)
++			break;
++		usleep_range(CS40L26_POLL_US, CS40L26_POLL_US + 100);
++	}
++	if (ret) {
++		dev_err(cs40l26->dev, "Mailbox write %#010x failed: %d\n", cmd, ret);
++		return ret;
++	}
++
++	ret = regmap_read_poll_timeout(cs40l26->regmap, CS40L26_VIRTUAL1_MBOX_1,
++				       val, !val, CS40L26_POLL_US,
++				       CS40L26_POLL_US * CS40L26_MBOX_TRIES);
++	if (ret)
++		dev_err(cs40l26->dev, "Mailbox %#010x not acknowledged (%#x)\n",
++			cmd, val);
++
++	return ret;
++}
++
++/*
++ * Find an XM control by its exact name. RAM firmware builds relocate an
++ * algorithm by changing the upper bits of its ID (BUZZGEN is 0x1f202 in ROM
++ * and 0x4f202 in cs40l26.wmfw), so like Cirrus' own driver this matches on
++ * the low 16 bits only. Caller holds dsp.pwr_lock.
++ */
++static struct cs_dsp_coeff_ctl *
++cs40l26_find_ctl(struct cs40l26 *cs40l26, const char *name, unsigned int alg)
++{
++	struct cs_dsp_coeff_ctl *ctl;
++	size_t len = strlen(name);
++
++	lockdep_assert_held(&cs40l26->dsp.pwr_lock);
++
++	list_for_each_entry(ctl, &cs40l26->dsp.ctl_list, list) {
++		if (ctl->alg_region.type != WMFW_ADSP2_XM ||
++		    (ctl->alg_region.alg & CS40L26_ALGO_ID_MASK) !=
++		    (alg & CS40L26_ALGO_ID_MASK))
++			continue;
++		if (ctl->subname && ctl->subname_len == len &&
++		    !memcmp(ctl->subname, name, len))
++			return ctl;
++	}
++
++	return NULL;
++}
++
++/* Address of an XM firmware control; caller holds dsp.pwr_lock */
++static int cs40l26_ctl_reg(struct cs40l26 *cs40l26, const char *name,
++			   unsigned int alg, u32 *reg)
++{
++	struct cs_dsp_coeff_ctl *ctl;
++
++	ctl = cs40l26_find_ctl(cs40l26, name, alg);
++	if (!ctl) {
++		dev_err(cs40l26->dev, "Firmware control %s (%#x) not found\n",
++			name, alg);
++		return -ENOENT;
++	}
++
++	*reg = CS40L26_XMEM_UNPACKED24_0 +
++	       (ctl->alg_region.base + ctl->offset) * sizeof(u32);
++
++	return 0;
++}
++
++static int cs40l26_ctl_write(struct cs40l26 *cs40l26, const char *name,
++			     unsigned int alg, u32 val)
++{
++	u32 reg;
++	int ret;
++
++	ret = cs40l26_ctl_reg(cs40l26, name, alg, &reg);
++	if (ret)
++		return ret;
++
++	return regmap_write(cs40l26->regmap, reg, val);
++}
++
++static int cs40l26_ctl_read(struct cs40l26 *cs40l26, const char *name,
++			    unsigned int alg, u32 *val)
++{
++	u32 reg;
++	int ret;
++
++	ret = cs40l26_ctl_reg(cs40l26, name, alg, &reg);
++	if (ret)
++		return ret;
++
++	return regmap_read(cs40l26->regmap, reg, val);
++}
++
++static int cs40l26_wait_dsp_state(struct cs40l26 *cs40l26, u32 reg,
++				  unsigned int a, unsigned int b)
++{
++	unsigned int state;
++	int ret;
++
++	ret = regmap_read_poll_timeout(cs40l26->regmap, reg, state,
++				       state == a || state == b,
++				       20 * USEC_PER_MSEC,
++				       CS40L26_STATE_TIMEOUT_US);
++	if (ret)
++		dev_err(cs40l26->dev, "DSP state %u, expected %u or %u\n",
++			state, a, b);
++
++	return ret;
++}
++
++/* Probe-time checks and quiescing while the ROM firmware runs */
++static int cs40l26_rom_prepare(struct cs40l26 *cs40l26)
++{
++	struct regmap *regmap = cs40l26->regmap;
++	unsigned int val;
++	int ret, i;
++
++	/* Open-loop PLL, so a stray trigger can't lock up the DSP while loading */
++	ret = regmap_set_bits(regmap, CS40L26_REFCLK_INPUT,
++			      CS40L26_PLL_REFCLK_OPEN_LOOP);
++	if (ret)
++		return ret;
++
++	/* No ROM effect on the GPI press/release events */
++	for (i = 0; i < 2; i++) {
++		ret = regmap_write(regmap, CS40L26_ROM_EVENT_MAP + i * sizeof(u32),
++				   CS40L26_EVENT_MAP_GPI_DISABLE);
++		if (ret)
++			return ret;
++	}
++
++	/* Output stays high impedance while the amplifier is off */
++	ret = regmap_set_bits(regmap, CS40L26_TST_DAC_MSM_CONFIG,
++			      CS40L26_SPK_DEFAULT_HIZ);
++	if (ret)
++		return ret;
++
++	ret = cs40l26_mbox_write(cs40l26, CS40L26_MBOX_PREVENT_HIBER);
++	if (ret)
++		return ret;
++
++	ret = regmap_read(regmap, CS40L26_ROM_HALO_STATE, &val);
++	if (ret)
++		return ret;
++	if (val != CS40L26_HALO_STATE_RUN) {
++		dev_err(cs40l26->dev, "ROM firmware not running (%#x)\n", val);
++		return -ENODEV;
++	}
++
++	/* Only kill the core once the ROM firmware is idle */
++	ret = cs40l26_wait_dsp_state(cs40l26, CS40L26_ROM_PM_CUR_STATE,
++				     CS40L26_DSP_STATE_STANDBY,
++				     CS40L26_DSP_STATE_SHUTDOWN);
++	if (ret)
++		return ret;
++
++	return regmap_write(regmap, CS40L26_CCM_CORE_CONTROL,
++			    CS40L26_CCM_CORE_KILL);
++}
++
++/*
++ * Boost-short test (revision A1 with the boost "explosion mode" disabled):
++ * enable the amplifier at VBST = VP with the DSP off and check that the
++ * boost converter didn't latch a short.
++ */
++static int cs40l26_lbst_short_test(struct cs40l26 *cs40l26)
++{
++	struct regmap *regmap = cs40l26->regmap;
++	unsigned int vbst_ctl_1, vbst_ctl_2, err;
++	int ret;
++
++	ret = regmap_read(regmap, CS40L26_VBST_CTL_1, &vbst_ctl_1);
++	if (ret)
++		return ret;
++	ret = regmap_read(regmap, CS40L26_VBST_CTL_2, &vbst_ctl_2);
++	if (ret)
++		return ret;
++
++	ret = regmap_update_bits(regmap, CS40L26_VBST_CTL_1, CS40L26_BST_CTL_MASK, 0);
++	if (ret)
++		return ret;
++	ret = regmap_update_bits(regmap, CS40L26_VBST_CTL_2, CS40L26_BST_CTL_SEL_MASK, 0);
++	if (ret)
++		return ret;
++
++	ret = regmap_set_bits(regmap, CS40L26_GLOBAL_ENABLES, CS40L26_GLOBAL_EN);
++	if (ret)
++		return ret;
++
++	usleep_range(CS40L26_BST_SETTLE_US, CS40L26_BST_SETTLE_US + 100);
++
++	ret = regmap_read(regmap, CS40L26_ERROR_RELEASE, &err);
++	if (ret)
++		return ret;
++	if (err & CS40L26_BST_SHORT_ERR) {
++		regmap_clear_bits(regmap, CS40L26_GLOBAL_ENABLES, CS40L26_GLOBAL_EN);
++		dev_crit(cs40l26->dev, "Boost converter shorted at startup\n");
++		return -ENOTRECOVERABLE;
++	}
++
++	ret = regmap_clear_bits(regmap, CS40L26_GLOBAL_ENABLES, CS40L26_GLOBAL_EN);
++	if (ret)
++		return ret;
++	ret = regmap_write(regmap, CS40L26_VBST_CTL_1, vbst_ctl_1);
++	if (ret)
++		return ret;
++
++	return regmap_write(regmap, CS40L26_VBST_CTL_2, vbst_ctl_2);
++}
++
++/* Write a register now and keep it in the power-on sequence */
++static int cs40l26_write_and_seq(struct cs40l26 *cs40l26, u32 reg, u32 val, u8 op)
++{
++	int ret;
++
++	ret = regmap_write(cs40l26->regmap, reg, val);
++	if (ret)
++		return ret;
++
++	return cs_dsp_wseq_write(&cs40l26->dsp, &cs40l26->wseqs[CS40L26_PSEQ],
++				 reg, val, op, true);
++}
++
++static int cs40l26_boost_config(struct cs40l26 *cs40l26)
++{
++	u32 ipk, ctl, ctl2;
++	int ret;
++
++	ipk = clamp(cs40l26->bst_ipk_ua, CS40L26_BST_IPK_UA_MIN, CS40L26_BST_IPK_UA_MAX);
++	ipk = ipk / CS40L26_BST_IPK_UA_STEP - 16;
++	ret = cs40l26_write_and_seq(cs40l26, CS40L26_BST_IPK_CTL, ipk, CS_DSP_WSEQ_L16);
++	if (ret)
++		return ret;
++
++	ctl = clamp(cs40l26->bst_uv, CS40L26_BST_UV_MIN, CS40L26_BST_UV_MAX);
++	ctl = (ctl - CS40L26_BST_UV_MIN) / CS40L26_BST_UV_STEP;
++	ret = cs40l26_write_and_seq(cs40l26, CS40L26_VBST_CTL_1, ctl, CS_DSP_WSEQ_L16);
++	if (ret)
++		return ret;
++
++	ret = regmap_read(cs40l26->regmap, CS40L26_VBST_CTL_2, &ctl2);
++	if (ret)
++		return ret;
++
++	return cs40l26_write_and_seq(cs40l26, CS40L26_VBST_CTL_2,
++				     ctl2 | CS40L26_BST_CTL_LIM_EN, CS_DSP_WSEQ_FULL);
++}
++
++/* Runs under dsp.pwr_lock once cs_dsp has loaded the RAM firmware */
++static int cs40l26_dsp_post_run(struct cs_dsp *dsp)
++{
++	struct cs40l26 *cs40l26 = container_of(dsp, struct cs40l26, dsp);
++	struct regmap *regmap = cs40l26->regmap;
++	u32 reg, val;
++	int ret;
++
++	ret = regmap_set_bits(regmap, CS40L26_PWRMGT_CTL, CS40L26_MEM_RDY);
++	if (ret)
++		return ret;
++
++	ret = cs40l26_ctl_write(cs40l26, "CALL_RAM_INIT", dsp->fw_id, 1);
++	if (ret)
++		return ret;
++
++	cs40l26->wseqs[CS40L26_PSEQ].ctl = cs40l26_find_ctl(cs40l26, "POWER_ON_SEQUENCE",
++							    CS40L26_PM_ALGO);
++	if (!cs40l26->wseqs[CS40L26_PSEQ].ctl) {
++		dev_err(cs40l26->dev, "No power-on sequence in the firmware\n");
++		return -ENOENT;
++	}
++
++	ret = cs_dsp_wseq_init(dsp, cs40l26->wseqs, ARRAY_SIZE(cs40l26->wseqs));
++	if (ret)
++		return ret;
++
++	ret = cs_dsp_wseq_write(dsp, &cs40l26->wseqs[CS40L26_PSEQ],
++				CS40L26_TST_DAC_MSM_CONFIG,
++				CS40L26_SPK_DEFAULT_HIZ_H16, CS_DSP_WSEQ_H16, true);
++	if (ret)
++		return ret;
++
++	ret = cs40l26_lbst_short_test(cs40l26);
++	if (ret)
++		return ret;
++
++	ret = cs_dsp_wseq_multi_write(dsp, &cs40l26->wseqs[CS40L26_PSEQ],
++				      cs40l26_a1_errata,
++				      ARRAY_SIZE(cs40l26_a1_errata),
++				      CS_DSP_WSEQ_FULL, false);
++	if (ret)
++		return ret;
++
++	/* Start the RAM firmware */
++	ret = regmap_write(regmap, CS40L26_CCM_CORE_CONTROL, CS40L26_CCM_CORE_RESET);
++	if (ret)
++		return ret;
++
++	ret = cs40l26_ctl_reg(cs40l26, "PM_CUR_STATE", CS40L26_PM_ALGO, &reg);
++	if (ret)
++		return ret;
++
++	ret = cs40l26_wait_dsp_state(cs40l26, reg, CS40L26_DSP_STATE_ACTIVE,
++				     CS40L26_DSP_STATE_STANDBY);
++	if (ret)
++		return ret;
++
++	ret = cs40l26_mbox_write(cs40l26, CS40L26_MBOX_PREVENT_HIBER);
++	if (ret)
++		return ret;
++
++	ret = cs40l26_ctl_read(cs40l26, "HALO_STATE", dsp->fw_id, &val);
++	if (ret)
++		return ret;
++	if (val != CS40L26_HALO_STATE_RUN) {
++		dev_err(cs40l26->dev, "RAM firmware not running (%#x)\n", val);
++		return -EIO;
++	}
++
++	ret = cs40l26_boost_config(cs40l26);
++	if (ret)
++		return ret;
++
++	/* The board's LRA: resonance (Q10.14 Hz) and DC resistance (Q?.15 ohm) */
++	if (cs40l26->f0_hz) {
++		ret = cs40l26_ctl_write(cs40l26, "F0_OTP_STORED", CS40L26_VIBEGEN_ALGO,
++					cs40l26->f0_hz << 14);
++		if (ret)
++			return ret;
++	}
++
++	if (cs40l26->redc_uohm) {
++		ret = cs40l26_ctl_write(cs40l26, "REDC_OTP_STORED", CS40L26_VIBEGEN_ALGO,
++					div_u64((u64)cs40l26->redc_uohm << 15, 1000000));
++		if (ret)
++			return ret;
++	}
++
++	return cs40l26_ctl_write(cs40l26, "TIMEOUT_MS", CS40L26_VIBEGEN_ALGO, 0);
++}
++
++static const struct cs_dsp_client_ops cs40l26_client_ops = {
++	.post_run = cs40l26_dsp_post_run,
++};
++
++static int cs40l26_dsp_load(struct cs40l26 *cs40l26)
++{
++	const struct firmware *wmfw, *bin = NULL;
++	struct cs_dsp *dsp = &cs40l26->dsp;
++	int ret;
++
++	ret = request_firmware(&wmfw, CS40L26_FW_NAME, cs40l26->dev);
++	if (ret)
++		return dev_err_probe(cs40l26->dev, ret, "No %s\n", CS40L26_FW_NAME);
++
++	/* The wavetable is optional: the buzz generator doesn't need it */
++	if (firmware_request_nowarn(&bin, CS40L26_WT_NAME, cs40l26->dev))
++		dev_info(cs40l26->dev, "No %s, continuing without RAM waveforms\n",
++			 CS40L26_WT_NAME);
++
++	ret = cs40l26_rom_prepare(cs40l26);
++	if (ret)
++		goto out;
++
++	ret = cs_dsp_power_up(dsp, wmfw, CS40L26_FW_NAME, bin, CS40L26_WT_NAME,
++			      "cs40l26");
++	if (ret) {
++		dev_err(cs40l26->dev, "Failed to load firmware: %d\n", ret);
++		goto out;
++	}
++
++	ret = cs_dsp_run(dsp);
++	if (ret) {
++		dev_err(cs40l26->dev, "Failed to start firmware: %d\n", ret);
++		cs_dsp_power_down(dsp);
++		goto out;
++	}
++
++	dev_info(cs40l26->dev, "Firmware %#x rev %u.%u.%u running\n", dsp->fw_id,
++		 (dsp->fw_id_version >> 16) & 0xff, (dsp->fw_id_version >> 8) & 0xff,
++		 dsp->fw_id_version & 0xff);
++out:
++	release_firmware(bin);
++	release_firmware(wmfw);
++
++	return ret;
++}
++
++static int cs40l26_buzz(struct cs40l26 *cs40l26, unsigned int level)
++{
++	struct cs_dsp *dsp = &cs40l26->dsp;
++	unsigned int freq, duration;
++	int ret;
++
++	freq = clamp(cs40l26->f0_hz ?: 145, CS40L26_BUZZ_FREQ_MIN, CS40L26_BUZZ_FREQ_MAX);
++	duration = DIV_ROUND_UP(max(READ_ONCE(max_buzz_ms), 1U),
++				CS40L26_BUZZ_DURATION_UNIT_MS);
++
++	mutex_lock(&dsp->pwr_lock);
++	ret = cs40l26_ctl_write(cs40l26, "BUZZ_EFFECTS2_BUZZ_FREQ",
++				CS40L26_BUZZGEN_ALGO, freq);
++	if (!ret)
++		ret = cs40l26_ctl_write(cs40l26, "BUZZ_EFFECTS2_BUZZ_LEVEL",
++					CS40L26_BUZZGEN_ALGO, level);
++	if (!ret)
++		ret = cs40l26_ctl_write(cs40l26, "BUZZ_EFFECTS2_BUZZ_DURATION",
++					CS40L26_BUZZGEN_ALGO, duration);
++	mutex_unlock(&dsp->pwr_lock);
++	if (ret)
++		return ret;
++
++	return cs40l26_mbox_write(cs40l26, CS40L26_BUZZGEN_INDEX);
++}
++
++static void cs40l26_play_work(struct work_struct *work)
++{
++	struct cs40l26 *cs40l26 = container_of(work, struct cs40l26, play_work);
++	unsigned int level;
++
++	spin_lock_irq(&cs40l26->level_lock);
++	level = cs40l26->level;
++	spin_unlock_irq(&cs40l26->level_lock);
++
++	mutex_lock(&cs40l26->lock);
++	if (level) {
++		dev_dbg(cs40l26->dev, "buzz level %u\n", level);
++		if (!cs40l26_buzz(cs40l26, level))
++			cs40l26->playing = true;
++	} else if (cs40l26->playing) {
++		dev_dbg(cs40l26->dev, "stop\n");
++		cs40l26_mbox_write(cs40l26, CS40L26_MBOX_STOP_PLAYBACK);
++		cs40l26->playing = false;
++	}
++	mutex_unlock(&cs40l26->lock);
++}
++
++/* ff-memless callback, atomic context */
++static int cs40l26_play_effect(struct input_dev *dev, void *data,
++			       struct ff_effect *effect)
++{
++	struct cs40l26 *cs40l26 = input_get_drvdata(dev);
++	unsigned int level = 0;
++	unsigned long flags;
++
++	if (effect->type == FF_RUMBLE)
++		level = max(effect->u.rumble.strong_magnitude,
++			    effect->u.rumble.weak_magnitude) >> 8;
++
++	spin_lock_irqsave(&cs40l26->level_lock, flags);
++	cs40l26->level = min(level, CS40L26_BUZZ_LEVEL_MAX);
++	spin_unlock_irqrestore(&cs40l26->level_lock, flags);
++
++	schedule_work(&cs40l26->play_work);
++
++	return 0;
++}
++
++static void cs40l26_close(struct input_dev *input)
++{
++	struct cs40l26 *cs40l26 = input_get_drvdata(input);
++
++	cancel_work_sync(&cs40l26->play_work);
++
++	mutex_lock(&cs40l26->lock);
++	if (cs40l26->playing) {
++		cs40l26_mbox_write(cs40l26, CS40L26_MBOX_STOP_PLAYBACK);
++		cs40l26->playing = false;
++	}
++	mutex_unlock(&cs40l26->lock);
++}
++
++static int cs40l26_input_init(struct cs40l26 *cs40l26)
++{
++	struct input_dev *input;
++	int ret;
++
++	input = devm_input_allocate_device(cs40l26->dev);
++	if (!input)
++		return -ENOMEM;
++
++	input->name = "cs40l26_vibra";
++	input->id.bustype = BUS_I2C;
++	input->id.product = cs40l26->devid & 0xffff;
++	input->id.version = cs40l26->revid;
++	input->close = cs40l26_close;
++	input_set_drvdata(input, cs40l26);
++	input_set_capability(input, EV_FF, FF_RUMBLE);
++
++	ret = input_ff_create_memless(input, NULL, cs40l26_play_effect);
++	if (ret)
++		return ret;
++
++	cs40l26->input = input;
++
++	return input_register_device(input);
++}
++
++static void cs40l26_teardown(void *data)
++{
++	struct cs40l26 *cs40l26 = data;
++
++	cancel_work_sync(&cs40l26->play_work);
++	if (cs40l26->dsp.running)
++		cs_dsp_stop(&cs40l26->dsp);
++	if (cs40l26->dsp.booted)
++		cs_dsp_power_down(&cs40l26->dsp);
++	cs_dsp_remove(&cs40l26->dsp);
++	/* Back into reset: amplifier off, ROM firmware on the next probe */
++	gpiod_set_value_cansleep(cs40l26->reset_gpio, 1);
++}
++
++static int cs40l26_get_model(struct cs40l26 *cs40l26)
++{
++	int ret;
++
++	ret = regmap_read(cs40l26->regmap, CS40L26_DEVID, &cs40l26->devid);
++	if (ret)
++		return dev_err_probe(cs40l26->dev, ret, "No answer at %#x\n",
++				     to_i2c_client(cs40l26->dev)->addr);
++	ret = regmap_read(cs40l26->regmap, CS40L26_REVID, &cs40l26->revid);
++	if (ret)
++		return ret;
++
++	cs40l26->devid &= CS40L26_DEVID_MASK;
++	cs40l26->revid &= CS40L26_REVID_MASK;
++
++	switch (cs40l26->devid) {
++	case CS40L26_DEVID_A:
++	case CS40L26_DEVID_L27_A:
++		break;
++	default:
++		return dev_err_probe(cs40l26->dev, -ENODEV,
++				     "Unsupported device %#x\n", cs40l26->devid);
++	}
++
++	/* The ROM addresses above are those of revisions A1, B0 and B1 */
++	switch (cs40l26->revid) {
++	case CS40L26_REVID_A1:
++	case CS40L26_REVID_B0:
++	case CS40L26_REVID_B1:
++		break;
++	default:
++		return dev_err_probe(cs40l26->dev, -ENODEV,
++				     "Unsupported revision %#x\n", cs40l26->revid);
++	}
++
++	dev_info(cs40l26->dev, "Cirrus Logic CS40L2%c ID %#x, revision %#x\n",
++		 cs40l26->devid == CS40L26_DEVID_A ? '6' : '7',
++		 cs40l26->devid, cs40l26->revid);
++
++	return 0;
++}
++
++static int cs40l26_probe(struct i2c_client *client)
++{
++	static const char * const supplies[] = { "vdd-a", "vdd-p" };
++	struct device *dev = &client->dev;
++	struct cs40l26 *cs40l26;
++	int ret;
++
++	cs40l26 = devm_kzalloc(dev, sizeof(*cs40l26), GFP_KERNEL);
++	if (!cs40l26)
++		return -ENOMEM;
++
++	cs40l26->dev = dev;
++	mutex_init(&cs40l26->lock);
++	spin_lock_init(&cs40l26->level_lock);
++	INIT_WORK(&cs40l26->play_work, cs40l26_play_work);
++	i2c_set_clientdata(client, cs40l26);
++
++	cs40l26->regmap = devm_regmap_init_i2c(client, &cs40l26_regmap);
++	if (IS_ERR(cs40l26->regmap))
++		return dev_err_probe(dev, PTR_ERR(cs40l26->regmap), "regmap\n");
++
++	cs40l26->bst_ipk_ua = 4500000;
++	cs40l26->bst_uv = CS40L26_BST_UV_MAX;
++	device_property_read_u32(dev, "cirrus,boost-peak-microamp", &cs40l26->bst_ipk_ua);
++	device_property_read_u32(dev, "cirrus,boost-ctl-microvolt", &cs40l26->bst_uv);
++	device_property_read_u32(dev, "cirrus,lra-f0-hz", &cs40l26->f0_hz);
++	device_property_read_u32(dev, "cirrus,lra-redc-micro-ohms", &cs40l26->redc_uohm);
++
++	ret = devm_regulator_bulk_get_enable(dev, ARRAY_SIZE(supplies), supplies);
++	if (ret)
++		return dev_err_probe(dev, ret, "Failed to enable supplies\n");
++
++	/* Hold the part in reset, then release it into its ROM firmware */
++	cs40l26->reset_gpio = devm_gpiod_get(dev, "reset", GPIOD_OUT_HIGH);
++	if (IS_ERR(cs40l26->reset_gpio))
++		return dev_err_probe(dev, PTR_ERR(cs40l26->reset_gpio), "reset GPIO\n");
++
++	usleep_range(CS40L26_RESET_PULSE_US, CS40L26_RESET_PULSE_US + 100);
++	gpiod_set_value_cansleep(cs40l26->reset_gpio, 0);
++	usleep_range(CS40L26_CP_READY_US, CS40L26_CP_READY_US + 100);
++
++	cs40l26->dsp.num = 1;
++	cs40l26->dsp.type = WMFW_HALO;
++	cs40l26->dsp.dev = dev;
++	cs40l26->dsp.regmap = cs40l26->regmap;
++	cs40l26->dsp.base = CS40L26_CORE_BASE;
++	cs40l26->dsp.base_sysinfo = CS40L26_SYS_INFO_ID;
++	cs40l26->dsp.mem = cs40l26_dsp_regions;
++	cs40l26->dsp.num_mems = ARRAY_SIZE(cs40l26_dsp_regions);
++	cs40l26->dsp.no_core_startstop = true;
++	cs40l26->dsp.client_ops = &cs40l26_client_ops;
++
++	ret = cs_dsp_halo_init(&cs40l26->dsp);
++	if (ret) {
++		gpiod_set_value_cansleep(cs40l26->reset_gpio, 1);
++		return ret;
++	}
++
++	ret = devm_add_action_or_reset(dev, cs40l26_teardown, cs40l26);
++	if (ret)
++		return ret;
++
++	ret = cs40l26_get_model(cs40l26);
++	if (ret)
++		return ret;
++
++	ret = cs40l26_dsp_load(cs40l26);
++	if (ret)
++		return ret;
++
++	return cs40l26_input_init(cs40l26);
++}
++
++static const struct of_device_id cs40l26_of_match[] = {
++	{ .compatible = "cirrus,cs40l26a" },
++	{ }
++};
++MODULE_DEVICE_TABLE(of, cs40l26_of_match);
++
++static const struct i2c_device_id cs40l26_id[] = {
++	{ "cs40l26a" },
++	{ }
++};
++MODULE_DEVICE_TABLE(i2c, cs40l26_id);
++
++static struct i2c_driver cs40l26_driver = {
++	.driver = {
++		.name = "cs40l26-vibra",
++		.of_match_table = cs40l26_of_match,
++	},
++	.probe = cs40l26_probe,
++	.id_table = cs40l26_id,
++};
++module_i2c_driver(cs40l26_driver);
++
++MODULE_DESCRIPTION("Cirrus Logic CS40L26 haptic driver (force feedback)");
++MODULE_LICENSE("GPL");
++MODULE_IMPORT_NS("FW_CS_DSP");
++MODULE_FIRMWARE(CS40L26_FW_NAME);
++MODULE_FIRMWARE(CS40L26_WT_NAME);

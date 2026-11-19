@@ -1,0 +1,98 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Sun, 1 Nov 2026 13:43:19 -0647
+Subject: [PATCH] PCI: dwc: gs201: Pulse the soft power reset before the zuma
+ PHY powers down
+
+Google's exynos_pcie_rc_poweroff() for the zuma family (pcie-exynos-rc.c
+in the zuma and zumapro sources) turns the LTSSM off and pulses the
+controller's soft power reset (ELBI 0x3a4 bit 1 low for 20 us) while the
+PHY still runs, and only then powers the PHY down. This driver went
+straight to the PHY power-down.
+
+Do the same before the PHY power-down in the bring-down path, which runs
+at deinit and when host_init fails after the PHY came up. Keep it to a
+match entry of zumapro's own, ahead of the zuma fallback its node
+carries: Google does the same on zuma, but it has only run on a zumapro
+board, so zuma's path stays as it was until a zuma board has run it.
+The gs201 sequence follows Google's gs201 driver (dwc-whi), whose
+power-off I have not checked, and the gs201 power-down works as it is.
+
+Tested on a Pixel 9a (zumapro), with the pulse on zuma's match data,
+which the same node selected then: the link trained at Gen2 x1 and the
+BCM4383 joined a network with no ping loss. An unbind of the controller
+logged "LTSSM off, soft power reset pulse" before the PHY power-down,
+the rebind trained Gen2 x1 on the first try, the BCM4383 reconnected,
+and UFS logged no errors.
+
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ drivers/pci/controller/dwc/pcie-gs201.c | 33 +++++++++++++++++++++++++
+ 1 file changed, 33 insertions(+)
+
+diff --git a/drivers/pci/controller/dwc/pcie-gs201.c b/drivers/pci/controller/dwc/pcie-gs201.c
+index 98238660b..b114c6be9 100644
+--- a/drivers/pci/controller/dwc/pcie-gs201.c
++++ b/drivers/pci/controller/dwc/pcie-gs201.c
+@@ -172,9 +172,14 @@ MODULE_PARM_DESC(cmu_acg_off,
+  *	set before the PHY configuration, and not again after it. zuma's
+  *	CAL does them in the middle of its PHY configuration; gs201's
+  *	establish_link() does them after.
++ * @pwr_reset_before_phy_off: the power-down turns the LTSSM off and pulses
++ *	the soft power reset before the PHY powers down, as Google's
++ *	exynos_pcie_rc_poweroff() does for the zuma family. Only zumapro so
++ *	far: it hasn't run on a zuma board here.
+  */
+ struct gs201_pcie_soc_data {
+ 	bool ctrl_reset_before_phy;
++	bool pwr_reset_before_phy_off;
+ };
+ 
+ struct gs201_pcie {
+@@ -730,9 +735,31 @@ static int gs201_pcie_bringup(struct gs201_pcie *gp, unsigned int last,
+ 	return 0;
+ }
+ 
++/*
++ * zuma's exynos_pcie_rc_poweroff(): LTSSM off and a soft power reset pulse
++ * while the PHY still runs, before it is powered down
++ */
++static void gs201_pcie_pwr_reset_before_phy_off(struct gs201_pcie *gp)
++{
++	u32 val;
++
++	if (!gp->data->pwr_reset_before_phy_off || !gp->phy_on)
++		return;
++
++	gs201_trace(gp, "LTSSM off, soft power reset pulse (ELBI 0x054, 0x3a4 bit 1)");
++	gs201_elbi_writel(gp, GS201_ELBI_LTSSM_EN, 0);
++	val = gs201_elbi_readl(gp, GS201_ELBI_SOFT_RESET);
++	gs201_elbi_writel(gp, GS201_ELBI_SOFT_RESET,
++			  val & ~GS201_ELBI_SOFT_PWR_RESET);
++	usleep_range(20, 40);
++	gs201_elbi_writel(gp, GS201_ELBI_SOFT_RESET,
++			  val | GS201_ELBI_SOFT_PWR_RESET);
++}
++
+ /* Undo what the stages did, in reverse; the PHY stays out of isolation */
+ static void gs201_pcie_bringdown(struct gs201_pcie *gp)
+ {
++	gs201_pcie_pwr_reset_before_phy_off(gp);
+ 	gs201_pcie_phy_off(gp);
+ 	if (gp->phy_inited) {
+ 		gs201_trace(gp, "phy_exit");
+@@ -1235,8 +1262,14 @@ static const struct gs201_pcie_soc_data zuma_pcie_data = {
+ 	.ctrl_reset_before_phy = true,
+ };
+ 
++static const struct gs201_pcie_soc_data zumapro_pcie_data = {
++	.ctrl_reset_before_phy = true,
++	.pwr_reset_before_phy_off = true,
++};
++
+ static const struct of_device_id gs201_pcie_of_match[] = {
+ 	{ .compatible = "google,gs201-pcie", .data = &gs201_pcie_data },
++	{ .compatible = "google,zumapro-pcie", .data = &zumapro_pcie_data },
+ 	{ .compatible = "google,zuma-pcie", .data = &zuma_pcie_data },
+ 	{ }
+ };

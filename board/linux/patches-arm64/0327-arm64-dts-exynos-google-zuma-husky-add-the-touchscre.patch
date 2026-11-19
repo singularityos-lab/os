@@ -1,0 +1,112 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Brett-Michael Green <brett@bmgvisualtech.com>
+Date: Fri, 30 Oct 2026 16:36:42 -0400
+Subject: [PATCH] arm64: dts: exynos: google: zuma-husky: add the touchscreen
+
+The Pixel 8 Pro's touchscreen is an ST FTM5 (SALIXP, chip id 36 40) on
+USI2's SPI, as in stock's fts node: 10 MHz, attention on gpn0-0, reset
+on gpp21-2, 1344 x 2992. Its rails are the main PMIC's LDO25M (1.8 V
+digital) and LDO4M (3.3 V analog), which the firmware leaves off and at
+those voltages. Pin them there, as stock does.
+
+Stock's node inverts both axes, but salixp already reports in the
+panel's orientation: with stock's inversion, a tap at the top-left came
+in at the bottom-right.
+
+Assisted-by: LLM
+Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
+---
+ .../boot/dts/exynos/google/zuma-husky.dts     | 39 +++++++++++++++++++
+ .../boot/dts/exynos/google/zuma-pinctrl.dtsi  | 14 +++++++
+ 2 files changed, 53 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/zuma-husky.dts b/arch/arm64/boot/dts/exynos/google/zuma-husky.dts
+index 283481bb0..29b9a11b9 100644
+--- a/arch/arm64/boot/dts/exynos/google/zuma-husky.dts
++++ b/arch/arm64/boot/dts/exynos/google/zuma-husky.dts
+@@ -126,10 +126,45 @@ pmic-1 {
+ 		compatible = "samsung,s2mpg14-pmic";
+ 
+ 		regulators {
++			touch_avdd: ldo4m {
++				regulator-name = "touch-avdd";
++				regulator-min-microvolt = <3300000>;
++				regulator-max-microvolt = <3300000>;
++			};
++
++			touch_vdd: ldo25m {
++				regulator-name = "touch-vdd";
++				regulator-min-microvolt = <1800000>;
++				regulator-max-microvolt = <1800000>;
++			};
+ 		};
+ 	};
+ };
+ 
++&spi20 {
++	status = "okay";
++
++	/*
++	 * ST FTM5 (SALIXP, chip id 36 40), as stock's fts node: 10 MHz,
++	 * manual chip select. Not stock's axis inversion: salixp already
++	 * reports in the panel's orientation.
++	 */
++	touchscreen@0 {
++		compatible = "st,salixp";
++		reg = <0>;
++		spi-max-frequency = <10000000>;
++		interrupt-parent = <&gpn0>;
++		interrupts = <0 IRQ_TYPE_LEVEL_LOW>;
++		vdd-supply = <&touch_vdd>;
++		avdd-supply = <&touch_avdd>;
++		reset-gpios = <&gpp21 2 GPIO_ACTIVE_LOW>;
++		touchscreen-size-x = <1344>;
++		touchscreen-size-y = <2992>;
++		pinctrl-names = "default";
++		pinctrl-0 = <&ts_irq &ts_reset>;
++	};
++};
++
+ &usb_dwc3 {
+ 	status = "okay";
+ };
+@@ -154,3 +189,7 @@ &ufs_0 {
+ &ufs_0_phy {
+ 	status = "okay";
+ };
++
++&usi2_hsi0 {
++	status = "okay";
++};
+diff --git a/arch/arm64/boot/dts/exynos/google/zuma-pinctrl.dtsi b/arch/arm64/boot/dts/exynos/google/zuma-pinctrl.dtsi
+index 508c1171d..a88e0eaa2 100644
+--- a/arch/arm64/boot/dts/exynos/google/zuma-pinctrl.dtsi
++++ b/arch/arm64/boot/dts/exynos/google/zuma-pinctrl.dtsi
+@@ -250,6 +250,13 @@ gpn9: gpn9-gpio-bank {
+ 		interrupt-parent = <&gic>;
+ 		interrupts = <GIC_SPI 9 IRQ_TYPE_LEVEL_HIGH>;
+ 	};
++
++	ts_irq: ts-irq-pins {
++		samsung,pins = "gpn0-0";
++		samsung,pin-function = <GS101_PIN_FUNC_EINT>;
++		samsung,pin-pud = <GS101_PIN_PULL_NONE>;
++		samsung,pin-drv = <GS101_PIN_DRV_2_5_MA>;
++	};
+ };
+ 
+ &pinctrl_peric0 {
+@@ -422,6 +429,13 @@ gpp23: gpp23-gpio-bank {
+ 		interrupt-controller;
+ 		#interrupt-cells = <2>;
+ 	};
++
++	ts_reset: ts-reset-pins {
++		samsung,pins = "gpp21-2";
++		samsung,pin-function = <GS101_PIN_FUNC_OUTPUT>;
++		samsung,pin-pud = <GS101_PIN_PULL_NONE>;
++		samsung,pin-drv = <GS101_PIN_DRV_2_5_MA>;
++	};
+ };
+ 
+ &pinctrl_hsi2ufs {

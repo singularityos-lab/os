@@ -1,0 +1,43 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Tue, 13 Oct 2026 08:15:07 -0400
+Subject: [PATCH] wifi: brcmfmac: pcie: let the interrupt thread finish before
+ masking for D3
+
+brcmf_pcie_pm_enter_D3() masks and clears the device's interrupts once
+the D3 ACK is in. When the ACK came as a control message, it is
+published from brcmf_pcie_rx_process() in the interrupt thread, which
+then goes on: it reads the state, re-enables the interrupt while it is
+still STATE_UP and kicks the D2H poll. If that happens after the
+suspend path masked the interrupt, the device is left unmasked across
+D3, and a later interrupt in D3 runs the handler against a sleeping
+device.
+
+Synchronise with the interrupt after setting STATE_DOWN and before
+cancelling the poll and masking, so whatever the thread did is undone
+and nothing re-arms.
+
+Assisted-by: LLM
+Signed-off-by: Derek Ross <derekross@gmail.com>
+---
+ drivers/net/wireless/broadcom/brcm80211/brcmfmac/pcie.c | 7 +++++++
+ 1 file changed, 7 insertions(+)
+
+diff --git a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/pcie.c b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/pcie.c
+index bcb390ae8..5e3aed4ae 100644
+--- a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/pcie.c
++++ b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/pcie.c
+@@ -3266,6 +3266,13 @@ static int brcmf_pcie_pm_enter_D3(struct device *dev)
+ 		ktime_us_delta(ktime_get(), start));
+ 
+ 	devinfo->state = BRCMFMAC_PCIE_STATE_DOWN;
++	/*
++	 * The interrupt thread that published the ACK may still be running
++	 * and, having seen STATE_UP, unmask the interrupt or kick the poll.
++	 * Let it finish before masking.
++	 */
++	if (devinfo->irq_allocated)
++		synchronize_irq(devinfo->pdev->irq);
+ 	/* Nothing to poll until resume; the worker would only see DOWN. */
+ 	cancel_delayed_work_sync(&devinfo->poll_work);
+ 	/* As Broadcom's driver: no device interrupts until resume. */

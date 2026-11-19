@@ -1,0 +1,110 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: boozedog <code@booze.dog>
+Date: Sat, 17 Oct 2026 20:20:11 -0400
+Subject: [PATCH] arm64: dts: exynos: google: gs201-felix: add initial Pixel
+ Fold support
+
+Bring up USB and the cover framebuffer the bootloader is already
+scanning. The splash at 0xfc000000 is reserved no-map. Neither panel
+nor either touch controller is described.
+
+Tested on slot B: USB networking, SSH, and the Linux console on the
+cover. The inner panel was not enabled.
+
+Signed-off-by: boozedog <code@booze.dog>
+---
+ arch/arm64/boot/dts/exynos/google/Makefile    |  4 +-
+ .../boot/dts/exynos/google/gs201-felix.dts    | 69 +++++++++++++++++++
+ 2 files changed, 72 insertions(+), 1 deletion(-)
+ create mode 100644 arch/arm64/boot/dts/exynos/google/gs201-felix.dts
+
+diff --git a/arch/arm64/boot/dts/exynos/google/Makefile b/arch/arm64/boot/dts/exynos/google/Makefile
+index da81c2dba..be122327f 100644
+--- a/arch/arm64/boot/dts/exynos/google/Makefile
++++ b/arch/arm64/boot/dts/exynos/google/Makefile
+@@ -3,7 +3,9 @@
+ dtb-$(CONFIG_ARCH_EXYNOS) += \
+ 	gs101-oriole.dtb \
+ 	gs101-raven.dtb \
+-	gs201-cheetah.dtb
++	gs201-cheetah.dtb \
++	gs201-felix.dtb
+ 
+ # ABL applies board overlays, so keep symbols for labels
+ DTC_FLAGS_gs201-cheetah += -@
++DTC_FLAGS_gs201-felix += -@
+diff --git a/arch/arm64/boot/dts/exynos/google/gs201-felix.dts b/arch/arm64/boot/dts/exynos/google/gs201-felix.dts
+new file mode 100644
+index 000000000..16d60cdea
+--- /dev/null
++++ b/arch/arm64/boot/dts/exynos/google/gs201-felix.dts
+@@ -0,0 +1,69 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * Google Pixel Fold (felix).
++ *
++ * Same GS201 silicon as the Pixel 7 Pro. This board file brings up USB
++ * and the cover framebuffer the bootloader is already scanning. It does
++ * not describe either panel or either touch controller. The inner panel
++ * has no node that could drive it.
++ */
++
++/dts-v1/;
++
++#include "gs201.dtsi"
++
++/ {
++	model = "Google Pixel Fold";
++	compatible = "google,gs201-felix", "google,gs201";
++
++	/*
++	 * ABL matches (product id 0x09855000 | major rev). This phone is
++	 * GS201 MP1.0, package mode 0, SoC rev 2: the same B0 id as cheetah.
++	 * The image packer appends a second DTB with 0x09855000.
++	 */
++	soc_id = <0x09855001 0x0>;
++
++	chosen {
++		/*
++		 * ABL requires bootargs and appends its own, including
++		 * console=null. No UFS probe: storage stays off until this
++		 * phone's guard has been checked. Nothing here writes a
++		 * display register. The framebuffer below is the cover plane
++		 * read from DPP2 on the first boot (1080x2092 at 0xfc000000).
++		 * The inner plane, DPP0 at 0xfac00000, is not described.
++		 */
++		bootargs = "console=tty0 panic=10 clk_ignore_unused pd_ignore_unused rdinit=/init";
++		#address-cells = <2>;
++		#size-cells = <1>;
++		ranges;
++
++		framebuffer0: framebuffer@fc000000 {
++			compatible = "simple-framebuffer";
++			memory-region = <&cont_splash_mem>;
++			width = <1080>;
++			height = <2092>;
++			stride = <(1080 * 4)>;
++			format = "a8r8g8b8";
++		};
++	};
++
++	reserved-memory {
++		#address-cells = <2>;
++		#size-cells = <1>;
++		ranges;
++
++		/* The inner plane at 0xfac00000 is left unreserved. DECON0's trigger stays masked. */
++		cont_splash_mem: splash@fc000000 {
++			reg = <0x0 0xfc000000 (1080 * 2092 * 4)>;
++			no-map;
++		};
++	};
++};
++
++&usbdrd31_phy {
++	status = "okay";
++};
++
++&usb_dwc3 {
++	status = "okay";
++};

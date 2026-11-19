@@ -1,0 +1,32 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Mon, 12 Oct 2026 12:04:04 -0400
+Subject: [PATCH] arm64: dts: exynos: google: gs201: add the GSA mailbox
+
+Add the GSA mailbox node at 0x17c90000 with its response interrupt (GIC
+SPI 363), as in the stock device tree. Leave it disabled: nothing uses
+it until the AoC bring-up enables it.
+
+Assisted-by: LLM
+Signed-off-by: Derek Ross <derekross@gmail.com>
+---
+ arch/arm64/boot/dts/exynos/google/gs201.dtsi | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/gs201.dtsi b/arch/arm64/boot/dts/exynos/google/gs201.dtsi
+index a9b4470bd..8f06a7666 100644
+--- a/arch/arm64/boot/dts/exynos/google/gs201.dtsi
++++ b/arch/arm64/boot/dts/exynos/google/gs201.dtsi
+@@ -1409,6 +1409,12 @@ ufs_0_phy: phy@14704000 {
+ 			status = "disabled";
+ 		};
+ 
++		gsa: gsa@17c90000 {
++			compatible = "google,gs201-gsa";
++			interrupts = <GIC_SPI 363 IRQ_TYPE_LEVEL_HIGH>;
++			status = "disabled";
++		};
++
+ 		/*
+ 		 * Multi-core timer. Gives the kernel a broadcast clock event
+ 		 * device that keeps running while cores are powered down in C2.

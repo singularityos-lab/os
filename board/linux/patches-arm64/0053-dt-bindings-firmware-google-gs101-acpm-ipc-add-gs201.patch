@@ -1,0 +1,96 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Sun, 11 Oct 2026 23:58:41 -0400
+Subject: [PATCH] dt-bindings: firmware: google,gs101-acpm-ipc: add gs201
+
+The Google gs201 (Tensor G2) SoC runs the same ACPM firmware framework
+as gs101: the same shared-memory channel table at SRAM offset 0xa000, the
+same message formats and the same DVFS domain numbering (Google's
+acpm_dvfs_gs201.h lists MIF, INT, CPUCL0-2, G3D, G3DL2, TPU, INTCAM, TNR,
+CAM, MFC, DISP and BO in the gs101 order). Its PMICs are S2MPG12 and
+S2MPG13, which have no binding yet, so the gs101 PMIC child nodes are not
+allowed for it.
+
+Add the compatible and the clock IDs. On top of the DVFS domains, gs201
+exposes the GPU as one clock (GS201_CLK_ACPM_GPU) that moves the shader
+and top/L2 domains together, as the GPU needs both changed in a fixed
+pairing.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ .../firmware/google,gs101-acpm-ipc.yaml       | 15 ++++++++-
+ include/dt-bindings/clock/google,gs201-acpm.h | 32 +++++++++++++++++++
+ 2 files changed, 46 insertions(+), 1 deletion(-)
+ create mode 100644 include/dt-bindings/clock/google,gs201-acpm.h
+
+diff --git a/Documentation/devicetree/bindings/firmware/google,gs101-acpm-ipc.yaml b/Documentation/devicetree/bindings/firmware/google,gs101-acpm-ipc.yaml
+index e68f9c3ca..8b45d0752 100644
+--- a/Documentation/devicetree/bindings/firmware/google,gs101-acpm-ipc.yaml
++++ b/Documentation/devicetree/bindings/firmware/google,gs101-acpm-ipc.yaml
+@@ -22,7 +22,9 @@ description: |
+ 
+ properties:
+   compatible:
+-    const: google,gs101-acpm-ipc
++    enum:
++      - google,gs101-acpm-ipc
++      - google,gs201-acpm-ipc
+ 
+   "#clock-cells":
+     const: 1
+@@ -77,6 +79,17 @@ required:
+   - mboxes
+   - shmem
+ 
++allOf:
++  - if:
++      properties:
++        compatible:
++          const: google,gs201-acpm-ipc
++    then:
++      properties:
++        pmic: false
++        pmic-1: false
++        pmic-2: false
++
+ additionalProperties: false
+ 
+ examples:
+diff --git a/include/dt-bindings/clock/google,gs201-acpm.h b/include/dt-bindings/clock/google,gs201-acpm.h
+new file mode 100644
+index 000000000..aad3b5d9b
+--- /dev/null
++++ b/include/dt-bindings/clock/google,gs201-acpm.h
+@@ -0,0 +1,32 @@
++/* SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause) */
++/*
++ * Device Tree binding constants for the clocks of the Google gs201 (Tensor G2)
++ * ACPM firmware.
++ */
++
++#ifndef _DT_BINDINGS_CLOCK_GOOGLE_GS201_ACPM_H
++#define _DT_BINDINGS_CLOCK_GOOGLE_GS201_ACPM_H
++
++/* DVFS domains, numbered as in the firmware messages (same as gs101). */
++#define GS201_CLK_ACPM_DVFS_MIF				0
++#define GS201_CLK_ACPM_DVFS_INT				1
++#define GS201_CLK_ACPM_DVFS_CPUCL0			2
++#define GS201_CLK_ACPM_DVFS_CPUCL1			3
++#define GS201_CLK_ACPM_DVFS_CPUCL2			4
++#define GS201_CLK_ACPM_DVFS_G3D				5
++#define GS201_CLK_ACPM_DVFS_G3DL2			6
++#define GS201_CLK_ACPM_DVFS_TPU				7
++#define GS201_CLK_ACPM_DVFS_INTCAM			8
++#define GS201_CLK_ACPM_DVFS_TNR				9
++#define GS201_CLK_ACPM_DVFS_CAM				10
++#define GS201_CLK_ACPM_DVFS_MFC				11
++#define GS201_CLK_ACPM_DVFS_DISP			12
++#define GS201_CLK_ACPM_DVFS_BO				13
++
++/*
++ * The GPU as one clock: its rate is the shader (G3D) rate, and setting it
++ * also moves the top/L2 domain (G3DL2) to the level paired with it.
++ */
++#define GS201_CLK_ACPM_GPU				14
++
++#endif /* _DT_BINDINGS_CLOCK_GOOGLE_GS201_ACPM_H */

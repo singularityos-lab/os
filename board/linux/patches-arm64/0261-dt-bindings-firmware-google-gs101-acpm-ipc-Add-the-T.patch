@@ -1,0 +1,38 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Tue, 27 Oct 2026 11:48:56 -0647
+Subject: [PATCH] dt-bindings: firmware: google,gs101-acpm-ipc: Add the Tensor
+ G4 TMU
+
+The Tensor G4 (zumapro) reads its SoC temperatures through the same ACPM
+TMU service as gs101, with a seventh sensor, AUR, after the six gs101
+has. Add google,zumapro-acpm-tmu.
+
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ .../devicetree/bindings/firmware/google,gs101-acpm-ipc.yaml | 6 ++++--
+ 1 file changed, 4 insertions(+), 2 deletions(-)
+
+diff --git a/Documentation/devicetree/bindings/firmware/google,gs101-acpm-ipc.yaml b/Documentation/devicetree/bindings/firmware/google,gs101-acpm-ipc.yaml
+index 7005da5ea..58a0301f0 100644
+--- a/Documentation/devicetree/bindings/firmware/google,gs101-acpm-ipc.yaml
++++ b/Documentation/devicetree/bindings/firmware/google,gs101-acpm-ipc.yaml
+@@ -77,14 +77,16 @@ properties:
+     description:
+       The SoC's thermal sensors, which the ACPM firmware reads on the
+       kernel's behalf. Cells are the sensor index (0 big, 1 mid, 2 little
+-      CPU cluster, 3 GPU, 4 ISP, 5 TPU).
++      CPU cluster, 3 GPU, 4 ISP, 5 TPU, and on zumapro 6 AUR).
+     type: object
+     $ref: /schemas/thermal/thermal-sensor.yaml#
+     unevaluatedProperties: false
+ 
+     properties:
+       compatible:
+-        const: google,gs101-acpm-tmu
++        enum:
++          - google,gs101-acpm-tmu
++          - google,zumapro-acpm-tmu
+ 
+       "#thermal-sensor-cells":
+         const: 1

@@ -1,0 +1,52 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Sun, 11 Oct 2026 20:25:47 -0400
+Subject: [PATCH] drm/sysfb: simpledrm: map dumb buffers write-combined
+
+With a render-only GPU (Mesa kmsro), scanout buffers are allocated as
+simpledrm dumb buffers and rendered by the GPU. If the GPU is not
+cache-coherent, the damage blit's CPU reads can hit stale cache lines,
+since begin_cpu_access only covers imported buffers. On the Pixel 7 Pro
+(Mali-G710 + simplefb) this shows as short dashes wherever the image
+changes. Map the buffers write-combined so the blit reads memory.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ drivers/gpu/drm/sysfb/simpledrm.c | 21 +++++++++++++++++++++
+ 1 file changed, 21 insertions(+)
+
+diff --git a/drivers/gpu/drm/sysfb/simpledrm.c b/drivers/gpu/drm/sysfb/simpledrm.c
+index 21ddf4502..4f811b6ce 100644
+--- a/drivers/gpu/drm/sysfb/simpledrm.c
++++ b/drivers/gpu/drm/sysfb/simpledrm.c
+@@ -887,9 +887,30 @@ static struct simpledrm_device *simpledrm_device_create(struct drm_driver *drv,
+ 
+ DEFINE_DRM_GEM_FOPS(simpledrm_fops);
+ 
++/*
++ * Scanout buffers may be rendered by a GPU that is not cache-coherent, for
++ * example through Mesa's kmsro, which allocates them here as dumb buffers.
++ * The damage blit reads them with the CPU but cannot invalidate the CPU
++ * caches for native buffers, so map them write-combined: otherwise the
++ * blit copies stale cache lines, which show up as short dashes on screen.
++ */
++static struct drm_gem_object *simpledrm_gem_create_object(struct drm_device *dev,
++							   size_t size)
++{
++	struct drm_gem_shmem_object *shmem;
++
++	shmem = kzalloc_obj(*shmem);
++	if (!shmem)
++		return ERR_PTR(-ENOMEM);
++	shmem->map_wc = true;
++
++	return &shmem->base;
++}
++
+ static struct drm_driver simpledrm_driver = {
+ 	DRM_GEM_SHMEM_DRIVER_OPS,
+ 	DRM_FBDEV_SHMEM_DRIVER_OPS,
++	.gem_create_object	= simpledrm_gem_create_object,
+ 	.name			= DRIVER_NAME,
+ 	.desc			= DRIVER_DESC,
+ 	.major			= DRIVER_MAJOR,

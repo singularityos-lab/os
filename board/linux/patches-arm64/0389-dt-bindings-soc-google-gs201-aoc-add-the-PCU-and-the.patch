@@ -1,0 +1,68 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Mon, 12 Oct 2026 13:22:55 -0400
+Subject: [PATCH] dt-bindings: soc: google: gs201-aoc: add the PCU and the
+ watchdog interrupt
+
+The AoC power control unit holds the A32 reset control and the AoC
+revision, and the AoC watchdog interrupt fires when the firmware stops.
+Both tell a running AoC from a stuck one during bring-up.
+
+Assisted-by: LLM
+Signed-off-by: Derek Ross <derekross@gmail.com>
+---
+ .../bindings/soc/google/google,gs201-aoc.yaml | 20 +++++++++++++++++--
+ 1 file changed, 18 insertions(+), 2 deletions(-)
+
+diff --git a/Documentation/devicetree/bindings/soc/google/google,gs201-aoc.yaml b/Documentation/devicetree/bindings/soc/google/google,gs201-aoc.yaml
+index 1c09f6112..19129cb6f 100644
+--- a/Documentation/devicetree/bindings/soc/google/google,gs201-aoc.yaml
++++ b/Documentation/devicetree/bindings/soc/google/google,gs201-aoc.yaml
+@@ -19,18 +19,30 @@ properties:
+     const: google,gs201-aoc
+ 
+   reg:
++    minItems: 3
+     items:
+       - description: the AoC power request register (aoc_req) and its
+           acknowledge at +0x40
+       - description: the AoC's stage-2 MPU
+       - description: the chip id block, read for the firmware's boot
+           parameters
++      - description: the AoC power control unit (A32 reset control and
++          revision), in the AoC block
+ 
+   reg-names:
++    minItems: 3
+     items:
+       - const: aoc_req
+       - const: s2mpu
+       - const: chipid
++      - const: pcu
++
++  interrupts:
++    maxItems: 1
++
++  interrupt-names:
++    items:
++      - const: watchdog
+ 
+   memory-region:
+     maxItems: 1
+@@ -66,10 +78,14 @@ additionalProperties: false
+ 
+ examples:
+   - |
++    #include <dt-bindings/interrupt-controller/arm-gic.h>
+     aoc@181d0000 {
+         compatible = "google,gs201-aoc";
+-        reg = <0x181d0000 0x1000>, <0x1a0b0000 0x1000>, <0x10000000 0x100>;
+-        reg-names = "aoc_req", "s2mpu", "chipid";
++        reg = <0x181d0000 0x1000>, <0x1a0b0000 0x1000>, <0x10000000 0x100>,
++              <0x19a00000 0x10000>;
++        reg-names = "aoc_req", "s2mpu", "chipid", "pcu";
++        interrupts = <GIC_SPI 116 IRQ_TYPE_LEVEL_HIGH>;
++        interrupt-names = "watchdog";
+         memory-region = <&aoc_carveout>;
+         google,gsa = <&gsa>;
+         google,sysmmu = <&aoc_sysmmu>;

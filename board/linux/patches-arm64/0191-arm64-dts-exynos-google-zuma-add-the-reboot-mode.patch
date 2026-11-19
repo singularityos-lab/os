@@ -1,0 +1,40 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Brett-Michael Green <brett@bmgvisualtech.com>
+Date: Thu, 22 Oct 2026 13:51:13 -0400
+Subject: [PATCH] arm64: dts: exynos: google: zuma: add the reboot mode
+
+The bootloader reads the reboot reason from the PMU's SYSIP_DAT0
+(0x810), where stock's pixel-reboot driver writes it with the same
+values as on gs101 and gs201. Describe it as a syscon-reboot-mode under
+the PMU, so "reboot bootloader" lands in fastboot.
+
+Assisted-by: LLM
+Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
+---
+ arch/arm64/boot/dts/exynos/google/zuma.dtsi | 13 +++++++++++++
+ 1 file changed, 13 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/zuma.dtsi b/arch/arm64/boot/dts/exynos/google/zuma.dtsi
+index ec67fd2ce..34f702756 100644
+--- a/arch/arm64/boot/dts/exynos/google/zuma.dtsi
++++ b/arch/arm64/boot/dts/exynos/google/zuma.dtsi
+@@ -316,6 +316,19 @@ usb_dwc3: usb@11210000 {
+ 		pmu_system_controller: system-controller@15460000 {
+ 			compatible = "google,zuma-pmu";
+ 			reg = <0x15460000 0x10000>;
++
++			/*
++			 * The bootloader reads the reboot reason from SYSIP_DAT0,
++			 * where stock's pixel-reboot driver writes it
++			 * (reboot-cmd-offset 0x810), with gs101's and gs201's values.
++			 */
++			reboot-mode {
++				compatible = "syscon-reboot-mode";
++				offset = <0x0810>; /* SYSIP_DAT0 */
++				mode-bootloader = <0xfc>;
++				mode-fastboot = <0xfa>;
++				mode-recovery = <0xff>;
++			};
+ 		};
+ 	};
+ };

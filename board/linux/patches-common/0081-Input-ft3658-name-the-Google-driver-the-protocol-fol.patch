@@ -1,0 +1,34 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Alejandro Garcia <skipper.pelygro@gmail.com>
+Date: Wed, 28 Oct 2026 22:27:25 -0700
+Subject: [PATCH] Input: ft3658 - name the Google driver the protocol follows
+
+The header says the protocol follows Google's GPL FocalTech driver for
+Pixel devices. Name the repository, the directory, the branch and the
+files, so a reviewer can follow it to the source: focaltech_spi.c for
+the framing, the status check, the 64-byte alignment rule and the CS-high
+delay, and focaltech_core.c for the power sequence and the report.
+
+Suggested-by: Derek Ross <derekross@gmail.com>
+Assisted-by: Claude Opus 5.5
+Signed-off-by: Alejandro Garcia <skipper.pelygro@gmail.com>
+---
+ drivers/input/touchscreen/focaltech_ft3658.c | 5 ++++-
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/input/touchscreen/focaltech_ft3658.c b/drivers/input/touchscreen/focaltech_ft3658.c
+index 17bdeb15c..4309c8664 100644
+--- a/drivers/input/touchscreen/focaltech_ft3658.c
++++ b/drivers/input/touchscreen/focaltech_ft3658.c
+@@ -3,7 +3,10 @@
+  * FocalTech FT3658 touchscreen driver (SPI)
+  *
+  * The FT3658 is the touch controller of the Google Pixel 7. The protocol
+- * follows Google's GPL FocalTech driver for Pixel devices:
++ * follows Google's GPL FocalTech driver for Pixel devices
++ * (kernel/google-modules/touch/focaltech_touch, ft3658/, branch
++ * android-gs-pantah-6.1-android16: focaltech_spi.c for the framing,
++ * focaltech_core.c for the power sequence and the report):
+  *   Copyright (c) 2012-2020, FocalTech Systems, Ltd.
+  *
+  * The controller runs its own firmware from flash; this driver only powers

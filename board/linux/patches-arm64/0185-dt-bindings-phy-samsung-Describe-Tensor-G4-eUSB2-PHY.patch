@@ -1,0 +1,45 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Thu, 22 Oct 2026 21:08:06 -0700
+Subject: [PATCH] dt-bindings: phy: samsung: Describe Tensor G4 eUSB2 PHY
+
+Add the Tensor G4 eUSB2 compatible using the existing three-clock,
+two-supply and optional repeater interface. Keep the Exynos2200
+register-interface fallback; the specific G4 match selects its bias
+and calibration sequence in a G4-aware driver.
+
+Stock zumapro's HSI0 low-voltage rail is named vdd075-supply and wired
+to m_ldo8_reg. Describe the digital supply without fixing every
+compatible to Exynos2200's 0.88 V. This changes no voltage constraint,
+board node or regulator programming.
+
+Link: https://android.googlesource.com/kernel/devices/google/zumapro/+/8831630eee2ad095b85ed452944e6353940966a5/dts/zumapro-common.dtsi#73
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ .../bindings/phy/samsung,exynos2200-eusb2-phy.yaml          | 6 ++++--
+ 1 file changed, 4 insertions(+), 2 deletions(-)
+
+diff --git a/Documentation/devicetree/bindings/phy/samsung,exynos2200-eusb2-phy.yaml b/Documentation/devicetree/bindings/phy/samsung,exynos2200-eusb2-phy.yaml
+index f63210224..f382d3e73 100644
+--- a/Documentation/devicetree/bindings/phy/samsung,exynos2200-eusb2-phy.yaml
++++ b/Documentation/devicetree/bindings/phy/samsung,exynos2200-eusb2-phy.yaml
+@@ -18,7 +18,9 @@ properties:
+     oneOf:
+       - const: samsung,exynos2200-eusb2-phy
+       - items:
+-          - const: google,zuma-eusb2-phy
++          - enum:
++              - google,zuma-eusb2-phy
++              - google,zumapro-eusb2-phy
+           - const: samsung,exynos2200-eusb2-phy
+ 
+   reg:
+@@ -49,7 +51,7 @@ properties:
+ 
+   vdd-supply:
+     description:
+-      Phandle to 0.88V regulator supply to PHY digital circuit.
++      Phandle to the regulator supply to the PHY digital circuit.
+ 
+   vdda12-supply:
+     description:

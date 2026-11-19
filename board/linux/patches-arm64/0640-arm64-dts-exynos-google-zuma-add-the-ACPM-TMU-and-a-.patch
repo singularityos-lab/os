@@ -1,0 +1,83 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Brett-Michael Green <brett@bmgvisualtech.com>
+Date: Sat, 31 Oct 2026 13:03:23 -0400
+Subject: [PATCH] arm64: dts: exynos: google: zuma: add the ACPM TMU and a GPU
+ thermal zone
+
+Add zuma's TMU sensor under acpm_ipc and a gpu-thermal zone on its G3D
+sensor (3). It throttles panthor's devfreq from 85 C and shuts down at
+105 C, as zumapro.dtsi does, below the stock Pixel 8 Pro's own GPU
+trips (passive from 100 C, hot at 115 C). For that, the GPU node
+gets #cooling-cells.
+
+Assisted-by: LLM
+Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
+---
+ arch/arm64/boot/dts/exynos/google/zuma.dtsi | 40 +++++++++++++++++++++
+ 1 file changed, 40 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/zuma.dtsi b/arch/arm64/boot/dts/exynos/google/zuma.dtsi
+index 93bbbe6b7..364df71d2 100644
+--- a/arch/arm64/boot/dts/exynos/google/zuma.dtsi
++++ b/arch/arm64/boot/dts/exynos/google/zuma.dtsi
+@@ -161,6 +161,11 @@ acpm_ipc: power-management {
+ 			#clock-cells = <1>;
+ 			mboxes = <&ap2apm_mailbox>;
+ 			shmem = <&apm_sram>;
++
++			acpm_tmu: thermal-sensor {
++				compatible = "google,zuma-acpm-tmu";
++				#thermal-sensor-cells = <1>;
++			};
+ 		};
+ 	};
+ 
+@@ -169,6 +174,40 @@ psci {
+ 		method = "smc";
+ 	};
+ 
++	thermal-zones {
++		/*
++		 * Below stock's own GPU trips (passive from 100 C, hot at
++		 * 115 C).
++		 */
++		gpu-thermal {
++			polling-delay-passive = <1000>;
++			polling-delay = <2000>;
++			thermal-sensors = <&acpm_tmu 3>;
++
++			trips {
++				gpu_alert: gpu-alert {
++					temperature = <85000>;
++					hysteresis = <5000>;
++					type = "passive";
++				};
++
++				gpu_crit: gpu-crit {
++					temperature = <105000>;
++					hysteresis = <2000>;
++					type = "critical";
++				};
++			};
++
++			/* panthor's devfreq cooling: step_wise walks the GPU down its OPPs. */
++			cooling-maps {
++				map0 {
++					trip = <&gpu_alert>;
++					cooling-device = <&gpu 0xffffffff 0xffffffff>;
++				};
++			};
++		};
++	};
++
+ 	timer {
+ 		compatible = "arm,armv8-timer";
+ 		interrupts = <GIC_PPI 13 IRQ_TYPE_LEVEL_LOW>,
+@@ -932,6 +971,7 @@ gpu: gpu@1f000000 {
+ 				 <&cmu_g3d CLK_GOUT_G3D_COREGROUP>,
+ 				 <&cmu_g3d CLK_GOUT_G3D_STACKS>;
+ 			clock-names = "core", "coregroup", "stacks";
++			#cooling-cells = <2>;
+ 			status = "disabled";
+ 		};
+ 

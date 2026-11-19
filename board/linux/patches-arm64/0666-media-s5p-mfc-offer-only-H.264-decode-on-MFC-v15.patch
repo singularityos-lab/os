@@ -1,0 +1,130 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?=C3=81ngel=20Ren=C3=A9?=
+ <17342133+angelrenefm@users.noreply.github.com>
+Date: Sat, 14 Nov 2026 01:13:26 +0100
+Subject: [PATCH] media: s5p-mfc: offer only H.264 decode on MFC v15
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+On the Pixel 7's MFC v15.6 only H.264 has been made to work. The
+firmware refuses to open an instance for MPEG-1, MPEG-2, MPEG-4, H.263,
+VP8 and VP9 (OPEN_INSTANCE returns error 0x35, then REQBUFS fails with
+EIO), and HEVC opens but every frame comes back with a decode error.
+Each was tried with FFmpeg's *_v4l2m2m decoder on a short clip.
+
+Advertising them anyway breaks playback: GStreamer ranks its V4L2
+decoders above the software ones, picks v4l2vp9dec for a VP9 file, and
+the pipeline fails instead of falling back to vp9dec. Leave every
+compressed format but H.264 out of the v15 list, H.264 MVC included,
+which wasn't tried.
+
+Assisted-by: LLM
+Signed-off-by: Ángel René <17342133+angelrenefm@users.noreply.github.com>
+---
+ .../platform/samsung/s5p-mfc/s5p_mfc_dec.c    | 22 +++++++++----------
+ 1 file changed, 11 insertions(+), 11 deletions(-)
+
+diff --git a/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_dec.c b/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_dec.c
+index 653f7efa6..d26bafe4d 100644
+--- a/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_dec.c
++++ b/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_dec.c
+@@ -84,7 +84,7 @@ static const struct s5p_mfc_fmt formats[] = {
+ 		.codec_mode	= S5P_MFC_CODEC_H264_MVC_DEC,
+ 		.type		= MFC_FMT_DEC,
+ 		.num_planes	= 1,
+-		.versions	= MFC_V6PLUS_BITS,
++		.versions	= (MFC_V6PLUS_BITS & ~MFC_V15_BIT),
+ 		.flags		= V4L2_FMT_FLAG_DYN_RESOLUTION |
+ 				  V4L2_FMT_FLAG_CONTINUOUS_BYTESTREAM,
+ 	},
+@@ -93,7 +93,7 @@ static const struct s5p_mfc_fmt formats[] = {
+ 		.codec_mode	= S5P_MFC_CODEC_H263_DEC,
+ 		.type		= MFC_FMT_DEC,
+ 		.num_planes	= 1,
+-		.versions	= MFC_V5PLUS_BITS,
++		.versions	= (MFC_V5PLUS_BITS & ~MFC_V15_BIT),
+ 		.flags		= V4L2_FMT_FLAG_DYN_RESOLUTION,
+ 	},
+ 	{
+@@ -101,7 +101,7 @@ static const struct s5p_mfc_fmt formats[] = {
+ 		.codec_mode	= S5P_MFC_CODEC_MPEG2_DEC,
+ 		.type		= MFC_FMT_DEC,
+ 		.num_planes	= 1,
+-		.versions	= MFC_V5PLUS_BITS,
++		.versions	= (MFC_V5PLUS_BITS & ~MFC_V15_BIT),
+ 		.flags		= V4L2_FMT_FLAG_DYN_RESOLUTION |
+ 				  V4L2_FMT_FLAG_CONTINUOUS_BYTESTREAM,
+ 	},
+@@ -110,7 +110,7 @@ static const struct s5p_mfc_fmt formats[] = {
+ 		.codec_mode	= S5P_MFC_CODEC_MPEG2_DEC,
+ 		.type		= MFC_FMT_DEC,
+ 		.num_planes	= 1,
+-		.versions	= MFC_V5PLUS_BITS,
++		.versions	= (MFC_V5PLUS_BITS & ~MFC_V15_BIT),
+ 		.flags		= V4L2_FMT_FLAG_DYN_RESOLUTION |
+ 				  V4L2_FMT_FLAG_CONTINUOUS_BYTESTREAM,
+ 	},
+@@ -119,7 +119,7 @@ static const struct s5p_mfc_fmt formats[] = {
+ 		.codec_mode	= S5P_MFC_CODEC_MPEG4_DEC,
+ 		.type		= MFC_FMT_DEC,
+ 		.num_planes	= 1,
+-		.versions	= MFC_V5PLUS_BITS,
++		.versions	= (MFC_V5PLUS_BITS & ~MFC_V15_BIT),
+ 		.flags		= V4L2_FMT_FLAG_DYN_RESOLUTION |
+ 				  V4L2_FMT_FLAG_CONTINUOUS_BYTESTREAM,
+ 	},
+@@ -128,7 +128,7 @@ static const struct s5p_mfc_fmt formats[] = {
+ 		.codec_mode	= S5P_MFC_CODEC_MPEG4_DEC,
+ 		.type		= MFC_FMT_DEC,
+ 		.num_planes	= 1,
+-		.versions	= MFC_V5PLUS_BITS,
++		.versions	= (MFC_V5PLUS_BITS & ~MFC_V15_BIT),
+ 		.flags		= V4L2_FMT_FLAG_DYN_RESOLUTION,
+ 	},
+ 	{
+@@ -136,7 +136,7 @@ static const struct s5p_mfc_fmt formats[] = {
+ 		.codec_mode	= S5P_MFC_CODEC_VC1_DEC,
+ 		.type		= MFC_FMT_DEC,
+ 		.num_planes	= 1,
+-		.versions	= MFC_V5PLUS_BITS,
++		.versions	= (MFC_V5PLUS_BITS & ~MFC_V15_BIT),
+ 		.flags		= V4L2_FMT_FLAG_DYN_RESOLUTION,
+ 	},
+ 	{
+@@ -144,7 +144,7 @@ static const struct s5p_mfc_fmt formats[] = {
+ 		.codec_mode	= S5P_MFC_CODEC_VC1RCV_DEC,
+ 		.type		= MFC_FMT_DEC,
+ 		.num_planes	= 1,
+-		.versions	= MFC_V5PLUS_BITS,
++		.versions	= (MFC_V5PLUS_BITS & ~MFC_V15_BIT),
+ 		.flags		= V4L2_FMT_FLAG_DYN_RESOLUTION,
+ 	},
+ 	{
+@@ -152,7 +152,7 @@ static const struct s5p_mfc_fmt formats[] = {
+ 		.codec_mode	= S5P_MFC_CODEC_VP8_DEC,
+ 		.type		= MFC_FMT_DEC,
+ 		.num_planes	= 1,
+-		.versions	= MFC_V6PLUS_BITS,
++		.versions	= (MFC_V6PLUS_BITS & ~MFC_V15_BIT),
+ 		.flags		= V4L2_FMT_FLAG_DYN_RESOLUTION,
+ 	},
+ 	{
+@@ -160,7 +160,7 @@ static const struct s5p_mfc_fmt formats[] = {
+ 		.codec_mode	= S5P_FIMV_CODEC_HEVC_DEC,
+ 		.type		= MFC_FMT_DEC,
+ 		.num_planes	= 1,
+-		.versions	= MFC_V10PLUS_BITS,
++		.versions	= (MFC_V10PLUS_BITS & ~MFC_V15_BIT),
+ 		.flags		= V4L2_FMT_FLAG_DYN_RESOLUTION |
+ 				  V4L2_FMT_FLAG_CONTINUOUS_BYTESTREAM,
+ 	},
+@@ -169,7 +169,7 @@ static const struct s5p_mfc_fmt formats[] = {
+ 		.codec_mode	= S5P_FIMV_CODEC_VP9_DEC,
+ 		.type		= MFC_FMT_DEC,
+ 		.num_planes	= 1,
+-		.versions	= MFC_V10PLUS_BITS,
++		.versions	= (MFC_V10PLUS_BITS & ~MFC_V15_BIT),
+ 		.flags		= V4L2_FMT_FLAG_DYN_RESOLUTION,
+ 	},
+ };

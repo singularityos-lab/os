@@ -1,0 +1,71 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Mon, 12 Oct 2026 20:10:02 -0400
+Subject: [PATCH] soc: google: cpif: s51xx: map the doorbell only inside the
+ bridge window
+
+The modem's doorbell is a register at BAR0 + offset. The endpoint driver
+computes its CPU address from the start of the root port's memory window
+and maps it whatever the result. If that window is not assigned (its
+start is 0), the "doorbell" is a low physical address, and every message
+to the modem would write it.
+
+Refuse the probe unless the window is assigned and contains the
+doorbell, fail it when the mapping or the allocation fails, and leave
+the modem control without a PCI device then, as it already expects.
+
+Assisted-by: LLM
+Signed-off-by: Derek Ross <derekross@gmail.com>
+---
+ drivers/soc/google/cpif/s51xx_pcie.c | 23 ++++++++++++++++++++++-
+ 1 file changed, 22 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/soc/google/cpif/s51xx_pcie.c b/drivers/soc/google/cpif/s51xx_pcie.c
+index 182f88204..106d77013 100644
+--- a/drivers/soc/google/cpif/s51xx_pcie.c
++++ b/drivers/soc/google/cpif/s51xx_pcie.c
+@@ -386,6 +386,8 @@ static int s51xx_pcie_probe(struct pci_dev *pdev, const struct pci_device_id *en
+ 			driver->name, __func__, mc->pcie_ch_num);
+ 
+ 	s51xx_pcie = devm_kzalloc(dev, sizeof(*s51xx_pcie), GFP_KERNEL);
++	if (!s51xx_pcie)
++		return -ENOMEM;
+ 	s51xx_pcie->s51xx_pdev = pdev;
+ 	s51xx_pcie->irq_num_base = pdev->irq;
+ 	s51xx_pcie->link_status = 1;
+@@ -425,6 +427,22 @@ static int s51xx_pcie_probe(struct pci_dev *pdev, const struct pci_device_id *en
+ 	dev_info(&bus_self->dev, "[%s] BAR %d: tmp rsc : %pR\n", __func__, resno, tmp_rsc);
+ 	s51xx_pcie->dbaddr_base = tmp_rsc->start;
+ 
++	/*
++	 * The doorbell is BAR0 + offset, reached through the root port's
++	 * memory window, which must therefore be assigned and contain it.
++	 * Stock maps whatever the sum gives; with an unassigned window that
++	 * is a low physical address, and every doorbell would write it.
++	 */
++	if (!(resource_type(tmp_rsc) & IORESOURCE_MEM) || !tmp_rsc->start ||
++	    tmp_rsc->flags & IORESOURCE_UNSET ||
++	    s51xx_pcie->dbaddr_base + s51xx_pcie->dbaddr_offset + SZ_4 - 1 > tmp_rsc->end) {
++		dev_err(dev, "doorbell base %#llx + %#x outside the bridge window %pR: not mapped\n",
++			(unsigned long long)s51xx_pcie->dbaddr_base,
++			s51xx_pcie->dbaddr_offset, tmp_rsc);
++		mc->s51xx_pdev = NULL;
++		return -ENODEV;
++	}
++
+ 	mif_info("Set Doorbell register address.\n");
+ 	s51xx_pcie->doorbell_addr = devm_ioremap(&pdev->dev,
+ 			s51xx_pcie->dbaddr_base + s51xx_pcie->dbaddr_offset, SZ_4);
+@@ -440,8 +458,11 @@ static int s51xx_pcie_probe(struct pci_dev *pdev, const struct pci_device_id *en
+ 		s51xx_pcie->doorbell_addr, (unsigned long)s51xx_pcie->dbaddr_base,
+ 					(unsigned long)s51xx_pcie->dbaddr_offset);
+ 
+-	if (s51xx_pcie->doorbell_addr == NULL)
++	if (s51xx_pcie->doorbell_addr == NULL) {
+ 		mif_err("Can't ioremap doorbell address!!!\n");
++		mc->s51xx_pdev = NULL;
++		return -ENOMEM;
++	}
+ 
+ 	mif_info("Register PCIE notification LINKDOWN, CPL_TIMEOUT and LINKDOWN_RECOVERY_FAIL events...\n");
+ 	s51xx_pcie->pcie_event.events =

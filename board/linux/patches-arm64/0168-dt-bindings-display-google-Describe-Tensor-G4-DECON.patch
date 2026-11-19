@@ -1,0 +1,49 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Fri, 23 Oct 2026 17:43:33 -0647
+Subject: [PATCH] dt-bindings: display: google: Describe Tensor G4 DECON
+
+Add the zumapro identity for the firmware-configured G4 display path.
+Its fourteen-window layout is not register-compatible with the gs201
+fallback, so give it an independent compatible. The existing gs201
+resource contract remains unchanged.
+
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ .../bindings/display/samsung/google,gs201-decon.yaml  | 11 +++++++----
+ 1 file changed, 7 insertions(+), 4 deletions(-)
+
+diff --git a/Documentation/devicetree/bindings/display/samsung/google,gs201-decon.yaml b/Documentation/devicetree/bindings/display/samsung/google,gs201-decon.yaml
+index 09a016faa..58709681c 100644
+--- a/Documentation/devicetree/bindings/display/samsung/google,gs201-decon.yaml
++++ b/Documentation/devicetree/bindings/display/samsung/google,gs201-decon.yaml
+@@ -4,14 +4,15 @@
+ $id: http://devicetree.org/schemas/display/samsung/google,gs201-decon.yaml#
+ $schema: http://devicetree.org/meta-schemas/core.yaml#
+ 
+-title: Google gs201 display controller (DECON)
++title: Google Tensor display controller (DECON)
+ 
+ maintainers:
+   - Derek Ross <derekross@gmail.com>
+ 
+ description:
+-  The DECON is the display controller of the gs201 (Tensor G2) display
+-  pipeline. It blends up to six windows, each fed by a DPP read DMA
++  The DECON is the display controller of the gs201 (Tensor G2) and zumapro
++  (Tensor G4) display pipelines. It blends up to six or fourteen windows,
++  respectively, each fed by a DPP read DMA
+   channel, compresses the result with DSC and hands it to a DSIM. In
+   command mode a frame is sent on each tearing effect (TE) pulse of the
+   panel; register writes are double-buffered and take effect at the
+@@ -19,7 +20,9 @@ description:
+ 
+ properties:
+   compatible:
+-    const: google,gs201-decon
++    enum:
++      - google,gs201-decon
++      - google,zumapro-decon
+ 
+   reg:
+     items:

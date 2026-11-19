@@ -1,0 +1,932 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Sun, 11 Oct 2026 19:35:50 -0400
+Subject: [PATCH] Input: add Synaptics TouchComm SPI touchscreen driver
+
+Add a driver for Synaptics touchscreen controllers that speak version 1
+of the TouchComm protocol over SPI, such as the S3908 in the Google
+Pixel 7 Pro.
+
+After a hardware reset the driver waits for the identify report, makes
+sure the application firmware runs, reads the application info (sensor
+size, number of objects) and the touch report configuration, and then
+reports multitouch (type B) events. Touch reports are bit streams whose
+layout the firmware describes with the touch report configuration; the
+driver interprets it for every report, so it does not depend on one
+firmware's format.
+
+Protocol handling follows Google's GPL Synaptics TouchComm driver for
+Pixel devices. Firmware update, gestures, power management, palm and
+grip handling and heatmaps are not supported.
+
+Tested on a Pixel 7 Pro (S3908GA1B0-15.0, build 4104960): the device
+identifies, reports a 1440x3120 sensor with 10 objects, and shows up as
+a direct touch device in libinput.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ drivers/input/touchscreen/Kconfig         |  15 +
+ drivers/input/touchscreen/Makefile        |   1 +
+ drivers/input/touchscreen/synaptics_tcm.c | 855 ++++++++++++++++++++++
+ 3 files changed, 871 insertions(+)
+ create mode 100644 drivers/input/touchscreen/synaptics_tcm.c
+
+diff --git a/drivers/input/touchscreen/Kconfig b/drivers/input/touchscreen/Kconfig
+index 9b9ae8ac3..10f4ddb2c 100644
+--- a/drivers/input/touchscreen/Kconfig
++++ b/drivers/input/touchscreen/Kconfig
+@@ -1299,6 +1299,21 @@ config TOUCHSCREEN_SURFACE3_SPI
+ 	  To compile this driver as a module, choose M here: the
+ 	  module will be called surface3_spi.
+ 
++config TOUCHSCREEN_SYNAPTICS_TCM_SPI
++	tristate "Synaptics TouchComm SPI touchscreen"
++	depends on SPI
++	depends on GPIOLIB || COMPILE_TEST
++	select CRC_ITU_T
++	help
++	  Say Y here if you have a Synaptics touchscreen controller that
++	  speaks the TouchComm protocol over SPI, such as the S3908 in the
++	  Google Pixel 7 Pro.
++
++	  If unsure, say N.
++
++	  To compile this driver as a module, choose M here: the
++	  module will be called synaptics_tcm.
++
+ config TOUCHSCREEN_SX8654
+ 	tristate "Semtech SX8654 touchscreen"
+ 	depends on I2C
+diff --git a/drivers/input/touchscreen/Makefile b/drivers/input/touchscreen/Makefile
+index bfd9de833..db500698e 100644
+--- a/drivers/input/touchscreen/Makefile
++++ b/drivers/input/touchscreen/Makefile
+@@ -86,6 +86,7 @@ obj-$(CONFIG_TOUCHSCREEN_STMPE)		+= stmpe-ts.o
+ obj-$(CONFIG_TOUCHSCREEN_SUN4I)		+= sun4i-ts.o
+ obj-$(CONFIG_TOUCHSCREEN_SUR40)		+= sur40.o
+ obj-$(CONFIG_TOUCHSCREEN_SURFACE3_SPI)	+= surface3_spi.o
++obj-$(CONFIG_TOUCHSCREEN_SYNAPTICS_TCM_SPI)	+= synaptics_tcm.o
+ obj-$(CONFIG_TOUCHSCREEN_TI_AM335X_TSC)	+= ti_am335x_tsc.o
+ obj-$(CONFIG_TOUCHSCREEN_TOUCHIT213)	+= touchit213.o
+ obj-$(CONFIG_TOUCHSCREEN_TOUCHRIGHT)	+= touchright.o
+diff --git a/drivers/input/touchscreen/synaptics_tcm.c b/drivers/input/touchscreen/synaptics_tcm.c
+new file mode 100644
+index 000000000..10395a7c7
+--- /dev/null
++++ b/drivers/input/touchscreen/synaptics_tcm.c
+@@ -0,0 +1,855 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * Synaptics TouchComm touchscreen driver (SPI)
++ *
++ * Supports controllers that speak version 1 of the Synaptics TouchComm
++ * protocol, such as the S3908 in the Google Pixel 7 Pro.
++ *
++ * Protocol and touch report parsing follow Google's GPL Synaptics TouchComm
++ * driver for Pixel devices:
++ *   Copyright (C) 2017-2020 Synaptics Incorporated
++ *
++ * TouchComm v1 in brief. The host writes commands as
++ *
++ *	command (1) | payload length (2, LE) | payload [| CRC-16 (2, LE)]
++ *
++ * and the device raises ATTN (a level-low interrupt) when it has a message.
++ * Every message starts with a four byte header
++ *
++ *	0xa5 | status or report code (1) | payload length (2, LE)
++ *
++ * which the host reads on its own. The payload is fetched with a second read
++ * that the device prefixes with 0xa5 0x03 ("continued read") and ends with
++ * a 0x5a padding byte, optionally followed by a CRC-16. Codes below 0x10 are
++ * command responses; 0x10 and up are reports (identify, touch, ...).
++ *
++ * Touch reports are bit streams. Their layout is described by the touch
++ * report configuration, a small byte code that the firmware hands out and
++ * that this driver interprets for each report.
++ */
++
++#include <linux/bits.h>
++#include <linux/completion.h>
++#include <linux/crc-itu-t.h>
++#include <linux/delay.h>
++#include <linux/gpio/consumer.h>
++#include <linux/input.h>
++#include <linux/input/mt.h>
++#include <linux/input/touchscreen.h>
++#include <linux/interrupt.h>
++#include <linux/module.h>
++#include <linux/mutex.h>
++#include <linux/of.h>
++#include <linux/regulator/consumer.h>
++#include <linux/slab.h>
++#include <linux/spi/spi.h>
++#include <linux/unaligned.h>
++
++#define TCM_MARKER			0xa5
++#define TCM_PADDING			0x5a
++#define TCM_HEADER_SIZE			4
++
++/* Largest payload we read in one go; longer messages are read in chunks. */
++#define TCM_MAX_PAYLOAD			2048
++/* 0xa5 0x03 + payload + padding + CRC */
++#define TCM_XFER_SIZE			(TCM_MAX_PAYLOAD + 5)
++
++#define TCM_MAX_OBJECTS			10
++#define TCM_CMD_TIMEOUT_MS		1000
++#define TCM_IDENTIFY_TIMEOUT_MS		1000
++#define TCM_READ_RETRIES		10
++
++/* Commands */
++#define TCM_CMD_RUN_APP_FW		0x14
++#define TCM_CMD_GET_APP_INFO		0x20
++#define TCM_CMD_GET_TOUCH_REPORT_CONFIG	0x25
++
++/* Status codes */
++#define TCM_STATUS_IDLE			0x00
++#define TCM_STATUS_OK			0x01
++#define TCM_STATUS_CONTINUED_READ	0x03
++
++/* Report codes */
++#define TCM_REPORT_IDENTIFY		0x10
++#define TCM_REPORT_TOUCH		0x11
++
++/* Firmware modes in the identify report */
++#define TCM_MODE_APP_FW			0x01
++
++/* Touch report configuration codes */
++#define TCM_TR_END			0x00
++#define TCM_TR_FOREACH_ACTIVE_OBJECT	0x01
++#define TCM_TR_FOREACH_OBJECT		0x02
++#define TCM_TR_FOREACH_END		0x03
++#define TCM_TR_PAD_TO_NEXT_BYTE		0x04
++#define TCM_TR_OBJECT_N_INDEX		0x06
++#define TCM_TR_OBJECT_N_CLASSIFICATION	0x07
++#define TCM_TR_OBJECT_N_X_POSITION	0x08
++#define TCM_TR_OBJECT_N_Y_POSITION	0x09
++#define TCM_TR_OBJECT_N_Z		0x0a
++#define TCM_TR_OBJECT_N_X_WIDTH		0x0b
++#define TCM_TR_OBJECT_N_Y_WIDTH		0x0c
++#define TCM_TR_NUM_OF_ACTIVE_OBJECTS	0x18
++
++/* Object classifications */
++#define TCM_OBJ_LIFT			0
++#define TCM_OBJ_FINGER			1
++#define TCM_OBJ_GLOVED			2
++#define TCM_OBJ_STYLUS			3
++#define TCM_OBJ_SMALL			5
++#define TCM_OBJ_PALM			6
++
++struct tcm_identify {
++	u8 version;
++	u8 mode;
++	char part_number[16];
++	__le32 build_id;
++	__le16 max_write_size;
++} __packed;
++
++struct tcm_app_info {
++	__le16 version;
++	__le16 status;
++	__le16 static_config_size;
++	__le16 dynamic_config_size;
++	__le16 app_config_start_write_block;
++	__le16 app_config_size;
++	__le16 max_touch_report_config_size;
++	__le16 max_touch_report_payload_size;
++	u8 customer_config_id[16];
++	__le16 max_x;
++	__le16 max_y;
++	__le16 max_objects;
++	__le16 num_of_buttons;
++	__le16 num_of_image_rows;
++	__le16 num_of_image_cols;
++	__le16 has_hybrid_data;
++} __packed;
++
++struct tcm_object {
++	u8 status;
++	u32 x;
++	u32 y;
++	u32 z;
++	u32 x_width;
++	u32 y_width;
++};
++
++struct tcm_ts {
++	struct spi_device *spi;
++	struct input_dev *input;
++	struct gpio_desc *reset_gpio;
++	struct touchscreen_properties prop;
++
++	/* Serialises bus transfers (the IRQ thread and command writers). */
++	struct mutex io_lock;
++	/* One command in flight at a time. */
++	struct mutex cmd_lock;
++
++	struct completion cmd_done;
++	struct completion identify_done;
++	u8 cmd;
++	u8 resp_code;
++	unsigned int resp_len;
++	u8 resp[TCM_MAX_PAYLOAD];
++
++	bool has_crc;
++	bool crc_known;
++	u16 max_write_size;
++
++	struct tcm_identify id;
++	struct tcm_app_info app;
++	unsigned int max_x;
++	unsigned int max_y;
++	unsigned int max_objects;
++	u8 *report_cfg;
++	unsigned int report_cfg_len;
++	struct tcm_object objs[TCM_MAX_OBJECTS];
++	bool input_ready;
++
++	/* Message being read; DMA safe. */
++	u8 *rx;
++	u8 *tx;
++};
++
++static int tcm_spi_read(struct tcm_ts *ts, u8 *buf, unsigned int len)
++{
++	struct spi_transfer xfer = {
++		.tx_buf = ts->tx,
++		.rx_buf = buf,
++		.len = len,
++	};
++
++	/* The device clocks out data while it sees 0xff on MOSI. */
++	return spi_sync_transfer(ts->spi, &xfer, 1);
++}
++
++/*
++ * Read a message header or payload. A device that is not ready yet answers
++ * with 0xff instead of the 0xa5 marker; retry for a while, like Synaptics'
++ * reference driver does.
++ */
++static int tcm_read_packet(struct tcm_ts *ts, unsigned int len)
++{
++	int retry, error;
++
++	for (retry = 0; retry < TCM_READ_RETRIES; retry++) {
++		error = tcm_spi_read(ts, ts->rx, len);
++		if (error)
++			return error;
++		if (ts->rx[0] == TCM_MARKER)
++			return 0;
++		usleep_range(5000, 10000);
++	}
++
++	return -EAGAIN;
++}
++
++static int tcm_spi_write(struct tcm_ts *ts, const u8 *buf, unsigned int len)
++{
++	struct spi_transfer xfer = {
++		.tx_buf = buf,
++		.len = len,
++	};
++
++	return spi_sync_transfer(ts->spi, &xfer, 1);
++}
++
++/*
++ * Read the payload of the message whose header was just read. Called with
++ * io_lock held. Up to TCM_MAX_PAYLOAD bytes land in ts->rx + 2; anything
++ * beyond that is read and dropped.
++ */
++static int tcm_read_payload(struct tcm_ts *ts, unsigned int len)
++{
++	unsigned int extra = ts->crc_known ? (ts->has_crc ? 2 : 0) : 2;
++	unsigned int xfer_len;
++	int error;
++
++	if (len > TCM_MAX_PAYLOAD) {
++		/*
++		 * Chunked continued reads: each one is prefixed by 0xa5 0x03
++		 * again. Read the head into rx and drop the rest.
++		 */
++		unsigned int left = len + 1 + extra;
++
++		dev_warn_ratelimited(&ts->spi->dev,
++				     "dropping %u bytes of a %u byte message\n",
++				     len - TCM_MAX_PAYLOAD, len);
++		while (left) {
++			unsigned int chunk = min(left, TCM_XFER_SIZE - 2);
++
++			error = tcm_read_packet(ts, chunk + 2);
++			if (error)
++				return error;
++			if (ts->rx[1] != TCM_STATUS_CONTINUED_READ)
++				return -EIO;
++			left -= chunk;
++		}
++		return -EOVERFLOW;
++	}
++
++	xfer_len = 2 + len + 1 + extra;
++	error = tcm_read_packet(ts, xfer_len);
++	if (error) {
++		dev_err_ratelimited(&ts->spi->dev,
++				    "no payload for %u byte message: %d\n",
++				    len, error);
++		return error;
++	}
++
++	if (ts->rx[1] != TCM_STATUS_CONTINUED_READ) {
++		dev_err_ratelimited(&ts->spi->dev,
++				    "bad continued read header %02x %02x\n",
++				    ts->rx[0], ts->rx[1]);
++		return -EIO;
++	}
++
++	/*
++	 * Firmware with message CRCs enabled appends a CRC-16 after the
++	 * padding byte; without, the device keeps sending padding. Decide
++	 * once, on the first message with a payload (the identify report).
++	 */
++	if (!ts->crc_known) {
++		ts->has_crc = !(ts->rx[xfer_len - 2] == TCM_PADDING &&
++				ts->rx[xfer_len - 1] == TCM_PADDING);
++		ts->crc_known = true;
++	}
++
++	return 0;
++}
++
++static void tcm_handle_identify(struct tcm_ts *ts, const u8 *data,
++				unsigned int len)
++{
++	memset(&ts->id, 0, sizeof(ts->id));
++	memcpy(&ts->id, data, min_t(unsigned int, len, sizeof(ts->id)));
++	ts->max_write_size = le16_to_cpu(ts->id.max_write_size);
++
++	complete(&ts->identify_done);
++}
++
++static u32 tcm_get_bits(const u8 *report, unsigned int size,
++			unsigned int offset, unsigned int bits)
++{
++	u32 val = 0;
++	unsigned int done = 0;
++
++	if (!bits || bits > 32 || offset + bits > size * 8)
++		return 0;
++
++	while (done < bits) {
++		unsigned int bit = offset % 8;
++		unsigned int n = min(8 - bit, bits - done);
++		u32 byte = (report[offset / 8] >> bit) & GENMASK(n - 1, 0);
++
++		val |= byte << done;
++		done += n;
++		offset += n;
++	}
++
++	return val;
++}
++
++/* Index just past the FOREACH_END that closes the loop body at @idx. */
++static unsigned int tcm_skip_foreach(const u8 *cfg, unsigned int len,
++				     unsigned int idx)
++{
++	while (idx < len) {
++		u8 code = cfg[idx++];
++
++		switch (code) {
++		case TCM_TR_END:
++			return len;
++		case TCM_TR_FOREACH_END:
++			return idx;
++		case TCM_TR_FOREACH_ACTIVE_OBJECT:
++		case TCM_TR_FOREACH_OBJECT:
++		case TCM_TR_PAD_TO_NEXT_BYTE:
++			break;
++		default:
++			idx++;	/* bit count */
++			break;
++		}
++	}
++
++	return len;
++}
++
++static void tcm_parse_touch_report(struct tcm_ts *ts, const u8 *report,
++				   unsigned int size)
++{
++	const u8 *cfg = ts->report_cfg;
++	unsigned int len = ts->report_cfg_len;
++	unsigned int idx = 0, offset = 0, obj = 0, loop_start = 0;
++	unsigned int active = 0, done = 0;
++	bool active_only = false, have_active = false;
++
++	memset(ts->objs, 0, sizeof(ts->objs));
++
++	while (idx < len) {
++		u8 code = cfg[idx++];
++		unsigned int bits;
++		u32 val;
++
++		switch (code) {
++		case TCM_TR_END:
++			return;
++		case TCM_TR_FOREACH_ACTIVE_OBJECT:
++		case TCM_TR_FOREACH_OBJECT:
++			active_only = code == TCM_TR_FOREACH_ACTIVE_OBJECT;
++			obj = 0;
++			done = 0;
++			loop_start = idx;
++			continue;
++		case TCM_TR_FOREACH_END:
++			obj++;
++			done++;
++			if (done >= ts->max_objects)
++				continue;
++			if (active_only) {
++				if (have_active ? done < active
++						: offset < size * 8)
++					idx = loop_start;
++			} else {
++				idx = loop_start;
++			}
++			continue;
++		case TCM_TR_PAD_TO_NEXT_BYTE:
++			offset = round_up(offset, 8);
++			continue;
++		}
++
++		if (idx >= len)
++			return;
++		bits = cfg[idx++];
++		val = tcm_get_bits(report, size, offset, bits);
++		offset += bits;
++
++		if (code == TCM_TR_NUM_OF_ACTIVE_OBJECTS) {
++			active = val;
++			have_active = true;
++			if (!active)
++				idx = tcm_skip_foreach(cfg, len, idx);
++			continue;
++		}
++
++		if (code == TCM_TR_OBJECT_N_INDEX) {
++			obj = val;
++			continue;
++		}
++
++		if (obj >= TCM_MAX_OBJECTS)
++			continue;
++
++		switch (code) {
++		case TCM_TR_OBJECT_N_CLASSIFICATION:
++			ts->objs[obj].status = val;
++			break;
++		case TCM_TR_OBJECT_N_X_POSITION:
++			ts->objs[obj].x = val;
++			break;
++		case TCM_TR_OBJECT_N_Y_POSITION:
++			ts->objs[obj].y = val;
++			break;
++		case TCM_TR_OBJECT_N_Z:
++			ts->objs[obj].z = val;
++			break;
++		case TCM_TR_OBJECT_N_X_WIDTH:
++			ts->objs[obj].x_width = val;
++			break;
++		case TCM_TR_OBJECT_N_Y_WIDTH:
++			ts->objs[obj].y_width = val;
++			break;
++		default:
++			/* Timestamps, noise state, gestures, vendor data... */
++			break;
++		}
++	}
++}
++
++static void tcm_report_touch(struct tcm_ts *ts, const u8 *report,
++			     unsigned int size)
++{
++	struct input_dev *input = ts->input;
++	unsigned int i;
++
++	tcm_parse_touch_report(ts, report, size);
++
++	for (i = 0; i < ts->max_objects; i++) {
++		struct tcm_object *o = &ts->objs[i];
++		int tool;
++
++		switch (o->status) {
++		case TCM_OBJ_FINGER:
++		case TCM_OBJ_GLOVED:
++		case TCM_OBJ_STYLUS:
++		case TCM_OBJ_SMALL:
++			tool = MT_TOOL_FINGER;
++			break;
++		case TCM_OBJ_PALM:
++			tool = MT_TOOL_PALM;
++			break;
++		default:
++			continue;	/* lifted: dropped by INPUT_MT_DROP_UNUSED */
++		}
++
++		input_mt_slot(input, i);
++		input_mt_report_slot_state(input, tool, true);
++		touchscreen_report_pos(input, &ts->prop, o->x, o->y, true);
++		input_report_abs(input, ABS_MT_PRESSURE, min(o->z ?: 1, 255u));
++		input_report_abs(input, ABS_MT_TOUCH_MAJOR,
++				 max(o->x_width, o->y_width));
++		input_report_abs(input, ABS_MT_TOUCH_MINOR,
++				 min(o->x_width, o->y_width));
++	}
++
++	input_mt_sync_frame(input);
++	input_sync(input);
++}
++
++/* Read and dispatch one message. Called from the IRQ thread. */
++static int tcm_read_message(struct tcm_ts *ts)
++{
++	u8 hdr[TCM_HEADER_SIZE];
++	unsigned int len;
++	u8 code;
++	int error;
++
++	mutex_lock(&ts->io_lock);
++
++	error = tcm_read_packet(ts, TCM_HEADER_SIZE);
++	if (error) {
++		dev_err_ratelimited(&ts->spi->dev,
++				    "bad message header %*ph\n",
++				    TCM_HEADER_SIZE, ts->rx);
++		goto out_unlock;
++	}
++	memcpy(hdr, ts->rx, sizeof(hdr));
++
++	code = hdr[1];
++	len = get_unaligned_le16(&hdr[2]);
++	if (code == TCM_STATUS_IDLE)
++		goto out_unlock;
++
++	if (len) {
++		error = tcm_read_payload(ts, len);
++		if (error)
++			goto out_unlock;
++	}
++
++	mutex_unlock(&ts->io_lock);
++
++	if (code >= TCM_REPORT_IDENTIFY) {
++		if (code == TCM_REPORT_TOUCH) {
++			if (READ_ONCE(ts->input_ready))
++				tcm_report_touch(ts, ts->rx + 2, len);
++		} else if (code == TCM_REPORT_IDENTIFY) {
++			dev_dbg(&ts->spi->dev, "identify report\n");
++			tcm_handle_identify(ts, ts->rx + 2, len);
++		}
++		return 0;
++	}
++
++	/* A response to the command in flight */
++	if (!ts->cmd) {
++		dev_warn_ratelimited(&ts->spi->dev,
++				     "unexpected status %#04x\n", code);
++		return 0;
++	}
++
++	ts->resp_code = code;
++	ts->resp_len = min_t(unsigned int, len, sizeof(ts->resp));
++	memcpy(ts->resp, ts->rx + 2, ts->resp_len);
++	complete(&ts->cmd_done);
++	return 0;
++
++out_unlock:
++	mutex_unlock(&ts->io_lock);
++	return error;
++}
++
++static irqreturn_t tcm_irq(int irq, void *data)
++{
++	struct tcm_ts *ts = data;
++
++	tcm_read_message(ts);
++
++	return IRQ_HANDLED;
++}
++
++/*
++ * Send a command and wait for its response, which the IRQ thread reads.
++ * Returns the response payload length.
++ */
++static int tcm_command(struct tcm_ts *ts, u8 cmd, const u8 *payload,
++		       unsigned int len, void *resp, unsigned int resp_size)
++{
++	unsigned int size = 3 + len + (ts->has_crc ? 2 : 0);
++	int error;
++
++	if (size > TCM_XFER_SIZE ||
++	    (ts->max_write_size && size > ts->max_write_size))
++		return -E2BIG;
++
++	mutex_lock(&ts->cmd_lock);
++
++	mutex_lock(&ts->io_lock);
++	ts->tx[0] = cmd;
++	put_unaligned_le16(len, &ts->tx[1]);
++	if (len)
++		memcpy(&ts->tx[3], payload, len);
++	if (ts->has_crc)
++		put_unaligned_le16(crc_itu_t(0xffff, ts->tx, 3 + len),
++				   &ts->tx[3 + len]);
++
++	reinit_completion(&ts->cmd_done);
++	ts->cmd = cmd;
++	error = tcm_spi_write(ts, ts->tx, size);
++	/* Reads clock out 0xff */
++	memset(ts->tx, 0xff, TCM_XFER_SIZE);
++	mutex_unlock(&ts->io_lock);
++	if (error)
++		goto out;
++
++	if (!wait_for_completion_timeout(&ts->cmd_done,
++					 msecs_to_jiffies(TCM_CMD_TIMEOUT_MS))) {
++		dev_err(&ts->spi->dev, "command %#04x timed out\n", cmd);
++		error = -ETIMEDOUT;
++		goto out;
++	}
++
++	if (ts->resp_code != TCM_STATUS_OK) {
++		dev_err(&ts->spi->dev, "command %#04x failed: status %#04x\n",
++			cmd, ts->resp_code);
++		error = -EIO;
++		goto out;
++	}
++
++	if (resp)
++		memcpy(resp, ts->resp, min(ts->resp_len, resp_size));
++	error = ts->resp_len;
++
++out:
++	ts->cmd = 0;
++	mutex_unlock(&ts->cmd_lock);
++	return error;
++}
++
++static int tcm_wait_identify(struct tcm_ts *ts)
++{
++	unsigned long timeout = msecs_to_jiffies(TCM_IDENTIFY_TIMEOUT_MS);
++
++	if (wait_for_completion_timeout(&ts->identify_done, timeout))
++		return 0;
++
++	return -ETIMEDOUT;
++}
++
++static int tcm_reset_and_identify(struct tcm_ts *ts)
++{
++	struct device *dev = &ts->spi->dev;
++	int error;
++
++	reinit_completion(&ts->identify_done);
++
++	gpiod_set_value_cansleep(ts->reset_gpio, 1);
++	msleep(20);
++	gpiod_set_value_cansleep(ts->reset_gpio, 0);
++
++	error = tcm_wait_identify(ts);
++	if (error) {
++		/* Tell a dead bus from a dead interrupt line */
++		disable_irq(ts->spi->irq);
++		tcm_read_message(ts);
++		enable_irq(ts->spi->irq);
++		if (try_wait_for_completion(&ts->identify_done))
++			dev_err(dev, "identify report read, but ATTN interrupt never fired\n");
++		else
++			dev_err(dev, "no identify report after reset\n");
++		return error;
++	}
++
++	if (ts->id.mode != TCM_MODE_APP_FW) {
++		dev_info(dev, "firmware mode %#04x, starting application firmware\n",
++			 ts->id.mode);
++		reinit_completion(&ts->identify_done);
++		error = tcm_command(ts, TCM_CMD_RUN_APP_FW, NULL, 0, NULL, 0);
++		if (error < 0)
++			return error;
++		error = tcm_wait_identify(ts);
++		if (error)
++			return error;
++		if (ts->id.mode != TCM_MODE_APP_FW) {
++			dev_err(dev, "application firmware not running (mode %#04x)\n",
++				ts->id.mode);
++			return -ENODEV;
++		}
++	}
++
++	return 0;
++}
++
++static int tcm_get_info(struct tcm_ts *ts)
++{
++	struct device *dev = &ts->spi->dev;
++	unsigned int cfg_size;
++	int ret;
++
++	ret = tcm_command(ts, TCM_CMD_GET_APP_INFO, NULL, 0,
++			  &ts->app, sizeof(ts->app));
++	if (ret < 0)
++		return ret;
++	if (ret < (int)(offsetof(struct tcm_app_info, max_objects) + 2)) {
++		dev_err(dev, "short application info (%d bytes)\n", ret);
++		return -EIO;
++	}
++
++	ts->max_x = le16_to_cpu(ts->app.max_x);
++	ts->max_y = le16_to_cpu(ts->app.max_y);
++	ts->max_objects = min_t(unsigned int,
++				le16_to_cpu(ts->app.max_objects),
++				TCM_MAX_OBJECTS);
++	if (!ts->max_x || !ts->max_y || !ts->max_objects) {
++		dev_err(dev, "invalid sensor size %ux%u, %u objects\n",
++			ts->max_x, ts->max_y, ts->max_objects);
++		return -EINVAL;
++	}
++	if (le16_to_cpu(ts->app.status))
++		dev_warn(dev, "application firmware status %#06x\n",
++			 le16_to_cpu(ts->app.status));
++
++	cfg_size = le16_to_cpu(ts->app.max_touch_report_config_size);
++	if (!cfg_size || cfg_size > TCM_MAX_PAYLOAD)
++		cfg_size = TCM_MAX_PAYLOAD;
++	ts->report_cfg = devm_kzalloc(dev, cfg_size, GFP_KERNEL);
++	if (!ts->report_cfg)
++		return -ENOMEM;
++
++	ret = tcm_command(ts, TCM_CMD_GET_TOUCH_REPORT_CONFIG, NULL, 0,
++			  ts->report_cfg, cfg_size);
++	if (ret < 0)
++		return ret;
++	if (!ret) {
++		dev_err(dev, "empty touch report configuration\n");
++		return -EIO;
++	}
++	ts->report_cfg_len = min_t(unsigned int, ret, cfg_size);
++	dev_dbg(dev, "touch report config: %*ph\n",
++		ts->report_cfg_len, ts->report_cfg);
++
++	return 0;
++}
++
++static int tcm_input_init(struct tcm_ts *ts)
++{
++	struct device *dev = &ts->spi->dev;
++	struct input_dev *input;
++	u32 x_mm, y_mm;
++	int error;
++
++	input = devm_input_allocate_device(dev);
++	if (!input)
++		return -ENOMEM;
++
++	input->name = "Synaptics TouchComm Touchscreen";
++	input->phys = "input/ts";
++	input->id.bustype = BUS_SPI;
++	input->id.vendor = 0x06cb;
++	input->id.version = le32_to_cpu(ts->id.build_id) & 0xffff;
++
++	input_set_abs_params(input, ABS_MT_POSITION_X, 0, ts->max_x, 0, 0);
++	input_set_abs_params(input, ABS_MT_POSITION_Y, 0, ts->max_y, 0, 0);
++	input_set_abs_params(input, ABS_MT_PRESSURE, 0, 255, 0, 0);
++	input_set_abs_params(input, ABS_MT_TOUCH_MAJOR, 0, 255, 0, 0);
++	input_set_abs_params(input, ABS_MT_TOUCH_MINOR, 0, 255, 0, 0);
++	input_set_abs_params(input, ABS_MT_TOOL_TYPE, 0, MT_TOOL_MAX, 0, 0);
++
++	touchscreen_parse_properties(input, true, &ts->prop);
++
++	if (!device_property_read_u32(dev, "touchscreen-x-mm", &x_mm) &&
++	    !device_property_read_u32(dev, "touchscreen-y-mm", &y_mm) &&
++	    x_mm && y_mm) {
++		input_abs_set_res(input, ABS_MT_POSITION_X,
++				  (input_abs_get_max(input, ABS_MT_POSITION_X) + 1) / x_mm);
++		input_abs_set_res(input, ABS_MT_POSITION_Y,
++				  (input_abs_get_max(input, ABS_MT_POSITION_Y) + 1) / y_mm);
++	}
++
++	error = input_mt_init_slots(input, ts->max_objects,
++				    INPUT_MT_DIRECT | INPUT_MT_DROP_UNUSED);
++	if (error)
++		return error;
++
++	ts->input = input;
++
++	error = input_register_device(input);
++	if (error)
++		return error;
++
++	WRITE_ONCE(ts->input_ready, true);
++	return 0;
++}
++
++static int tcm_probe(struct spi_device *spi)
++{
++	static const char * const supplies[] = { "vdd", "avdd" };
++	struct device *dev = &spi->dev;
++	struct tcm_ts *ts;
++	int error;
++
++	ts = devm_kzalloc(dev, sizeof(*ts), GFP_KERNEL);
++	if (!ts)
++		return -ENOMEM;
++
++	ts->spi = spi;
++	mutex_init(&ts->io_lock);
++	mutex_init(&ts->cmd_lock);
++	init_completion(&ts->cmd_done);
++	init_completion(&ts->identify_done);
++	spi_set_drvdata(spi, ts);
++
++	ts->rx = devm_kzalloc(dev, TCM_XFER_SIZE, GFP_KERNEL);
++	ts->tx = devm_kmalloc(dev, TCM_XFER_SIZE, GFP_KERNEL);
++	if (!ts->rx || !ts->tx)
++		return -ENOMEM;
++	memset(ts->tx, 0xff, TCM_XFER_SIZE);
++
++	spi->bits_per_word = 8;
++	error = spi_setup(spi);
++	if (error)
++		return error;
++
++	/* Held in reset until the interrupt handler is ready */
++	ts->reset_gpio = devm_gpiod_get(dev, "reset", GPIOD_OUT_HIGH);
++	if (IS_ERR(ts->reset_gpio))
++		return dev_err_probe(dev, PTR_ERR(ts->reset_gpio),
++				     "failed to get reset GPIO\n");
++
++	error = devm_regulator_bulk_get_enable(dev, ARRAY_SIZE(supplies),
++					       supplies);
++	if (error)
++		return dev_err_probe(dev, error, "failed to enable supplies\n");
++	msleep(20);
++
++	error = devm_request_threaded_irq(dev, spi->irq, NULL, tcm_irq,
++					  IRQF_ONESHOT | IRQF_NO_AUTOEN,
++					  dev_name(dev), ts);
++	if (error)
++		return dev_err_probe(dev, error, "failed to request IRQ\n");
++
++	enable_irq(spi->irq);
++
++	error = tcm_reset_and_identify(ts);
++	if (error)
++		return dev_err_probe(dev, error, "device did not identify\n");
++
++	dev_info(dev, "%.16s, TouchComm v%u, build %u, message CRC %s\n",
++		 ts->id.part_number, ts->id.version,
++		 le32_to_cpu(ts->id.build_id),
++		 ts->has_crc ? "on" : "off");
++
++	error = tcm_get_info(ts);
++	if (error)
++		return dev_err_probe(dev, error, "failed to read sensor info\n");
++
++	dev_info(dev, "app fw %#06x, config %16phN, %ux%u, %u objects, %u byte report config\n",
++		 le16_to_cpu(ts->app.version), ts->app.customer_config_id,
++		 ts->max_x + 1, ts->max_y + 1, ts->max_objects,
++		 ts->report_cfg_len);
++
++	/*
++	 * Touch reports that arrive before the input device exists are
++	 * dropped by tcm_read_message().
++	 */
++	error = tcm_input_init(ts);
++	if (error)
++		return dev_err_probe(dev, error, "failed to register input\n");
++
++	return 0;
++}
++
++static const struct of_device_id tcm_of_match[] = {
++	{ .compatible = "syna,s3908" },
++	{ }
++};
++MODULE_DEVICE_TABLE(of, tcm_of_match);
++
++static const struct spi_device_id tcm_spi_ids[] = {
++	{ "s3908" },
++	{ }
++};
++MODULE_DEVICE_TABLE(spi, tcm_spi_ids);
++
++static struct spi_driver tcm_driver = {
++	.driver = {
++		.name = "synaptics-tcm",
++		.of_match_table = tcm_of_match,
++	},
++	.id_table = tcm_spi_ids,
++	.probe = tcm_probe,
++};
++module_spi_driver(tcm_driver);
++
++MODULE_DESCRIPTION("Synaptics TouchComm touchscreen driver");
++MODULE_LICENSE("GPL");

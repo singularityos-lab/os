@@ -1,0 +1,129 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Wed, 28 Oct 2026 23:01:29 -0647
+Subject: [PATCH] nfc: nxp-nci: Turn the ST54L's NFC mode on after init
+
+On the Pixel 9a the ST54L stops answering on I2C about 2-3 s after init
+whenever no discovery runs: the next command gets no ACK, retries don't
+help, and every NCI request times out until the adapter is powered off
+and on. Its clock and the set-config sent after init aren't the cause.
+
+ST's HAL does one more step after CORE_INIT: PROP_NFC_MODE_SET with mode
+on (2f 02 02 02 01), after which the controller resets and is
+initialised again. Do the same from post_setup, before the set-config:
+the mode command, whose request ends with the controller's
+CORE_RESET_NTF rather than with its response (the HAL waits for that
+notification too; the NCI core completes the request from the
+notification, and nci_prop_cmd()'s timeout bounds the wait), then
+CORE_INIT again in the NCI 2.0 form, which nci_core_init() doesn't send
+(the ST54L rejects the 1.x form as a syntax error). The proprietary
+response handler refuses other NXP parts, so their behaviour doesn't
+change.
+
+Tested on the Pixel 9a, with the board's reference clock enabled: polling
+now starts 3, 10, 30, 60 s and 3 minutes after power-on with no NACK,
+where it failed every time from 3 s on, and stopping the poll loop no
+longer times out. Across two RTC-woken s2idle cycles (one with the adapter
+powered off around the sleep, one left powered) polling started again 20 s
+after the wake, with no NACK. With the request ending on the
+notification, six power-ons in a row each completed in about 60 ms, and
+polling started at 3 s and at 30 s after power-on, with no NACK.
+
+Link: https://android.googlesource.com/platform/hardware/st/nfc/+/91b182c6f6efcfb2b01ce0f77930c6a814314b5c/st21nfc/hal_wrapper.cc
+Link: https://github.com/derekross/omarchy-mobile/issues/132
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ drivers/nfc/nxp-nci/core.c | 58 +++++++++++++++++++++++++++++++++++---
+ 1 file changed, 54 insertions(+), 4 deletions(-)
+
+diff --git a/drivers/nfc/nxp-nci/core.c b/drivers/nfc/nxp-nci/core.c
+index 72f22eba5..c96704ddd 100644
+--- a/drivers/nfc/nxp-nci/core.c
++++ b/drivers/nfc/nxp-nci/core.c
+@@ -124,14 +124,49 @@ static const struct nci_driver_ops nxp_nci_core_ops[] = {
+ 	},
+ };
+ 
++#define ST54L_NCI_PROP_NFC_MODE_SET	0x02
++#define ST54L_NFC_MODE_SET		0x02
++
+ /*
+- * The ST54L speaks the same plain NCI over I2C, but finds no card until it
+- * gets the configuration ST's HAL sends after init: its proprietary 0xa1
+- * (0x1e), 0xa2 (0x19) and 0x80 (0x01), and TOTAL_DURATION 500 ms. Without
+- * it the controller polls and never reports a target.
++ * PROP_NFC_MODE_SET_RSP: on success the request ends with the controller's
++ * CORE_RESET_NTF, which the NCI core completes (nci_core_reset_ntf_packet()),
++ * bounded by nci_prop_cmd()'s timeout; ST's HAL waits for that NTF too.
++ */
++static int nxp_nci_st54l_mode_rsp(struct nci_dev *ndev, struct sk_buff *skb)
++{
++	struct nxp_nci_info *info = nci_get_drvdata(ndev);
++	u8 status = skb->len ? skb->data[0] : NCI_STATUS_SYNTAX_ERROR;
++
++	if (!info->st54l)
++		return -ENOTSUPP;
++	if (status != NCI_STATUS_OK)
++		nci_req_complete(ndev, status);
++
++	return 0;
++}
++
++static const struct nci_driver_ops nxp_nci_prop_ops[] = {
++	{
++		.opcode = nci_opcode_pack(NCI_GID_PROPRIETARY,
++					  ST54L_NCI_PROP_NFC_MODE_SET),
++		.rsp = nxp_nci_st54l_mode_rsp,
++	},
++};
++
++/*
++ * The ST54L speaks the same plain NCI over I2C, but needs two things ST's
++ * HAL does after init. First its NFC mode turned on (PROP_NFC_MODE_SET, as
++ * the HAL's halWrapperDataCallback does), after which the controller resets
++ * (CORE_RESET_NTF) and is initialised again; without it, the controller
++ * stops answering on I2C about 2 s after init whenever no discovery runs.
++ * Then the configuration the HAL sends: its proprietary 0xa1 (0x1e), 0xa2
++ * (0x19) and 0x80 (0x01), and TOTAL_DURATION 500 ms; without that it polls
++ * and never reports a target.
+  */
+ static int nxp_nci_post_setup(struct nci_dev *ndev)
+ {
++	static const u8 st54l_mode_on[] = { ST54L_NFC_MODE_SET, 0x01 };
++	static const u8 init_v2[] = { 0x00, 0x00 };
+ 	static const u8 st54l_conf[] = {
+ 		0x04,			/* number of parameters */
+ 		0xa1, 0x01, 0x1e,
+@@ -140,10 +175,23 @@ static int nxp_nci_post_setup(struct nci_dev *ndev)
+ 		0x00, 0x02, 0xf4, 0x01,	/* TOTAL_DURATION: 500 ms */
+ 	};
+ 	struct nxp_nci_info *info = nci_get_drvdata(ndev);
++	int r;
+ 
+ 	if (!info->st54l)
+ 		return 0;
+ 
++	r = nci_prop_cmd(ndev, ST54L_NCI_PROP_NFC_MODE_SET,
++			 sizeof(st54l_mode_on), st54l_mode_on);
++	if (r)
++		return r;
++	/*
++	 * The controller has reset (CORE_RESET_NTF) and is initialised again,
++	 * as NCI 2.0 (nci_core_init() sends the 1.x form, which it rejects).
++	 */
++	r = nci_core_cmd(ndev, NCI_OP_CORE_INIT_CMD, sizeof(init_v2), init_v2);
++	if (r)
++		return r;
++
+ 	return nci_core_cmd(ndev, NCI_OP_CORE_SET_CONFIG_CMD,
+ 			    sizeof(st54l_conf), st54l_conf);
+ }
+@@ -156,6 +204,8 @@ static const struct nci_ops nxp_nci_ops = {
+ 	.post_setup = nxp_nci_post_setup,
+ 	.core_ops = nxp_nci_core_ops,
+ 	.n_core_ops = ARRAY_SIZE(nxp_nci_core_ops),
++	.prop_ops = nxp_nci_prop_ops,
++	.n_prop_ops = ARRAY_SIZE(nxp_nci_prop_ops),
+ };
+ 
+ int nxp_nci_probe(void *phy_id, struct device *pdev,

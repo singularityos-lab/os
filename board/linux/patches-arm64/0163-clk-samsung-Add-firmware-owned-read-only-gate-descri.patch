@@ -1,0 +1,161 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Fri, 23 Oct 2026 01:01:01 -0700
+Subject: [PATCH] clk: samsung: Add firmware-owned read-only gate descriptions
+
+Some firmware-owned paths need a real gate description without permitting
+CCF to switch them. Add an opt-in read-only gate list alongside existing
+gate descriptions; taking and releasing references leaves hardware alone.
+
+CG_VAL controls a gate only when MANUAL is set. In automatic mode it is
+not an availability bit: hardware may gate an idle clock on demand or
+bypass automatic gating. Rejecting CG_VAL=0 there can leave the running
+watchdogs without a Linux owner. Report manual gates from CG_VAL, honoring
+inverted and big-endian flags, and automatic gates as available.
+
+Google's ra_get_gate()/ra_set_gate() distinguish the same modes; the
+latter toggles ENABLE_AUTOMATIC_CLKGATING instead of CG_VAL in automatic
+mode. The existing Samsung automatic gate's enable is likewise a no-op.
+Keep ordinary gate code and gs101/gs201 registrations unchanged.
+
+Accept samsung_clk_init's ERR_PTR(-ENOENT) slots for absent clocks, reject
+occupied/out-of-range IDs and free allocations on registration failure.
+Source-extracted sanitizer checks cover constructor failures and gate
+mode/endian/inversion states without writes; ARM64 W=1 builds pass.
+These are source checks, not an additional hardware qualification.
+
+Link: https://android.googlesource.com/kernel/google-modules/soc/gs/+/204078758737776959ecc85c527a00fd2cabb62f/drivers/soc/google/cal-if/ra.c
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ drivers/clk/samsung/clk.c | 88 +++++++++++++++++++++++++++++++++++++++
+ drivers/clk/samsung/clk.h |  4 ++
+ 2 files changed, 92 insertions(+)
+
+diff --git a/drivers/clk/samsung/clk.c b/drivers/clk/samsung/clk.c
+index a3b251fb6..41d656284 100644
+--- a/drivers/clk/samsung/clk.c
++++ b/drivers/clk/samsung/clk.c
+@@ -335,6 +335,91 @@ struct clk_hw *samsung_register_auto_gate(struct device *dev,
+ 	return hw;
+ }
+ 
++/* Firmware owns these gates; CCF may observe but must not switch them. */
++static int samsung_clk_ro_gate_is_enabled(struct clk_hw *hw)
++{
++	struct clk_gate *gate = to_clk_gate(hw);
++	u32 value;
++
++	if (gate->flags & CLK_GATE_BIG_ENDIAN)
++		value = ioread32be(gate->reg);
++	else
++		value = readl(gate->reg);
++
++	/*
++	 * CG_VAL controls the clock only in manual mode (bit 20). Otherwise
++	 * hardware may gate it on demand, or bypass automatic gating. Both
++	 * modes make the clock available; an idle clock is not an error.
++	 */
++	if (!(value & BIT(20)))
++		return 1;
++
++	if (gate->flags & CLK_GATE_SET_TO_DISABLE)
++		value ^= BIT(gate->bit_idx);
++
++	return !!(value & BIT(gate->bit_idx));
++}
++
++static int samsung_clk_ro_gate_enable(struct clk_hw *hw)
++{
++	return samsung_clk_ro_gate_is_enabled(hw) ? 0 : -EIO;
++}
++
++static void samsung_clk_ro_gate_disable(struct clk_hw *hw)
++{
++	/* Keep firmware's gate state when a Linux reference is released. */
++}
++
++static const struct clk_ops samsung_clk_ro_gate_ops = {
++	.enable = samsung_clk_ro_gate_enable,
++	.disable = samsung_clk_ro_gate_disable,
++	.is_enabled = samsung_clk_ro_gate_is_enabled,
++};
++
++static void __init samsung_clk_register_ro_gate(struct samsung_clk_provider *ctx,
++						const struct samsung_gate_clock *list,
++						unsigned int nr_clk)
++{
++	unsigned int i;
++
++	for (i = 0; i < nr_clk; i++, list++) {
++		struct clk_init_data init = {};
++		struct clk_gate *gate;
++		int ret;
++
++		if (list->id >= ctx->clk_data.num ||
++		    (list->id && !IS_ERR_OR_NULL(ctx->clk_data.hws[list->id]))) {
++			pr_err("%s: invalid clock ID for %s\n", __func__, list->name);
++			continue;
++		}
++
++		gate = kzalloc_obj(*gate);
++		if (!gate)
++			continue;
++
++		init.name = list->name;
++		init.ops = &samsung_clk_ro_gate_ops;
++		init.flags = list->flags | CLK_IGNORE_UNUSED;
++		init.parent_names = &list->parent_name;
++		init.num_parents = list->parent_name ? 1 : 0;
++		gate->hw.init = &init;
++		gate->reg = ctx->reg_base + list->offset;
++		gate->bit_idx = list->bit_idx;
++		gate->flags = list->gate_flags;
++		gate->lock = &ctx->lock;
++
++		ret = clk_hw_register(ctx->dev, &gate->hw);
++		if (ret) {
++			pr_err("%s: failed to register %s: %d\n", __func__,
++			       list->name, ret);
++			kfree(gate);
++			continue;
++		}
++
++		samsung_clk_add_lookup(ctx, &gate->hw, list->id);
++	}
++}
++
+ /* register a list of gate clocks */
+ void __init samsung_clk_register_gate(struct samsung_clk_provider *ctx,
+ 				const struct samsung_gate_clock *list,
+@@ -478,6 +563,9 @@ void __init samsung_cmu_register_clocks(struct samsung_clk_provider *ctx,
+ 	if (cmu->gate_clks)
+ 		samsung_clk_register_gate(ctx, cmu->gate_clks,
+ 					  cmu->nr_gate_clks);
++	if (cmu->ro_gate_clks)
++		samsung_clk_register_ro_gate(ctx, cmu->ro_gate_clks,
++					     cmu->nr_ro_gate_clks);
+ 	if (cmu->fixed_clks)
+ 		samsung_clk_register_fixed_rate(ctx, cmu->fixed_clks,
+ 						cmu->nr_fixed_clks);
+diff --git a/drivers/clk/samsung/clk.h b/drivers/clk/samsung/clk.h
+index 3b8d51e9b..ce70460eb 100644
+--- a/drivers/clk/samsung/clk.h
++++ b/drivers/clk/samsung/clk.h
+@@ -340,6 +340,8 @@ struct samsung_clock_reg_cache {
+  * @nr_div_clks: count of clocks in @div_clks
+  * @gate_clks: list of gate clocks
+  * @nr_gate_clks: count of clocks in @gate_clks
++ * @ro_gate_clks: list of firmware-owned, read-only gate clocks
++ * @nr_ro_gate_clks: count of clocks in @ro_gate_clks
+  * @fixed_clks: list of fixed clocks
+  * @nr_fixed_clks: count clocks in @fixed_clks
+  * @fixed_factor_clks: list of fixed factor clocks
+@@ -370,6 +372,8 @@ struct samsung_cmu_info {
+ 	unsigned int nr_div_clks;
+ 	const struct samsung_gate_clock *gate_clks;
+ 	unsigned int nr_gate_clks;
++	const struct samsung_gate_clock *ro_gate_clks;
++	unsigned int nr_ro_gate_clks;
+ 	const struct samsung_fixed_rate_clock *fixed_clks;
+ 	unsigned int nr_fixed_clks;
+ 	const struct samsung_fixed_factor_clock *fixed_factor_clks;

@@ -1,0 +1,143 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Sun, 8 Nov 2026 11:36:36 -0500
+Subject: [PATCH] power: supply: max77759: re-check a guard that had no reading
+ soon
+
+The temperature guard inhibits charging when it cannot read the
+battery: without a temperature it can't tell whether charging is safe.
+It then looks again a guard period, 30 s, later. At boot that is the
+usual case: the charger probes about a second before the MAX77759 fuel
+gauge answers (it returns -EAGAIN until its battery model is loaded),
+so every boot of a Pixel 7 Pro (gs201) starts with
+
+  max77759-charger: no reading from max170xx_battery: charging inhibited
+  max17042 5-0036: battery model loaded (...)                    (+0.9 s)
+  max77759-charger: battery 29.4 C, 3747 mV: band 20-42 C, ...   (+31 s)
+
+and the battery is not charged for those 30 s. On a flat battery with
+the screen on, the phone draws more than the 500 mA input limit, the
+battery supplies the rest, and the phone browned out at 3.14 V
+(issue #169).
+
+Keep the rule, no reading, no charging, but while there is no reading
+look again every 2 s, and at once when the battery named by guard_psy
+reports a change, as the gauge does when its initialization ends. The
+guard period, the bands and their hysteresis are unchanged once there
+is a reading, as is the inhibit for a reading out of band.
+
+The guard work is set up before the power supply notifier now, so
+that on unbind the notifier, which can queue it, is removed before the
+work is cancelled.
+
+This applies wherever temp_guard is on (the Pixel 7 Pro and the
+Pixel 6 Pro use it); it changes only how soon a missing reading is
+read again.
+
+Assisted-by: Claude Opus 5.5
+Signed-off-by: Derek Ross <derekross@gmail.com>
+---
+ drivers/power/supply/max77759_charger.c | 36 ++++++++++++++++++++-----
+ 1 file changed, 30 insertions(+), 6 deletions(-)
+
+diff --git a/drivers/power/supply/max77759_charger.c b/drivers/power/supply/max77759_charger.c
+index 61e118fd9..a264e828f 100644
+--- a/drivers/power/supply/max77759_charger.c
++++ b/drivers/power/supply/max77759_charger.c
+@@ -54,6 +54,7 @@ module_param_string(guard_psy, guard_psy, sizeof(guard_psy), 0444);
+ MODULE_PARM_DESC(guard_psy, "Battery power supply whose temp and voltage_now the guard reads");
+ 
+ #define GUARD_PERIOD_MS			30000
++#define GUARD_RETRY_MS			2000	/* while there is no reading */
+ #define GUARD_HYST_DECIC		20	/* 2.0 C into a band before relaxing */
+ #define GUARD_NBANDS			6
+ #define GUARD_NTIERS			3
+@@ -136,6 +137,7 @@ struct max77759_charger {
+ 	struct delayed_work guard_work;
+ 	bool guard_active;
+ 	int guard_band;		/* -1: charging inhibited */
++	bool guard_no_reading;	/* inhibited for want of a reading */
+ 	int guard_tier;
+ 	u32 fv_max_mv;		/* limits from the battery description */
+ 	u32 cc_max_ua;
+@@ -754,6 +756,14 @@ static int psy_changed(struct notifier_block *nb, unsigned long evt, void *data)
+ 	static const char *psy_name = "tcpm-source";
+ 	struct power_supply *psy = data;
+ 
++	/*
++	 * A guard waiting for its first reading takes it as soon as the
++	 * battery has one, rather than at its next retry.
++	 */
++	if (evt == PSY_EVENT_PROP_CHANGED && READ_ONCE(chg->guard_no_reading) &&
++	    !strcmp(psy->desc->name, guard_psy))
++		mod_delayed_work(system_wq, &chg->guard_work, 0);
++
+ 	if (!strnstr(psy->desc->name, psy_name, strlen(psy_name)) ||
+ 	    evt != PSY_EVENT_PROP_CHANGED)
+ 		return NOTIFY_OK;
+@@ -899,10 +909,12 @@ static void guard_work_item(struct work_struct *work)
+ 	struct max77759_charger *chg =
+ 		container_of(work, struct max77759_charger, guard_work.work);
+ 	int decic = 0, uv = 0, band, tier;
++	unsigned int next_ms = GUARD_PERIOD_MS;
+ 	bool read_ok;
+ 	u32 fv, cc;
+ 
+ 	if (!temp_guard) {
++		WRITE_ONCE(chg->guard_no_reading, false);
+ 		if (chg->guard_active)
+ 			guard_release(chg);
+ 		goto out;
+@@ -914,8 +926,15 @@ static void guard_work_item(struct work_struct *work)
+ 		dev_info(chg->dev, "temperature guard on (%s)\n", guard_psy);
+ 	}
+ 
+-	/* No reading, no charging */
++	/*
++	 * No reading, no charging. A missing reading is usually the gauge
++	 * still starting (it answers once its model load is done), so look
++	 * again soon instead of a guard period later.
++	 */
+ 	read_ok = !guard_read(&decic, &uv);
++	WRITE_ONCE(chg->guard_no_reading, !read_ok);
++	if (!read_ok)
++		next_ms = GUARD_RETRY_MS;
+ 	band = read_ok ? guard_next_band(chg->guard_band, decic) : -1;
+ 
+ 	if (band < 0) {
+@@ -957,7 +976,7 @@ static void guard_work_item(struct work_struct *work)
+ 	chg->guard_band = band;
+ 	chg->guard_tier = tier;
+ out:
+-	schedule_delayed_work(&chg->guard_work, msecs_to_jiffies(GUARD_PERIOD_MS));
++	schedule_delayed_work(&chg->guard_work, msecs_to_jiffies(next_ms));
+ }
+ 
+ static void max77759_charger_log_state(struct max77759_charger *chg,
+@@ -1050,6 +1069,15 @@ static int max77759_charger_probe(struct platform_device *pdev)
+ 	if (ret)
+ 		return dev_err_probe(dev, ret, "Failed to initialize psy work\n");
+ 
++	/*
++	 * Before the notifier, which can kick the guard work: devm then
++	 * unregisters the notifier before it cancels the work.
++	 */
++	chg->guard_band = -2;
++	ret = devm_delayed_work_autocancel(dev, &chg->guard_work, guard_work_item);
++	if (ret)
++		return dev_err_probe(dev, ret, "Failed to initialize guard work\n");
++
+ 	chg->nb.notifier_call = psy_changed;
+ 	ret = power_supply_reg_notifier(&chg->nb);
+ 	if (ret)
+@@ -1069,10 +1097,6 @@ static int max77759_charger_probe(struct platform_device *pdev)
+ 	/* 4926 mAh: the battery in our device tree, if it doesn't say */
+ 	if (!chg->design_uah)
+ 		chg->design_uah = 4926000;
+-	chg->guard_band = -2;
+-	ret = devm_delayed_work_autocancel(dev, &chg->guard_work, guard_work_item);
+-	if (ret)
+-		return dev_err_probe(dev, ret, "Failed to initialize guard work\n");
+ 	schedule_delayed_work(&chg->guard_work, 0);
+ 
+ 	max77759_charger_log_state(chg, "probed");

@@ -1,0 +1,189 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Chris Gray <chrisgray70@gmail.com>
+Date: Wed, 11 Nov 2026 12:20:02 -0600
+Subject: [PATCH] PCI: dwc: gs201: select GS101 behavior through match data
+
+Extend the current SoC match data for GS101 supply votes, inaccessible
+CMU diagnostics and bounded link attempts. The already merged 9a
+match-data paths are retained. Endpoint power uses the existing PCI
+power-control sequence, including its error and teardown handling;
+remove the proposed direct WLAN GPIO ownership from the host driver.
+
+The companion disabled Bluejay DT supplies a fixed WL_REG_ON regulator
+to the root port. That reworked sequencing is not hardware-qualified.
+
+Assisted-by: LLM
+Signed-off-by: Chris Gray <chrisgray70@gmail.com>
+---
+ drivers/pci/controller/dwc/pcie-gs201.c | 71 ++++++++++++++++++++++++-
+ 1 file changed, 69 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/pci/controller/dwc/pcie-gs201.c b/drivers/pci/controller/dwc/pcie-gs201.c
+index b114c6be9..6ba9f650c 100644
+--- a/drivers/pci/controller/dwc/pcie-gs201.c
++++ b/drivers/pci/controller/dwc/pcie-gs201.c
+@@ -40,6 +40,7 @@
+ #include <linux/phy/phy.h>
+ #include <linux/platform_device.h>
+ #include <linux/regmap.h>
++#include <linux/regulator/consumer.h>
+ 
+ #include "pcie-designware.h"
+ 
+@@ -172,6 +173,11 @@ MODULE_PARM_DESC(cmu_acg_off,
+  *	set before the PHY configuration, and not again after it. zuma's
+  *	CAL does them in the middle of its PHY configuration; gs201's
+  *	establish_link() does them after.
++ * @phy_supplies: acquire the controller's two analog supplies before clocks
++ * @skip_cmu: the CMU diagnostic window has inaccessible holes
++ * @noncoherent_only: coherent DMA is not qualified for this controller
++ * @skip_link_history: do not read unqualified history registers on failure
++ * @link_tries: maximum link attempts, zero for the existing default
+  * @pwr_reset_before_phy_off: the power-down turns the LTSSM off and pulses
+  *	the soft power reset before the PHY powers down, as Google's
+  *	exynos_pcie_rc_poweroff() does for the zuma family. Only zumapro so
+@@ -180,6 +186,11 @@ MODULE_PARM_DESC(cmu_acg_off,
+ struct gs201_pcie_soc_data {
+ 	bool ctrl_reset_before_phy;
+ 	bool pwr_reset_before_phy_off;
++	bool phy_supplies;
++	bool skip_cmu;
++	bool noncoherent_only;
++	bool skip_link_history;
++	unsigned int link_tries;
+ };
+ 
+ struct gs201_pcie {
+@@ -198,6 +209,8 @@ struct gs201_pcie {
+ 	int clks_on;
+ 	struct phy *phy;
+ 	struct gpio_desc *perst;
++	struct regulator_bulk_data supplies[2];
++	bool supplies_on;
+ 	bool coherent;
+ 	bool phy_inited;
+ 	bool phy_on;
+@@ -510,6 +523,14 @@ static int gs201_pcie_stage_clocks(struct gs201_pcie *gp)
+ 	u32 opt;
+ 	int ret;
+ 
++	if (gp->data->phy_supplies && !gp->supplies_on) {
++		gs201_trace(gp, "enable PCIe1 LDO17/LDO19 supplies");
++		ret = regulator_bulk_enable(ARRAY_SIZE(gp->supplies), gp->supplies);
++		if (ret)
++			return ret;
++		gp->supplies_on = true;
++	}
++
+ 	if (gp->cmu) {
+ 		gs201_trace(gp, "about to read CMU_HSI2 CONTROLLER_OPTION (0x14400800)");
+ 		opt = readl(gp->cmu + GS201_CMU_OPTION);
+@@ -767,17 +788,28 @@ static void gs201_pcie_bringdown(struct gs201_pcie *gp)
+ 		gp->phy_inited = false;
+ 	}
+ 	gs201_pcie_clocks_off(gp);
++	if (gp->supplies_on) {
++		int ret;
++
++		gs201_trace(gp, "release PCIe1 supply votes");
++		ret = regulator_bulk_disable(ARRAY_SIZE(gp->supplies), gp->supplies);
++		if (ret)
++			dev_err(gp->pci.dev, "supply release failed: %d\n", ret);
++		else
++			gp->supplies_on = false;
++	}
+ }
+ 
+ static int gs201_pcie_start_link(struct dw_pcie *pci)
+ {
+ 	struct gs201_pcie *gp = to_gs201_pcie(pci);
+ 	struct device *dev = pci->dev;
++	unsigned int tries = gp->data->link_tries ?: GS201_LINK_TRIES;
+ 	unsigned int try;
+ 	u32 val;
+ 	int ret;
+ 
+-	for (try = 1; try <= GS201_LINK_TRIES; try++) {
++	for (try = 1; try <= tries; try++) {
+ 		gs201_trace(gp, "link try %u: about to write ELBI 0x054 = 1 and poll 0x2c8 for L0 (48 ms)",
+ 			    try);
+ 		gs201_elbi_writel(gp, GS201_ELBI_LTSSM_EN, 1);
+@@ -793,7 +825,9 @@ static int gs201_pcie_start_link(struct dw_pcie *pci)
+ 		dev_warn(dev, "link training failed (try %u), LTSSM %#lx\n",
+ 			 try, FIELD_GET(GS201_ELBI_LTSSM_STATE_MASK, val));
+ 
+-		if (try == GS201_LINK_TRIES) {
++		if (try == tries) {
++			if (gp->data->skip_link_history)
++				return ret;
+ 			gs201_pcie_dump_history(gp);
+ 			break;
+ 		}
+@@ -1111,6 +1145,10 @@ static int gs201_pcie_get_cmu(struct gs201_pcie *gp)
+ 	struct resource res;
+ 	int ret;
+ 
++	/* gs101 has holes in the gs201 CMU gate range (including 0x20e0). */
++	if (gp->data->skip_cmu)
++		return 0;
++
+ 	cmu_np = of_parse_phandle(dev->of_node, "samsung,cmu", 0);
+ 	if (!cmu_np)
+ 		return 0;
+@@ -1170,6 +1208,10 @@ static int gs201_pcie_probe(struct platform_device *pdev)
+ 
+ 	raw_spin_lock_init(&gp->lock);
+ 	gp->data = of_device_get_match_data(dev);
++	if (gp->data->noncoherent_only &&
++	    (cmu_acg_off || of_dma_is_coherent(np)))
++		return dev_err_probe(dev, -EINVAL,
++				     "gs101 needs noncoherent DMA and no CMU override\n");
+ 
+ 	pci = &gp->pci;
+ 	pci->dev = dev;
+@@ -1222,6 +1264,18 @@ static int gs201_pcie_probe(struct platform_device *pdev)
+ 		return dev_err_probe(dev, PTR_ERR(gp->perst),
+ 				     "failed to get PERST# GPIO\n");
+ 
++	if (gp->data->phy_supplies) {
++		if (!of_property_present(np, "vpcie0v85-supply") ||
++		    !of_property_present(np, "vpcie1v8-supply"))
++			return dev_err_probe(dev, -EINVAL, "missing PCIe1 supplies\n");
++		gp->supplies[0].supply = "vpcie0v85";
++		gp->supplies[1].supply = "vpcie1v8";
++		ret = devm_regulator_bulk_get(dev, ARRAY_SIZE(gp->supplies),
++					      gp->supplies);
++		if (ret)
++			return dev_err_probe(dev, ret, "PCIe1 supplies unavailable\n");
++	}
++
+ 	/* The DWC core reads num-lanes in host_init; stages need it earlier */
+ 	if (of_property_read_u32(np, "num-lanes", &pci->num_lanes))
+ 		pci->num_lanes = 1;
+@@ -1255,6 +1309,18 @@ static void gs201_pcie_remove(struct platform_device *pdev)
+ 	gs201_pcie_remove_irq(gp);
+ }
+ 
++/*
++ * Initial GS101 bring-up qualifies one link attempt. Retry power cycles and
++ * failure-path link-history reads are not qualified on this controller.
++ */
++static const struct gs201_pcie_soc_data gs101_pcie_data = {
++	.phy_supplies = true,
++	.skip_cmu = true,
++	.noncoherent_only = true,
++	.skip_link_history = true,
++	.link_tries = 1,
++};
++
+ static const struct gs201_pcie_soc_data gs201_pcie_data = {
+ };
+ 
+@@ -1268,6 +1334,7 @@ static const struct gs201_pcie_soc_data zumapro_pcie_data = {
+ };
+ 
+ static const struct of_device_id gs201_pcie_of_match[] = {
++	{ .compatible = "google,gs101-pcie", .data = &gs101_pcie_data },
+ 	{ .compatible = "google,gs201-pcie", .data = &gs201_pcie_data },
+ 	{ .compatible = "google,zumapro-pcie", .data = &zumapro_pcie_data },
+ 	{ .compatible = "google,zuma-pcie", .data = &zuma_pcie_data },

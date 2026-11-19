@@ -1,0 +1,105 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Sat, 31 Oct 2026 11:22:51 -0643
+Subject: [PATCH] arm64: dts: exynos: google: zumapro-tegu: Enable the AoC
+
+Turn on Trusty, the GSA, the AoC's three mailboxes and the AoC, and give
+the AoC the board's parts: the carve-out, its signed image
+(aoc-tegu.bin), stock's board id and revision (0x60b02, 0x10000, from
+Google's GPL tegu device trees), GNSS type 2 (the modem's integrated
+receiver, as Google's zumapro-phone-ignss.dtsi), and the sensor rails,
+the S2MPG15's LDO7S (1.8 V) and LDO5S (3.3 V).
+
+Nothing starts the AoC at boot: the firmware is loaded when userspace
+writes its name to the AoC's "firmware" attribute, once the modules are
+loaded in order. The drivers' probes only map registers, talk to Trusty
+and the GSA, and turn on the two sensor rails.
+
+Booted on the Pixel 9a:
+7.3.0-rc6-omamobile-tegu-s2mpg15-m1-g991042e2eff3-dirty with the same
+nodes (the Trusty, GSA, mailbox and AoC ones enabled by overlays at
+runtime, the AoC's board properties in its DT): the GSA authenticates
+and starts the firmware, which reaches its 93 services and stays up,
+and the sensor proxy finds the accelerometer, light, proximity and
+compass sensors on the AoC.
+
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ .../boot/dts/exynos/google/zumapro-tegu.dts   | 50 +++++++++++++++++++
+ 1 file changed, 50 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/zumapro-tegu.dts b/arch/arm64/boot/dts/exynos/google/zumapro-tegu.dts
+index b12564d63..f66e00608 100644
+--- a/arch/arm64/boot/dts/exynos/google/zumapro-tegu.dts
++++ b/arch/arm64/boot/dts/exynos/google/zumapro-tegu.dts
+@@ -195,6 +195,48 @@ touch_vdd: ldo25m {
+ 			};
+ 		};
+ 	};
++
++	pmic-2 {
++		compatible = "samsung,s2mpg15-pmic";
++
++		regulators {
++			sensor_3v3: ldo5s {
++				regulator-name = "sensor-3v3";
++			};
++
++			sensor_1v8: ldo7s {
++				regulator-name = "sensor-1v8";
++			};
++		};
++	};
++};
++
++/*
++ * The AoC's firmware is the board's own signed image; the board id and
++ * revision are stock's for this board, and GNSS type 2 is the modem's
++ * integrated receiver.
++ */
++&aoc {
++	memory-region = <&aoc_reserved>;
++	firmware-name = "aoc-tegu.bin";
++	google,board-id = <0x60b02>;
++	google,board-rev = <0x10000>;
++	google,gnss-type = <2>;
++	sensor-1v8-supply = <&sensor_1v8>;
++	sensor-3v3-supply = <&sensor_3v3>;
++	status = "okay";
++};
++
++&aoc_mbox_a32 {
++	status = "okay";
++};
++
++&aoc_mbox_f1 {
++	status = "okay";
++};
++
++&aoc_mbox_p6 {
++	status = "okay";
+ };
+ 
+ &ap2apm_mailbox {
+@@ -363,6 +405,10 @@ &gpu {
+ 	status = "okay";
+ };
+ 
++&gsa {
++	status = "okay";
++};
++
+ /*
+  * The speaker amplifiers, two TAS2572s: top at 0x48 (reset gpp6-3) and
+  * bottom at 0x49 (reset gph2-1). One node each, since the tas2781 driver
+@@ -634,6 +680,10 @@ &sysreg_ufs {
+ 	status = "okay";
+ };
+ 
++&trusty {
++	status = "okay";
++};
++
+ /*
+  * Bluetooth: the BCM4383 on the APM's UART at 3 Mbaud, powered through
+  * BT_REG_ON (gpn8-0) behind its latch (ble-dbo on gpp24-3), with device wake

@@ -1,0 +1,369 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Mon, 12 Oct 2026 19:29:45 -0400
+Subject: [PATCH] nfc: st-nci: support the ST54J's plain NCI link over I2C
+
+The ST54J (ST21NFCD generation) speaks plain NCI over I2C: a 3-byte NCI
+header whose last byte is the payload length, then the payload, with no
+NDLC PCB byte and no acknowledge, and 0x7e as the idle character when it
+has nothing to send. Google's st21nfc driver for this chip passes exactly
+that to its HAL (google-modules/nfc st21nfc.c, st21nfc_dev_read()). With
+NDLC framing the controller never answered: the first command timed out
+(Pixel 7 Pro, 2026-10-12).
+
+Add a raw mode to ndlc, selected by the st,st54j-i2c compatible: frames go
+to the phy and to nci_recv_frame() unchanged, and the I2C phy reads a
+plain NCI packet, skipping leading idle characters as Google's driver
+does. The controller is reset with the double pulse Google's driver uses
+to leave quick boot mode, and neither init nor close sends the NDLC-era
+proprietary SET_NFC_MODE: plain NCI controllers start in NCI mode.
+
+Also, for both modes:
+- clear hard_fault in ndlc_open(); a single failed power-up left the
+  device unusable until the module was reloaded;
+- mark the link powered before the reset is released and enable the
+  interrupt whenever it is off. A controller that sends CORE_RESET_NTF
+  right after reset found the link unpowered, and the interrupt thread
+  disabled the interrupt with the frame unread;
+- dev_dbg()/hex dumps of every frame written and read, and of I2C
+  errors, for dynamic debug.
+
+Assisted-by: LLM
+Signed-off-by: Derek Ross <derekross@gmail.com>
+---
+ drivers/nfc/st-nci/core.c |  5 +++
+ drivers/nfc/st-nci/i2c.c  | 93 +++++++++++++++++++++++++++++++++++++--
+ drivers/nfc/st-nci/ndlc.c | 37 +++++++++++++---
+ drivers/nfc/st-nci/ndlc.h |  9 +++-
+ drivers/nfc/st-nci/spi.c  |  4 +-
+ 5 files changed, 136 insertions(+), 12 deletions(-)
+
+diff --git a/drivers/nfc/st-nci/core.c b/drivers/nfc/st-nci/core.c
+index a367136d4..8c9448db6 100644
+--- a/drivers/nfc/st-nci/core.c
++++ b/drivers/nfc/st-nci/core.c
+@@ -18,8 +18,13 @@
+ 
+ static int st_nci_init(struct nci_dev *ndev)
+ {
++	struct st_nci_info *info = nci_get_drvdata(ndev);
+ 	struct nci_mode_set_cmd cmd;
+ 
++	/* Plain NCI controllers start in NCI mode: CORE_RESET comes first. */
++	if (info->ndlc->raw)
++		return 0;
++
+ 	cmd.cmd_type = ST_NCI_SET_NFC_MODE;
+ 	cmd.mode = 1;
+ 
+diff --git a/drivers/nfc/st-nci/i2c.c b/drivers/nfc/st-nci/i2c.c
+index 413c86f44..a78682b38 100644
+--- a/drivers/nfc/st-nci/i2c.c
++++ b/drivers/nfc/st-nci/i2c.c
+@@ -15,6 +15,7 @@
+ #include <linux/delay.h>
+ #include <linux/nfc.h>
+ #include <linux/of.h>
++#include <linux/property.h>
+ 
+ #include "st-nci.h"
+ 
+@@ -27,6 +28,11 @@
+ #define ST_NCI_I2C_MIN_SIZE 4   /* PCB(1) + NCI Packet header(3) */
+ #define ST_NCI_I2C_MAX_SIZE 250 /* req 4.2.1 */
+ 
++/* Plain NCI (ST21NFCD/ST54 generation): no PCB byte */
++#define ST_NCI_I2C_RAW_HDR_SIZE		3
++/* Sent by the controller when there is nothing to read */
++#define ST_NCI_I2C_IDLE_CHAR		0x7e
++
+ #define ST_NCI_DRIVER_NAME "st_nci"
+ #define ST_NCI_I2C_DRIVER_NAME "st_nci_i2c"
+ 
+@@ -39,6 +45,7 @@ struct st_nci_i2c_phy {
+ 	struct gpio_desc *gpiod_reset;
+ 	struct clk *clk;
+ 	bool clk_on;
++	bool raw;
+ 
+ 	struct st_nci_se_status se_status;
+ };
+@@ -56,12 +63,24 @@ static int st_nci_i2c_enable(void *phy_id)
+ 		phy->clk_on = true;
+ 	}
+ 
++	if (phy->raw) {
++		/* Two pulses take the controller out of quick boot mode. */
++		gpiod_set_value(phy->gpiod_reset, 0);
++		msleep(20);
++		gpiod_set_value(phy->gpiod_reset, 1);
++		usleep_range(10000, 11000);
++	}
+ 	gpiod_set_value(phy->gpiod_reset, 0);
+-	usleep_range(10000, 15000);
++	if (phy->raw)
++		msleep(20);
++	else
++		usleep_range(10000, 15000);
+ 	gpiod_set_value(phy->gpiod_reset, 1);
+ 	usleep_range(80000, 85000);
++	dev_dbg(&phy->i2c_dev->dev, "reset released%s\n",
++		phy->raw ? " (double pulse)" : "");
+ 
+-	if (phy->ndlc->powered == 0 && phy->irq_active == 0) {
++	if (!phy->irq_active) {
+ 		enable_irq(phy->i2c_dev->irq);
+ 		phy->irq_active = true;
+ 	}
+@@ -96,8 +115,11 @@ static int st_nci_i2c_write(void *phy_id, struct sk_buff *skb)
+ 	if (phy->ndlc->hard_fault != 0)
+ 		return phy->ndlc->hard_fault;
+ 
++	print_hex_dump_debug("st_nci_i2c tx: ", DUMP_PREFIX_NONE, 16, 1,
++			     skb->data, skb->len, false);
+ 	r = i2c_master_send(client, skb->data, skb->len);
+ 	if (r < 0) {  /* Retry, chip was in standby */
++		dev_dbg(&client->dev, "write: %d, retrying\n", r);
+ 		usleep_range(1000, 4000);
+ 		r = i2c_master_send(client, skb->data, skb->len);
+ 	}
+@@ -108,10 +130,67 @@ static int st_nci_i2c_write(void *phy_id, struct sk_buff *skb)
+ 		else
+ 			r = 0;
+ 	}
++	if (r)
++		dev_dbg(&client->dev, "write of %u bytes failed: %d\n",
++			skb->len, r);
+ 
+ 	return r;
+ }
+ 
++/*
++ * Reads a plain NCI packet: a 3-byte header whose last byte is the payload
++ * length, then the payload. Leading idle characters mean the controller
++ * was not ready yet; the bytes they displaced are read again.
++ */
++static int st_nci_i2c_read_raw(struct st_nci_i2c_phy *phy,
++			       struct sk_buff **skb)
++{
++	struct i2c_client *client = phy->i2c_dev;
++	u8 hdr[ST_NCI_I2C_RAW_HDR_SIZE];
++	int r, idle;
++	u8 len;
++
++	r = i2c_master_recv(client, hdr, sizeof(hdr));
++	if (r != sizeof(hdr)) {
++		dev_dbg(&client->dev, "read header: %d\n", r);
++		return -EREMOTEIO;
++	}
++
++	for (idle = 0; idle < sizeof(hdr) && hdr[idle] == ST_NCI_I2C_IDLE_CHAR;
++	     idle++)
++		;
++	if (idle == sizeof(hdr)) {
++		dev_dbg(&client->dev, "read: idle\n");
++		return -EBADMSG;
++	}
++	if (idle) {
++		memmove(hdr, hdr + idle, sizeof(hdr) - idle);
++		r = i2c_master_recv(client, hdr + sizeof(hdr) - idle, idle);
++		if (r != idle)
++			return -EREMOTEIO;
++	}
++
++	len = hdr[2];
++	*skb = alloc_skb(sizeof(hdr) + len, GFP_KERNEL);
++	if (!*skb)
++		return -ENOMEM;
++	skb_put_data(*skb, hdr, sizeof(hdr));
++
++	if (len) {
++		r = i2c_master_recv(client, skb_put(*skb, len), len);
++		if (r != len) {
++			dev_dbg(&client->dev, "read payload of %u: %d\n",
++				len, r);
++			kfree_skb(*skb);
++			return -EREMOTEIO;
++		}
++	}
++
++	print_hex_dump_debug("st_nci_i2c rx: ", DUMP_PREFIX_NONE, 16, 1,
++			     (*skb)->data, (*skb)->len, false);
++	return 0;
++}
++
+ /*
+  * Reads an ndlc frame and returns it in a newly allocated sk_buff.
+  * returns:
+@@ -192,7 +271,10 @@ static irqreturn_t st_nci_irq_thread_fn(int irq, void *phy_id)
+ 		return IRQ_HANDLED;
+ 	}
+ 
+-	r = st_nci_i2c_read(phy, &skb);
++	if (phy->raw)
++		r = st_nci_i2c_read_raw(phy, &skb);
++	else
++		r = st_nci_i2c_read(phy, &skb);
+ 	if (r == -EREMOTEIO || r == -ENOMEM || r == -EBADMSG)
+ 		return IRQ_HANDLED;
+ 
+@@ -230,6 +312,7 @@ static int st_nci_i2c_probe(struct i2c_client *client)
+ 		return -ENOMEM;
+ 
+ 	phy->i2c_dev = client;
++	phy->raw = (uintptr_t)device_get_match_data(dev);
+ 
+ 	i2c_set_clientdata(client, phy);
+ 
+@@ -257,7 +340,7 @@ static int st_nci_i2c_probe(struct i2c_client *client)
+ 
+ 	r = ndlc_probe(phy, &i2c_phy_ops, &client->dev,
+ 			ST_NCI_FRAME_HEADROOM, ST_NCI_FRAME_TAILROOM,
+-			&phy->ndlc, &phy->se_status);
++			&phy->ndlc, &phy->se_status, phy->raw);
+ 	if (r < 0) {
+ 		nfc_err(&client->dev, "Unable to register ndlc layer\n");
+ 		return r;
+@@ -298,6 +381,8 @@ static const struct of_device_id of_st_nci_i2c_match[] = {
+ 	{ .compatible = "st,st21nfcb-i2c" },
+ 	{ .compatible = "st,st21nfcb_i2c" },
+ 	{ .compatible = "st,st21nfcc-i2c" },
++	/* Plain NCI, without NDLC framing */
++	{ .compatible = "st,st54j-i2c", .data = (void *)true },
+ 	{ }
+ };
+ MODULE_DEVICE_TABLE(of, of_st_nci_i2c_match);
+diff --git a/drivers/nfc/st-nci/ndlc.c b/drivers/nfc/st-nci/ndlc.c
+index 3ddbb5242..013a8d8a9 100644
+--- a/drivers/nfc/st-nci/ndlc.c
++++ b/drivers/nfc/st-nci/ndlc.c
+@@ -47,11 +47,19 @@ int ndlc_open(struct llt_ndlc *ndlc)
+ {
+ 	int r;
+ 
++	ndlc->hard_fault = 0;
++	/*
++	 * Powered before the reset is released: a controller that sends a
++	 * frame right after reset (CORE_RESET_NTF) must find the link up.
++	 */
++	ndlc->powered = 1;
++
+ 	/* toggle reset pin */
+ 	r = ndlc->ops->enable(ndlc->phy_id);
+-	if (r)
++	if (r) {
++		ndlc->powered = 0;
+ 		return r;
+-	ndlc->powered = 1;
++	}
+ 	return 0;
+ }
+ EXPORT_SYMBOL(ndlc_open);
+@@ -66,8 +74,9 @@ void ndlc_close(struct llt_ndlc *ndlc)
+ 	/* toggle reset pin */
+ 	ndlc->ops->enable(ndlc->phy_id);
+ 
+-	nci_prop_cmd(ndlc->ndev, ST_NCI_CORE_PROP,
+-		     sizeof(struct nci_mode_set_cmd), (__u8 *)&cmd);
++	if (!ndlc->raw)
++		nci_prop_cmd(ndlc->ndev, ST_NCI_CORE_PROP,
++			     sizeof(struct nci_mode_set_cmd), (__u8 *)&cmd);
+ 
+ 	ndlc->powered = 0;
+ 	ndlc->ops->disable(ndlc->phy_id);
+@@ -79,6 +88,18 @@ int ndlc_send(struct llt_ndlc *ndlc, struct sk_buff *skb)
+ 	/* add ndlc header */
+ 	u8 pcb = PCB_TYPE_DATAFRAME | PCB_DATAFRAME_RETRANSMIT_NO |
+ 		PCB_FRAME_CRC_INFO_NOTPRESENT;
++	int r;
++
++	if (ndlc->raw) {
++		NDLC_DUMP_SKB("nci frame written", skb);
++		r = ndlc->ops->write(ndlc->phy_id, skb);
++		if (r < 0) {
++			kfree_skb(skb);
++			return r;
++		}
++		consume_skb(skb);
++		return 0;
++	}
+ 
+ 	*(u8 *)skb_push(skb, 1) = pcb;
+ 	skb_queue_tail(&ndlc->send_q, skb);
+@@ -230,6 +251,10 @@ void ndlc_recv(struct llt_ndlc *ndlc, struct sk_buff *skb)
+ 		pr_err("NULL Frame -> link is dead\n");
+ 		ndlc->hard_fault = -EREMOTEIO;
+ 		ndlc_close(ndlc);
++	} else if (ndlc->raw) {
++		NDLC_DUMP_SKB("incoming nci frame", skb);
++		nci_recv_frame(ndlc->ndev, skb);
++		return;
+ 	} else {
+ 		NDLC_DUMP_SKB("incoming frame", skb);
+ 		skb_queue_tail(&ndlc->rcv_q, skb);
+@@ -255,7 +280,8 @@ static void ndlc_t2_timeout(struct timer_list *t)
+ 
+ int ndlc_probe(void *phy_id, const struct nfc_phy_ops *phy_ops,
+ 	       struct device *dev, int phy_headroom, int phy_tailroom,
+-	       struct llt_ndlc **ndlc_id, struct st_nci_se_status *se_status)
++	       struct llt_ndlc **ndlc_id, struct st_nci_se_status *se_status,
++	       bool raw)
+ {
+ 	struct llt_ndlc *ndlc;
+ 
+@@ -267,6 +293,7 @@ int ndlc_probe(void *phy_id, const struct nfc_phy_ops *phy_ops,
+ 	ndlc->phy_id = phy_id;
+ 	ndlc->dev = dev;
+ 	ndlc->powered = 0;
++	ndlc->raw = raw;
+ 
+ 	*ndlc_id = ndlc;
+ 
+diff --git a/drivers/nfc/st-nci/ndlc.h b/drivers/nfc/st-nci/ndlc.h
+index c24ce9b0d..85fa680df 100644
+--- a/drivers/nfc/st-nci/ndlc.h
++++ b/drivers/nfc/st-nci/ndlc.h
+@@ -39,6 +39,12 @@ struct llt_ndlc {
+ 	 */
+ 	int hard_fault;
+ 	int powered;
++
++	/*
++	 * Plain NCI over the bus, without NDLC framing (ST21NFCD/ST54
++	 * generation): no PCB byte, no acknowledge.
++	 */
++	bool raw;
+ };
+ 
+ int ndlc_open(struct llt_ndlc *ndlc);
+@@ -47,6 +53,7 @@ int ndlc_send(struct llt_ndlc *ndlc, struct sk_buff *skb);
+ void ndlc_recv(struct llt_ndlc *ndlc, struct sk_buff *skb);
+ int ndlc_probe(void *phy_id, const struct nfc_phy_ops *phy_ops,
+ 	       struct device *dev, int phy_headroom, int phy_tailroom,
+-	       struct llt_ndlc **ndlc_id, struct st_nci_se_status *se_status);
++	       struct llt_ndlc **ndlc_id, struct st_nci_se_status *se_status,
++	       bool raw);
+ void ndlc_remove(struct llt_ndlc *ndlc);
+ #endif /* __LOCAL_NDLC_H__ */
+diff --git a/drivers/nfc/st-nci/spi.c b/drivers/nfc/st-nci/spi.c
+index 7948c7e0c..cbface464 100644
+--- a/drivers/nfc/st-nci/spi.c
++++ b/drivers/nfc/st-nci/spi.c
+@@ -50,7 +50,7 @@ static int st_nci_spi_enable(void *phy_id)
+ 	gpiod_set_value(phy->gpiod_reset, 1);
+ 	usleep_range(80000, 85000);
+ 
+-	if (phy->ndlc->powered == 0 && phy->irq_active == 0) {
++	if (!phy->irq_active) {
+ 		enable_irq(phy->spi_dev->irq);
+ 		phy->irq_active = true;
+ 	}
+@@ -246,7 +246,7 @@ static int st_nci_spi_probe(struct spi_device *dev)
+ 
+ 	r = ndlc_probe(phy, &spi_phy_ops, &dev->dev,
+ 			ST_NCI_FRAME_HEADROOM, ST_NCI_FRAME_TAILROOM,
+-			&phy->ndlc, &phy->se_status);
++			&phy->ndlc, &phy->se_status, false);
+ 	if (r < 0) {
+ 		nfc_err(&dev->dev, "Unable to register ndlc layer\n");
+ 		return r;

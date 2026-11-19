@@ -1,0 +1,39 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Brett-Michael Green <brett@bmgvisualtech.com>
+Date: Fri, 30 Oct 2026 16:23:41 -0400
+Subject: [PATCH] dt-bindings: firmware: google,gs101-acpm-ipc: Add the Tensor
+ G3
+
+zuma's (Tensor G3) ACPM firmware speaks the same protocol, from the same
+shared memory layout, as Tensor G4's, and its main PMIC is the same
+S2MPG14. Document its compatible, with the S2MPG14 as its main PMIC.
+
+Assisted-by: LLM
+Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
+---
+ .../devicetree/bindings/firmware/google,gs101-acpm-ipc.yaml  | 5 ++++-
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/Documentation/devicetree/bindings/firmware/google,gs101-acpm-ipc.yaml b/Documentation/devicetree/bindings/firmware/google,gs101-acpm-ipc.yaml
+index 58a0301f0..9163560a1 100644
+--- a/Documentation/devicetree/bindings/firmware/google,gs101-acpm-ipc.yaml
++++ b/Documentation/devicetree/bindings/firmware/google,gs101-acpm-ipc.yaml
+@@ -25,6 +25,7 @@ properties:
+     enum:
+       - google,gs101-acpm-ipc
+       - google,gs201-acpm-ipc
++      - google,zuma-acpm-ipc
+       - google,zumapro-acpm-ipc
+ 
+   "#clock-cells":
+@@ -111,7 +112,9 @@ allOf:
+   - if:
+       properties:
+         compatible:
+-          const: google,zumapro-acpm-ipc
++          enum:
++            - google,zuma-acpm-ipc
++            - google,zumapro-acpm-ipc
+     then:
+       properties:
+         pmic: false

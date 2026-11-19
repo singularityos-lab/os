@@ -1,0 +1,262 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: boozedog <code@booze.dog>
+Date: Fri, 23 Oct 2026 13:27:32 -0400
+Subject: [PATCH] Input: add a SALIXP SPI chip-id reader
+
+Read the two-byte id at 0x20000000. The match data expects 36 40.
+Reset is asserted before either rail. The reader then enables vdd,
+waits 1 ms, enables avdd, and waits 15 ms before releasing reset.
+Remove asserts reset while the rails are still on.
+
+A Pixel Fold cover answered 36 40 from this read. One boot had the
+rails already held on. A later boot of the previous head enabled the
+rails from the driver. This copy does not request attention: after
+reset the line falls and stays low, and a level interrupt would
+storm before firmware.
+
+Signed-off-by: boozedog <code@booze.dog>
+---
+ drivers/input/touchscreen/Kconfig  |  12 ++
+ drivers/input/touchscreen/Makefile |   1 +
+ drivers/input/touchscreen/salixp.c | 197 +++++++++++++++++++++++++++++
+ 3 files changed, 210 insertions(+)
+ create mode 100644 drivers/input/touchscreen/salixp.c
+
+diff --git a/drivers/input/touchscreen/Kconfig b/drivers/input/touchscreen/Kconfig
+index 10f4ddb2c..8284916b7 100644
+--- a/drivers/input/touchscreen/Kconfig
++++ b/drivers/input/touchscreen/Kconfig
+@@ -1251,6 +1251,18 @@ config TOUCHSCREEN_STMFTS
+ 	  To compile this driver as a module, choose M here: the
+ 	  module will be called stmfts.
+ 
++config TOUCHSCREEN_SALIXP
++	tristate "STMicroelectronics SALIXP SPI chip-id reader"
++	depends on SPI
++	help
++	  Say Y here to read the chip id of the STMicroelectronics
++	  SALIXP touch controller (chip id 36 40) over SPI. The driver
++	  enables the supplies and pulses reset. It does not load
++	  firmware or report touches.
++
++	  To compile this driver as a module, choose M here: the
++	  module will be called salixp.
++
+ config TOUCHSCREEN_STMPE
+ 	tristate "STMicroelectronics STMPE touchscreens"
+ 	depends on MFD_STMPE
+diff --git a/drivers/input/touchscreen/Makefile b/drivers/input/touchscreen/Makefile
+index db500698e..65ec0a6bd 100644
+--- a/drivers/input/touchscreen/Makefile
++++ b/drivers/input/touchscreen/Makefile
+@@ -82,6 +82,7 @@ obj-$(CONFIG_TOUCHSCREEN_SILEAD)	+= silead.o
+ obj-$(CONFIG_TOUCHSCREEN_SIS_I2C)	+= sis_i2c.o
+ obj-$(CONFIG_TOUCHSCREEN_ST1232)	+= st1232.o
+ obj-$(CONFIG_TOUCHSCREEN_STMFTS)	+= stmfts.o
++obj-$(CONFIG_TOUCHSCREEN_SALIXP)		+= salixp.o
+ obj-$(CONFIG_TOUCHSCREEN_STMPE)		+= stmpe-ts.o
+ obj-$(CONFIG_TOUCHSCREEN_SUN4I)		+= sun4i-ts.o
+ obj-$(CONFIG_TOUCHSCREEN_SUR40)		+= sur40.o
+diff --git a/drivers/input/touchscreen/salixp.c b/drivers/input/touchscreen/salixp.c
+new file mode 100644
+index 000000000..7cf9e34f7
+--- /dev/null
++++ b/drivers/input/touchscreen/salixp.c
+@@ -0,0 +1,197 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * STMicroelectronics SALIXP chip-id reader (SPI).
++ *
++ * SALIXP is the FTS part whose hardware id is 36 40. Google's GPL FTM5
++ * driver (kernel/google-modules/touch/fts_touch), Copyright (C) 2016
++ * STMicroelectronics, calls that id SALIXP. Chip id 36 48 is ALIX and is
++ * not this part. This reader resets the controller and reads the id. It
++ * does not load firmware or report touches.
++ *
++ * Hardware register read, SPI: opcode 0xfb, then the 32-bit address in
++ * big-endian, then a one-byte dummy, then the payload. Chip id is at
++ * 0x20000000. Chip select stays asserted across the two transfers and
++ * for 10 microseconds after the read. The reply half clocks zero bytes
++ * on MOSI while it samples MISO, because the Samsung SPI controller
++ * shifts a transfer only when it has a TX buffer. The power-cycle path
++ * in that driver asserts reset, enables vdd, waits 1 ms, enables avdd,
++ * and waits 15 ms before releasing reset. Attention is level low. This
++ * reader does not request it. After reset is released the line falls
++ * and stays low, so a level interrupt would storm before any firmware
++ * handshake.
++ */
++
++#include <linux/cache.h>
++#include <linux/delay.h>
++#include <linux/device.h>
++#include <linux/err.h>
++#include <linux/gpio/consumer.h>
++#include <linux/ktime.h>
++#include <linux/mod_devicetable.h>
++#include <linux/module.h>
++#include <linux/property.h>
++#include <linux/regulator/consumer.h>
++#include <linux/spi/spi.h>
++
++#define SALIXP_CMD_HW_REG_R	0xfb
++#define SALIXP_ADDR_DCHIP_ID	0x20000000
++#define SALIXP_CS_DELAY_US	10
++#define SALIXP_VDD_DELAY_US	1000
++#define SALIXP_AVDD_DELAY_US	15000
++#define SALIXP_ID_TIMEOUT_MS	500
++#define SALIXP_ID_INTERVAL_MS	20
++
++struct salixp_info {
++	u8 id[2];
++};
++
++struct salixp {
++	struct spi_device *spi;
++	struct gpio_desc *reset;
++	u8 tx[5] __aligned(ARCH_DMA_MINALIGN);
++	u8 reply_tx[3] __aligned(ARCH_DMA_MINALIGN);
++	u8 rx[3] __aligned(ARCH_DMA_MINALIGN);
++};
++
++static const struct salixp_info salixp_info = {
++	.id = { 0x36, 0x40 },
++};
++
++static void salixp_assert_reset(void *data)
++{
++	struct salixp *ts = data;
++
++	/* GPIO_ACTIVE_LOW: logical 1 is physical low, which holds reset. */
++	gpiod_set_value_cansleep(ts->reset, 1);
++}
++
++static int salixp_read_id(struct salixp *ts, u8 id[2])
++{
++	struct spi_transfer xfer[] = {
++		{
++			.tx_buf = ts->tx,
++			.len = sizeof(ts->tx),
++		},
++		{
++			.tx_buf = ts->reply_tx,
++			.rx_buf = ts->rx,
++			.len = sizeof(ts->rx),
++			.delay = {
++				.value = SALIXP_CS_DELAY_US,
++				.unit = SPI_DELAY_UNIT_USECS,
++			},
++		},
++	};
++	int ret;
++
++	ts->tx[0] = SALIXP_CMD_HW_REG_R;
++	ts->tx[1] = (SALIXP_ADDR_DCHIP_ID >> 24) & 0xff;
++	ts->tx[2] = (SALIXP_ADDR_DCHIP_ID >> 16) & 0xff;
++	ts->tx[3] = (SALIXP_ADDR_DCHIP_ID >> 8) & 0xff;
++	ts->tx[4] = SALIXP_ADDR_DCHIP_ID & 0xff;
++
++	ret = spi_sync_transfer(ts->spi, xfer, ARRAY_SIZE(xfer));
++	if (ret)
++		return ret;
++
++	/* First received byte is the SPI dummy. */
++	id[0] = ts->rx[1];
++	id[1] = ts->rx[2];
++	return 0;
++}
++
++static int salixp_probe(struct spi_device *spi)
++{
++	struct device *dev = &spi->dev;
++	const struct salixp_info *info;
++	struct salixp *ts;
++	ktime_t deadline;
++	u8 id[2] = {};
++	int ret;
++
++	info = device_get_match_data(dev);
++	if (!info)
++		return -ENODEV;
++
++	ts = devm_kzalloc(dev, sizeof(*ts), GFP_KERNEL);
++	if (!ts)
++		return -ENOMEM;
++
++	ts->spi = spi;
++	spi_set_drvdata(spi, ts);
++
++	/*
++	 * Assert reset before either rail. Cover rails are S2MPG12 LDO25M
++	 * (1.8 V) and LDO26M (3.3 V). The board leaves them off, with no
++	 * regulator-always-on.
++	 */
++	ts->reset = devm_gpiod_get(dev, "reset", GPIOD_OUT_HIGH);
++	if (IS_ERR(ts->reset))
++		return dev_err_probe(dev, PTR_ERR(ts->reset),
++				     "getting reset gpio\n");
++
++	ret = devm_regulator_get_enable(dev, "vdd");
++	if (ret)
++		return dev_err_probe(dev, ret, "enabling vdd\n");
++
++	fsleep(SALIXP_VDD_DELAY_US);
++
++	ret = devm_regulator_get_enable(dev, "avdd");
++	if (ret)
++		return dev_err_probe(dev, ret, "enabling avdd\n");
++
++	/*
++	 * Registered after the regulators, so remove asserts reset while
++	 * the rails are still on. devm then disables them and releases
++	 * the GPIO.
++	 */
++	ret = devm_add_action_or_reset(dev, salixp_assert_reset, ts);
++	if (ret)
++		return ret;
++
++	fsleep(SALIXP_AVDD_DELAY_US);
++	gpiod_set_value_cansleep(ts->reset, 0);
++
++	deadline = ktime_add_ms(ktime_get(), SALIXP_ID_TIMEOUT_MS);
++	do {
++		ret = salixp_read_id(ts, id);
++		if (!ret && id[0] == info->id[0] && id[1] == info->id[1]) {
++			dev_info(dev, "chip id %02x %02x\n", id[0], id[1]);
++			return 0;
++		}
++		msleep(SALIXP_ID_INTERVAL_MS);
++	} while (ktime_before(ktime_get(), deadline));
++
++	if (ret)
++		return dev_err_probe(dev, ret, "reading chip id\n");
++
++	dev_err(dev, "chip id %02x %02x, expected %02x %02x\n",
++		id[0], id[1], info->id[0], info->id[1]);
++	return -ENODEV;
++}
++
++static const struct of_device_id salixp_of_match[] = {
++	{ .compatible = "st,salixp", .data = &salixp_info },
++	{ }
++};
++MODULE_DEVICE_TABLE(of, salixp_of_match);
++
++static const struct spi_device_id salixp_id[] = {
++	{ "salixp", 0 },
++	{ }
++};
++MODULE_DEVICE_TABLE(spi, salixp_id);
++
++static struct spi_driver salixp_driver = {
++	.driver = {
++		.name = "salixp",
++		.of_match_table = salixp_of_match,
++	},
++	.probe = salixp_probe,
++	.id_table = salixp_id,
++};
++module_spi_driver(salixp_driver);
++
++MODULE_AUTHOR("David A. Buser <code@booze.dog>");
++MODULE_DESCRIPTION("STMicroelectronics SALIXP SPI chip-id reader");
++MODULE_LICENSE("GPL");

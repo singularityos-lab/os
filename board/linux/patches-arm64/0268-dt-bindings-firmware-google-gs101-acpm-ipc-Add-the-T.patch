@@ -1,0 +1,60 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Tue, 27 Oct 2026 13:27:38 -0647
+Subject: [PATCH] dt-bindings: firmware: google,gs101-acpm-ipc: Add the Tensor
+ G4 clock ids
+
+The Tensor G4 (zumapro) ACPM firmware has 17 DVFS domains, numbered as
+Google's enum acpm_dvfs_id: MIF, INT, CPUCL0-2, DSU, BCI, G3D, G3DL2,
+TPU, INTCAM, TNR, CAM, MFC, DISP, AOC and BW. Add their clock ids, and
+the paired GPU clock after them (17), as gs201's header does, so device
+trees can name them.
+
+Link: https://android.googlesource.com/kernel/google-modules/soc/gs/+/204078758737776959ecc85c527a00fd2cabb62f/drivers/soc/google/cal-if/zuma/acpm_dvfs_zuma.h
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ .../dt-bindings/clock/google,zumapro-acpm.h   | 35 +++++++++++++++++++
+ 1 file changed, 35 insertions(+)
+ create mode 100644 include/dt-bindings/clock/google,zumapro-acpm.h
+
+diff --git a/include/dt-bindings/clock/google,zumapro-acpm.h b/include/dt-bindings/clock/google,zumapro-acpm.h
+new file mode 100644
+index 000000000..cdbeff96b
+--- /dev/null
++++ b/include/dt-bindings/clock/google,zumapro-acpm.h
+@@ -0,0 +1,35 @@
++/* SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause) */
++/*
++ * Device Tree binding constants for the clocks of the Google Tensor G4
++ * (zumapro) ACPM firmware.
++ */
++
++#ifndef _DT_BINDINGS_CLOCK_GOOGLE_ZUMAPRO_ACPM_H
++#define _DT_BINDINGS_CLOCK_GOOGLE_ZUMAPRO_ACPM_H
++
++/* DVFS domains, numbered as in the firmware messages (enum acpm_dvfs_id). */
++#define ZUMAPRO_CLK_ACPM_DVFS_MIF			0
++#define ZUMAPRO_CLK_ACPM_DVFS_INT			1
++#define ZUMAPRO_CLK_ACPM_DVFS_CPUCL0			2
++#define ZUMAPRO_CLK_ACPM_DVFS_CPUCL1			3
++#define ZUMAPRO_CLK_ACPM_DVFS_CPUCL2			4
++#define ZUMAPRO_CLK_ACPM_DVFS_DSU			5
++#define ZUMAPRO_CLK_ACPM_DVFS_BCI			6
++#define ZUMAPRO_CLK_ACPM_DVFS_G3D			7
++#define ZUMAPRO_CLK_ACPM_DVFS_G3DL2			8
++#define ZUMAPRO_CLK_ACPM_DVFS_TPU			9
++#define ZUMAPRO_CLK_ACPM_DVFS_INTCAM			10
++#define ZUMAPRO_CLK_ACPM_DVFS_TNR			11
++#define ZUMAPRO_CLK_ACPM_DVFS_CAM			12
++#define ZUMAPRO_CLK_ACPM_DVFS_MFC			13
++#define ZUMAPRO_CLK_ACPM_DVFS_DISP			14
++#define ZUMAPRO_CLK_ACPM_DVFS_AOC			15
++#define ZUMAPRO_CLK_ACPM_DVFS_BW			16
++
++/*
++ * The GPU as one clock: its rate is the shader (G3D) rate, and setting it
++ * also moves the top/L2 domain (G3DL2) to the level paired with it.
++ */
++#define ZUMAPRO_CLK_ACPM_GPU				17
++
++#endif /* _DT_BINDINGS_CLOCK_GOOGLE_ZUMAPRO_ACPM_H */

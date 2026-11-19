@@ -1,0 +1,107 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Brett-Michael Green <brett@bmgvisualtech.com>
+Date: Thu, 22 Oct 2026 16:11:48 -0400
+Subject: [PATCH] soc: samsung: exynos-pmu: zuma: limit the regmap to the
+ registers in use
+
+zuma's PMU regmap had no access tables, so its debugfs registers file
+read all 64 KiB of the PMU. zuma's map is not documented, and on gs201
+a single PMU read has taken the phone down. Allow only the registers
+zuma's drivers use: SYSIP_DAT0 (the reboot mode), the cluster
+watchdogs' NONCPU_OUT and NONCPU_INT_EN and the reset status, and the
+USB and UFS PHY isolation, and HSI0's power status. The reset status
+and the HSI0 status are read only, and any other offset fails with
+-EIO.
+
+With the reboot mode and the watchdogs, the regmap now serves more than
+PHY isolation. The watchdog and PHY isolation registers are below
+0x4000, so their updates go through gs101's set/clear aliases; zuma's
+EL3 accepts those too. SYSIP_DAT0 uses the read-modify-write call.
+
+Tensor G4's PMU binding falls back to google,zuma-pmu, so these tables
+serve it too. Its merged users sit at the same offsets: the watchdogs
+and the USB PHY through their zuma fallbacks, and its UFS PHY's
+isolation at 0x3ec0. Its HSI0 clock driver reads HSI0's power status
+at 0x2a84, which is HSI0's status on zuma as well: Google's zuma DT
+puts the HSI0 power domain at PMU 0x2a80.
+
+Tested on a Pixel 8 Pro: through these tables the USB PHY's isolation
+works at boot and across a DWC3 unbind and bind, both cluster watchdogs
+probe, the reboot mode takes reboot-to bootloader to fastboot, and UFS
+comes up through its PHY's isolation; dmesg shows no regmap or SMC
+error. The HSI0 status entry came after that test; nothing on zuma
+reads it yet.
+
+Assisted-by: LLM
+Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
+---
+ drivers/soc/samsung/gs101-pmu.c | 53 +++++++++++++++++++++++++++++++--
+ 1 file changed, 50 insertions(+), 3 deletions(-)
+
+diff --git a/drivers/soc/samsung/gs101-pmu.c b/drivers/soc/samsung/gs101-pmu.c
+index fbc7821a8..908341a3e 100644
+--- a/drivers/soc/samsung/gs101-pmu.c
++++ b/drivers/soc/samsung/gs101-pmu.c
+@@ -330,12 +330,59 @@ const struct exynos_pmu_data gs101_pmu_data = {
+ };
+ 
+ /*
+- * zuma's PMU is written through the same EL3 call, but its register map and
+- * CPU layout differ from gs101's, so no access tables and no CPU hotplug
+- * hooks yet: only the regmap, for its PHY and power-domain consumers.
++ * zuma's register map differs from gs101's and is not documented, so only the
++ * registers its drivers use are accessible: a read of an arbitrary PMU offset
++ * (as the regmap's debugfs would do) is not known to be safe. Any other offset
++ * fails with -EIO, so a new user of this regmap must add its registers here.
++ */
++#define ZUMA_CLUSTER0_NONCPU_OUT	0x1220
++#define ZUMA_CLUSTER0_NONCPU_INT_EN	0x1244
++#define ZUMA_CLUSTER1_NONCPU_OUT	0x1520
++#define ZUMA_CLUSTER1_NONCPU_INT_EN	0x1544
++#define ZUMA_HSI0_STATUS		0x2a84
++#define ZUMA_PHY_CTRL_UFS		0x3ec0
++
++static const struct regmap_range zuma_pmu_registers[] = {
++	/* reboot mode */
++	regmap_reg_range(GS101_SYSIP_DAT(0), GS101_SYSIP_DAT(0)),
++	/* watchdogs */
++	regmap_reg_range(ZUMA_CLUSTER0_NONCPU_OUT, ZUMA_CLUSTER0_NONCPU_OUT),
++	regmap_reg_range(ZUMA_CLUSTER0_NONCPU_INT_EN, ZUMA_CLUSTER0_NONCPU_INT_EN),
++	regmap_reg_range(ZUMA_CLUSTER1_NONCPU_OUT, ZUMA_CLUSTER1_NONCPU_OUT),
++	regmap_reg_range(ZUMA_CLUSTER1_NONCPU_INT_EN, ZUMA_CLUSTER1_NONCPU_INT_EN),
++	regmap_reg_range(GS101_RST_STAT, GS101_RST_STAT),
++	/* HSI0's power status, read by Tensor G4's HSI0 clock driver */
++	regmap_reg_range(ZUMA_HSI0_STATUS, ZUMA_HSI0_STATUS),
++	/* PHY isolation */
++	regmap_reg_range(GS101_PHY_CTRL_USB20, GS101_PHY_CTRL_USB20),
++	regmap_reg_range(ZUMA_PHY_CTRL_UFS, ZUMA_PHY_CTRL_UFS),
++};
++
++static const struct regmap_range zuma_pmu_ro_registers[] = {
++	regmap_reg_range(ZUMA_HSI0_STATUS, ZUMA_HSI0_STATUS),
++	regmap_reg_range(GS101_RST_STAT, GS101_RST_STAT),
++};
++
++static const struct regmap_access_table zuma_pmu_rd_table = {
++	.yes_ranges = zuma_pmu_registers,
++	.n_yes_ranges = ARRAY_SIZE(zuma_pmu_registers),
++};
++
++static const struct regmap_access_table zuma_pmu_wr_table = {
++	.yes_ranges = zuma_pmu_registers,
++	.n_yes_ranges = ARRAY_SIZE(zuma_pmu_registers),
++	.no_ranges = zuma_pmu_ro_registers,
++	.n_no_ranges = ARRAY_SIZE(zuma_pmu_ro_registers),
++};
++
++/*
++ * zuma's PMU is written through the same EL3 call, but its CPU layout differs
++ * from gs101's, so no CPU hotplug hooks yet.
+  */
+ const struct exynos_pmu_data zuma_pmu_data = {
+ 	.pmu_secure = true,
++	.rd_table = &zuma_pmu_rd_table,
++	.wr_table = &zuma_pmu_wr_table,
+ };
+ 
+ /*

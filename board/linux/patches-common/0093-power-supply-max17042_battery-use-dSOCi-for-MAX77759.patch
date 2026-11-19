@@ -1,0 +1,67 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Wed, 28 Oct 2026 22:39:14 -0400
+Subject: [PATCH] power: supply: max17042_battery: use dSOCi for MAX77759 SOC
+ alerts
+
+The MAX77759 fuel gauge has the same Config2.dSOCen / Status.dSOCi
+1 % change alert as the MAX17055, and the battery model loaded on POR
+enables it (Config2 0x0090 on the Pixel 7 Pro). The driver still
+treated the MAX77759 like the older gauges and also armed a SALRT
+window of +/-1 % around the current SOC, re-armed from the integer
+part of RepSOC on every alert. Both alerts then watch the same
+whole-percent boundary.
+
+On a Pixel 7 Pro (gs201) the gauge interrupt fires in bursts of 300
+to 460 interrupts within about a second, each time RepSOC crosses a
+whole percent, while charging and while discharging; one boot counted
+43960 gauge interrupts before the battery ran flat. SALRT read the
+window around the new percent (0x1412 at 19.00 %) at every burst.
+
+Use the MAX17055 scheme on the MAX77759: dSOCi for the 1 % steps and
+SALRT only for the critical SOC threshold. Google's driver for this
+gauge does the same; it enables dSOCen through the model's Config2 and
+never programs SALRT. It also drops the 1 % window during suspend, so a
+suspended phone is no longer woken on every percent, which is what the
+MAX17055 path already does.
+
+Assisted-by: LLM
+Signed-off-by: Derek Ross <derekross@gmail.com>
+---
+ drivers/power/supply/max17042_battery.c | 14 ++++++++++++--
+ 1 file changed, 12 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/power/supply/max17042_battery.c b/drivers/power/supply/max17042_battery.c
+index 7c6ea8e6d..725066381 100644
+--- a/drivers/power/supply/max17042_battery.c
++++ b/drivers/power/supply/max17042_battery.c
+@@ -1193,9 +1193,19 @@ static void max17042_set_critical_soc_threshold(struct max17042_chip *chip)
+ 		     0xff00 + MAX17042_CRITICAL_SOC : 0xff00);
+ }
+ 
++/*
++ * The MAX17055 and the MAX77759 raise Status.dSOCi on every whole-percent
++ * change of the SOC, so they don't need a SALRT window around the current SOC.
++ */
++static bool max17042_has_dsoci(struct max17042_chip *chip)
++{
++	return chip->chip_type == MAXIM_DEVICE_TYPE_MAX17055 ||
++	       chip->chip_type == MAXIM_DEVICE_TYPE_MAX77759;
++}
++
+ static void max17042_enable_soc_alerts(struct max17042_chip *chip)
+ {
+-	if (chip->chip_type == MAXIM_DEVICE_TYPE_MAX17055) {
++	if (max17042_has_dsoci(chip)) {
+ 		regmap_update_bits(chip->regmap, MAX17055_Config2,
+ 				   CFG2_DSOCI_BIT_ENBL,
+ 				   CFG2_DSOCI_BIT_ENBL);
+@@ -1208,7 +1218,7 @@ static void max17042_enable_soc_alerts(struct max17042_chip *chip)
+ 
+ static void max17042_suspend_soc_alerts(struct max17042_chip *chip)
+ {
+-	if (chip->chip_type != MAXIM_DEVICE_TYPE_MAX17055)
++	if (!max17042_has_dsoci(chip))
+ 		return;
+ 
+ 	regmap_update_bits(chip->regmap, MAX17055_Config2,

@@ -1,0 +1,53 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Mon, 26 Oct 2026 15:48:36 -0647
+Subject: [PATCH] nfc: nxp-nci: do not hold info_lock across
+ nci_unregister_device()
+
+nxp_nci_remove() takes info_lock and then calls nci_unregister_device().
+If the device is up, nci_unregister_device() closes it through
+nci_close_device() and the driver's close hook, nxp_nci_close(), which
+takes info_lock again. The mutex is not recursive, so removing a powered
+device hangs: the unbind or rmmod never returns, and a later shutdown
+blocks in device_shutdown().
+
+Seen on a Pixel 9a whose NFC controller is driven through this I2C
+transport: with the controller powered by neard, the device's removal
+during a suspend attempt hung with nxp_nci_close() under
+nxp_nci_remove().
+
+Unregister first, outside the lock, then put the chip in cold mode under
+the lock, and free the device last.
+
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ drivers/nfc/nxp-nci/core.c | 11 +++++++----
+ 1 file changed, 7 insertions(+), 4 deletions(-)
+
+diff --git a/drivers/nfc/nxp-nci/core.c b/drivers/nfc/nxp-nci/core.c
+index 448e5a4e7..386dcd4ff 100644
+--- a/drivers/nfc/nxp-nci/core.c
++++ b/drivers/nfc/nxp-nci/core.c
+@@ -186,15 +186,18 @@ void nxp_nci_remove(struct nci_dev *ndev)
+ 		nxp_nci_fw_work_complete(info, -ESHUTDOWN);
+ 	cancel_work_sync(&info->fw_info.work);
+ 
+-	mutex_lock(&info->info_lock);
++	/*
++	 * nci_unregister_device() closes an open device through
++	 * nxp_nci_close(), which takes info_lock itself: unregister first.
++	 */
++	nci_unregister_device(ndev);
+ 
++	mutex_lock(&info->info_lock);
+ 	if (info->phy_ops->set_mode)
+ 		info->phy_ops->set_mode(info->phy_id, NXP_NCI_MODE_COLD);
++	mutex_unlock(&info->info_lock);
+ 
+-	nci_unregister_device(ndev);
+ 	nci_free_device(ndev);
+-
+-	mutex_unlock(&info->info_lock);
+ }
+ EXPORT_SYMBOL(nxp_nci_remove);
+ 

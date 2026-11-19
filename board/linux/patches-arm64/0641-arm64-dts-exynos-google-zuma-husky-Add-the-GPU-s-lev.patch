@@ -1,0 +1,54 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Brett-Michael Green <brett@bmgvisualtech.com>
+Date: Sat, 31 Oct 2026 13:03:24 -0400
+Subject: [PATCH] arm64: dts: exynos: google: zuma-husky: Add the GPU's levels
+ to 890 MHz
+
+With gpu-thermal throttling panthor's devfreq, add the Pixel 8 Pro's
+GPU levels from 723 to 890 MHz, stock's top (gpu_dvfs_max_freq).
+
+Assisted-by: LLM
+Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
+---
+ .../boot/dts/exynos/google/zuma-husky.dts     | 21 ++++++++++++++++---
+ 1 file changed, 18 insertions(+), 3 deletions(-)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/zuma-husky.dts b/arch/arm64/boot/dts/exynos/google/zuma-husky.dts
+index 54135a89c..34b385573 100644
+--- a/arch/arm64/boot/dts/exynos/google/zuma-husky.dts
++++ b/arch/arm64/boot/dts/exynos/google/zuma-husky.dts
+@@ -164,9 +164,8 @@ battery: battery {
+ 
+ 	/*
+ 	 * The GPU's levels: the shader rates of the Pixel 8 Pro's GPU DVFS
+-	 * table up to 649 MHz, each with its paired L2 rate through the ACPM
+-	 * "gpu" clock. The levels above, to 890 MHz, wait for a GPU thermal
+-	 * zone.
++	 * table, each with its paired L2 rate through the ACPM "gpu" clock,
++	 * up to stock's 890 MHz. gpu-thermal throttles them.
+ 	 */
+ 	gpu_opp: opp-table-gpu {
+ 		compatible = "operating-points-v2";
+@@ -206,6 +205,22 @@ opp-580000000 {
+ 		opp-649000000 {
+ 			opp-hz = /bits/ 64 <649000000>;
+ 		};
++
++		opp-723000000 {
++			opp-hz = /bits/ 64 <723000000>;
++		};
++
++		opp-807000000 {
++			opp-hz = /bits/ 64 <807000000>;
++		};
++
++		opp-850000000 {
++			opp-hz = /bits/ 64 <850000000>;
++		};
++
++		opp-890000000 {
++			opp-hz = /bits/ 64 <890000000>;
++		};
+ 	};
+ 
+ 	reserved-memory {

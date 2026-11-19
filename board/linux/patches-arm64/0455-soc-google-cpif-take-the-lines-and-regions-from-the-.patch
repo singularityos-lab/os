@@ -1,0 +1,144 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Mon, 12 Oct 2026 19:08:20 -0400
+Subject: [PATCH] soc: google: cpif: take the lines and regions from the
+ board's modem node
+
+In Google's device tree the modem's lines and its reserved regions are
+properties of the CPIF and cp_shmem nodes. Here the board describes the
+S5300 once, in the "samsung,s5300-modem" node under its PCIe link, which
+the link driver uses for bring-up and which is disabled for it when CPIF
+runs. CPIF's own nodes carry only its configuration.
+
+When a CPIF node has no lines (or no memory-region), take them from the
+modem node, whatever its status. A CPIF node that has its own still uses
+them.
+
+Assisted-by: LLM
+Signed-off-by: Derek Ross <derekross@gmail.com>
+---
+ drivers/soc/google/cpif/modem_ctrl_s5100.c | 39 ++++++++++++++++++----
+ drivers/soc/google/cpif/shm_ipc.c          | 19 ++++++++++-
+ 2 files changed, 50 insertions(+), 8 deletions(-)
+
+diff --git a/drivers/soc/google/cpif/modem_ctrl_s5100.c b/drivers/soc/google/cpif/modem_ctrl_s5100.c
+index 888a679f9..73d29e3b9 100644
+--- a/drivers/soc/google/cpif/modem_ctrl_s5100.c
++++ b/drivers/soc/google/cpif/modem_ctrl_s5100.c
+@@ -2052,10 +2052,28 @@ static void s5100_get_ops(struct modem_ctl *mc)
+ 	mc->ops.resume = resume_cp;
+ }
+ 
++/*
++ * The modem's lines: in Google's device tree they are in this node; on
++ * gs201 boards here they are in the modem node under the PCIe link
++ * ("samsung,s5300-modem"), which the link driver uses while CPIF is not
++ * running and which an overlay disables for it when CPIF runs. That node
++ * is used whatever its status; this node's own lines win.
++ */
++static struct device_node *cp_lines_node(struct device_node *np)
++{
++	struct device_node *modem;
++
++	if (of_property_present(np, "ap2cp-wakeup-gpios"))
++		return of_node_get(np);
++	modem = of_find_compatible_node(NULL, NULL, "samsung,s5300-modem");
++	return modem ?: of_node_get(np);
++}
++
+ static int s5100_get_pdata(struct modem_ctl *mc, struct modem_data *pdata)
+ {
+ 	struct platform_device *pdev = to_platform_device(mc->dev);
+ 	struct device_node *np = pdev->dev.of_node;
++	struct device_node *lines;
+ 	unsigned int i;
+ 
+ 	/* label */
+@@ -2097,21 +2115,26 @@ static int s5100_get_pdata(struct modem_ctl *mc, struct modem_data *pdata)
+ #endif
+ 
+ 	/*
+-	 * gpio: "<node_name>-gpios" in this node, raw levels as Google's
+-	 * legacy GPIO numbers gave; outputs start low, as on stock.
++	 * gpio: "<node_name>-gpios", raw levels as Google's legacy GPIO
++	 * numbers gave; outputs start low, as on stock. From the modem node
++	 * the board describes (cp_lines_node()), or from this node.
+ 	 */
++	lines = cp_lines_node(np);
+ 	for (i = 0; i < CP_GPIO_MAX; i++) {
+ 		struct gpio_desc *desc;
+ 
+ 		if (!mc->cp_gpio[i].node_name)
+ 			continue;
+-		desc = devm_gpiod_get_optional(&pdev->dev, mc->cp_gpio[i].node_name,
+-					       GPIOD_ASIS);
+-		if (IS_ERR(desc))
+-			return dev_err_probe(&pdev->dev, PTR_ERR(desc), "%s\n",
++		desc = devm_fwnode_gpiod_get(&pdev->dev, of_fwnode_handle(lines),
++					     mc->cp_gpio[i].node_name, GPIOD_ASIS,
+ 					     mc->cp_gpio[i].label);
+-		if (!desc)
++		if (PTR_ERR(desc) == -ENOENT)
+ 			continue;
++		if (IS_ERR(desc)) {
++			of_node_put(lines);
++			return dev_err_probe(&pdev->dev, PTR_ERR(desc), "%s\n",
++					     mc->cp_gpio[i].label);
++		}
+ 
+ 		mc->cp_gpio[i].desc = desc;
+ 		mc->cp_gpio[i].valid = true;
+@@ -2133,6 +2156,8 @@ static int s5100_get_pdata(struct modem_ctl *mc, struct modem_data *pdata)
+ 		}
+ 	}
+ 
++	of_node_put(lines);
++
+ 	/* validate */
+ 	for (i = 0; i < CP_GPIO_MAX; i++) {
+ 		if (!mc->cp_gpio[i].valid) {
+diff --git a/drivers/soc/google/cpif/shm_ipc.c b/drivers/soc/google/cpif/shm_ipc.c
+index 66b23a49c..990ed5722 100644
+--- a/drivers/soc/google/cpif/shm_ipc.c
++++ b/drivers/soc/google/cpif/shm_ipc.c
+@@ -33,15 +33,31 @@ static int _rmem_count;
+ static struct cp_reserved_mem _cp_rmem[MAX_CP_RMEM];
+ 
+ #if defined(MODULE)
++/*
++ * The regions: this node's memory-region in Google's device tree; on gs201
++ * boards here, that of the modem node under the PCIe link, where the board
++ * describes the modem (see cp_lines_node() in modem_ctrl_s5100.c).
++ */
++static struct device_node *cp_rmem_node(struct device_node *np)
++{
++	struct device_node *modem;
++
++	if (of_property_present(np, "memory-region"))
++		return of_node_get(np);
++	modem = of_find_compatible_node(NULL, NULL, "samsung,s5300-modem");
++	return modem ?: of_node_get(np);
++}
++
+ static int cp_rmem_setup_latecall(struct platform_device *pdev)
+ {
++	struct device_node *owner = cp_rmem_node(pdev->dev.of_node);
+ 	struct device_node *np;
+ 	struct reserved_mem *rmem;
+ 	u32 rmem_index = 0;
+ 	int i;
+ 
+ 	for (i = 0; i < MAX_CP_RMEM; i++) {
+-		np = of_parse_phandle(pdev->dev.of_node, "memory-region", i);
++		np = of_parse_phandle(owner, "memory-region", i);
+ 		if (!np)
+ 			break;
+ 
+@@ -69,6 +85,7 @@ static int cp_rmem_setup_latecall(struct platform_device *pdev)
+ 				_cp_rmem[i].p_base, _cp_rmem[i].size);
+ 	}
+ 
++	of_node_put(owner);
+ 	return 0;
+ }
+ #else

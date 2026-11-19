@@ -1,0 +1,71 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Lef <me@lefteros.com>
+Date: Sat, 7 Nov 2026 15:58:15 +0200
+Subject: [PATCH] clk: samsung: exynos-clkout: add the NFC clock pad on Tensor
+ G3
+
+Tensor G3 (zuma) feeds the NFC controller's reference clock from the same
+PMU register as Tensor G4: stock's pmu_clk_pad is 0x3e84 on the Pixel 8 Pro
+too, and the zuma PMU's regmap already allows that register. Match
+google,zuma-pmu with the zumapro pad descriptor.
+
+The provider writes the register only when a consumer enables the clock.
+
+Tested on my Pixel 8 Pro: a test kernel (7.3-rc6, ...-ge98a7a38a3ef)
+with the NFC node switched on by an overlay. With the clock, the pad is
+held on while nxp-nci is bound (pmu-clkout0 enable count 1), and a bus
+card and a sticker tag were both found. A control boot with the same
+tag, the same spot and no clocks property on the node had enable count
+0: the NCI power-on still worked, but no tag was found in a 25 s run.
+That no-clock result is a single run. I cannot read the pad register
+from userspace, so I do not know whether the bootloader leaves it partly
+set up. Not tested: s2idle with the driver bound.
+
+Signed-off-by: Lef <me@lefteros.com>
+---
+ drivers/clk/samsung/clk-exynos-clkout.c | 18 +++++++++++-------
+ 1 file changed, 11 insertions(+), 7 deletions(-)
+
+diff --git a/drivers/clk/samsung/clk-exynos-clkout.c b/drivers/clk/samsung/clk-exynos-clkout.c
+index cd3d09151..94548afcc 100644
+--- a/drivers/clk/samsung/clk-exynos-clkout.c
++++ b/drivers/clk/samsung/clk-exynos-clkout.c
+@@ -41,12 +41,13 @@
+ #define GS101_CLKOUT_EN			BIT(0)
+ 
+ /*
+- * Tensor G4 (zumapro) feeds the NFC controller's reference clock from a PMU
+- * pad as well. With EXTPAD_EN set the PMU follows the controller's clock
+- * request line and drives the clock onto the pad, which is how Google's
+- * st21nfc driver runs it (pmu_clk_pad = <0x3e84>, st,extpad_control_en);
+- * without it the Pixel 9a's ST54L does not ACK its I2C address. Nothing
+- * else about this register is known, so its source field is left alone.
++ * Tensor G3 (zuma) and G4 (zumapro) feed the NFC controller's reference
++ * clock from a PMU pad as well. With EXTPAD_EN set the PMU follows the
++ * controller's clock request line and drives the clock onto the pad, which
++ * is how Google's st21nfc driver runs it (pmu_clk_pad = <0x3e84>,
++ * st,extpad_control_en); without it the Pixel 9a's ST54L does not ACK its
++ * I2C address. Nothing else about this register is known, so its source
++ * field is left alone.
+  */
+ #define ZUMAPRO_PAD_CTRL_NFC_CLK	0x3e84
+ #define ZUMAPRO_CLKOUT_EXTPAD_EN	BIT(16)
+@@ -163,6 +164,9 @@ static const struct of_device_id exynos_clkout_ids[] = {
+ 	}, {
+ 		.compatible = "google,gs201-pmu",
+ 		.data = &exynos_clkout_gs101,
++	}, {
++		.compatible = "google,zuma-pmu",
++		.data = &exynos_clkout_zumapro,
+ 	}, {
+ 		.compatible = "google,zumapro-pmu",
+ 		.data = &exynos_clkout_zumapro,
+@@ -264,7 +268,7 @@ static const struct clk_ops exynos_clkout_pad_ops = {
+ };
+ 
+ /*
+- * GS101/GS201 and Tensor G4: one gate per pad, parented to mux input 0 (the
++ * GS101/GS201 and Tensor G3/G4: one gate per pad, parented to mux input 0 (the
+  * TCXO, named "clkout0" in the PMU node) where the PMU node names it; a pad
+  * whose source the node does not describe is a root clock. The pads may be
+  * in use by devices that Linux does not describe, so leave them as the

@@ -1,0 +1,54 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Sat, 31 Oct 2026 11:16:49 -0643
+Subject: [PATCH] dt-bindings: soc: google: gs201-gsa: Add Tensor G4 (zumapro)
+
+The Pixel 9a's GSA (Tensor G4, zumapro) takes the same mailbox commands
+as gs201's, at 0x16490000 with GIC SPI 375. Its AoC firmware loads with
+no write to the GSA's stage-2 MPU, so a zumapro node describes the
+mailbox only.
+
+Address and interrupt from Google's GPL zumapro device tree.
+
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ .../bindings/soc/google/google,gs201-gsa.yaml | 19 ++++++++++++++++++-
+ 1 file changed, 18 insertions(+), 1 deletion(-)
+
+diff --git a/Documentation/devicetree/bindings/soc/google/google,gs201-gsa.yaml b/Documentation/devicetree/bindings/soc/google/google,gs201-gsa.yaml
+index 5868df472..e2e273224 100644
+--- a/Documentation/devicetree/bindings/soc/google/google,gs201-gsa.yaml
++++ b/Documentation/devicetree/bindings/soc/google/google,gs201-gsa.yaml
+@@ -17,7 +17,9 @@ description:
+ 
+ properties:
+   compatible:
+-    const: google,gs201-gsa
++    enum:
++      - google,gs201-gsa
++      - google,zumapro-gsa
+ 
+   reg:
+     minItems: 1
+@@ -42,6 +44,21 @@ required:
+   - reg
+   - interrupts
+ 
++allOf:
++  - if:
++      properties:
++        compatible:
++          const: google,zumapro-gsa
++    then:
++      description:
++        On zumapro the GSA reads an image without Linux touching its
++        stage-2 MPU, so only the mailbox is described.
++      properties:
++        reg:
++          maxItems: 1
++        reg-names:
++          maxItems: 1
++
+ additionalProperties: false
+ 
+ examples:

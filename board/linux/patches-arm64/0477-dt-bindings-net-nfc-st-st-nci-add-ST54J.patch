@@ -1,0 +1,38 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Mon, 12 Oct 2026 13:26:46 -0400
+Subject: [PATCH] dt-bindings: net: nfc: st,st-nci: add ST54J
+
+The ST54J (NFC controller and secure element in one package, used in
+Google's Pixel 7 phones) has an NCI controller that is reached like the
+ST21NFCC over I2C. Add its compatible with st,st21nfcc-i2c as the fallback.
+
+Assisted-by: LLM
+Signed-off-by: Derek Ross <derekross@gmail.com>
+---
+ .../devicetree/bindings/net/nfc/st,st-nci.yaml       | 12 ++++++++----
+ 1 file changed, 8 insertions(+), 4 deletions(-)
+
+diff --git a/Documentation/devicetree/bindings/net/nfc/st,st-nci.yaml b/Documentation/devicetree/bindings/net/nfc/st,st-nci.yaml
+index 1dcbddbc5..061367be5 100644
+--- a/Documentation/devicetree/bindings/net/nfc/st,st-nci.yaml
++++ b/Documentation/devicetree/bindings/net/nfc/st,st-nci.yaml
+@@ -11,10 +11,14 @@ maintainers:
+ 
+ properties:
+   compatible:
+-    enum:
+-      - st,st21nfcb-i2c
+-      - st,st21nfcb-spi
+-      - st,st21nfcc-i2c
++    oneOf:
++      - enum:
++          - st,st21nfcb-i2c
++          - st,st21nfcb-spi
++          - st,st21nfcc-i2c
++      - items:
++          - const: st,st54j-i2c
++          - const: st,st21nfcc-i2c
+ 
+   reset-gpios:
+     description: Output GPIO pin used for resetting the controller

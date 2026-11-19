@@ -1,0 +1,152 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Fri, 13 Nov 2026 11:37:28 -0500
+Subject: [PATCH] Input: synaptics-tcm: Let a touch wake the system when asked
+ to
+
+Double tap to wake works on a dark phone that is awake, but from
+suspend-to-idle only the power key wakes it: tcm_suspend() turns the
+attention interrupt off for the whole sleep, so that it can't fire after
+the SPI controller has suspended and leave a read half done.
+
+Make the device wakeup capable, off by default. When user space enables
+it (power/wakeup), suspend leaves the interrupt on and arms it for
+wakeup instead. From suspend to resume the IRQ thread reads nothing: an
+attention that arrives disables the (level) line without waiting,
+reports a wakeup, which also aborts a suspend still in progress, and is
+left for tcm_resume(), which turns the line back on once the bus is up,
+so the thread then reads the message that woke the system. With wakeup
+off, suspend and resume are as before.
+
+Tested on a Pixel 7 Pro (7.3.0-rc6-omamobile-push1-g2db2bc35beec-dirty,
+the omamobile branch with this change on top), with power/wakeup
+enabled and the modem off: the shell put the phone into
+suspend-to-idle, a double tap 8 s later woke it on the touchscreen's
+interrupt (pm_wakeup_irq 98, spi0.0) and lit the lock screen, with no
+desync or bus error logged. Not yet tested: a long series, touches
+during the suspend transition itself.
+
+Assisted-by: Claude Opus 5.5
+Signed-off-by: Derek Ross <derekross@gmail.com>
+---
+ drivers/input/touchscreen/synaptics_tcm.c | 67 +++++++++++++++++++++--
+ 1 file changed, 62 insertions(+), 5 deletions(-)
+
+diff --git a/drivers/input/touchscreen/synaptics_tcm.c b/drivers/input/touchscreen/synaptics_tcm.c
+index 21c41dabc..0df2ad139 100644
+--- a/drivers/input/touchscreen/synaptics_tcm.c
++++ b/drivers/input/touchscreen/synaptics_tcm.c
+@@ -40,6 +40,7 @@
+ #include <linux/module.h>
+ #include <linux/mutex.h>
+ #include <linux/of.h>
++#include <linux/pm_wakeup.h>
+ #include <linux/regulator/consumer.h>
+ #include <linux/slab.h>
+ #include <linux/spi/spi.h>
+@@ -179,6 +180,15 @@ struct tcm_ts {
+ 	/* Message being read; DMA safe. */
+ 	u8 *rx;
+ 	u8 *tx;
++
++	/*
++	 * Waking the system on a touch (power/wakeup enabled): from
++	 * tcm_suspend() to tcm_resume() the IRQ thread reads nothing, since
++	 * the SPI controller may already be suspended. An attention that
++	 * arrives then is left for tcm_resume() with the line disabled.
++	 */
++	bool suspended;
++	bool irq_deferred;
+ };
+ 
+ static int tcm_spi_read(struct tcm_ts *ts, u8 *buf, unsigned int len)
+@@ -576,6 +586,21 @@ static irqreturn_t tcm_irq(int irq, void *data)
+ {
+ 	struct tcm_ts *ts = data;
+ 
++	if (READ_ONCE(ts->suspended)) {
++		/*
++		 * The attention line is level-triggered and stays asserted
++		 * until the message is read, which can't happen before
++		 * resume. Disable it (without waiting for this thread) so it
++		 * doesn't fire again, and report the wakeup: a suspend still
++		 * in progress is aborted, and in suspend-to-idle the wake has
++		 * already been counted by the IRQ core.
++		 */
++		disable_irq_nosync(irq);
++		WRITE_ONCE(ts->irq_deferred, true);
++		pm_wakeup_dev_event(&ts->spi->dev, 0, true);
++		return IRQ_HANDLED;
++	}
++
+ 	tcm_read_message(ts);
+ 
+ 	return IRQ_HANDLED;
+@@ -902,6 +927,9 @@ static int tcm_probe(struct spi_device *spi)
+ 	if (error)
+ 		return dev_err_probe(dev, error, "device did not identify\n");
+ 
++	/* Able to wake the system on a touch; off until user space asks. */
++	device_set_wakeup_capable(dev, true);
++
+ 	dev_info(dev, "%.16s, TouchComm v%u, build %u, message CRC %s\n",
+ 		 ts->id.part_number, ts->id.version,
+ 		 le32_to_cpu(ts->id.build_id),
+@@ -928,23 +956,52 @@ static int tcm_probe(struct spi_device *spi)
+ }
+ 
+ /*
+- * Keep the attention interrupt off across system sleep: it can fire after
+- * the SPI controller has suspended, and a read then fails part way and
+- * leaves the message stream out of step.
++ * Keep the attention interrupt from reading anything across system sleep:
++ * it can fire after the SPI controller has suspended, and a read then
++ * fails part way and leaves the message stream out of step.
++ *
++ * By default the interrupt is simply off. When user space has enabled the
++ * device as a wakeup source (power/wakeup), it stays on and armed for
++ * wakeup instead, so a touch wakes the system (double tap to wake from
++ * suspend-to-idle); the IRQ thread then defers the read to tcm_resume().
+  */
+ static int tcm_suspend(struct device *dev)
+ {
+ 	struct tcm_ts *ts = dev_get_drvdata(dev);
++	int irq = ts->spi->irq;
++
++	if (!device_may_wakeup(dev)) {
++		disable_irq(irq);
++		return 0;
++	}
+ 
+-	disable_irq(ts->spi->irq);
++	WRITE_ONCE(ts->suspended, true);
++	/* A thread already reading finishes before the bus can suspend. */
++	synchronize_irq(irq);
++	if (enable_irq_wake(irq))
++		dev_warn(dev, "could not arm the touch interrupt for wakeup\n");
+ 	return 0;
+ }
+ 
+ static int tcm_resume(struct device *dev)
+ {
+ 	struct tcm_ts *ts = dev_get_drvdata(dev);
++	int irq = ts->spi->irq;
+ 
+-	enable_irq(ts->spi->irq);
++	if (!READ_ONCE(ts->suspended)) {
++		enable_irq(irq);
++		return 0;
++	}
++
++	disable_irq_wake(irq);
++	/* The IRQ thread can't be in its deferral once this returns. */
++	synchronize_irq(irq);
++	WRITE_ONCE(ts->suspended, false);
++	if (READ_ONCE(ts->irq_deferred)) {
++		WRITE_ONCE(ts->irq_deferred, false);
++		/* Still asserted, so the thread now reads what woke us. */
++		enable_irq(irq);
++	}
+ 	return 0;
+ }
+ 

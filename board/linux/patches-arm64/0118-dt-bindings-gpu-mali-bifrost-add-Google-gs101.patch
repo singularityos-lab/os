@@ -1,0 +1,67 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: saiththerobo <the.tom.sharp@gmail.com>
+Date: Thu, 15 Oct 2026 14:29:24 +0100
+Subject: [PATCH] dt-bindings: gpu: mali-bifrost: add Google gs101
+
+The Pixel 6's gs101 has a Mali-G78 MP20, a Valhall job-manager GPU. Its
+core, L2, GPU memory and SoC internal memory rails (VDD_G3D,
+VDD_G3D_L2, VDD_G3D_M and VDD_INT_M on the S2MPG10/11 PMICs) all have to
+be on for it to run; describe the three beyond mali-supply.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Signed-off-by: saiththerobo <the.tom.sharp@gmail.com>
+---
+ .../bindings/gpu/arm,mali-bifrost.yaml        | 26 +++++++++++++++++++
+ 1 file changed, 26 insertions(+)
+
+diff --git a/Documentation/devicetree/bindings/gpu/arm,mali-bifrost.yaml b/Documentation/devicetree/bindings/gpu/arm,mali-bifrost.yaml
+index 9db9f84ad..12e3e9321 100644
+--- a/Documentation/devicetree/bindings/gpu/arm,mali-bifrost.yaml
++++ b/Documentation/devicetree/bindings/gpu/arm,mali-bifrost.yaml
+@@ -43,6 +43,7 @@ properties:
+       - items:
+           - enum:
+               - allwinner,sun55i-a523-mali
++              - google,gs101-mali
+               - mediatek,mt8188-mali
+               - mediatek,mt8192-mali
+               - mediatek,mt8370-mali
+@@ -77,6 +78,15 @@ properties:
+ 
+   sram-supply: true
+ 
++  g3d-l2-supply:
++    description: GPU L2 cache rail (Google gs101 VDD_G3D_L2)
++
++  g3d-m-supply:
++    description: GPU memory rail (Google gs101 VDD_G3D_M)
++
++  int-m-supply:
++    description: SoC internal memory rail the GPU needs (Google gs101 VDD_INT_M)
++
+   operating-points-v2: true
+ 
+   power-domains:
+@@ -264,6 +274,22 @@ allOf:
+       required:
+         - power-domains
+         - power-domain-names
++  - if:
++      properties:
++        compatible:
++          contains:
++            const: google,gs101-mali
++    then:
++      required:
++        - mali-supply
++        - g3d-l2-supply
++        - g3d-m-supply
++        - int-m-supply
++    else:
++      properties:
++        g3d-l2-supply: false
++        g3d-m-supply: false
++        int-m-supply: false
+   - if:
+       properties:
+         compatible:

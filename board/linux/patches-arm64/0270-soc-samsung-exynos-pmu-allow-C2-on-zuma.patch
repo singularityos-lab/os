@@ -1,0 +1,130 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Mon, 26 Oct 2026 19:55:42 -0647
+Subject: [PATCH] soc: samsung: exynos-pmu: allow C2 on zuma
+
+On zuma, TF-A answers every PSCI CPU_SUSPEND for the per-core power-down
+state with INVALID_PARAMETERS until the kernel has told it that cores
+may enter C2, by writing PMU_ALLOWED_C2 to PMU_INFORM0 (PMU 0x800).
+Google's exynos-cpupm does this once at init on zuma.
+
+Without it a cpuidle C2 state is registered but never entered: on a
+Pixel 9a (zumapro, which uses the zuma PMU data) the cores spun through
+millions of refused entries a minute. With the write at probe, all eight
+cores enter C2 and spend most of an idle minute there.
+
+Add a pmu_regmap_init hook to struct exynos_pmu_data, run at probe with
+the PMU's regmap before CPU hotplug and idle are set up, and make the
+write from zuma's hook. PMU_INFORM0 joins zuma's access table, as the
+regmap refuses any offset outside it; a failed write is reported.
+
+Tested on the Pixel 9a with
+7.3.0-rc6-omamobile-tegu-s2mpg15-m1-g991042e2eff3-dirty, whose
+gs101-pmu.c is this patch's (blob e357744d4a9c, including the zuma
+access table): no warning at probe, and 441 s after boot cpu0 had spent
+315 s in C2, cpu4 335 s and cpu7 329 s.
+
+Link: https://android.googlesource.com/kernel/google-modules/soc/gs/+/204078758737776959ecc85c527a00fd2cabb62f/drivers/soc/google/exynos-cpupm.c
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ drivers/soc/samsung/exynos-pmu.c |  4 ++++
+ drivers/soc/samsung/exynos-pmu.h |  4 ++++
+ drivers/soc/samsung/gs101-pmu.c  | 21 +++++++++++++++++++++
+ 3 files changed, 29 insertions(+)
+
+diff --git a/drivers/soc/samsung/exynos-pmu.c b/drivers/soc/samsung/exynos-pmu.c
+index b13a93f09..d8f05e56a 100644
+--- a/drivers/soc/samsung/exynos-pmu.c
++++ b/drivers/soc/samsung/exynos-pmu.c
+@@ -569,6 +569,10 @@ static int exynos_pmu_probe(struct platform_device *pdev)
+ 
+ 	pmu_context->pmureg = regmap;
+ 	pmu_context->dev = dev;
++
++	if (pmu_context->pmu_data && pmu_context->pmu_data->pmu_regmap_init)
++		pmu_context->pmu_data->pmu_regmap_init(dev, regmap);
++
+ 	raw_spin_lock_init(&pmu_context->cpupm_lock);
+ 	pmu_context->sys_inreboot = false;
+ 	pmu_context->sys_insuspend = false;
+diff --git a/drivers/soc/samsung/exynos-pmu.h b/drivers/soc/samsung/exynos-pmu.h
+index 4afaded8e..c4f93ae21 100644
+--- a/drivers/soc/samsung/exynos-pmu.h
++++ b/drivers/soc/samsung/exynos-pmu.h
+@@ -13,6 +13,8 @@
+ 
+ #define PMU_TABLE_END	(-1U)
+ 
++struct device;
++struct regmap;
+ struct regmap_access_table;
+ 
+ struct exynos_pmu_conf {
+@@ -52,6 +54,8 @@ struct exynos_pmu_data {
+ 	bool pmu_cpuhp;
+ 
+ 	void (*pmu_init)(void);
++	/* run at probe with the PMU's regmap, before CPU hotplug and idle */
++	void (*pmu_regmap_init)(struct device *dev, struct regmap *regmap);
+ 	void (*powerdown_conf)(enum sys_powerdown);
+ 	void (*powerdown_conf_extra)(enum sys_powerdown);
+ 
+diff --git a/drivers/soc/samsung/gs101-pmu.c b/drivers/soc/samsung/gs101-pmu.c
+index 908341a3e..e357744d4 100644
+--- a/drivers/soc/samsung/gs101-pmu.c
++++ b/drivers/soc/samsung/gs101-pmu.c
+@@ -7,6 +7,7 @@
+ 
+ #include <linux/arm-smccc.h>
+ #include <linux/array_size.h>
++#include <linux/device.h>
+ #include <linux/soc/samsung/exynos-pmu.h>
+ #include <linux/soc/samsung/exynos-regs-pmu.h>
+ #include <linux/regmap.h>
+@@ -335,6 +336,7 @@ const struct exynos_pmu_data gs101_pmu_data = {
+  * (as the regmap's debugfs would do) is not known to be safe. Any other offset
+  * fails with -EIO, so a new user of this regmap must add its registers here.
+  */
++#define ZUMA_PMU_INFORM0		0x0800
+ #define ZUMA_CLUSTER0_NONCPU_OUT	0x1220
+ #define ZUMA_CLUSTER0_NONCPU_INT_EN	0x1244
+ #define ZUMA_CLUSTER1_NONCPU_OUT	0x1520
+@@ -356,6 +358,8 @@ static const struct regmap_range zuma_pmu_registers[] = {
+ 	/* PHY isolation */
+ 	regmap_reg_range(GS101_PHY_CTRL_USB20, GS101_PHY_CTRL_USB20),
+ 	regmap_reg_range(ZUMA_PHY_CTRL_UFS, ZUMA_PHY_CTRL_UFS),
++	/* a hint TF-A reads, not a status register: see zuma_pmu_regmap_init() */
++	regmap_reg_range(ZUMA_PMU_INFORM0, ZUMA_PMU_INFORM0),
+ };
+ 
+ static const struct regmap_range zuma_pmu_ro_registers[] = {
+@@ -375,12 +379,29 @@ static const struct regmap_access_table zuma_pmu_wr_table = {
+ 	.n_no_ranges = ARRAY_SIZE(zuma_pmu_ro_registers),
+ };
+ 
++#define ZUMA_PMU_ALLOWED_C2		1
++
++/*
++ * zuma's TF-A refuses core power-down (PSCI CPU_SUSPEND returns
++ * INVALID_PARAMETERS) until the kernel allows C2 in PMU_INFORM0, as Google's
++ * exynos-cpupm does once at init.
++ */
++static void zuma_pmu_regmap_init(struct device *dev, struct regmap *regmap)
++{
++	int ret;
++
++	ret = regmap_write(regmap, ZUMA_PMU_INFORM0, ZUMA_PMU_ALLOWED_C2);
++	if (ret)
++		dev_warn(dev, "failed to allow C2 in PMU_INFORM0: %d\n", ret);
++}
++
+ /*
+  * zuma's PMU is written through the same EL3 call, but its CPU layout differs
+  * from gs101's, so no CPU hotplug hooks yet.
+  */
+ const struct exynos_pmu_data zuma_pmu_data = {
+ 	.pmu_secure = true,
++	.pmu_regmap_init = zuma_pmu_regmap_init,
+ 	.rd_table = &zuma_pmu_rd_table,
+ 	.wr_table = &zuma_pmu_wr_table,
+ };

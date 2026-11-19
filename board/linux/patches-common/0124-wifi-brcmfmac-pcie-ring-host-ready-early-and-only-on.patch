@@ -1,0 +1,88 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Mon, 12 Oct 2026 01:46:53 -0400
+Subject: [PATCH] wifi: brcmfmac: pcie: ring host ready early, and only once,
+ on the BCM4389
+
+Broadcom's driver rings the host-ready doorbell (DB1) right after the
+common rings are set up and before it posts any buffer (bcmdhd
+dhd_msgbuf.c dhd_prot_init(), hostrdy_after_init set in
+dhd_pcie.c dhdpcie_bus_attach()). brcmfmac rings it only in preinit,
+after the rx and control buffers are already posted. For the BCM4389,
+which is told in host_cap that host ready will come, ring it once the
+interrupt is set up as well.
+
+With the PCIe debug level on, log the host-ready doorbell.
+
+Broadcom's driver rings it only once, and brcmfmac's preinit must not
+ring it a second time: the 20.101.90 firmware dies on that, with its
+console showing
+
+  THREADX TRAP INFO: Thread: main_thread ...
+  TRAP 4(326dc8): pc 27489a, lr 27488d, sp 327020 ...  dfsr 80f, dfar 0
+
+and the firmware's symbol map puts pc/lr in _hnd_die, with
+pciedev_handle_hostready_intr+0x75 (0x2315f1) and pciedev_dpc on the
+stack: a deliberate stop in the host-ready handler, 20 ms after the
+second doorbell.
+
+So skip the preinit host ready for the BCM4389, and write the value
+Broadcom's driver writes (0x12345678, dhd_bus_hostready()).
+
+Assisted-by: LLM
+Signed-off-by: Derek Ross <derekross@gmail.com>
+---
+ .../broadcom/brcm80211/brcmfmac/pcie.c        | 25 ++++++++++++++++---
+ 1 file changed, 22 insertions(+), 3 deletions(-)
+
+diff --git a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/pcie.c b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/pcie.c
+index 8235c50a1..bb45ab252 100644
+--- a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/pcie.c
++++ b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/pcie.c
+@@ -1156,9 +1156,16 @@ static void brcmf_pcie_intr_enable(struct brcmf_pciedev_info *devinfo)
+ 
+ static void brcmf_pcie_hostready(struct brcmf_pciedev_info *devinfo)
+ {
+-	if (devinfo->shared.flags & BRCMF_PCIE_SHARED_HOSTRDY_DB1)
++	if (devinfo->shared.flags & BRCMF_PCIE_SHARED_HOSTRDY_DB1) {
++		brcmf_dbg(PCIE, "host ready on 0x%x\n",
++			  devinfo->reginfo->h2d_mailbox_1);
++		/* bcmdhd dhd_bus_hostready() writes this value */
+ 		brcmf_pcie_write_reg32(devinfo,
+-				       devinfo->reginfo->h2d_mailbox_1, 1);
++				       devinfo->reginfo->h2d_mailbox_1,
++				       devinfo->pdev->device ==
++				       BRCM_PCIE_4389_DEVICE_ID ?
++				       0x12345678 : 1);
++	}
+ }
+ 
+ static irqreturn_t brcmf_pcie_quick_check_isr(int irq, void *arg)
+@@ -1731,7 +1738,12 @@ static int brcmf_pcie_preinit(struct device *dev)
+ 	brcmf_dbg(PCIE, "Enter\n");
+ 
+ 	brcmf_pcie_intr_enable(buspub->devinfo);
+-	brcmf_pcie_hostready(buspub->devinfo);
++	/* The BCM4389 was told host ready right after its rings were set
++	 * up; its firmware traps on a second one (_hnd_die from
++	 * pciedev_handle_hostready_intr), so ring it only once.
++	 */
++	if (buspub->devinfo->pdev->device != BRCM_PCIE_4389_DEVICE_ID)
++		brcmf_pcie_hostready(buspub->devinfo);
+ 
+ 	return 0;
+ }
+@@ -2506,6 +2518,13 @@ static void brcmf_pcie_setup(struct device *dev, int ret,
+ 	if (ret)
+ 		goto fail;
+ 
++	/* Broadcom's driver rings host ready as soon as the common rings
++	 * are set up, before it posts any buffer (bcmdhd dhd_prot_init(),
++	 * hostrdy_after_init), and the BCM4389 was told so in host_cap.
++	 */
++	if (devinfo->pdev->device == BRCM_PCIE_4389_DEVICE_ID)
++		brcmf_pcie_hostready(devinfo);
++
+ 	/* hook the commonrings in the bus structure. */
+ 	for (i = 0; i < BRCMF_NROF_COMMON_MSGRINGS; i++)
+ 		bus->msgbuf->commonrings[i] =

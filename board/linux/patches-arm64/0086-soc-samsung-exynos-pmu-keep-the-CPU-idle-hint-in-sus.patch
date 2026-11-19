@@ -1,0 +1,52 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Mon, 12 Oct 2026 11:54:04 -0400
+Subject: [PATCH] soc: samsung: exynos-pmu: keep the CPU idle hint in
+ suspend-to-idle
+
+The gs101 CPU PM notifier stops writing the per-CPU power-down hint
+(CPU_INFORM) once suspend_noirq has run, so that the last CPU going
+through a firmware system suspend doesn't overwrite the system sleep
+hint with C2.
+
+Suspend-to-idle has no such sequence: the CPUs keep entering their
+cpuidle states, and the firmware refuses a CPU power-down that has no
+hint. Every idle entry then fails at once and the CPUs spin on refused
+PSCI calls until a wakeup, drawing more than an idle system that is
+awake.
+
+Only ignore CPU_PM_ENTER when the suspend target is not s2idle.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ drivers/soc/samsung/exynos-pmu.c | 10 ++++++++++
+ 1 file changed, 10 insertions(+)
+
+diff --git a/drivers/soc/samsung/exynos-pmu.c b/drivers/soc/samsung/exynos-pmu.c
+index 1e7769db9..27e9ae20c 100644
+--- a/drivers/soc/samsung/exynos-pmu.c
++++ b/drivers/soc/samsung/exynos-pmu.c
+@@ -17,6 +17,7 @@
+ #include <linux/platform_device.h>
+ #include <linux/delay.h>
+ #include <linux/reboot.h>
++#include <linux/suspend.h>
+ #include <linux/regmap.h>
+ 
+ #include <linux/soc/samsung/exynos-regs-pmu.h>
+@@ -601,6 +602,15 @@ static int exynos_pmu_probe(struct platform_device *pdev)
+ 
+ static int exynos_cpupm_suspend_noirq(struct device *dev)
+ {
++	/*
++	 * In suspend-to-idle the CPUs keep entering their cpuidle states and
++	 * nothing else programs the PMU for them, so they still need the
++	 * per-CPU hint: without it the firmware refuses every power-down and
++	 * the idle loop spins on refused PSCI calls until wakeup.
++	 */
++	if (pm_suspend_target_state == PM_SUSPEND_TO_IDLE)
++		return 0;
++
+ 	raw_spin_lock(&pmu_context->cpupm_lock);
+ 	pmu_context->sys_insuspend = true;
+ 	raw_spin_unlock(&pmu_context->cpupm_lock);

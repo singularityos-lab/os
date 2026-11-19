@@ -1,0 +1,37 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Brett-Michael Green <brett@bmgvisualtech.com>
+Date: Sat, 31 Oct 2026 15:04:12 -0400
+Subject: [PATCH] arm64: dts: exynos: google: zuma: add DSIM0
+
+Describe zuma's DSIM0 with its link and D-PHY windows and its interrupt
+(SPI 252), from the Pixel 8 Pro's stock node, as Google's zuma tree has
+them. It is disabled: a board enables it with its panel.
+
+Assisted-by: LLM
+Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
+---
+ arch/arm64/boot/dts/exynos/google/zuma.dtsi | 11 +++++++++++
+ 1 file changed, 11 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/zuma.dtsi b/arch/arm64/boot/dts/exynos/google/zuma.dtsi
+index aa1618802..209e23b74 100644
+--- a/arch/arm64/boot/dts/exynos/google/zuma.dtsi
++++ b/arch/arm64/boot/dts/exynos/google/zuma.dtsi
+@@ -879,6 +879,17 @@ firmware-sram@0 {
+ 			};
+ 		};
+ 
++		dsi0: dsi@19440000 {
++			compatible = "google,zuma-dsim", "google,gs201-dsim";
++			reg = <0x19440000 0x300>, <0x19460100 0x700>,
++			      <0x19460000 0x100>;
++			reg-names = "dsi", "dphy", "dphy-extra";
++			interrupts = <GIC_SPI 252 IRQ_TYPE_LEVEL_HIGH>;
++			#address-cells = <1>;
++			#size-cells = <0>;
++			status = "disabled";
++		};
++
+ 		/* Scans out what the bootloader set up; no panel or clock control. */
+ 		decon0: display-controller@19470000 {
+ 			compatible = "google,zuma-decon";

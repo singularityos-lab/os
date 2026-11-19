@@ -1,0 +1,134 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Brett-Michael Green <brett@bmgvisualtech.com>
+Date: Sat, 31 Oct 2026 11:45:10 -0400
+Subject: [PATCH] wifi: brcmfmac: pcie: handle the BCM4398 like the BCM4389
+
+The BCM4398 follows the BCM4389 in Broadcom's driver: it is reset with
+an FLR, told the host is ready with the same value, and serviced with
+the same INTx follow-ups and ring polling. It also splits its
+backplane into save/restore power domains, with two more than the
+BCM4389: the scan MAC and the SAQM (si_srpwr_domain_all_mask()).
+
+Key those paths on a helper covering both chips, and request the
+BCM4398's six domains.
+
+Assisted-by: LLM
+Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
+---
+ .../broadcom/brcm80211/brcmfmac/pcie.c        | 49 ++++++++++++++-----
+ 1 file changed, 37 insertions(+), 12 deletions(-)
+
+diff --git a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/pcie.c b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/pcie.c
+index 6acd9c83b..d56650a34 100644
+--- a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/pcie.c
++++ b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/pcie.c
+@@ -172,6 +172,8 @@ static const struct brcmf_firmware_mapping brcmf_pcie_fwnames[] = {
+ #define BRCMF_PCIE_SRPWR_DMN1_ARMBP		BIT(1)
+ #define BRCMF_PCIE_SRPWR_DMN2_MACAUX		BIT(2)
+ #define BRCMF_PCIE_SRPWR_DMN3_MACMAIN		BIT(3)
++#define BRCMF_PCIE_SRPWR_DMN4_MACSCAN		BIT(4)
++#define BRCMF_PCIE_SRPWR_DMN6_SAQM		BIT(6)
+ #define BRCMF_PCIE_SRPWR_DMN_ALL		(BRCMF_PCIE_SRPWR_DMN0_PCIE | \
+ 						 BRCMF_PCIE_SRPWR_DMN1_ARMBP | \
+ 						 BRCMF_PCIE_SRPWR_DMN2_MACAUX | \
+@@ -848,22 +850,48 @@ brcmf_pcie_select_core(struct brcmf_pciedev_info *devinfo, u16 coreid)
+ 
+ 
+ /*
+- * Chips with several backplane power domains (the BCM4389 here) power the
++ * The BCM4389 and the BCM4398 after it are reset, told the host is ready and
++ * serviced the way Broadcom's driver does for its multi-backplane chips.
++ */
++static bool brcmf_pcie_is_4389_family(struct brcmf_pciedev_info *devinfo)
++{
++	return devinfo->pdev->device == BRCM_PCIE_4389_DEVICE_ID ||
++	       devinfo->pdev->device == BRCM_PCIE_4398_DEVICE_ID;
++}
++
++/*
++ * Chips with several backplane power domains (the BCM4389 and BCM4398) power the
+  * ARM/backplane and MAC domains down unless the host asks for them, and
+  * a chip reset drops the host's requests. Backplane accesses to a domain
+  * that is off fault, and read back as 0xffffffff.
+  */
++static u32 brcmf_pcie_srpwr_domains(struct brcmf_pciedev_info *devinfo)
++{
++	switch (devinfo->pdev->device) {
++	case BRCM_PCIE_4389_DEVICE_ID:
++		return BRCMF_PCIE_SRPWR_DMN_ALL;
++	case BRCM_PCIE_4398_DEVICE_ID:
++		/* and the scan MAC and SAQM domains (si_srpwr_domain_all_mask()) */
++		return BRCMF_PCIE_SRPWR_DMN_ALL | BRCMF_PCIE_SRPWR_DMN4_MACSCAN |
++		       BRCMF_PCIE_SRPWR_DMN6_SAQM;
++	default:
++		return 0;
++	}
++}
++
+ static bool brcmf_pcie_has_srpwr(struct brcmf_pciedev_info *devinfo)
+ {
+-	return devinfo->pdev->device == BRCM_PCIE_4389_DEVICE_ID;
++	return brcmf_pcie_srpwr_domains(devinfo);
+ }
+ 
+ static void brcmf_pcie_srpwr_request(struct brcmf_pciedev_info *devinfo)
+ {
+ 	u32 reg = BRCMF_PCIE_BARO_PCIE_ENUM_OFFSET +
+ 		  BRCMF_PCIE_PCIE2REG_POWERCTL;
+-	u32 req = BRCMF_PCIE_SRPWR_DMN_ALL << BRCMF_PCIE_SRPWR_REQON_SHIFT;
+-	u32 up = BRCMF_PCIE_SRPWR_DMN_ALL << BRCMF_PCIE_SRPWR_STATUS_SHIFT;
++	u32 req = brcmf_pcie_srpwr_domains(devinfo) <<
++		  BRCMF_PCIE_SRPWR_REQON_SHIFT;
++	u32 up = brcmf_pcie_srpwr_domains(devinfo) <<
++		 BRCMF_PCIE_SRPWR_STATUS_SHIFT;
+ 	u32 dar = BRCMF_PCIE_BARO_PCIE_ENUM_OFFSET +
+ 		  BRCMF_PCIE_64_PCIE2REG_DAR_POWERCTL;
+ 	u32 val;
+@@ -991,8 +1019,7 @@ static void brcmf_pcie_reset_device(struct brcmf_pciedev_info *devinfo)
+ 	 * second firmware download.
+ 	 */
+ 	brcmf_pcie_srpwr_request(devinfo);
+-	if (devinfo->pdev->device != BRCM_PCIE_4389_DEVICE_ID ||
+-	    brcmf_pcie_flr(devinfo)) {
++	if (!brcmf_pcie_is_4389_family(devinfo) || brcmf_pcie_flr(devinfo)) {
+ 		brcmf_pcie_select_core(devinfo, BCMA_CORE_CHIPCOMMON);
+ 		WRITECC32(devinfo, watchdog, 4);
+ 		msleep(100);
+@@ -1285,7 +1312,7 @@ static void brcmf_pcie_intr_enable(struct brcmf_pciedev_info *devinfo)
+ static bool
+ brcmf_pcie_early_hostready(struct brcmf_pciedev_info *devinfo)
+ {
+-	return devinfo->pdev->device == BRCM_PCIE_4389_DEVICE_ID ||
++	return brcmf_pcie_is_4389_family(devinfo) ||
+ 	       devinfo->shared.version == BRCMF_PCIE_SHARED_VERSION_9;
+ }
+ 
+@@ -1297,8 +1324,7 @@ static void brcmf_pcie_hostready(struct brcmf_pciedev_info *devinfo)
+ 		/* bcmdhd dhd_bus_hostready() writes this value */
+ 		brcmf_pcie_write_reg32(devinfo,
+ 				       devinfo->reginfo->h2d_mailbox_1,
+-				       devinfo->pdev->device ==
+-				       BRCM_PCIE_4389_DEVICE_ID ?
++				       brcmf_pcie_is_4389_family(devinfo) ?
+ 				       0x12345678 : 1);
+ 	}
+ }
+@@ -1404,7 +1430,7 @@ static irqreturn_t brcmf_pcie_isr_thread(int irq, void *arg)
+ 			 * (dhd_bus_handle_intx_ahead_dma_indices()).
+ 			 */
+ 			if (devinfo->dma_idx_sz &&
+-			    devinfo->pdev->device == BRCM_PCIE_4389_DEVICE_ID &&
++			    brcmf_pcie_is_4389_family(devinfo) &&
+ 			    devinfo->state == BRCMFMAC_PCIE_STATE_UP) {
+ 				usleep_range(500, 1000);
+ 				brcmf_pcie_rx_process(devinfo);
+@@ -2859,8 +2885,7 @@ static void brcmf_pcie_setup(struct device *dev, int ret,
+ 	ret = brcmf_pcie_request_irq(devinfo);
+ 	if (ret)
+ 		goto fail;
+-	devinfo->poll_enabled = devinfo->pdev->device ==
+-				BRCM_PCIE_4389_DEVICE_ID;
++	devinfo->poll_enabled = brcmf_pcie_is_4389_family(devinfo);
+ 
+ 	/* Notify early firmware before its deferred TX-buffer allocation. */
+ 	if (brcmf_pcie_early_hostready(devinfo))

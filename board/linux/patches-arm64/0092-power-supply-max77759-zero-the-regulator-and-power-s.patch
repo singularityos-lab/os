@@ -1,0 +1,34 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Mon, 12 Oct 2026 00:34:34 -0400
+Subject: [PATCH] power: supply: max77759: zero the regulator and power supply
+ configs
+
+max77759_charger_probe() fills in only some fields of its struct
+regulator_config and struct power_supply_config, both on the stack.
+The remaining fields (init_data, regmap, ena_gpiod, attr_grp,
+supplied_to, ...) are then whatever the stack held, unless the kernel
+happens to be built with CONFIG_INIT_STACK_ALL_ZERO.
+
+Zero-initialise both.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ drivers/power/supply/max77759_charger.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/power/supply/max77759_charger.c b/drivers/power/supply/max77759_charger.c
+index 689fc733f..5fb2bffa0 100644
+--- a/drivers/power/supply/max77759_charger.c
++++ b/drivers/power/supply/max77759_charger.c
+@@ -683,8 +683,8 @@ static void max_tcpci_unregister_psy_notifier(void *nb)
+ 
+ static int max77759_charger_probe(struct platform_device *pdev)
+ {
+-	struct regulator_config chgin_otg_reg_cfg;
+-	struct power_supply_config psy_cfg;
++	struct regulator_config chgin_otg_reg_cfg = { };
++	struct power_supply_config psy_cfg = { };
+ 	struct device *dev = &pdev->dev;
+ 	struct max77759_charger *chg;
+ 	int ret;

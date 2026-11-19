@@ -1,0 +1,97 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Sun, 11 Oct 2026 18:17:21 -0400
+Subject: [PATCH] scsi: ufs: exynos: add Google gs201 support
+
+Add support for the UFS host controller of the Google gs201 (Tensor G2)
+SoC. It is the gs101 controller, and the gs101 callbacks are reused,
+with two differences, both taken from Google's GPL-2.0 gs201 sources:
+
+ 1. Descriptor quirks. Google's gs201-ufs.dtsi sets
+    "fixed-prdt-req_list-ocs" ("UTRD bug fixed"); gs101-ufs.dtsi doesn't,
+    and that is the only difference between the two host nodes. The same
+    property is in the device tree the bootloader hands over on a Pixel
+    7 Pro. When it is present, Google's driver (ufs-exynos.c,
+    exynos_ufs_set_features()) clears UFSHCD_QUIRK_PRDT_BYTE_GRAN,
+    UFSHCI_QUIRK_BROKEN_REQ_LIST_CLR, UFSHCD_QUIRK_BROKEN_OCS_FATAL_ERROR
+    and UFSHCI_QUIRK_SKIP_RESET_INTR_AGGR. gs201 therefore uses the
+    gs101 quirks minus those four. Byte-granular UTRD offsets would make
+    the controller fetch the response UPIU and PRDT from the wrong
+    place.
+
+ 2. Reference clock. gs201 boards use a 38.4 MHz UFS reference clock
+    (gs201/ufs-cal.h: USE_UFS_REFCLK = USE_38_4_MHZ). For that clock,
+    init_cfg_evt{0,1}[] in gs201/ufs-cal-if.c program PCS attribute 0x202
+    to 0x2 inside the 0x200 = 0x40 window. gs101's tables have no such
+    row. gs201_ufs_pre_link() does that write, then runs the gs101
+    sequence.
+
+Everything else matches gs101. Google uses one SoC-independent host
+driver for both. The IO-coherency register is HSI2 sysreg 0x710 with mask
+0x3 (gs201-ufs.dtsi ufs-iocc). The bootloader-provided tree on a Pixel 7
+Pro shows the same values, and the stock kernel log reports a 177.664 MHz
+UniPro clock with two lanes at HS-G4 rate B.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ drivers/ufs/host/ufs-exynos.c | 33 +++++++++++++++++++++++++++++++++
+ 1 file changed, 33 insertions(+)
+
+diff --git a/drivers/ufs/host/ufs-exynos.c b/drivers/ufs/host/ufs-exynos.c
+index b2f65c465..033d6c419 100644
+--- a/drivers/ufs/host/ufs-exynos.c
++++ b/drivers/ufs/host/ufs-exynos.c
+@@ -2083,6 +2083,18 @@ static int gs101_ufs_post_link(struct exynos_ufs *ufs)
+ 	return 0;
+ }
+ 
++static int gs201_ufs_pre_link(struct exynos_ufs *ufs)
++{
++	struct ufs_hba *hba = ufs->hba;
++
++	/* Program the PCS for the 38.4 MHz reference clock used on gs201 */
++	ufshcd_dme_set(hba, UIC_ARG_MIB(0x200), 0x40);
++	ufshcd_dme_set(hba, UIC_ARG_MIB(0x202), 0x02);
++	ufshcd_dme_set(hba, UIC_ARG_MIB(0x200), 0x0);
++
++	return gs101_ufs_pre_link(ufs);
++}
++
+ static int gs101_ufs_pre_pwr_change(struct exynos_ufs *ufs,
+ 					 struct ufs_pa_layer_attr *pwr)
+ {
+@@ -2294,6 +2306,25 @@ static const struct exynos_ufs_drv_data gs101_ufs_drvs = {
+ 	.suspend		= gs101_ufs_suspend,
+ };
+ 
++/*
++ * gs201 fixed the PRDT, request list clear and OCS issues of gs101: its UTRD
++ * offsets and lengths follow the UFSHCI specification.
++ */
++static const struct exynos_ufs_drv_data gs201_ufs_drvs = {
++	.uic_attr		= &gs101_uic_attr,
++	.quirks			= UFSHCI_QUIRK_SKIP_MANUAL_WB_FLUSH_CTRL |
++				  UFSHCD_QUIRK_SKIP_DEF_UNIPRO_TIMEOUT_SETTING,
++	.opts			= EXYNOS_UFS_OPT_SKIP_CONFIG_PHY_ATTR |
++				  EXYNOS_UFS_OPT_UFSPR_SECURE |
++				  EXYNOS_UFS_OPT_TIMER_TICK_SELECT,
++	.iocc_mask		= UFS_GS101_SHARABLE,
++	.drv_init		= gs101_ufs_drv_init,
++	.pre_link		= gs201_ufs_pre_link,
++	.post_link		= gs101_ufs_post_link,
++	.pre_pwr_change		= gs101_ufs_pre_pwr_change,
++	.suspend		= gs101_ufs_suspend,
++};
++
+ static const struct exynos_ufs_drv_data exynosautov920_ufs_drvs = {
+ 	.uic_attr               = &exynos7_uic_attr,
+ 	.quirks                 = UFSHCD_QUIRK_SKIP_DEF_UNIPRO_TIMEOUT_SETTING,
+@@ -2312,6 +2343,8 @@ static const struct exynos_ufs_drv_data exynosautov920_ufs_drvs = {
+ static const struct of_device_id exynos_ufs_of_match[] = {
+ 	{ .compatible = "google,gs101-ufs",
+ 	  .data	      = &gs101_ufs_drvs },
++	{ .compatible = "google,gs201-ufs",
++	  .data	      = &gs201_ufs_drvs },
+ 	{ .compatible = "samsung,exynos7-ufs",
+ 	  .data	      = &exynos_ufs_drvs },
+ 	{ .compatible = "samsung,exynosautov9-ufs",

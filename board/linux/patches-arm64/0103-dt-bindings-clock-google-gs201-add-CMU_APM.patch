@@ -1,0 +1,81 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Sun, 11 Oct 2026 23:57:34 -0400
+Subject: [PATCH] dt-bindings: clock: google,gs201: add CMU_APM
+
+CMU_APM (0x18000000) clocks the always-on APM block, including the APM
+USI1 UART at 0x181b0000 that carries the Bluetooth HCI link on Pixel 7
+devices. It runs from OSCCLK and the PLL_ALV outputs, not from CMU_TOP.
+
+The APM firmware owns most of this CMU, so only the clock path of the
+USI1 UART is given identifiers: the PLL_ALV taps and PAD_CLK_APM feeding
+the FUNC/FUNCSRC muxes, the APM_FUNC gate, the USI1_UART divider and the
+UART's IPCLK, PCLK and reset-sync gates. Like CMU_TOP it takes only
+OSCCLK and has no sysreg.
+
+Offsets and parents are from Google's GPL gs201 CMUCAL tables.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ .../bindings/clock/google,gs201-clock.yaml         | 10 ++++++++--
+ include/dt-bindings/clock/google,gs201.h           | 14 ++++++++++++++
+ 2 files changed, 22 insertions(+), 2 deletions(-)
+
+diff --git a/Documentation/devicetree/bindings/clock/google,gs201-clock.yaml b/Documentation/devicetree/bindings/clock/google,gs201-clock.yaml
+index fdc34f536..a78c74611 100644
+--- a/Documentation/devicetree/bindings/clock/google,gs201-clock.yaml
++++ b/Documentation/devicetree/bindings/clock/google,gs201-clock.yaml
+@@ -17,7 +17,10 @@ description: |
+   clock in the dts.
+ 
+   CMU_TOP is the top-level CMU: it prepares the base clocks with PLLs and
+-  dividers. The other CMUs take their bus and IP clocks from CMU_TOP.
++  dividers. The other CMUs take their bus and IP clocks from CMU_TOP, except
++  CMU_APM, which is in the always-on (ALIVE) domain and runs from its own
++  PLL_ALV and OSCCLK. CMU_APM is shared with the APM (ACPM) firmware, so the
++  OS only describes the clocks of the peripherals it uses there.
+ 
+   Each clock is assigned an identifier and client nodes use this identifier
+   to name the clock they consume. The identifiers are defined as preprocessor
+@@ -27,6 +30,7 @@ properties:
+   compatible:
+     enum:
+       - google,gs201-cmu-top
++      - google,gs201-cmu-apm
+       - google,gs201-cmu-disp
+       - google,gs201-cmu-dpu
+       - google,gs201-cmu-hsi0
+@@ -69,7 +73,9 @@ allOf:
+       properties:
+         compatible:
+           contains:
+-            const: google,gs201-cmu-top
++            enum:
++              - google,gs201-cmu-apm
++              - google,gs201-cmu-top
+     then:
+       properties:
+         clocks:
+diff --git a/include/dt-bindings/clock/google,gs201.h b/include/dt-bindings/clock/google,gs201.h
+index ce2405fd8..88d0055eb 100644
+--- a/include/dt-bindings/clock/google,gs201.h
++++ b/include/dt-bindings/clock/google,gs201.h
+@@ -666,4 +666,18 @@
+ #define CLK_GOUT_DPU_SYSMMU_DPUD2_CLK_S2			33
+ #define CLK_GOUT_DPU_SYSREG_DPU_PCLK				34
+ 
++/* CMU_APM (read-only subset: the APM USI1 UART that carries Bluetooth) */
++#define CLK_APM_PLL_DIV2_APM					1
++#define CLK_APM_PLL_DIV4_APM					2
++#define CLK_APM_PLL_DIV8_APM					3
++#define CLK_APM_PLL_DIV16_APM					4
++#define CLK_APM_PAD_CLK_APM					5
++#define CLK_MOUT_APM_FUNC					6
++#define CLK_MOUT_APM_FUNCSRC					7
++#define CLK_GOUT_APM_FUNC					8
++#define CLK_DOUT_APM_USI1_UART					9
++#define CLK_GOUT_APM_APM_USI1_UART_IPCLK			10
++#define CLK_GOUT_APM_APM_USI1_UART_PCLK			11
++#define CLK_GOUT_APM_CLK_APM_USI1_UART_CLK			12
++
+ #endif /* _DT_BINDINGS_CLOCK_GOOGLE_GS201_H */

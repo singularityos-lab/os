@@ -1,0 +1,69 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: DarekM <149845949+aninmucek@users.noreply.github.com>
+Date: Wed, 11 Nov 2026 01:09:26 +0000
+Subject: [PATCH] arm64: dts: exynos: google: zuma-akita: Add the panel's
+ physical size
+
+Without a panel node, simpledrm estimates the display's size from its
+pixels at 96 dpi, so the compositor sees a 285x635 mm screen and the
+on-screen keyboard comes out a fraction of its height. Add a disabled
+panel node with width-mm and height-mm and point the framebuffer at it,
+as zuma-husky does.
+
+64x141 mm is the lit area, measured with a ruler on a Pixel 8a: what a
+6.1-inch 20:9 panel gives (63.6x141.3 mm), and the height Google's
+touch node names (goodix,panel-height-mm = <141>). Stock's own figure is
+larger than the glass: Google's panel-google-ak3b.c gives the ak3b
+70x149 mm, and the stock phone's DPI follows from it (dumpsys display:
+xDpi 391.885, yDpi 409.127 for 1080x2400), so stock sizes everything
+about 9 % small. The comment names both.
+
+Tested on a Pixel 8a from slot B (7.3.0-rc6): Hyprland reports the
+monitor as 64x141 mm (285x635 mm without the node), and the on-screen
+keyboard comes out at its normal height. An earlier boot with stock's
+70x149 mm also worked, with everything about 9 % smaller.
+
+Assisted-by: Claude Opus 5.5
+Signed-off-by: DarekM <149845949+aninmucek@users.noreply.github.com>
+---
+ .../boot/dts/exynos/google/zuma-akita.dts     | 20 +++++++++++++++++++
+ 1 file changed, 20 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/zuma-akita.dts b/arch/arm64/boot/dts/exynos/google/zuma-akita.dts
+index 77cd6a350..3714d9502 100644
+--- a/arch/arm64/boot/dts/exynos/google/zuma-akita.dts
++++ b/arch/arm64/boot/dts/exynos/google/zuma-akita.dts
+@@ -79,6 +79,7 @@ framebuffer0: framebuffer {
+ 			height = <2400>;
+ 			stride = <(1080 * 4)>;
+ 			format = "a8r8g8b8";
++			panel = <&panel0>;
+ 		};
+ 	};
+ 
+@@ -109,6 +110,25 @@ button-power {
+ 		};
+ 	};
+ 
++	/*
++	 * Without a panel node simpledrm estimates the display's physical
++	 * size from its pixels at 96 dpi: 285x635 mm instead of 64x141 mm,
++	 * which sizes everything that works in millimetres (the on-screen
++	 * keyboard) wrongly. simpledrm only reads width-mm and height-mm from
++	 * this node. It stays disabled so that fw_devlink does not make the
++	 * framebuffer wait for a driver this node will never have. 64x141 mm
++	 * is the lit area, measured with a ruler on a Pixel 8a, as for a
++	 * 6.1-inch 20:9 panel; Google's touch node has panel-height-mm = 141.
++	 * Stock's figure is larger than the glass: Google's panel-google-ak3b.c
++	 * gives the ak3b 70x149 mm, and the stock phone's DPI follows from it
++	 * (xDpi 391.885, yDpi 409.127 for 1080x2400).
++	 */
++	panel0: panel {
++		status = "disabled";
++		width-mm = <64>;
++		height-mm = <141>;
++	};
++
+ 	reserved-memory {
+ 		#address-cells = <2>;
+ 		#size-cells = <1>;

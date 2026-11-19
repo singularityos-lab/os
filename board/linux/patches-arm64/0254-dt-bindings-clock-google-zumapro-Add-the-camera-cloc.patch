@@ -1,0 +1,58 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Tue, 27 Oct 2026 08:56:35 -0647
+Subject: [PATCH] dt-bindings: clock: google,zumapro: Add the camera clocks
+
+CMU_TOP also makes the four camera sensor master clocks (CIS_CLK0 to
+CIS_CLK3) and the camera front end's NoC clock. Add each one's mux, gate
+and divider at the end of the TOP block, leaving the existing
+identifiers unchanged.
+
+Link: https://android.googlesource.com/kernel/google-modules/soc/gs/+/204078758737776959ecc85c527a00fd2cabb62f/drivers/soc/google/cal-if/zuma/cmucal-node.c
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ .../bindings/clock/google,zumapro-clock.yaml      |  4 +++-
+ include/dt-bindings/clock/google,zumapro.h        | 15 +++++++++++++++
+ 2 files changed, 18 insertions(+), 1 deletion(-)
+
+diff --git a/Documentation/devicetree/bindings/clock/google,zumapro-clock.yaml b/Documentation/devicetree/bindings/clock/google,zumapro-clock.yaml
+index 8d35f89f4..f71b12f3e 100644
+--- a/Documentation/devicetree/bindings/clock/google,zumapro-clock.yaml
++++ b/Documentation/devicetree/bindings/clock/google,zumapro-clock.yaml
+@@ -11,7 +11,9 @@ maintainers:
+ 
+ description: |
+   CMU_TOP supplies the NoC and UFS clock paths to CMU_HSI2 and the supply-GPIO
+-  path in CMU_PERIC0. CMU_TOP also provides the HSI0 parent rate paths.
++  path in CMU_PERIC0. CMU_TOP also provides the HSI0 parent rate paths, the
++  four camera sensor master clocks (CIS_CLK0-3) and the camera front end's
++  NoC clock.
+   CMU_MISC supplies the firmware-owned watchdog bus clock paths.
+   CMU_PERIC0 supplies its GPIO bank and USI2-USI6 (the cameras' and the
+   battery's I2C buses), the USIs from CMU_TOP's optional PERIC0 IP clock.
+diff --git a/include/dt-bindings/clock/google,zumapro.h b/include/dt-bindings/clock/google,zumapro.h
+index 658bf01f8..972d9c9f5 100644
+--- a/include/dt-bindings/clock/google,zumapro.h
++++ b/include/dt-bindings/clock/google,zumapro.h
+@@ -59,6 +59,21 @@
+ #define CLK_MOUT_PERIC0_IP		53
+ #define CLK_GOUT_PERIC0_IP		54
+ #define CLK_DOUT_PERIC0_IP		55
++#define CLK_MOUT_CIS_CLK0		56
++#define CLK_GOUT_CIS_CLK0		57
++#define CLK_DOUT_CIS_CLK0		58
++#define CLK_MOUT_CIS_CLK1		59
++#define CLK_GOUT_CIS_CLK1		60
++#define CLK_DOUT_CIS_CLK1		61
++#define CLK_MOUT_CIS_CLK2		62
++#define CLK_GOUT_CIS_CLK2		63
++#define CLK_DOUT_CIS_CLK2		64
++#define CLK_MOUT_CIS_CLK3		65
++#define CLK_GOUT_CIS_CLK3		66
++#define CLK_DOUT_CIS_CLK3		67
++#define CLK_MOUT_ISPFE_NOC		68
++#define CLK_GOUT_ISPFE_NOC		69
++#define CLK_DOUT_ISPFE_NOC		70
+ 
+ /* CMU_HSI0. */
+ #define CLK_FOUT_HSI0_USB		1

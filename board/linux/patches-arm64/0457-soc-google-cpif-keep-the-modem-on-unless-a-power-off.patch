@@ -1,0 +1,82 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Mon, 12 Oct 2026 20:08:48 -0400
+Subject: [PATCH] soc: google: cpif: keep the modem on unless a power-off is
+ allowed
+
+On gs201 here every modem power-off is followed by a recovered UFS
+error-handler pass, a disturbance of the root disk's link. Stock powers
+the modem off only at shutdown and for crash recovery, but cbd can also
+ask for it (IOCTL_POWER_OFF), for instance when it stops.
+
+Refuse that request unless the module parameter allow_poweroff is set;
+the modem then stays on until shutdown, which still powers it off as
+stock does, as does crash recovery. Add trace_lines=1 to log every edge
+on the modem's lines, for lining UFS events up with modem power changes.
+
+Assisted-by: LLM
+Signed-off-by: Derek Ross <derekross@gmail.com>
+---
+ drivers/soc/google/cpif/modem_ctrl_s5100.c | 16 ++++++++++++++++
+ drivers/soc/google/cpif/modem_utils.c      |  7 ++++++-
+ 2 files changed, 22 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/soc/google/cpif/modem_ctrl_s5100.c b/drivers/soc/google/cpif/modem_ctrl_s5100.c
+index 73d29e3b9..785578359 100644
+--- a/drivers/soc/google/cpif/modem_ctrl_s5100.c
++++ b/drivers/soc/google/cpif/modem_ctrl_s5100.c
+@@ -1036,6 +1036,16 @@ static int power_on_cp(struct modem_ctl *mc)
+ 	return 0;
+ }
+ 
++/*
++ * Every modem power-off is followed by a recovered UFS error on gs201 here
++ * (MODEM-PLAN.md M2.5), so the modem stays on once it is up: a power-off
++ * request from cbd (IOCTL_POWER_OFF) is refused unless allow_poweroff=1.
++ * Shutdown and crash recovery still power it off, as stock does.
++ */
++static bool allow_poweroff;
++module_param(allow_poweroff, bool, 0644);
++MODULE_PARM_DESC(allow_poweroff, "Let cbd power the modem off (default: off, the modem stays on until shutdown)");
++
+ static int power_off_cp(struct modem_ctl *mc)
+ {
+ 	mif_info("%s: +++\n", mc->name);
+@@ -1043,6 +1053,12 @@ static int power_off_cp(struct modem_ctl *mc)
+ 	if (mc->phone_state == STATE_OFFLINE)
+ 		goto exit;
+ 
++	if (!allow_poweroff) {
++		mif_err("%s: power off refused, the modem stays on (allow_poweroff=0)\n",
++			mc->name);
++		goto exit;
++	}
++
+ 	change_modem_state(mc, STATE_OFFLINE);
+ 
+ 	pcie_clean_dislink(mc);
+diff --git a/drivers/soc/google/cpif/modem_utils.c b/drivers/soc/google/cpif/modem_utils.c
+index 34da0d795..a67de6646 100644
+--- a/drivers/soc/google/cpif/modem_utils.c
++++ b/drivers/soc/google/cpif/modem_utils.c
+@@ -608,6 +608,10 @@ void mif_disable_irq(struct modem_irq *irq)
+ 	spin_unlock_irqrestore(&irq->lock, flags);
+ }
+ 
++static bool trace_lines;
++module_param(trace_lines, bool, 0644);
++MODULE_PARM_DESC(trace_lines, "Log every change of a modem line, with its time (default: off)");
++
+ bool mif_gpio_set_value(struct cpif_gpio *gpio, int value, unsigned int delay_ms)
+ {
+ 	int dup = 0;
+@@ -623,7 +627,8 @@ bool mif_gpio_set_value(struct cpif_gpio *gpio, int value, unsigned int delay_ms
+ 	/* set gpio even if it is set already */
+ 	gpiod_set_raw_value(gpio->desc, value);
+ 
+-	if (!strcmp(gpio->label, "AP2CP_PM_WRST_N") || !strcmp(gpio->label, "AP2CP_CP_WRST_N"))
++	if (trace_lines || !strcmp(gpio->label, "AP2CP_PM_WRST_N") ||
++	    !strcmp(gpio->label, "AP2CP_CP_WRST_N"))
+ 		mif_info("SET GPIO %s = %d (wait %dms, dup %d)\n", gpio->label, value, delay_ms, dup);
+ 
+ 	if (delay_ms > 0 && !dup)

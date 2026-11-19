@@ -1,0 +1,137 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Brett-Michael Green <brett@bmgvisualtech.com>
+Date: Sat, 31 Oct 2026 08:15:31 -0400
+Subject: [PATCH] arm64: dts: exynos: google: zuma-husky: enable the BCM4398
+ Wi-Fi
+
+The Pixel 8 Pro's BCM4398 sits on pcie_1. As stock's wlan node gives
+them: WL_REG_ON on gph3-4 (as the root port's supply, so the PCI
+pwrctrl core switches it around link training, with bcmdhd's 200 ms),
+device wake on gph3-5 and host wake on gpa5-1. Its DMA buffers come from
+a restricted pool below 4 GiB, as on the Pixel 7 Pro.
+
+Assisted-by: LLM
+Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
+---
+ .../boot/dts/exynos/google/zuma-husky.dts     | 94 +++++++++++++++++++
+ 1 file changed, 94 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/zuma-husky.dts b/arch/arm64/boot/dts/exynos/google/zuma-husky.dts
+index 6ed1514cb..b822ba307 100644
+--- a/arch/arm64/boot/dts/exynos/google/zuma-husky.dts
++++ b/arch/arm64/boot/dts/exynos/google/zuma-husky.dts
+@@ -65,6 +65,24 @@ panel0: panel {
+ 		height-mm = <155>;
+ 	};
+ 
++	/*
++	 * WL_REG_ON of the BCM4398 (gph3-4, stock's wl_reg_on). Modelled as
++	 * the root port's supply so the PCI pwrctrl core switches it around
++	 * link training; bcmdhd waits 200 ms after raising it. With pcie_1
++	 * disabled nothing enables it, so the chip stays off.
++	 */
++	wlan_pwr: regulator-wlan {
++		compatible = "regulator-fixed";
++		regulator-name = "wlan-reg-on";
++		regulator-min-microvolt = <3300000>;
++		regulator-max-microvolt = <3300000>;
++		gpio = <&gph3 4 GPIO_ACTIVE_HIGH>;
++		enable-active-high;
++		startup-delay-us = <200000>;
++		pinctrl-0 = <&wlan_reg_on>;
++		pinctrl-names = "default";
++	};
++
+ 	chosen {
+ 		/*
+ 		 * ABL requires bootargs to exist; it appends its own after these.
+@@ -149,6 +167,19 @@ cont_splash_mem: splash@fac00000 {
+ 			reg = <0x0 0xfac00000 (1344 * 2992 * 4)>;
+ 			no-map;
+ 		};
++
++		/*
++		 * All of the Wi-Fi chip's DMA buffers come from this pool, below
++		 * 4 GiB, as on the Pixel 7 Pro: it keeps driver bugs and stray
++		 * pointers away from the rest of RAM. It does not confine the
++		 * chip's own firmware.
++		 */
++		wifi_dma_pool: wifi-dma-pool {
++			compatible = "restricted-dma-pool";
++			size = <0x1000000>;
++			alignment = <0x0 0x200000>;
++			alloc-ranges = <0x0 0x80000000 0x80000000>;
++		};
+ 	};
+ };
+ 
+@@ -176,6 +207,69 @@ touch_vdd: ldo25m {
+ 	};
+ };
+ 
++/*
++ * Wi-Fi: the BCM4398 on pcie_1, one Gen3 lane as on stock. Its DMA
++ * buffers come from wifi_dma_pool.
++ */
++&pcie_1 {
++	pinctrl-0 = <&pcie1_clkreq>, <&pcie1_perst>, <&wlan_dev_wake>,
++		    <&wlan_host_wake>;
++	status = "okay";
++
++	pcie@0,0 {
++		compatible = "pciclass,0604";
++		device_type = "pci";
++		reg = <0x0 0x0 0x0 0x0 0x0>;
++		bus-range = <0x01 0xff>;
++		#address-cells = <3>;
++		#size-cells = <2>;
++		ranges;
++		vpcie3v3-supply = <&wlan_pwr>;
++
++		wifi@0,0 {
++			compatible = "pci14e4,4444";
++			reg = <0x10000 0x0 0x0 0x0 0x0>;
++			brcm,board-type = "google,zuma-husky";
++			memory-region = <&wifi_dma_pool>;
++		};
++	};
++};
++
++&pcie_1_phy {
++	status = "okay";
++};
++
++&pinctrl_far_alive {
++	wlan_host_wake: wlan-host-wake-pins {
++		samsung,pins = "gpa5-1";
++		samsung,pin-function = <GS101_PIN_FUNC_EINT>;
++		samsung,pin-pud = <GS101_PIN_PULL_DOWN>;
++		samsung,pin-drv = <GS101_PIN_DRV_2_5_MA>;
++		samsung,pin-con-pdn = <GS101_PIN_PDN_PREV>;
++		samsung,pin-pud-pdn = <GS101_PIN_PULL_DOWN>;
++	};
++};
++
++&pinctrl_hsi2 {
++	wlan_reg_on: wlan-reg-on-pins {
++		samsung,pins = "gph3-4";
++		samsung,pin-function = <GS101_PIN_FUNC_OUTPUT>;
++		samsung,pin-pud = <GS101_PIN_PULL_NONE>;
++		samsung,pin-drv = <GS101_PIN_DRV_2_5_MA>;
++		samsung,pin-con-pdn = <GS101_PIN_PDN_PREV>;
++		samsung,pin-pud-pdn = <GS101_PIN_PULL_NONE>;
++	};
++
++	wlan_dev_wake: wlan-dev-wake-pins {
++		samsung,pins = "gph3-5";
++		samsung,pin-function = <GS101_PIN_FUNC_INPUT>;
++		samsung,pin-pud = <GS101_PIN_PULL_DOWN>;
++		samsung,pin-drv = <GS101_PIN_DRV_2_5_MA>;
++		samsung,pin-con-pdn = <GS101_PIN_PDN_PREV>;
++		samsung,pin-pud-pdn = <GS101_PIN_PULL_DOWN>;
++	};
++};
++
+ &spi20 {
+ 	status = "okay";
+ 

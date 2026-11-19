@@ -1,0 +1,171 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Sat, 31 Oct 2026 11:19:21 -0643
+Subject: [PATCH] dt-bindings: soc: google: gs201-aoc: Add Tensor G4 (zumapro)
+
+The Pixel 9a's AoC (Tensor G4, zumapro) runs the same firmware protocol
+as gs201's, but its authenticated firmware owns the AoC's memory
+protection: Linux writes neither the AoC's S2MPU nor its System MMU, so
+a zumapro node has only the power request and chip id ranges and no
+google,sysmmu. It also names its signed image (firmware-name, one per
+board), and takes the two sensor rails as supplies in their power
+order, where gs201 nodes list regulator names.
+
+Add google,gnss-type for the board's GNSS receiver, which the firmware
+takes as a boot parameter (2 on the 9a, as in Google's GPL
+zumapro-phone-ignss.dtsi), and clocks, the ACPM DVFS domains read
+before each start: on the 9a the firmware faulted at every start until
+the AP had asked ACPM for the DVFS rates first.
+
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ .../bindings/soc/google/google,gs201-aoc.yaml | 108 ++++++++++++++----
+ 1 file changed, 87 insertions(+), 21 deletions(-)
+
+diff --git a/Documentation/devicetree/bindings/soc/google/google,gs201-aoc.yaml b/Documentation/devicetree/bindings/soc/google/google,gs201-aoc.yaml
+index f6b78d041..c51328c19 100644
+--- a/Documentation/devicetree/bindings/soc/google/google,gs201-aoc.yaml
++++ b/Documentation/devicetree/bindings/soc/google/google,gs201-aoc.yaml
+@@ -4,38 +4,48 @@
+ $id: http://devicetree.org/schemas/soc/google/google,gs201-aoc.yaml#
+ $schema: http://devicetree.org/meta-schemas/core.yaml#
+ 
+-title: Google gs201 AoC (Always-on Compute)
++title: Google Tensor AoC (Always-on Compute)
+ 
+ maintainers:
+   - Derek Ross <derekross@gmail.com>
+ 
+ description:
+-  The AoC is the audio and sensor DSP of gs201. The AP loads its firmware
+-  into a reserved carve-out, the GSA authenticates and starts it, and the
+-  AoC reaches memory through its own System MMU.
++  The AoC is the audio and sensor DSP of Tensor SoCs. The AP loads its
++  firmware into a reserved carve-out and the GSA authenticates and starts
++  it. On gs201 the AoC reaches memory through its own System MMU, which
++  Linux sets up. On zumapro (Tensor G4) the authenticated firmware owns
++  the AoC's memory protection, so Linux touches neither its S2MPU nor its
++  System MMU.
+ 
+ properties:
+   compatible:
+-    const: google,gs201-aoc
++    enum:
++      - google,gs201-aoc
++      - google,zumapro-aoc
+ 
+   reg:
+-    minItems: 3
+-    items:
+-      - description: the AoC power request register (aoc_req) and its
+-          acknowledge at +0x40
+-      - description: the AoC's stage-2 MPU
+-      - description: the chip id block, read for the firmware's boot
+-          parameters
+-      - description: the AoC power control unit (A32 reset control and
+-          revision), in the AoC block
++    minItems: 2
++    maxItems: 4
+ 
+   reg-names:
+-    minItems: 3
+-    items:
+-      - const: aoc_req
+-      - const: s2mpu
+-      - const: chipid
+-      - const: pcu
++    minItems: 2
++    maxItems: 4
++
++  clocks:
++    description: the ACPM DVFS domains whose rates are read before each
++      firmware start
++    minItems: 1
++    maxItems: 17
++
++  firmware-name:
++    maxItems: 1
++    description: the signed AoC firmware image
++
++  sensor-1v8-supply:
++    description: the sensors' 1.8 V, turned on before the 3.3 V
++
++  sensor-3v3-supply:
++    description: the sensors' 3.3 V, turned off before the 1.8 V
+ 
+   interrupts:
+     maxItems: 1
+@@ -69,16 +79,72 @@ properties:
+     $ref: /schemas/types.yaml#/definitions/uint32
+     description: board revision passed to the firmware
+ 
++  google,gnss-type:
++    $ref: /schemas/types.yaml#/definitions/uint32
++    description: the board's GNSS receiver, passed to the firmware
++      (kAOCGnssType)
++
+ required:
+   - compatible
+   - reg
+   - reg-names
+   - memory-region
+   - google,gsa
+-  - google,sysmmu
+   - google,board-id
+   - google,board-rev
+ 
++allOf:
++  - if:
++      properties:
++        compatible:
++          const: google,zumapro-aoc
++    then:
++      properties:
++        reg:
++          items:
++            - description: the AoC power request register (aoc_req) and its
++                acknowledge at +0x40
++            - description: the chip id block, read for the firmware's boot
++                parameters
++        reg-names:
++          items:
++            - const: aoc_req
++            - const: chipid
++        mboxes:
++          minItems: 48
++        google,sysmmu: false
++      required:
++        - firmware-name
++        - interrupts
++        - interrupt-names
++        - mboxes
++        - sensor-1v8-supply
++        - sensor-3v3-supply
++    else:
++      properties:
++        reg:
++          minItems: 3
++          items:
++            - description: the AoC power request register (aoc_req) and its
++                acknowledge at +0x40
++            - description: the AoC's stage-2 MPU
++            - description: the chip id block, read for the firmware's boot
++                parameters
++            - description: the AoC power control unit (A32 reset control and
++                revision), in the AoC block
++        reg-names:
++          minItems: 3
++          items:
++            - const: aoc_req
++            - const: s2mpu
++            - const: chipid
++            - const: pcu
++        clocks: false
++        sensor-1v8-supply: false
++        sensor-3v3-supply: false
++      required:
++        - google,sysmmu
++
+ additionalProperties: false
+ 
+ examples:

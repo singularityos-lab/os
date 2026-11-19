@@ -1,0 +1,145 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Brett-Michael Green <brett@bmgvisualtech.com>
+Date: Sat, 31 Oct 2026 11:45:09 -0400
+Subject: [PATCH] wifi: brcmfmac: msgbuf: give control buffers the lowest
+ packet IDs
+
+Broadcom's driver numbers the ioctl response and event buffers in a map
+of their own, of 1024 IDs (dhd_msgbuf.c pktid_ctrl_map), and the
+BCM4398's firmware checks them against that: with data, ioctl response
+and event buffers sharing one pool, the first event buffer posted after
+1023 data buffers got ID 1025 and the firmware trapped
+("pciedev_host_pktid_audit(pktid_type=0): Invalid pktid<1025>").
+
+Reserve IDs 1 to 2 * (ioctl response + event buffers) for the control
+buffers (each is reposted before it is freed), and keep the data
+buffers above them.
+
+Assisted-by: LLM
+Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
+---
+ .../broadcom/brcm80211/brcmfmac/msgbuf.c      | 45 ++++++++++++-------
+ 1 file changed, 30 insertions(+), 15 deletions(-)
+
+diff --git a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/msgbuf.c b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/msgbuf.c
+index a3031ae04..a9523aa52 100644
+--- a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/msgbuf.c
++++ b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/msgbuf.c
+@@ -317,6 +317,8 @@ struct brcmf_msgbuf_pktid {
+ struct brcmf_msgbuf_pktids {
+ 	u32 array_size;
+ 	u32 last_allocated_idx;
++	/* IDs 1 to nr_ctrl: the ioctl response and event buffers only */
++	u32 nr_ctrl;
+ 	enum dma_data_direction direction;
+ 	struct brcmf_msgbuf_pktid *array;
+ };
+@@ -361,10 +363,10 @@ static int
+ brcmf_msgbuf_alloc_pktid(struct device *dev,
+ 			 struct brcmf_msgbuf_pktids *pktids,
+ 			 struct sk_buff *skb, u16 data_offset,
+-			 dma_addr_t *physaddr, u32 *idx)
++			 dma_addr_t *physaddr, u32 *idx, bool ctrl)
+ {
+ 	struct brcmf_msgbuf_pktid *array;
+-	u32 count;
++	u32 first, end, count;
+ 
+ 	array = pktids->array;
+ 
+@@ -376,21 +378,30 @@ brcmf_msgbuf_alloc_pktid(struct device *dev,
+ 		return -ENOMEM;
+ 	}
+ 
+-	*idx = pktids->last_allocated_idx;
++	/*
++	 * Packet ID 0 means "no packet" to the firmware: never hand it out.
++	 * Control buffers get the lowest IDs: Broadcom's driver numbers them
++	 * in a map of their own (1024 IDs), and a firmware that checks them
++	 * against that traps on a larger one ("Invalid pktid").
++	 */
++	first = ctrl ? 1 : pktids->nr_ctrl + 1;
++	end = ctrl ? pktids->nr_ctrl + 1 : pktids->array_size;
++	*idx = ctrl ? end - 1 : pktids->last_allocated_idx;
++	if (*idx < first || *idx >= end)
++		*idx = end - 1;
+ 
+-	/* Packet ID 0 means "no packet" to the firmware: never hand it out. */
+-	count = 1;
++	count = 0;
+ 	do {
+ 		(*idx)++;
+-		if (*idx == pktids->array_size)
+-			*idx = 1;
++		if (*idx >= end)
++			*idx = first;
+ 		if (array[*idx].allocated.counter == 0)
+ 			if (atomic_cmpxchg(&array[*idx].allocated, 0, 1) == 0)
+ 				break;
+ 		count++;
+-	} while (count < pktids->array_size);
++	} while (count < end - first);
+ 
+-	if (count == pktids->array_size) {
++	if (count == end - first) {
+ 		dma_unmap_single(dev, *physaddr, skb->len - data_offset,
+ 				 pktids->direction);
+ 		return -ENOMEM;
+@@ -400,7 +411,8 @@ brcmf_msgbuf_alloc_pktid(struct device *dev,
+ 	array[*idx].physaddr = *physaddr;
+ 	array[*idx].skb = skb;
+ 
+-	pktids->last_allocated_idx = *idx;
++	if (!ctrl)
++		pktids->last_allocated_idx = *idx;
+ 
+ 	return 0;
+ }
+@@ -856,7 +868,7 @@ static void brcmf_msgbuf_txflow(struct brcmf_msgbuf *msgbuf, u16 flowid)
+ 		if (brcmf_msgbuf_alloc_pktid(msgbuf->drvr->bus_if->dev,
+ 					     msgbuf->tx_pktids, skb,
+ 					     sfh ? 0 : ETH_HLEN,
+-					     &physaddr, &pktid)) {
++					     &physaddr, &pktid, false)) {
+ 			if (sfh)
+ 				brcmf_msgbuf_sfh_llc_remove(skb);
+ 			brcmf_flowring_reinsert(flow, flowid, skb);
+@@ -1093,7 +1105,7 @@ static u32 brcmf_msgbuf_rxbuf_data_post(struct brcmf_msgbuf *msgbuf, u32 count)
+ 		pktlen = skb->len;
+ 		if (brcmf_msgbuf_alloc_pktid(msgbuf->drvr->bus_if->dev,
+ 					     msgbuf->rx_pktids, skb, 0,
+-					     &physaddr, &pktid)) {
++					     &physaddr, &pktid, false)) {
+ 			dev_kfree_skb_any(skb);
+ 			bphy_err(drvr, "No PKTID available !!\n");
+ 			brcmf_commonring_write_cancel(commonring, alloced - i);
+@@ -1205,7 +1217,7 @@ brcmf_msgbuf_rxbuf_ctrl_post(struct brcmf_msgbuf *msgbuf, bool event_buf,
+ 		pktlen = skb->len;
+ 		if (brcmf_msgbuf_alloc_pktid(msgbuf->drvr->bus_if->dev,
+ 					     msgbuf->rx_pktids, skb, 0,
+-					     &physaddr, &pktid)) {
++					     &physaddr, &pktid, true)) {
+ 			dev_kfree_skb_any(skb);
+ 			bphy_err(drvr, "No PKTID available !!\n");
+ 			brcmf_commonring_write_cancel(commonring, alloced - i);
+@@ -1822,8 +1834,8 @@ int brcmf_proto_msgbuf_attach(struct brcmf_pub *drvr)
+ 	 */
+ 	msgbuf->max_rxbufpost = min_t(u32, if_msgbuf->max_rxbufpost,
+ 				      NR_RX_PKTIDS - 1 -
+-				      msgbuf->max_ioctlrespbuf -
+-				      msgbuf->max_eventbuf);
++				      2 * (msgbuf->max_ioctlrespbuf +
++					   msgbuf->max_eventbuf));
+ 
+ 	msgbuf->tx_pktids = brcmf_msgbuf_init_pktids(NR_TX_PKTIDS,
+ 						     DMA_TO_DEVICE);
+@@ -1833,6 +1845,9 @@ int brcmf_proto_msgbuf_attach(struct brcmf_pub *drvr)
+ 						     DMA_BIDIRECTIONAL);
+ 	if (!msgbuf->rx_pktids)
+ 		goto fail;
++	/* Twice the control buffers: each is reposted before it is freed */
++	msgbuf->rx_pktids->nr_ctrl = 2 * (msgbuf->max_ioctlrespbuf +
++					  msgbuf->max_eventbuf);
+ 
+ 	msgbuf->flow = brcmf_flowring_attach(drvr->bus_if->dev,
+ 					     if_msgbuf->max_flowrings);

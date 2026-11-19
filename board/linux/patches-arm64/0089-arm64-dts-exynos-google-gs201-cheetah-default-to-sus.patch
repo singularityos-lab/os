@@ -1,0 +1,39 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Wed, 14 Oct 2026 21:05:17 -0400
+Subject: [PATCH] arm64: dts: exynos: google: gs201-cheetah: default to
+ suspend-to-idle
+
+The firmware implements PSCI SYSTEM_SUSPEND, so "mem" defaults to
+"deep", which calls it directly. On gs201 the firmware expects the
+kernel to program the PMU first (sleep hint, wake-up masks, the CMU save
+and pad retention release on exit), which mainline doesn't do yet, so a
+plain "mem" suspend is not expected to come back.
+
+Make s2idle the default until it does.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts | 9 +++++++--
+ 1 file changed, 7 insertions(+), 2 deletions(-)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts b/arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts
+index 643c2c8a1..50737a8d8 100644
+--- a/arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts
++++ b/arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts
+@@ -26,8 +26,13 @@ aliases {
+ 	};
+ 
+ 	chosen {
+-		/* ABL requires bootargs to exist; it appends its own after these. */
+-		bootargs = "console=tty0 fbcon=font:TER16x32 quiet splash plymouth.force-scale=1 vt.global_cursor_default=0 panic=10 clk_ignore_unused pd_ignore_unused rdinit=/init omamobile.ufs-probe";
++		/*
++		 * ABL requires bootargs to exist; it appends its own after these.
++		 * mem_sleep_default=s2idle: the firmware offers PSCI system
++		 * suspend, so "mem" would otherwise mean "deep", which needs a
++		 * PMU sleep sequence the kernel doesn't have yet.
++		 */
++		bootargs = "console=tty0 fbcon=font:TER16x32 quiet splash plymouth.force-scale=1 vt.global_cursor_default=0 panic=10 clk_ignore_unused pd_ignore_unused rdinit=/init omamobile.ufs-probe mem_sleep_default=s2idle";
+ 		#address-cells = <2>;
+ 		#size-cells = <1>;
+ 		ranges;

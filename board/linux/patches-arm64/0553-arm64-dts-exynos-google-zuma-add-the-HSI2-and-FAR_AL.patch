@@ -1,0 +1,122 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Brett-Michael Green <brett@bmgvisualtech.com>
+Date: Sat, 31 Oct 2026 08:09:49 -0400
+Subject: [PATCH] arm64: dts: exynos: google: zuma: add the HSI2 and FAR_ALIVE
+ pin controllers
+
+Add HSI2's pin controller at 0x13040000 (gph3 and gph4, SPI 432) and
+FAR_ALIVE at 0x154e0000 (gpa5, one wake-up interrupt per pin, SPI 60 to
+67), with the banks and interrupts of stock's live device tree, as
+controllers 9 and 2 of the driver's zuma data. FAR_ALIVE's bus clock
+comes from CMU_APM; HSI2 takes the bus-clock stand-in, as HSI2UFS does.
+
+The Wi-Fi chip's PCIe reset, clock request, enable and wake lines are
+on gph3, and its host wake on gpa5.
+
+Assisted-by: LLM
+Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
+---
+ .../boot/dts/exynos/google/zuma-pinctrl.dtsi  | 34 +++++++++++++++++++
+ arch/arm64/boot/dts/exynos/google/zuma.dtsi   | 22 ++++++++++++
+ 2 files changed, 56 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/zuma-pinctrl.dtsi b/arch/arm64/boot/dts/exynos/google/zuma-pinctrl.dtsi
+index 74b690563..4c54b4f27 100644
+--- a/arch/arm64/boot/dts/exynos/google/zuma-pinctrl.dtsi
++++ b/arch/arm64/boot/dts/exynos/google/zuma-pinctrl.dtsi
+@@ -319,6 +319,24 @@ ts_irq: ts-irq-pins {
+ 	};
+ };
+ 
++&pinctrl_far_alive {
++	gpa5: gpa5-gpio-bank {
++		gpio-controller;
++		#gpio-cells = <2>;
++		interrupt-controller;
++		#interrupt-cells = <2>;
++		interrupt-parent = <&gic>;
++		interrupts = <GIC_SPI 60 IRQ_TYPE_LEVEL_HIGH>,
++			     <GIC_SPI 61 IRQ_TYPE_LEVEL_HIGH>,
++			     <GIC_SPI 62 IRQ_TYPE_LEVEL_HIGH>,
++			     <GIC_SPI 63 IRQ_TYPE_LEVEL_HIGH>,
++			     <GIC_SPI 64 IRQ_TYPE_LEVEL_HIGH>,
++			     <GIC_SPI 65 IRQ_TYPE_LEVEL_HIGH>,
++			     <GIC_SPI 66 IRQ_TYPE_LEVEL_HIGH>,
++			     <GIC_SPI 67 IRQ_TYPE_LEVEL_HIGH>;
++	};
++};
++
+ &pinctrl_peric0 {
+ 	gpp0: gpp0-gpio-bank {
+ 		gpio-controller;
+@@ -585,6 +603,22 @@ hsi2c11_bus: hsi2c11-bus-pins {
+ 	};
+ };
+ 
++&pinctrl_hsi2 {
++	gph3: gph3-gpio-bank {
++		gpio-controller;
++		#gpio-cells = <2>;
++		interrupt-controller;
++		#interrupt-cells = <2>;
++	};
++
++	gph4: gph4-gpio-bank {
++		gpio-controller;
++		#gpio-cells = <2>;
++		interrupt-controller;
++		#interrupt-cells = <2>;
++	};
++};
++
+ &pinctrl_hsi2ufs {
+ 	gph5: gph5-gpio-bank {
+ 		gpio-controller;
+diff --git a/arch/arm64/boot/dts/exynos/google/zuma.dtsi b/arch/arm64/boot/dts/exynos/google/zuma.dtsi
+index 21c184ae8..fcf546592 100644
+--- a/arch/arm64/boot/dts/exynos/google/zuma.dtsi
++++ b/arch/arm64/boot/dts/exynos/google/zuma.dtsi
+@@ -26,7 +26,9 @@ / {
+ 	aliases {
+ 		pinctrl0 = &pinctrl_gpio_alive;
+ 		pinctrl1 = &pinctrl_custom_alive;
++		pinctrl2 = &pinctrl_far_alive;
+ 		pinctrl8 = &pinctrl_hsi1;
++		pinctrl9 = &pinctrl_hsi2;
+ 		pinctrl10 = &pinctrl_hsi2ufs;
+ 		pinctrl11 = &pinctrl_peric0;
+ 		pinctrl12 = &pinctrl_peric1;
+@@ -620,6 +622,14 @@ sysreg_ufs: syscon@13020000 {
+ 			reg = <0x13020000 0x1000>;
+ 		};
+ 
++		pinctrl_hsi2: pinctrl@13040000 {
++			compatible = "google,zuma-pinctrl";
++			reg = <0x13040000 0x1000>;
++			clocks = <&clk_gpio_stub>;
++			clock-names = "pclk";
++			interrupts = <GIC_SPI 432 IRQ_TYPE_LEVEL_HIGH>;
++		};
++
+ 		pinctrl_hsi2ufs: pinctrl@13060000 {
+ 			compatible = "google,zuma-pinctrl";
+ 			reg = <0x13060000 0x1000>;
+@@ -757,6 +767,18 @@ wakeup-interrupt-controller {
+ 			};
+ 		};
+ 
++		pinctrl_far_alive: pinctrl@154e0000 {
++			compatible = "google,zuma-pinctrl";
++			reg = <0x154e0000 0x1000>;
++			clocks = <&cmu_apm CLK_GOUT_APM_GPIO_FAR_ALIVE>;
++			clock-names = "pclk";
++
++			wakeup-interrupt-controller {
++				compatible = "google,zuma-wakeup-eint",
++					     "google,zumapro-wakeup-eint";
++			};
++		};
++
+ 		apm_sram: sram@15700000 {
+ 			compatible = "mmio-sram";
+ 			reg = <0x15700000 0x58000>;

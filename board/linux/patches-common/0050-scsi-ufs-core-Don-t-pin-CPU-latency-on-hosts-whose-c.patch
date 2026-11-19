@@ -1,0 +1,51 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Tue, 27 Oct 2026 03:48:40 -0647
+Subject: [PATCH] scsi: ufs: core: Don't pin CPU latency on hosts whose clocks
+ stay on
+
+ufshcd_setup_clocks() sets the host's CPU latency request to 0 whenever
+it turns the clocks on, on hosts without clock scaling, and back to the
+default when they turn off. On a host that has neither clock scaling,
+clock gating nor runtime autosuspend, the clocks are turned on once at
+probe and stay on until system suspend, so the request holds every CPU
+in its shallowest idle state for as long as the system runs.
+
+That is the Tensor G4 (zumapro) host today: on a Pixel 9a,
+/dev/cpu_dma_latency read 0 and the CPUs' psci sleep states got 0 % of
+idle time. With the request off (pm_qos_enable = 0) they got 75 %, over
+45 s of idle with the desktop up. Storage stayed clean: 4.5 GB read and
+300 MB written at 302 MB/s with no UFS errors. A cold read of /usr/lib
+(many small files) took 2-17 % longer without the request, which is the
+cost of waking from the deeper state on completion.
+
+Only add the request on hosts that can turn their clocks off. Others
+start without it, and pm_qos_enable can still turn it on.
+
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ drivers/ufs/core/ufshcd.c | 11 ++++++++++-
+ 1 file changed, 10 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/ufs/core/ufshcd.c b/drivers/ufs/core/ufshcd.c
+index dfbcf036d..03967003a 100644
+--- a/drivers/ufs/core/ufshcd.c
++++ b/drivers/ufs/core/ufshcd.c
+@@ -11403,7 +11403,16 @@ int ufshcd_init(struct ufs_hba *hba, void __iomem *mmio_base, unsigned int irq)
+ 	async_schedule(ufshcd_async_scan, hba);
+ 
+ 	device_enable_async_suspend(dev);
+-	ufshcd_pm_qos_init(hba);
++	/*
++	 * The request is 0 whenever the host clocks are on. A host that
++	 * neither scales nor gates its clocks, nor runtime suspends, keeps
++	 * them on from here to system suspend, so the request would hold
++	 * every CPU in its shallowest idle state all that time. Leave it off
++	 * there; pm_qos_enable can still turn it on.
++	 */
++	if (ufshcd_is_clkscaling_supported(hba) || ufshcd_is_clkgating_allowed(hba) ||
++	    ufshcd_is_rpm_autosuspend_allowed(hba))
++		ufshcd_pm_qos_init(hba);
+ 	return 0;
+ 
+ out_release:

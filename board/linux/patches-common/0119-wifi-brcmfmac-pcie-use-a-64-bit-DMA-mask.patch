@@ -1,0 +1,63 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Mon, 12 Oct 2026 01:26:47 -0400
+Subject: [PATCH] wifi: brcmfmac: pcie: use a 64-bit DMA mask
+
+brcmfmac never sets a DMA mask, so the PCI default of 32 bits applies,
+although every ring and buffer descriptor it hands the dongle carries a
+64-bit host address (msgbuf_buf_addr high_addr/low_addr). Google's
+driver for the same chips sets a 64-bit mask (bcmdhd dhd_pcie_linux.c
+dhdpcie_pci_probe(), DMA_BIT_MASK(64)).
+
+With a restricted DMA pool (reserved-memory "restricted-dma-pool") every
+coherent allocation is carved from the pool, and dma-direct rejects the
+pool if it is not reachable under the coherent mask. On the Pixel 7 Pro
+the 16 MiB pool is placed at 0xaff000000, so all allocations failed:
+the DMA index buffer silently ("Using TCM indices"), then the first
+common ring:
+
+  brcmf_pcie_init_ringbuffers: Allocating ring buffers failed
+
+Ask for 64 bits and fall back to 32. Hosts that cannot address all of
+it describe that with dma-ranges on the bridge, which the DMA core
+applies on top of the mask.
+
+Assisted-by: LLM
+Signed-off-by: Derek Ross <derekross@gmail.com>
+---
+ .../wireless/broadcom/brcm80211/brcmfmac/pcie.c   | 15 +++++++++++++++
+ 1 file changed, 15 insertions(+)
+
+diff --git a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/pcie.c b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/pcie.c
+index 1c5961036..c9431c81e 100644
+--- a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/pcie.c
++++ b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/pcie.c
+@@ -9,6 +9,7 @@
+ #include <linux/pci.h>
+ #include <linux/vmalloc.h>
+ #include <linux/delay.h>
++#include <linux/dma-mapping.h>
+ #include <linux/interrupt.h>
+ #include <linux/bcma/bcma.h>
+ #include <linux/sched.h>
+@@ -2017,6 +2018,20 @@ static int brcmf_pcie_get_resource(struct brcmf_pciedev_info *devinfo)
+ 
+ 	pci_set_master(pdev);
+ 
++	/* The dongle takes 64-bit host addresses in every ring and buffer
++	 * descriptor. Without this the PCI default 32-bit mask applies, and
++	 * every allocation from a restricted DMA pool placed above 4 GiB
++	 * fails.
++	 */
++	err = dma_set_mask_and_coherent(&pdev->dev, DMA_BIT_MASK(64));
++	if (err) {
++		err = dma_set_mask_and_coherent(&pdev->dev, DMA_BIT_MASK(32));
++		if (err) {
++			brcmf_err(bus, "no usable DMA mask: %d\n", err);
++			return err;
++		}
++	}
++
+ 	/* Bar-0 mapped address */
+ 	bar0_addr = pci_resource_start(pdev, 0);
+ 	/* Bar-1 mapped address */

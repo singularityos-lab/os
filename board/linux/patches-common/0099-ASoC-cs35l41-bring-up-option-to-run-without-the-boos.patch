@@ -1,0 +1,57 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Tue, 27 Oct 2026 12:48:31 -0400
+Subject: [PATCH] ASoC: cs35l41: bring-up option to run without the boost
+ converter
+
+A second module parameter, boost_en (default Y), clears PWR_CTRL2
+BST_EN after the DSP set-up so that the output stage runs from VP alone,
+as Google's driver configures a shared-boost passive amplifier. For the
+Pixel 7 Pro's distortion at the everyday level (AOC-PLAN C9j): both
+speakers distort above the same load current with the converter's
+configuration matching stock's, so the comparison tells the converter's
+light-load behaviour from the rest of the chain. Not for upstream.
+
+Assisted-by: LLM
+Signed-off-by: Derek Ross <derekross@gmail.com>
+---
+ sound/soc/codecs/cs35l41.c | 19 +++++++++++++++++++
+ 1 file changed, 19 insertions(+)
+
+diff --git a/sound/soc/codecs/cs35l41.c b/sound/soc/codecs/cs35l41.c
+index 2b6cfaaba..894b5b08b 100644
+--- a/sound/soc/codecs/cs35l41.c
++++ b/sound/soc/codecs/cs35l41.c
+@@ -1108,6 +1108,16 @@ module_param(wkfet_amp, bool, 0644);
+ MODULE_PARM_DESC(wkfet_amp, "Weak-FET output mode at low levels (default Y)");
+ #define CS35L41_WKFET_AMP_EN_MASK	BIT(24)
+ 
++/*
++ * Bring-up option (AOC-PLAN C9j): run the output stage from VP alone, with
++ * the internal boost converter disabled (PWR_CTRL2 BST_EN = 0, as Google's
++ * driver sets a shared-boost passive amplifier), to tell the converter's
++ * light-load behaviour from the rest of the chain.
++ */
++static bool boost_en = true;
++module_param(boost_en, bool, 0644);
++MODULE_PARM_DESC(boost_en, "Internal boost converter (default Y)");
++
+ static int cs35l41_dsp_init(struct cs35l41_private *cs35l41)
+ {
+ 	struct wm_adsp *dsp;
+@@ -1164,6 +1174,15 @@ static int cs35l41_dsp_init(struct cs35l41_private *cs35l41)
+ 		goto err_dsp;
+ 	}
+ 	dev_info(cs35l41->dev, "weak-FET output mode %s\n", wkfet_amp ? "on" : "off");
++	if (!boost_en) {
++		ret = regmap_update_bits(cs35l41->regmap, CS35L41_PWR_CTRL2,
++					 CS35L41_BST_EN_MASK, 0);
++		if (ret < 0) {
++			dev_err(cs35l41->dev, "Write PWR_CTRL2 (BST_EN) failed: %d\n", ret);
++			goto err_dsp;
++		}
++		dev_info(cs35l41->dev, "boost converter off: output stage from VP\n");
++	}
+ 	ret = regmap_write(cs35l41->regmap, CS35L41_DSP1_RX7_SRC,
+ 			   CS35L41_INPUT_SRC_TEMPMON);
+ 	if (ret < 0) {

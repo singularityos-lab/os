@@ -1,0 +1,27 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Brett-Michael Green <brett@bmgvisualtech.com>
+Date: Thu, 22 Oct 2026 14:32:03 -0400
+Subject: [PATCH] dt-bindings: soc: samsung: exynos-sysreg: add zuma UFS sysreg
+
+zuma's UFS has its own sysreg block (0x13020000, the IO coherency
+control at 0x710), rather than HSI2's as on gs101 and gs201. Add its
+compatible; it takes no clock.
+
+Assisted-by: LLM
+Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
+---
+ .../devicetree/bindings/soc/samsung/samsung,exynos-sysreg.yaml   | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/Documentation/devicetree/bindings/soc/samsung/samsung,exynos-sysreg.yaml b/Documentation/devicetree/bindings/soc/samsung/samsung,exynos-sysreg.yaml
+index 4f0a705e8..32ac75ff5 100644
+--- a/Documentation/devicetree/bindings/soc/samsung/samsung,exynos-sysreg.yaml
++++ b/Documentation/devicetree/bindings/soc/samsung/samsung,exynos-sysreg.yaml
+@@ -27,6 +27,7 @@ properties:
+               - google,gs201-peric0-sysreg
+               - google,gs201-peric1-sysreg
+               - google,gs201-vgpio2ap-sysreg
++              - google,zuma-ufs-sysreg
+               - samsung,exynos2200-cmgp-sysreg
+               - samsung,exynos2200-peric0-sysreg
+               - samsung,exynos2200-peric1-sysreg

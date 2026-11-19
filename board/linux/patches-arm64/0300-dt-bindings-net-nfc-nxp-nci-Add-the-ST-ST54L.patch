@@ -1,0 +1,39 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Tue, 27 Oct 2026 16:34:05 -0647
+Subject: [PATCH] dt-bindings: net: nfc: nxp,nci: Add the ST ST54L
+
+The ST54L in the Google Pixel 9a speaks plain NCI over I2C with an
+enable line and an interrupt, the transport the nxp-nci driver
+implements, rather than the NDLC framing of ST's ST21NFCB family
+(st,st21nfcb-i2c), whose initialisation timed out on it. Add it as a
+compatible with nxp,nxp-nci-i2c as the fallback.
+
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ Documentation/devicetree/bindings/net/nfc/nxp,nci.yaml | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/Documentation/devicetree/bindings/net/nfc/nxp,nci.yaml b/Documentation/devicetree/bindings/net/nfc/nxp,nci.yaml
+index 4f3847f64..fbf2b14f6 100644
+--- a/Documentation/devicetree/bindings/net/nfc/nxp,nci.yaml
++++ b/Documentation/devicetree/bindings/net/nfc/nxp,nci.yaml
+@@ -6,6 +6,10 @@ $schema: http://devicetree.org/meta-schemas/core.yaml#
+ 
+ title: NXP Semiconductors NCI NFC controller
+ 
++description:
++  NFC controllers that speak plain NCI over I2C, with an enable line and an
++  interrupt. Besides NXP's, ST's ST54L uses the same transport.
++
+ maintainers:
+   - Krzysztof Kozlowski <krzk@kernel.org>
+ 
+@@ -19,6 +23,7 @@ properties:
+               - nxp,pn547
+               - nxp,pn553
+               - nxp,pn557
++              - st,st54l
+           - const: nxp,nxp-nci-i2c
+ 
+   enable-gpios:

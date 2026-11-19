@@ -1,0 +1,52 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: saiththerobo <the.tom.sharp@gmail.com>
+Date: Wed, 14 Oct 2026 22:32:18 +0100
+Subject: [PATCH] dt-bindings: display: samsung: add gs101 to the gs201 DECON
+ and DSIM
+
+gs101 (Tensor) has the same DECON and DSIM blocks as gs201 (Google's
+cal_9845 register layout); only DECON0's address and the interrupt
+numbers differ. Describe both with gs201's compatible as the fallback.
+
+Assisted-by: Claude Opus 5.5
+Signed-off-by: saiththerobo <the.tom.sharp@gmail.com>
+---
+ .../bindings/display/samsung/google,gs201-decon.yaml | 12 ++++++++----
+ .../bindings/display/samsung/google,gs201-dsim.yaml  |  1 +
+ 2 files changed, 9 insertions(+), 4 deletions(-)
+
+diff --git a/Documentation/devicetree/bindings/display/samsung/google,gs201-decon.yaml b/Documentation/devicetree/bindings/display/samsung/google,gs201-decon.yaml
+index baf0a8b90..28dfb1a80 100644
+--- a/Documentation/devicetree/bindings/display/samsung/google,gs201-decon.yaml
++++ b/Documentation/devicetree/bindings/display/samsung/google,gs201-decon.yaml
+@@ -20,10 +20,14 @@ description:
+ 
+ properties:
+   compatible:
+-    enum:
+-      - google,gs201-decon
+-      - google,zuma-decon
+-      - google,zumapro-decon
++    oneOf:
++      - enum:
++          - google,gs201-decon
++          - google,zuma-decon
++          - google,zumapro-decon
++      - items:
++          - const: google,gs101-decon
++          - const: google,gs201-decon
+ 
+   reg:
+     items:
+diff --git a/Documentation/devicetree/bindings/display/samsung/google,gs201-dsim.yaml b/Documentation/devicetree/bindings/display/samsung/google,gs201-dsim.yaml
+index db2f48a8c..1244b872c 100644
+--- a/Documentation/devicetree/bindings/display/samsung/google,gs201-dsim.yaml
++++ b/Documentation/devicetree/bindings/display/samsung/google,gs201-dsim.yaml
+@@ -26,6 +26,7 @@ properties:
+       - const: google,gs201-dsim
+       - items:
+           - enum:
++              - google,gs101-dsim
+               - google,zuma-dsim
+               - google,zumapro-dsim
+           - const: google,gs201-dsim

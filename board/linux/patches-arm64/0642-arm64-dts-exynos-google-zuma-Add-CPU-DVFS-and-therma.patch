@@ -1,0 +1,569 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Brett-Michael Green <brett@bmgvisualtech.com>
+Date: Sat, 31 Oct 2026 13:51:54 -0400
+Subject: [PATCH] arm64: dts: exynos: google: zuma: Add CPU DVFS and thermal
+ zones
+
+Run the three CPU clusters on their ACPM DVFS clocks (cpucl0-2) through
+cpufreq-dt, and add thermal zones for them on the ACPM TMU's big, mid
+and little sensors (0-2):
+
+- the operating points are the ACPM firmware's own levels, read from
+  the ECT the bootloader leaves at 0x90000000, up to each cluster's
+  max-freq in stock's exynos-acme domains: 1704 MHz little, 2367 MHz
+  mid and 2914 MHz big. The ECT's little levels up to 1704 MHz are the
+  ones stock's cpufreq statistics list;
+- the energy model is stock's: each level's opp-microwatt is its power
+  in the default pixel-em profile of Google's zuma-b0-ipop.dts, which
+  the Pixel 8 Pro's own device tree has too. A dynamic power
+  coefficient can't be used, since the firmware sets the voltages and
+  there is no opp-microvolt: with one, the energy model fails to
+  register ("EM: invalid perf. state: -22"). The CPUs get #cooling-cells
+  for cpufreq cooling;
+- the levels above stock's battery current limiter caps (1945 MHz mid,
+  2294 MHz big, from Google's zuma-shusky-bcl.dtsi) are turbo-mode, as
+  on gs201: with no BCL driver nothing pulls the clusters down when the
+  battery voltage droops, so they are only used with boost enabled.
+  Those caps are the Pixel 8 Pro's, so the tables stay in zuma.dtsi but
+  only zuma-husky.dts points its CPUs at them: the Pixel 8a's caps in
+  Google's zuma-akita-bcl.dtsi are lower, and it needs its own;
+- a CPU zone throttles its cluster from 80 C, forces its lowest level
+  from 95 C and is critical at 105 C, as zumapro.dtsi does. The TMU
+  sensor and the zones are shared by all zuma boards.
+
+The ACPM clock ids header moves from the board to zuma.dtsi.
+
+Assisted-by: LLM
+Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
+---
+ .../boot/dts/exynos/google/zuma-husky.dts     |  38 +-
+ arch/arm64/boot/dts/exynos/google/zuma.dtsi   | 389 ++++++++++++++++++
+ 2 files changed, 426 insertions(+), 1 deletion(-)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/zuma-husky.dts b/arch/arm64/boot/dts/exynos/google/zuma-husky.dts
+index 34b385573..6f1c0d841 100644
+--- a/arch/arm64/boot/dts/exynos/google/zuma-husky.dts
++++ b/arch/arm64/boot/dts/exynos/google/zuma-husky.dts
+@@ -5,7 +5,6 @@
+ 
+ /dts-v1/;
+ 
+-#include <dt-bindings/clock/google,zuma-acpm.h>
+ #include <dt-bindings/gpio/gpio.h>
+ #include <dt-bindings/input/input.h>
+ #include <dt-bindings/leds/common.h>
+@@ -325,6 +324,43 @@ &cmu_g3d {
+ 	status = "okay";
+ };
+ 
++/* The CPU levels' turbo-mode marks are this phone's BCL caps (zuma.dtsi). */
++&cpu0 {
++	operating-points-v2 = <&cpucl0_opp>;
++};
++
++&cpu1 {
++	operating-points-v2 = <&cpucl0_opp>;
++};
++
++&cpu2 {
++	operating-points-v2 = <&cpucl0_opp>;
++};
++
++&cpu3 {
++	operating-points-v2 = <&cpucl0_opp>;
++};
++
++&cpu4 {
++	operating-points-v2 = <&cpucl1_opp>;
++};
++
++&cpu5 {
++	operating-points-v2 = <&cpucl1_opp>;
++};
++
++&cpu6 {
++	operating-points-v2 = <&cpucl1_opp>;
++};
++
++&cpu7 {
++	operating-points-v2 = <&cpucl1_opp>;
++};
++
++&cpu8 {
++	operating-points-v2 = <&cpucl2_opp>;
++};
++
+ /*
+  * The GPU's core clock is ACPM's paired "gpu" clock, which sets the shader
+  * (G3D) and L2 (G3DL2) domains together; coregroup and stacks stay on
+diff --git a/arch/arm64/boot/dts/exynos/google/zuma.dtsi b/arch/arm64/boot/dts/exynos/google/zuma.dtsi
+index 364df71d2..610a8901c 100644
+--- a/arch/arm64/boot/dts/exynos/google/zuma.dtsi
++++ b/arch/arm64/boot/dts/exynos/google/zuma.dtsi
+@@ -12,6 +12,7 @@
+  */
+ 
+ #include <dt-bindings/clock/google,zuma.h>
++#include <dt-bindings/clock/google,zuma-acpm.h>
+ #include <dt-bindings/gpio/gpio.h>
+ #include <dt-bindings/interrupt-controller/arm-gic.h>
+ #include <dt-bindings/interrupt-controller/irq.h>
+@@ -96,6 +97,8 @@ cpu0: cpu@0 {
+ 			reg = <0x000>;
+ 			enable-method = "psci";
+ 			capacity-dmips-mhz = <193>;
++			#cooling-cells = <2>;
++			clocks = <&acpm_ipc ZUMA_CLK_ACPM_DVFS_CPUCL0>;
+ 		};
+ 		cpu1: cpu@100 {
+ 			device_type = "cpu";
+@@ -103,6 +106,8 @@ cpu1: cpu@100 {
+ 			reg = <0x100>;
+ 			enable-method = "psci";
+ 			capacity-dmips-mhz = <193>;
++			#cooling-cells = <2>;
++			clocks = <&acpm_ipc ZUMA_CLK_ACPM_DVFS_CPUCL0>;
+ 		};
+ 		cpu2: cpu@200 {
+ 			device_type = "cpu";
+@@ -110,6 +115,8 @@ cpu2: cpu@200 {
+ 			reg = <0x200>;
+ 			enable-method = "psci";
+ 			capacity-dmips-mhz = <193>;
++			#cooling-cells = <2>;
++			clocks = <&acpm_ipc ZUMA_CLK_ACPM_DVFS_CPUCL0>;
+ 		};
+ 		cpu3: cpu@300 {
+ 			device_type = "cpu";
+@@ -117,6 +124,8 @@ cpu3: cpu@300 {
+ 			reg = <0x300>;
+ 			enable-method = "psci";
+ 			capacity-dmips-mhz = <193>;
++			#cooling-cells = <2>;
++			clocks = <&acpm_ipc ZUMA_CLK_ACPM_DVFS_CPUCL0>;
+ 		};
+ 		cpu4: cpu@400 {
+ 			device_type = "cpu";
+@@ -124,6 +133,8 @@ cpu4: cpu@400 {
+ 			reg = <0x400>;
+ 			enable-method = "psci";
+ 			capacity-dmips-mhz = <927>;
++			#cooling-cells = <2>;
++			clocks = <&acpm_ipc ZUMA_CLK_ACPM_DVFS_CPUCL1>;
+ 		};
+ 		cpu5: cpu@500 {
+ 			device_type = "cpu";
+@@ -131,6 +142,8 @@ cpu5: cpu@500 {
+ 			reg = <0x500>;
+ 			enable-method = "psci";
+ 			capacity-dmips-mhz = <927>;
++			#cooling-cells = <2>;
++			clocks = <&acpm_ipc ZUMA_CLK_ACPM_DVFS_CPUCL1>;
+ 		};
+ 		cpu6: cpu@600 {
+ 			device_type = "cpu";
+@@ -138,6 +151,8 @@ cpu6: cpu@600 {
+ 			reg = <0x600>;
+ 			enable-method = "psci";
+ 			capacity-dmips-mhz = <927>;
++			#cooling-cells = <2>;
++			clocks = <&acpm_ipc ZUMA_CLK_ACPM_DVFS_CPUCL1>;
+ 		};
+ 		cpu7: cpu@700 {
+ 			device_type = "cpu";
+@@ -145,6 +160,8 @@ cpu7: cpu@700 {
+ 			reg = <0x700>;
+ 			enable-method = "psci";
+ 			capacity-dmips-mhz = <927>;
++			#cooling-cells = <2>;
++			clocks = <&acpm_ipc ZUMA_CLK_ACPM_DVFS_CPUCL1>;
+ 		};
+ 		cpu8: cpu@800 {
+ 			device_type = "cpu";
+@@ -152,7 +169,261 @@ cpu8: cpu@800 {
+ 			reg = <0x800>;
+ 			enable-method = "psci";
+ 			capacity-dmips-mhz = <1024>;
++			#cooling-cells = <2>;
++			clocks = <&acpm_ipc ZUMA_CLK_ACPM_DVFS_CPUCL2>;
++		};
++	};
++
++	/*
++	 * CPU levels: the ACPM firmware's own DVFS levels, from the ECT that the
++	 * bootloader leaves at 0x90000000, up to each cluster's max-freq in
++	 * stock's exynos-acme domains (Google's zuma-cpu.dtsi). The levels
++	 * above, listed in each table, are left out as stock leaves them.
++	 *
++	 * The firmware sets the rail voltages from its fused ASV tables, so
++	 * there is no opp-microvolt, and the energy model can't be computed
++	 * from a power coefficient. opp-microwatt is each level's power in
++	 * stock's default energy model (the pixel-em profile in Google's
++	 * zuma-b0-ipop.dts, the same in the Pixel 8 Pro's own device tree).
++	 *
++	 * Stock caps the mid and big clusters at 1945 and 2294 MHz whenever
++	 * its battery current limiter (BCL) sees the battery voltage droop
++	 * (freq_qos vdroop1/vdroop2/smpl_warn in Google's
++	 * zuma-shusky-bcl.dtsi). There is no BCL driver here, so the levels
++	 * above those caps are turbo-mode: off until boost is enabled
++	 * (/sys/devices/system/cpu/cpufreq/boost).
++	 *
++	 * Those turbo-mode marks are the Pixel 8 Pro's caps, so the CPUs get
++	 * operating-points-v2 in the board file. A board whose BCL caps are
++	 * lower needs tables of its own.
++	 */
++	cpucl0_opp: opp-table-cpucl0 {
++		compatible = "operating-points-v2";
++		opp-shared;
++
++		opp-324000000 {
++			opp-hz = /bits/ 64 <324000000>;
++			opp-microwatt = <11000>;
++		};
++
++		opp-610000000 {
++			opp-hz = /bits/ 64 <610000000>;
++			opp-microwatt = <12000>;
++		};
++
++		opp-820000000 {
++			opp-hz = /bits/ 64 <820000000>;
++			opp-microwatt = <19000>;
++		};
++
++		opp-955000000 {
++			opp-hz = /bits/ 64 <955000000>;
++			opp-microwatt = <25000>;
++		};
++
++		opp-1098000000 {
++			opp-hz = /bits/ 64 <1098000000>;
++			opp-microwatt = <31000>;
++		};
++
++		opp-1197000000 {
++			opp-hz = /bits/ 64 <1197000000>;
++			opp-microwatt = <37000>;
++		};
++
++		opp-1328000000 {
++			opp-hz = /bits/ 64 <1328000000>;
++			opp-microwatt = <45000>;
++		};
++
++		opp-1425000000 {
++			opp-hz = /bits/ 64 <1425000000>;
++			opp-microwatt = <57000>;
++		};
++
++		opp-1548000000 {
++			opp-hz = /bits/ 64 <1548000000>;
++			opp-microwatt = <155000>;
++		};
++
++		opp-1704000000 {
++			opp-hz = /bits/ 64 <1704000000>;
++			opp-microwatt = <195000>;
++		};
++
++		/* 1785, 1950, 2024, 2098, 2147 and 2253 MHz stay off, as on stock. */
++	};
++
++	cpucl1_opp: opp-table-cpucl1 {
++		compatible = "operating-points-v2";
++		opp-shared;
++
++		opp-402000000 {
++			opp-hz = /bits/ 64 <402000000>;
++			opp-microwatt = <59000>;
++		};
++
++		opp-578000000 {
++			opp-hz = /bits/ 64 <578000000>;
++			opp-microwatt = <85000>;
++		};
++
++		opp-697000000 {
++			opp-hz = /bits/ 64 <697000000>;
++			opp-microwatt = <106000>;
++		};
++
++		opp-712000000 {
++			opp-hz = /bits/ 64 <712000000>;
++			opp-microwatt = <114000>;
++		};
++
++		opp-910000000 {
++			opp-hz = /bits/ 64 <910000000>;
++			opp-microwatt = <156000>;
++		};
++
++		opp-1065000000 {
++			opp-hz = /bits/ 64 <1065000000>;
++			opp-microwatt = <208000>;
++		};
++
++		opp-1221000000 {
++			opp-hz = /bits/ 64 <1221000000>;
++			opp-microwatt = <266000>;
++		};
++
++		opp-1328000000 {
++			opp-hz = /bits/ 64 <1328000000>;
++			opp-microwatt = <320000>;
++		};
++
++		opp-1418000000 {
++			opp-hz = /bits/ 64 <1418000000>;
++			opp-microwatt = <368000>;
+ 		};
++
++		opp-1572000000 {
++			opp-hz = /bits/ 64 <1572000000>;
++			opp-microwatt = <449000>;
++		};
++
++		opp-1836000000 {
++			opp-hz = /bits/ 64 <1836000000>;
++			opp-microwatt = <638000>;
++		};
++
++		opp-1945000000 {
++			opp-hz = /bits/ 64 <1945000000>;
++			opp-microwatt = <804000>;
++		};
++
++		opp-2130000000 {
++			opp-hz = /bits/ 64 <2130000000>;
++			opp-microwatt = <1042000>;
++			turbo-mode;
++		};
++
++		opp-2245000000 {
++			opp-hz = /bits/ 64 <2245000000>;
++			opp-microwatt = <1272000>;
++			turbo-mode;
++		};
++
++		opp-2367000000 {
++			opp-hz = /bits/ 64 <2367000000>;
++			opp-microwatt = <1514000>;
++			turbo-mode;
++		};
++
++		/* 2450 and 2600 MHz stay off, as on stock. */
++	};
++
++	cpucl2_opp: opp-table-cpucl2 {
++		compatible = "operating-points-v2";
++		opp-shared;
++
++		opp-500000000 {
++			opp-hz = /bits/ 64 <500000000>;
++			opp-microwatt = <116000>;
++		};
++
++		opp-880000000 {
++			opp-hz = /bits/ 64 <880000000>;
++			opp-microwatt = <213000>;
++		};
++
++		opp-1164000000 {
++			opp-hz = /bits/ 64 <1164000000>;
++			opp-microwatt = <321000>;
++		};
++
++		opp-1298000000 {
++			opp-hz = /bits/ 64 <1298000000>;
++			opp-microwatt = <391000>;
++		};
++
++		opp-1557000000 {
++			opp-hz = /bits/ 64 <1557000000>;
++			opp-microwatt = <535000>;
++		};
++
++		opp-1745000000 {
++			opp-hz = /bits/ 64 <1745000000>;
++			opp-microwatt = <675000>;
++		};
++
++		opp-1885000000 {
++			opp-hz = /bits/ 64 <1885000000>;
++			opp-microwatt = <784000>;
++		};
++
++		opp-2049000000 {
++			opp-hz = /bits/ 64 <2049000000>;
++			opp-microwatt = <1034000>;
++		};
++
++		opp-2147000000 {
++			opp-hz = /bits/ 64 <2147000000>;
++			opp-microwatt = <1145000>;
++		};
++
++		opp-2294000000 {
++			opp-hz = /bits/ 64 <2294000000>;
++			opp-microwatt = <1363000>;
++		};
++
++		opp-2363000000 {
++			opp-hz = /bits/ 64 <2363000000>;
++			opp-microwatt = <1533000>;
++			turbo-mode;
++		};
++
++		opp-2556000000 {
++			opp-hz = /bits/ 64 <2556000000>;
++			opp-microwatt = <1911000>;
++			turbo-mode;
++		};
++
++		opp-2687000000 {
++			opp-hz = /bits/ 64 <2687000000>;
++			opp-microwatt = <2415000>;
++			turbo-mode;
++		};
++
++		opp-2850000000 {
++			opp-hz = /bits/ 64 <2850000000>;
++			opp-microwatt = <3175000>;
++			turbo-mode;
++		};
++
++		opp-2914000000 {
++			opp-hz = /bits/ 64 <2914000000>;
++			opp-microwatt = <3714000>;
++			turbo-mode;
++		};
++
++		/* 2943, 2970 and 3015 MHz stay off, as on stock. */
+ 	};
+ 
+ 	firmware {
+@@ -175,6 +446,124 @@ psci {
+ 	};
+ 
+ 	thermal-zones {
++		/*
++		 * The CPU zones throttle their cluster from 80 C and force its
++		 * lowest level from 95 C.
++		 */
++		big-thermal {
++			polling-delay-passive = <250>;
++			polling-delay = <1000>;
++			thermal-sensors = <&acpm_tmu 0>;
++
++			trips {
++				big_alert: big-alert {
++					temperature = <80000>;
++					hysteresis = <5000>;
++					type = "passive";
++				};
++
++				big_hot: big-hot {
++					temperature = <95000>;
++					hysteresis = <10000>;
++					type = "passive";
++				};
++
++				big_crit: big-crit {
++					temperature = <105000>;
++					hysteresis = <2000>;
++					type = "critical";
++				};
++			};
++
++			cooling-maps {
++				map0 {
++					trip = <&big_alert>;
++					cooling-device = <&cpu8 0xffffffff 0xffffffff>;
++				};
++
++				map1 {
++					trip = <&big_hot>;
++					cooling-device = <&cpu8 14 0xffffffff>;
++				};
++			};
++		};
++
++		mid-thermal {
++			polling-delay-passive = <250>;
++			polling-delay = <1000>;
++			thermal-sensors = <&acpm_tmu 1>;
++
++			trips {
++				mid_alert: mid-alert {
++					temperature = <80000>;
++					hysteresis = <5000>;
++					type = "passive";
++				};
++
++				mid_hot: mid-hot {
++					temperature = <95000>;
++					hysteresis = <10000>;
++					type = "passive";
++				};
++
++				mid_crit: mid-crit {
++					temperature = <105000>;
++					hysteresis = <2000>;
++					type = "critical";
++				};
++			};
++
++			cooling-maps {
++				map0 {
++					trip = <&mid_alert>;
++					cooling-device = <&cpu4 0xffffffff 0xffffffff>;
++				};
++
++				map1 {
++					trip = <&mid_hot>;
++					cooling-device = <&cpu4 14 0xffffffff>;
++				};
++			};
++		};
++
++		little-thermal {
++			polling-delay-passive = <250>;
++			polling-delay = <1000>;
++			thermal-sensors = <&acpm_tmu 2>;
++
++			trips {
++				little_alert: little-alert {
++					temperature = <80000>;
++					hysteresis = <5000>;
++					type = "passive";
++				};
++
++				little_hot: little-hot {
++					temperature = <95000>;
++					hysteresis = <10000>;
++					type = "passive";
++				};
++
++				little_crit: little-crit {
++					temperature = <105000>;
++					hysteresis = <2000>;
++					type = "critical";
++				};
++			};
++
++			cooling-maps {
++				map0 {
++					trip = <&little_alert>;
++					cooling-device = <&cpu0 0xffffffff 0xffffffff>;
++				};
++
++				map1 {
++					trip = <&little_hot>;
++					cooling-device = <&cpu0 9 0xffffffff>;
++				};
++			};
++		};
++
+ 		/*
+ 		 * Below stock's own GPU trips (passive from 100 C, hot at
+ 		 * 115 C).

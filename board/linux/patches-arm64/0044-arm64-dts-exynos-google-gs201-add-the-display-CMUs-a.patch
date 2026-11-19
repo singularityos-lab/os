@@ -1,0 +1,72 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Sun, 11 Oct 2026 22:23:23 -0400
+Subject: [PATCH] arm64: dts: exynos: google: gs201: add the display CMUs and
+ DSIM0
+
+Add CMU_DPU, CMU_DISP and the first DSI master, all disabled.
+
+The bootloader keeps the display power domains on and the pipeline
+running. Registering the CMUs switches them to automatic clock gating
+under that running scanout, so they stay disabled until the display
+bring-up enables them on purpose.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ arch/arm64/boot/dts/exynos/google/gs201.dtsi | 36 ++++++++++++++++++++
+ 1 file changed, 36 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/gs201.dtsi b/arch/arm64/boot/dts/exynos/google/gs201.dtsi
+index 001dc2879..5cd1f0832 100644
+--- a/arch/arm64/boot/dts/exynos/google/gs201.dtsi
++++ b/arch/arm64/boot/dts/exynos/google/gs201.dtsi
+@@ -325,6 +325,30 @@ cmu_hsi2: clock-controller@14400000 {
+ 			clock-names = "oscclk", "bus", "pcie", "ufs", "mmc";
+ 		};
+ 
++		/*
++		 * The display CMUs are left disabled until a display driver
++		 * needs them: the bootloader keeps their power domains (pd_dpu,
++		 * pd_disp) on, and registering them switches the CMUs to
++		 * automatic clock gating under a running scanout.
++		 */
++		cmu_dpu: clock-controller@1c000000 {
++			compatible = "google,gs201-cmu-dpu";
++			reg = <0x1c000000 0x10000>;
++			#clock-cells = <1>;
++			clocks = <&oscclk>, <&cmu_top CLK_DOUT_CMU_DPU_NOC>;
++			clock-names = "oscclk", "bus";
++			status = "disabled";
++		};
++
++		cmu_disp: clock-controller@1c200000 {
++			compatible = "google,gs201-cmu-disp";
++			reg = <0x1c200000 0x10000>;
++			#clock-cells = <1>;
++			clocks = <&oscclk>, <&cmu_top CLK_DOUT_CMU_DISP_NOC>;
++			clock-names = "oscclk", "bus";
++			status = "disabled";
++		};
++
+ 		cmu_top: clock-controller@1e080000 {
+ 			compatible = "google,gs201-cmu-top";
+ 			reg = <0x1e080000 0x10000>;
+@@ -513,6 +537,18 @@ wakeup-interrupt-controller {
+ 		 * off yet. Their on/off sequence needs EL3 calls that the generic
+ 		 * Exynos power domain driver does not make.
+ 		 */
++		dsi0: dsi@1c2c0000 {
++			compatible = "google,gs201-dsim";
++			reg = <0x1c2c0000 0x300>,
++			      <0x1c2e0100 0x700>,
++			      <0x1c2e0000 0x100>;
++			reg-names = "dsi", "dphy", "dphy-extra";
++			interrupts = <GIC_SPI 250 IRQ_TYPE_LEVEL_HIGH>;
++			#address-cells = <1>;
++			#size-cells = <0>;
++			status = "disabled";
++		};
++
+ 		gpu: gpu@28000000 {
+ 			compatible = "google,gs201-mali", "arm,mali-valhall-csf";
+ 			reg = <0x28000000 0x480000>;

@@ -1,0 +1,45 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Brett-Michael Green <brett@bmgvisualtech.com>
+Date: Sat, 31 Oct 2026 11:45:10 -0400
+Subject: [PATCH] wifi: brcmfmac: accept version 114 BSS info
+
+The BCM4398's firmware reports scan results as wl_bss_info version
+114: version 109 with EHT fields appended, so every field brcmfmac
+reads is where it was, and the IEs are found from ie_offset as before.
+Accept it rather than dropping every result ("Version 114 !=
+WL_BSS_INFO_VERSION").
+
+Assisted-by: LLM
+Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
+---
+ drivers/net/wireless/broadcom/brcm80211/brcmfmac/cfg80211.c   | 3 ++-
+ drivers/net/wireless/broadcom/brcm80211/brcmfmac/fwil_types.h | 2 ++
+ 2 files changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/cfg80211.c b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/cfg80211.c
+index 07df3beea..64cc9ae16 100644
+--- a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/cfg80211.c
++++ b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/cfg80211.c
+@@ -3555,7 +3555,8 @@ static s32 brcmf_inform_bss(struct brcmf_cfg80211_info *cfg)
+ 
+ 	bss_list = (struct brcmf_scan_results *)cfg->escan_info.escan_buf;
+ 	if (bss_list->count != 0 &&
+-	    bss_list->version != BRCMF_BSS_INFO_VERSION) {
++	    bss_list->version != BRCMF_BSS_INFO_VERSION &&
++	    bss_list->version != BRCMF_BSS_INFO_VERSION_114) {
+ 		bphy_err(drvr, "Version %d != WL_BSS_INFO_VERSION\n",
+ 			 bss_list->version);
+ 		return -EOPNOTSUPP;
+diff --git a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/fwil_types.h b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/fwil_types.h
+index a018dfa7a..0fe42ec7a 100644
+--- a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/fwil_types.h
++++ b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/fwil_types.h
+@@ -19,6 +19,8 @@
+ #define BRCMF_ARP_OL_PEER_AUTO_REPLY	0x00000008
+ 
+ #define	BRCMF_BSS_INFO_VERSION	109 /* curr ver of brcmf_bss_info_le struct */
++/* v114 (the BCM4398's firmware): v109 with EHT fields appended */
++#define	BRCMF_BSS_INFO_VERSION_114	114
+ #define BRCMF_BSS_RSSI_ON_CHANNEL	0x0004
+ 
+ #define BRCMF_STA_BRCM			0x00000001	/* Running a Broadcom driver */

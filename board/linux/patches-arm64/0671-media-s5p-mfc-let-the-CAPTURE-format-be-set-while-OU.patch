@@ -1,0 +1,44 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?=C3=81ngel=20Ren=C3=A9?=
+ <17342133+angelrenefm@users.noreply.github.com>
+Date: Sat, 14 Nov 2026 14:37:20 +0100
+Subject: [PATCH] media: s5p-mfc: let the CAPTURE format be set while OUTPUT
+ streams
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The decoder's S_FMT returns EBUSY when either queue is streaming. The
+stateful decoder interface (dev-decoder.rst, "Capture Setup") has the
+client set the CAPTURE format after the source change event, while the
+OUTPUT queue keeps streaming, and Chromium's V4L2 decoder does exactly
+that: its S_FMT on CAPTURE failed with "vidioc_s_fmt queue busy" and
+it gave up on the stream.
+
+Only refuse a format change on the queue that is streaming.
+
+Assisted-by: LLM
+Signed-off-by: Ángel René <17342133+angelrenefm@users.noreply.github.com>
+---
+ drivers/media/platform/samsung/s5p-mfc/s5p_mfc_dec.c | 8 +++++++-
+ 1 file changed, 7 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_dec.c b/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_dec.c
+index 3d10dcccf..31ddaf074 100644
+--- a/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_dec.c
++++ b/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_dec.c
+@@ -453,7 +453,13 @@ static int vidioc_s_fmt(struct file *file, void *priv, struct v4l2_format *f)
+ 	pix_mp = &f->fmt.pix_mp;
+ 	if (ret)
+ 		return ret;
+-	if (vb2_is_streaming(&ctx->vq_src) || vb2_is_streaming(&ctx->vq_dst)) {
++	/*
++	 * Each queue's format is fixed only while that queue streams: the
++	 * stateful decoder interface has the client set the CAPTURE format
++	 * after the source change event, with OUTPUT still streaming.
++	 */
++	if (vb2_is_streaming(f->type == V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE ?
++			     &ctx->vq_dst : &ctx->vq_src)) {
+ 		v4l2_err(&dev->v4l2_dev, "%s queue busy\n", __func__);
+ 		ret = -EBUSY;
+ 		goto out;

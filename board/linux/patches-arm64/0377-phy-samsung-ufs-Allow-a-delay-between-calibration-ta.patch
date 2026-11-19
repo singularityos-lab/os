@@ -1,0 +1,64 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Sun, 1 Nov 2026 13:57:39 -0647
+Subject: [PATCH] phy: samsung-ufs: Allow a delay between calibration table
+ entries
+
+The PHY tables can only describe register writes. Tensor G4's Hibern8
+exit sequence in Google's zuma calibration tables waits 10 us
+(COMMON_WAIT) between its write to the PMA common register 0x000 and
+its writes to the lane registers.
+
+Add a table entry for such a wait. Like a common block write, it runs
+once, on the lane 0 pass. Existing tables are unchanged.
+
+Link: https://android.googlesource.com/kernel/google-modules/soc/gs/+/204078758737776959ecc85c527a00fd2cabb62f/drivers/ufs/zuma/ufs-cal.h
+Link: https://android.googlesource.com/kernel/google-modules/soc/gs/+/204078758737776959ecc85c527a00fd2cabb62f/drivers/ufs/zuma/ufs-cal-if.c
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ drivers/phy/samsung/phy-samsung-ufs.c | 6 ++++++
+ drivers/phy/samsung/phy-samsung-ufs.h | 7 +++++++
+ 2 files changed, 13 insertions(+)
+
+diff --git a/drivers/phy/samsung/phy-samsung-ufs.c b/drivers/phy/samsung/phy-samsung-ufs.c
+index 1aea9c2d6..baa0dc60a 100644
+--- a/drivers/phy/samsung/phy-samsung-ufs.c
++++ b/drivers/phy/samsung/phy-samsung-ufs.c
+@@ -34,6 +34,12 @@ void samsung_ufs_phy_config(struct samsung_ufs_phy *phy,
+ {
+ 	enum {LANE_0, LANE_1}; /* lane index */
+ 
++	if (cfg->id == PHY_DELAY_BLK) {
++		if (lane == LANE_0)
++			udelay(cfg->val);
++		return;
++	}
++
+ 	switch (lane) {
+ 	case LANE_0:
+ 		writel(cfg->val, (phy)->reg_pma + cfg->off_0);
+diff --git a/drivers/phy/samsung/phy-samsung-ufs.h b/drivers/phy/samsung/phy-samsung-ufs.h
+index e1a41df26..1270f5e30 100644
+--- a/drivers/phy/samsung/phy-samsung-ufs.h
++++ b/drivers/phy/samsung/phy-samsung-ufs.h
+@@ -15,6 +15,7 @@
+ 
+ #define PHY_COMN_BLK	1
+ #define PHY_TRSV_BLK	2
++#define PHY_DELAY_BLK	3
+ #define END_UFS_PHY_CFG { 0 }
+ #define PHY_TRSV_CH_OFFSET	0x30
+ #define PHY_APB_ADDR(off)	((off) << 2)
+@@ -38,6 +39,12 @@
+ #define PHY_TRSV_REG_CFG(o, v, d)	\
+ 	PHY_TRSV_REG_CFG_OFFSET(o, v, d, PHY_TRSV_CH_OFFSET)
+ 
++/* Wait @us microseconds before the next entry of a table, once for all lanes. */
++#define PHY_DELAY_US_CFG(us) {	\
++	.val = (us),		\
++	.id = PHY_DELAY_BLK,	\
++}
++
+ /* UFS PHY registers */
+ #define PHY_PLL_LOCK_STATUS	0x1e
+ 

@@ -1,0 +1,59 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Mon, 12 Oct 2026 19:29:45 -0400
+Subject: [PATCH] nfc: st-nci: leave secure element support out when none is
+ described
+
+Commit "nfc: st-nci: leave the HCI network alone without a secure
+element" returned early from st_nci_discover_se(), but the NCI core still
+sends NFCEE_DISCOVER before calling it. Instead, when the device tree
+describes neither an eSE nor a UICC, register the NCI device with ops that
+have no SE callbacks at all, so power-up touches neither the NFCEEs nor
+the HCI network. This replaces the early return.
+
+Assisted-by: LLM
+Signed-off-by: Derek Ross <derekross@gmail.com>
+---
+ drivers/nfc/st-nci/core.c | 22 ++++++++++++++++++++--
+ 1 file changed, 20 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/nfc/st-nci/core.c b/drivers/nfc/st-nci/core.c
+index 8c9448db6..ff9fbc408 100644
+--- a/drivers/nfc/st-nci/core.c
++++ b/drivers/nfc/st-nci/core.c
+@@ -97,6 +97,22 @@ static const struct nci_driver_ops st_nci_prop_ops[] = {
+ 	},
+ };
+ 
++/*
++ * Without a secure element described there is nothing to discover, and
++ * the HCI network set-up behind SE discovery would clear every pipe in the
++ * controller and replace its session identity, undoing what another host
++ * stack (with its secure element) set up. Leave all of it out.
++ */
++static const struct nci_ops st_nci_ops_no_se = {
++	.init = st_nci_init,
++	.open = st_nci_open,
++	.close = st_nci_close,
++	.send = st_nci_send,
++	.get_rfprotocol = st_nci_get_rfprotocol,
++	.prop_ops = st_nci_prop_ops,
++	.n_prop_ops = ARRAY_SIZE(st_nci_prop_ops),
++};
++
+ static const struct nci_ops st_nci_ops = {
+ 	.init = st_nci_init,
+ 	.open = st_nci_open,
+@@ -135,8 +151,10 @@ int st_nci_probe(struct llt_ndlc *ndlc, int phy_headroom,
+ 		| NFC_PROTO_NFC_DEP_MASK;
+ 
+ 	BUILD_BUG_ON(ARRAY_SIZE(st_nci_prop_ops) > NCI_MAX_PROPRIETARY_CMD);
+-	ndlc->ndev = nci_allocate_device(&st_nci_ops, protocols,
+-					phy_headroom, phy_tailroom);
++	ndlc->ndev = nci_allocate_device(se_status->is_ese_present ||
++					 se_status->is_uicc_present ?
++					 &st_nci_ops : &st_nci_ops_no_se,
++					 protocols, phy_headroom, phy_tailroom);
+ 	if (!ndlc->ndev) {
+ 		pr_err("Cannot allocate nfc ndev\n");
+ 		return -ENOMEM;

@@ -1,0 +1,97 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Sun, 11 Oct 2026 18:17:30 -0400
+Subject: [PATCH] arm64: dts: exynos: google: gs201: add UFS host controller
+ and PHY
+
+Describe the embedded UFS host controller, its M-PHY and the HSI2 sysreg
+used for IO coherency on gs201, modelled on gs101. Clocks come from
+CMU_HSI2.
+
+Values are from Google's GPL-2.0 gs201-ufs.dtsi, checked against the
+device tree the bootloader hands over on a Pixel 7 Pro:
+
+ - HCI 0x14700000, vendor HCI 0x14701100, UniPro 0x14780000, UFSP
+   0x14600000, PMA 0x14704000
+ - interrupt GIC SPI 453 (IRQ_UFS_EMBD_HSI2 in Google's gs201.h; the
+   stock kernel reports hwirq 485 = SPI 453)
+ - HSI2 sysreg 0x14420000, IO-coherency register 0x710
+ - PMU PHY isolation 0x3ec8 (the driver default)
+
+There is no gs201 pinctrl support yet, so the UFS reset and reference
+clock pins (gph3-1, gph3-0 on the HSI2UFS controller) are not described.
+The bootloader leaves them in their UFS function. The PHY's ref_clk
+points at oscclk, as on gs101: the driver only enables it.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ arch/arm64/boot/dts/exynos/google/gs201.dtsi | 49 ++++++++++++++++++--
+ 1 file changed, 46 insertions(+), 3 deletions(-)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/gs201.dtsi b/arch/arm64/boot/dts/exynos/google/gs201.dtsi
+index f05690ea0..016154862 100644
+--- a/arch/arm64/boot/dts/exynos/google/gs201.dtsi
++++ b/arch/arm64/boot/dts/exynos/google/gs201.dtsi
+@@ -168,9 +168,6 @@ soc: soc@0 {
+ 		 *                   CLK_GOUT_HSI0_USB31DRD_I_USB31DRD_SUSPEND_CLK_26,
+ 		 *                   CLK_GOUT_HSI0_UASC_HSI0_LINK_{ACLK,PCLK},
+ 		 *                   CLK_GOUT_HSI0_USB31DRD_I_USB31DRD_REF_CLK_40
+-		 *   UFS:            CLK_GOUT_HSI2_UFS_EMBD_I_{ACLK,CLK_UNIPRO,FMP_CLK},
+-		 *                   CLK_GOUT_HSI2_QE_UFS_EMBD_HSI2_{ACLK,PCLK},
+-		 *                   CLK_GOUT_HSI2_SYSREG_HSI2_PCLK
+ 		 *   touch SPI (PERIC1 USI0 @ 0x10d10000):
+ 		 *                   CLK_GOUT_PERIC1_USI0_USI_{PCLK,IPCLK}
+ 		 *                   (rate set on CLK_DOUT_PERIC1_USI0_USI)
+@@ -283,6 +280,52 @@ usb_dwc3: usb@11210000 {
+ 			status = "disabled";
+ 		};
+ 
++		sysreg_hsi2: syscon@14420000 {
++			compatible = "google,gs201-hsi2-sysreg", "syscon";
++			reg = <0x14420000 0x10000>;
++			clocks = <&cmu_hsi2 CLK_GOUT_HSI2_SYSREG_HSI2_PCLK>;
++		};
++
++		/*
++		 * No gs201 pinctrl driver yet: the UFS reset (gph3-1) and
++		 * reference clock output (gph3-0) pins on the HSI2UFS pin
++		 * controller are left in their UFS function by the bootloader.
++		 */
++		ufs_0: ufs@14700000 {
++			compatible = "google,gs201-ufs";
++			reg = <0x14700000 0x200>,
++			      <0x14701100 0x200>,
++			      <0x14780000 0xa000>,
++			      <0x14600000 0x100>;
++			reg-names = "hci", "vs_hci", "unipro", "ufsp";
++			interrupts = <GIC_SPI 453 IRQ_TYPE_LEVEL_HIGH>;
++			clocks = <&cmu_hsi2 CLK_GOUT_HSI2_UFS_EMBD_I_ACLK>,
++				 <&cmu_hsi2 CLK_GOUT_HSI2_UFS_EMBD_I_CLK_UNIPRO>,
++				 <&cmu_hsi2 CLK_GOUT_HSI2_UFS_EMBD_I_FMP_CLK>,
++				 <&cmu_hsi2 CLK_GOUT_HSI2_QE_UFS_EMBD_HSI2_ACLK>,
++				 <&cmu_hsi2 CLK_GOUT_HSI2_QE_UFS_EMBD_HSI2_PCLK>,
++				 <&cmu_hsi2 CLK_GOUT_HSI2_SYSREG_HSI2_PCLK>;
++			clock-names = "core_clk", "sclk_unipro_main", "fmp",
++				      "aclk", "pclk", "sysreg";
++			dma-coherent;
++			freq-table-hz = <0 0>, <0 0>, <0 0>, <0 0>, <0 0>, <0 0>;
++			phys = <&ufs_0_phy>;
++			phy-names = "ufs-phy";
++			samsung,sysreg = <&sysreg_hsi2 0x710>;
++			status = "disabled";
++		};
++
++		ufs_0_phy: phy@14704000 {
++			compatible = "google,gs201-ufs-phy";
++			reg = <0x14704000 0x3000>;
++			reg-names = "phy-pma";
++			samsung,pmu-syscon = <&pmu_system_controller>;
++			#phy-cells = <0>;
++			clocks = <&oscclk>;
++			clock-names = "ref_clk";
++			status = "disabled";
++		};
++
+ 		/*
+ 		 * ABL leaves both watchdogs running (about 60 s). The driver stops
+ 		 * them at probe unless tmr_atboot is set.

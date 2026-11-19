@@ -1,0 +1,26 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Tue, 27 Oct 2026 05:32:46 -0647
+Subject: [PATCH] dt-bindings: usb: maxim,max33359: Add the MAX77779 TCPC
+
+The MAX77779 (Pixel 9a) has a TCPCI port controller at its own I2C
+address, the MAX77759's with a few vendor registers moved, so it gets its
+own compatible rather than falling back to maxim,max33359.
+
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ Documentation/devicetree/bindings/usb/maxim,max33359.yaml | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/Documentation/devicetree/bindings/usb/maxim,max33359.yaml b/Documentation/devicetree/bindings/usb/maxim,max33359.yaml
+index 003c0b713..0293c020a 100644
+--- a/Documentation/devicetree/bindings/usb/maxim,max33359.yaml
++++ b/Documentation/devicetree/bindings/usb/maxim,max33359.yaml
+@@ -16,6 +16,7 @@ properties:
+     oneOf:
+       - enum:
+           - maxim,max33359
++          - maxim,max77779-tcpc
+       - items:
+           - const: maxim,max77759-tcpci
+           - const: maxim,max33359

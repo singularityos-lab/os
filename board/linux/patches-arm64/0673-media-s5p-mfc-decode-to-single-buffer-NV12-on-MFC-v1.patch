@@ -1,0 +1,225 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?=C3=81ngel=20Ren=C3=A9?=
+ <17342133+angelrenefm@users.noreply.github.com>
+Date: Sat, 14 Nov 2026 14:37:43 +0100
+Subject: [PATCH] media: s5p-mfc: decode to single-buffer NV12 on MFC v15
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The decoder only offers multi-planar formats (NV12M and friends), each
+plane in a buffer of its own. Chromium's V4L2 decoder renders NV12 in
+one buffer without a copy; for NM12 it sets up an image processor first,
+and on the Pixel 7 it got no further than that.
+
+Offer V4L2_PIX_FMT_NV12 on MFC v15, laid out as V4L2 has it: a 64 byte
+aligned stride, as Google's NV12N, and the chroma right after the luma's
+bytesperline * height. The MFC is given the luma address and the chroma
+one inside the same buffer. The firmware still wants its 64 bytes after
+each plane (it reports 2089024 and 1044544 bytes as the least for
+1920x1088, and fails frames with INSUFFICIENT_DPB_SIZE below that), so
+the plane sizes it is told include them, and the buffer ends 64 bytes
+after the chroma. Work the sizes out again when the CAPTURE format
+changes after the header was parsed, as Chromium does, and count the
+CAPTURE planes with mem_planes rather than comp_planes.
+
+On the Pixel 7, with this format only offered: GStreamer's v4l2h264dec
+decodes a 20 s and a 60 s 1080p clip (2400 frames) to the same frames
+as avdec_h264. With all formats offered, GStreamer keeps NV12M and its
+2700 frames still match; Chromium 156 (AcceleratedVideoDecoder enabled)
+plays a 1080p30 clip at 30 fps with no frame dropped and spends 6.8 s of
+CPU time per 10 s of video, against 9.9 s decoding in software.
+
+Assisted-by: LLM
+Signed-off-by: Ángel René <17342133+angelrenefm@users.noreply.github.com>
+---
+ .../media/platform/samsung/s5p-mfc/s5p_mfc.c  |  4 +++
+ .../platform/samsung/s5p-mfc/s5p_mfc_common.h |  3 ++
+ .../platform/samsung/s5p-mfc/s5p_mfc_dec.c    | 33 ++++++++++++++++---
+ .../platform/samsung/s5p-mfc/s5p_mfc_opr_v6.c | 33 ++++++++++++++++---
+ 4 files changed, 65 insertions(+), 8 deletions(-)
+
+diff --git a/drivers/media/platform/samsung/s5p-mfc/s5p_mfc.c b/drivers/media/platform/samsung/s5p-mfc/s5p_mfc.c
+index f06098227..f7a98e149 100644
+--- a/drivers/media/platform/samsung/s5p-mfc/s5p_mfc.c
++++ b/drivers/media/platform/samsung/s5p-mfc/s5p_mfc.c
+@@ -356,6 +356,10 @@ static void s5p_mfc_handle_frame_new(struct s5p_mfc_ctx *ctx, unsigned int err)
+ 						ctx->luma_size);
+ 			vb2_set_plane_payload(&dst_buf->b->vb2_buf, 1,
+ 						ctx->chroma_size);
++			/* NV12 in one buffer: plane 0 holds the whole frame */
++			if (ctx->dst_fmt->num_planes == 1)
++				vb2_set_plane_payload(&dst_buf->b->vb2_buf, 0,
++						      s5p_mfc_dec_nv12_size(ctx));
+ 			clear_bit(dst_buf->b->vb2_buf.index,
+ 							&ctx->dec_dst_flag);
+ 
+diff --git a/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_common.h b/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_common.h
+index a10cc406c..8abf5104e 100644
+--- a/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_common.h
++++ b/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_common.h
+@@ -226,6 +226,9 @@ struct s5p_mfc_buf_size {
+ 	const void *priv;
+ };
+ 
++struct s5p_mfc_ctx;
++size_t s5p_mfc_dec_nv12_size(const struct s5p_mfc_ctx *ctx);
++
+ struct s5p_mfc_variant {
+ 	unsigned int version;
+ 	unsigned int port_num;
+diff --git a/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_dec.c b/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_dec.c
+index 31ddaf074..f37347e39 100644
+--- a/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_dec.c
++++ b/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_dec.c
+@@ -70,6 +70,13 @@ static const struct s5p_mfc_fmt formats[] = {
+ 		.num_planes     = 3,
+ 		.versions       = MFC_V12_BIT | MFC_V15_BIT
+ 	},
++	{
++		.fourcc		= V4L2_PIX_FMT_NV12,
++		.codec_mode	= S5P_FIMV_CODEC_NONE,
++		.type		= MFC_FMT_RAW,
++		.num_planes	= 1,
++		.versions	= MFC_V15_BIT,
++	},
+ 	{
+ 		.fourcc		= V4L2_PIX_FMT_H264,
+ 		.codec_mode	= S5P_MFC_CODEC_H264_DEC,
+@@ -378,6 +385,9 @@ static int vidioc_g_fmt(struct file *file, void *priv, struct v4l2_format *f)
+ 		pix_mp->plane_fmt[0].sizeimage = ctx->luma_size;
+ 		pix_mp->plane_fmt[1].bytesperline = ctx->stride[1];
+ 		pix_mp->plane_fmt[1].sizeimage = ctx->chroma_size;
++		/* NV12 in one buffer: the chroma follows the luma */
++		if (ctx->dst_fmt->num_planes == 1)
++			pix_mp->plane_fmt[0].sizeimage = s5p_mfc_dec_nv12_size(ctx);
+ 		if (ctx->dst_fmt->fourcc == V4L2_PIX_FMT_YUV420M || ctx->dst_fmt->fourcc ==
+ 				V4L2_PIX_FMT_YVU420M) {
+ 			pix_mp->plane_fmt[2].bytesperline = ctx->stride[2];
+@@ -467,6 +477,13 @@ static int vidioc_s_fmt(struct file *file, void *priv, struct v4l2_format *f)
+ 	if (f->type == V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE) {
+ 		/* dst_fmt is validated by call to vidioc_try_fmt */
+ 		ctx->dst_fmt = find_format(f, MFC_FMT_RAW);
++		/*
++		 * After the header was parsed the plane sizes were worked out
++		 * for the old format; NV12 in one buffer lays them out
++		 * differently, so work them out again.
++		 */
++		if (ctx->state == MFCINST_HEAD_PARSED)
++			s5p_mfc_hw_call(dev->mfc_ops, dec_calc_dpb_size, ctx);
+ 		ret = 0;
+ 		goto out;
+ 	} else if (f->type == V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE) {
+@@ -969,7 +986,7 @@ static int s5p_mfc_queue_setup(struct vb2_queue *vq,
+ 			mfc_err("invalid format\n");
+ 			return -EINVAL;
+ 		}
+-		*plane_count = format->comp_planes;
++		*plane_count = format->mem_planes;
+ 
+ 		/* Setup buffer count */
+ 		if (*buf_count < ctx->pb_count)
+@@ -990,6 +1007,8 @@ static int s5p_mfc_queue_setup(struct vb2_queue *vq,
+ 	    vq->type == V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE) {
+ 		psize[0] = ctx->luma_size;
+ 		psize[1] = ctx->chroma_size;
++		if (ctx->dst_fmt->num_planes == 1)
++			psize[0] = s5p_mfc_dec_nv12_size(ctx);
+ 		if (ctx->dst_fmt->fourcc == V4L2_PIX_FMT_YUV420M || ctx->dst_fmt->fourcc ==
+ 				V4L2_PIX_FMT_YVU420M)
+ 			psize[2] = ctx->chroma_size_1;
+@@ -1054,8 +1073,10 @@ static int s5p_mfc_buf_init(struct vb2_buffer *vb)
+ 				return -EINVAL;
+ 			}
+ 		}
+-		if (vb2_plane_size(vb, 0) < ctx->luma_size ||
+-			vb2_plane_size(vb, 1) < ctx->chroma_size) {
++		if (ctx->dst_fmt->num_planes == 1 ?
++		    vb2_plane_size(vb, 0) < s5p_mfc_dec_nv12_size(ctx) :
++		    vb2_plane_size(vb, 0) < ctx->luma_size ||
++		    vb2_plane_size(vb, 1) < ctx->chroma_size) {
+ 			mfc_err("Plane buffer (CAPTURE) is too small\n");
+ 			return -EINVAL;
+ 		}
+@@ -1071,7 +1092,11 @@ static int s5p_mfc_buf_init(struct vb2_buffer *vb)
+ 		ctx->dst_bufs[i].b = vbuf;
+ 		ctx->dst_bufs[i].cookie.raw.luma =
+ 					vb2_dma_contig_plane_dma_addr(vb, 0);
+-		ctx->dst_bufs[i].cookie.raw.chroma =
++		if (ctx->dst_fmt->num_planes == 1)
++			ctx->dst_bufs[i].cookie.raw.chroma =
++				ctx->dst_bufs[i].cookie.raw.luma + ctx->luma_size;
++		else
++			ctx->dst_bufs[i].cookie.raw.chroma =
+ 					vb2_dma_contig_plane_dma_addr(vb, 1);
+ 		if (ctx->dst_fmt->fourcc == V4L2_PIX_FMT_YUV420M || ctx->dst_fmt->fourcc ==
+ 				V4L2_PIX_FMT_YVU420M) {
+diff --git a/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_opr_v6.c b/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_opr_v6.c
+index 27bc56200..3f1e6e694 100644
+--- a/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_opr_v6.c
++++ b/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_opr_v6.c
+@@ -483,6 +483,12 @@ static int calc_plane(int width, int height)
+ 		(mbY * S5P_FIMV_NUM_PIXELS_IN_MB_ROW_V6);
+ }
+ 
++/* Bytes of a one-buffer NV12 frame: both planes and the firmware's margin */
++size_t s5p_mfc_dec_nv12_size(const struct s5p_mfc_ctx *ctx)
++{
++	return ctx->luma_size + ctx->chroma_size + S5P_FIMV_D_ALIGN_PLANE_SIZE_V8;
++}
++
+ static void s5p_mfc_dec_calc_dpb_size_v6(struct s5p_mfc_ctx *ctx)
+ {
+ 	struct s5p_mfc_dev *dev = ctx->dev;
+@@ -494,6 +500,18 @@ static void s5p_mfc_dec_calc_dpb_size_v6(struct s5p_mfc_ctx *ctx)
+ 			ctx->img_height, ctx->buf_width, ctx->buf_height);
+ 
+ 	switch (ctx->dst_fmt->fourcc) {
++	case V4L2_PIX_FMT_NV12:
++		/*
++		 * One buffer, laid out as V4L2 NV12: the chroma starts right
++		 * after the luma's bytesperline * height, so no padding goes
++		 * between the planes (as Google's NV12N: 64 byte stride,
++		 * height aligned to 16).
++		 */
++		ctx->stride[0] = ALIGN(ctx->img_width, 64);
++		ctx->stride[1] = ctx->stride[0];
++		ctx->luma_size = ctx->stride[0] * ctx->buf_height;
++		ctx->chroma_size = ctx->stride[1] * ctx->buf_height / 2;
++		break;
+ 	case V4L2_PIX_FMT_NV12M:
+ 	case V4L2_PIX_FMT_NV21M:
+ 		ctx->stride[0] = ALIGN(ctx->img_width, S5P_FIMV_NV12MT_HALIGN_V6);
+@@ -512,7 +530,7 @@ static void s5p_mfc_dec_calc_dpb_size_v6(struct s5p_mfc_ctx *ctx)
+ 		break;
+ 	}
+ 
+-	if (IS_MFCV8_PLUS(ctx->dev)) {
++	if (IS_MFCV8_PLUS(ctx->dev) && ctx->dst_fmt->num_planes > 1) {
+ 		/* MFCv8 needs additional 64 bytes for luma,chroma dpb*/
+ 		ctx->luma_size += S5P_FIMV_D_ALIGN_PLANE_SIZE_V8;
+ 		ctx->chroma_size += S5P_FIMV_D_ALIGN_PLANE_SIZE_V8;
+@@ -603,13 +621,20 @@ static int s5p_mfc_set_dec_stream_buffer_v6(struct s5p_mfc_ctx *ctx,
+ 	return 0;
+ }
+ 
+-/* DPB plane sizes */
++/*
++ * DPB plane sizes. For NV12 in one buffer the firmware still wants its 64
++ * bytes after each plane: the chroma starts right after the luma, as V4L2
++ * NV12 has it, so the luma's margin is the chroma's first bytes, and the
++ * buffer ends with the chroma's margin.
++ */
+ static void s5p_mfc_set_dec_dpb_size(struct s5p_mfc_ctx *ctx)
+ {
+ 	const struct s5p_mfc_regs *mfc_regs = ctx->dev->mfc_regs;
++	unsigned int pad = ctx->dst_fmt->num_planes == 1 ?
++			   S5P_FIMV_D_ALIGN_PLANE_SIZE_V8 : 0;
+ 
+-	writel(ctx->luma_size, mfc_regs->d_first_plane_dpb_size);
+-	writel(ctx->chroma_size, mfc_regs->d_second_plane_dpb_size);
++	writel(ctx->luma_size + pad, mfc_regs->d_first_plane_dpb_size);
++	writel(ctx->chroma_size + pad, mfc_regs->d_second_plane_dpb_size);
+ }
+ 
+ /* Set decoding frame buffer */

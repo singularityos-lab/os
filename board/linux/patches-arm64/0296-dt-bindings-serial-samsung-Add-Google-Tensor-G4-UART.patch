@@ -1,0 +1,26 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Tue, 27 Oct 2026 09:53:41 -0647
+Subject: [PATCH] dt-bindings: serial: samsung: Add Google Tensor G4 UART
+
+The Tensor G4 (zumapro) UART behind the APM's USI1 works as gs101's, with
+a 256-byte FIFO, so add it with google,gs101-uart as the fallback, as
+gs201 does.
+
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ Documentation/devicetree/bindings/serial/samsung_uart.yaml | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/Documentation/devicetree/bindings/serial/samsung_uart.yaml b/Documentation/devicetree/bindings/serial/samsung_uart.yaml
+index 668b93a32..e85a83e57 100644
+--- a/Documentation/devicetree/bindings/serial/samsung_uart.yaml
++++ b/Documentation/devicetree/bindings/serial/samsung_uart.yaml
+@@ -31,6 +31,7 @@ properties:
+       - items:
+           - enum:
+               - google,gs201-uart
++              - google,zumapro-uart
+               - samsung,exynos2200-uart
+           - const: google,gs101-uart
+       - items:

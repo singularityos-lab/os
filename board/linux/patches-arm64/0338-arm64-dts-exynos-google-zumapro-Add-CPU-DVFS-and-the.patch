@@ -1,0 +1,485 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Tue, 27 Oct 2026 11:51:28 -0647
+Subject: [PATCH] arm64: dts: exynos: google: zumapro: Add CPU DVFS and thermal
+ zones
+
+Give the three CPU clusters their ACPM DVFS clocks (cpucl0-2, by the
+zumapro ACPM clock ids) and operating points for cpufreq-dt, with
+capacities and power coefficients for the energy model from Google's
+zumapro-cpu.dtsi, and add the ACPM TMU sensor and the big, mid, little
+and GPU thermal zones.
+
+The CPU levels are the APM firmware's own (its DVFS table, read on the
+Pixel 9a), up to the 9a's thermal headroom: 1950 MHz little (Google's
+max-freq for that cluster), 2367 MHz mid and 2687 MHz big. The little
+cluster's 324 and 610 MHz lie below stock's 820 MHz floor. Each CPU zone
+throttles its cluster from 80 C, forces the cluster's lowest levels
+from 95 C and shuts down at 105 C, all below stock's 112 C (CPU) and
+115 C (GPU) hot trips. gpu-thermal throttles panthor's devfreq from
+85 C.
+
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ .../arm64/boot/dts/exynos/google/zumapro.dtsi | 378 ++++++++++++++++++
+ 1 file changed, 378 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/zumapro.dtsi b/arch/arm64/boot/dts/exynos/google/zumapro.dtsi
+index 10b018b18..2a8017bea 100644
+--- a/arch/arm64/boot/dts/exynos/google/zumapro.dtsi
++++ b/arch/arm64/boot/dts/exynos/google/zumapro.dtsi
+@@ -7,6 +7,7 @@
+  */
+ 
+ #include <dt-bindings/clock/google,zumapro.h>
++#include <dt-bindings/clock/google,zumapro-acpm.h>
+ #include <dt-bindings/interrupt-controller/arm-gic.h>
+ #include <dt-bindings/soc/samsung,exynos-usi.h>
+ 
+@@ -104,6 +105,11 @@ cpu0: cpu@0 {
+ 			compatible = "arm,cortex-a520";
+ 			reg = <0x000>;
+ 			enable-method = "psci";
++			capacity-dmips-mhz = <193>;
++			dynamic-power-coefficient = <70>;
++			#cooling-cells = <2>;
++			clocks = <&acpm_ipc ZUMAPRO_CLK_ACPM_DVFS_CPUCL0>;
++			operating-points-v2 = <&cpucl0_opp>;
+ 		};
+ 
+ 		cpu1: cpu@100 {
+@@ -111,6 +117,11 @@ cpu1: cpu@100 {
+ 			compatible = "arm,cortex-a520";
+ 			reg = <0x100>;
+ 			enable-method = "psci";
++			capacity-dmips-mhz = <193>;
++			dynamic-power-coefficient = <70>;
++			#cooling-cells = <2>;
++			clocks = <&acpm_ipc ZUMAPRO_CLK_ACPM_DVFS_CPUCL0>;
++			operating-points-v2 = <&cpucl0_opp>;
+ 		};
+ 
+ 		cpu2: cpu@200 {
+@@ -118,6 +129,11 @@ cpu2: cpu@200 {
+ 			compatible = "arm,cortex-a520";
+ 			reg = <0x200>;
+ 			enable-method = "psci";
++			capacity-dmips-mhz = <193>;
++			dynamic-power-coefficient = <70>;
++			#cooling-cells = <2>;
++			clocks = <&acpm_ipc ZUMAPRO_CLK_ACPM_DVFS_CPUCL0>;
++			operating-points-v2 = <&cpucl0_opp>;
+ 		};
+ 
+ 		cpu3: cpu@300 {
+@@ -125,6 +141,11 @@ cpu3: cpu@300 {
+ 			compatible = "arm,cortex-a520";
+ 			reg = <0x300>;
+ 			enable-method = "psci";
++			capacity-dmips-mhz = <193>;
++			dynamic-power-coefficient = <70>;
++			#cooling-cells = <2>;
++			clocks = <&acpm_ipc ZUMAPRO_CLK_ACPM_DVFS_CPUCL0>;
++			operating-points-v2 = <&cpucl0_opp>;
+ 		};
+ 
+ 		cpu4: cpu@400 {
+@@ -132,6 +153,11 @@ cpu4: cpu@400 {
+ 			compatible = "arm,cortex-a720";
+ 			reg = <0x400>;
+ 			enable-method = "psci";
++			capacity-dmips-mhz = <927>;
++			dynamic-power-coefficient = <513>;
++			#cooling-cells = <2>;
++			clocks = <&acpm_ipc ZUMAPRO_CLK_ACPM_DVFS_CPUCL1>;
++			operating-points-v2 = <&cpucl1_opp>;
+ 		};
+ 
+ 		cpu5: cpu@500 {
+@@ -139,6 +165,11 @@ cpu5: cpu@500 {
+ 			compatible = "arm,cortex-a720";
+ 			reg = <0x500>;
+ 			enable-method = "psci";
++			capacity-dmips-mhz = <927>;
++			dynamic-power-coefficient = <513>;
++			#cooling-cells = <2>;
++			clocks = <&acpm_ipc ZUMAPRO_CLK_ACPM_DVFS_CPUCL1>;
++			operating-points-v2 = <&cpucl1_opp>;
+ 		};
+ 
+ 		cpu6: cpu@600 {
+@@ -146,6 +177,11 @@ cpu6: cpu@600 {
+ 			compatible = "arm,cortex-a720";
+ 			reg = <0x600>;
+ 			enable-method = "psci";
++			capacity-dmips-mhz = <927>;
++			dynamic-power-coefficient = <513>;
++			#cooling-cells = <2>;
++			clocks = <&acpm_ipc ZUMAPRO_CLK_ACPM_DVFS_CPUCL1>;
++			operating-points-v2 = <&cpucl1_opp>;
+ 		};
+ 
+ 		cpu7: cpu@700 {
+@@ -153,6 +189,11 @@ cpu7: cpu@700 {
+ 			compatible = "arm,cortex-x4";
+ 			reg = <0x700>;
+ 			enable-method = "psci";
++			capacity-dmips-mhz = <1024>;
++			dynamic-power-coefficient = <757>;
++			#cooling-cells = <2>;
++			clocks = <&acpm_ipc ZUMAPRO_CLK_ACPM_DVFS_CPUCL2>;
++			operating-points-v2 = <&cpucl2_opp>;
+ 		};
+ 	};
+ 
+@@ -214,6 +255,342 @@ acpm_ipc: power-management {
+ 			mboxes = <&ap2apm_mailbox>;
+ 			shmem = <&apm_sram>;
+ 			status = "disabled";
++
++			acpm_tmu: thermal-sensor {
++				compatible = "google,zumapro-acpm-tmu";
++				#thermal-sensor-cells = <1>;
++			};
++		};
++	};
++
++	/*
++	 * CPU levels: the APM firmware's own DVFS levels, read on the Pixel 9a
++	 * (the little cluster's 324 and 610 MHz are below stock's 820 MHz
++	 * floor), up to the 9a's thermal headroom: the levels above each table's
++	 * top, listed in it, are left out for that board. A board with more
++	 * headroom can add them. The little cluster stops at 1950 MHz, Google's
++	 * max-freq for it.
++	 */
++	cpucl0_opp: opp-table-cpucl0 {
++		compatible = "operating-points-v2";
++		opp-shared;
++
++		opp-324000000 {
++			opp-hz = /bits/ 64 <324000000>;
++		};
++
++		opp-610000000 {
++			opp-hz = /bits/ 64 <610000000>;
++		};
++
++		opp-820000000 {
++			opp-hz = /bits/ 64 <820000000>;
++		};
++
++		opp-955000000 {
++			opp-hz = /bits/ 64 <955000000>;
++		};
++
++		opp-1098000000 {
++			opp-hz = /bits/ 64 <1098000000>;
++		};
++
++		opp-1197000000 {
++			opp-hz = /bits/ 64 <1197000000>;
++		};
++
++		opp-1328000000 {
++			opp-hz = /bits/ 64 <1328000000>;
++		};
++
++		opp-1425000000 {
++			opp-hz = /bits/ 64 <1425000000>;
++		};
++
++		opp-1548000000 {
++			opp-hz = /bits/ 64 <1548000000>;
++		};
++
++		opp-1696000000 {
++			opp-hz = /bits/ 64 <1696000000>;
++		};
++
++		opp-1849000000 {
++			opp-hz = /bits/ 64 <1849000000>;
++		};
++
++		opp-1950000000 {
++			opp-hz = /bits/ 64 <1950000000>;
++		};
++
++	};
++
++	cpucl1_opp: opp-table-cpucl1 {
++		compatible = "operating-points-v2";
++		opp-shared;
++
++		opp-357000000 {
++			opp-hz = /bits/ 64 <357000000>;
++		};
++
++		opp-578000000 {
++			opp-hz = /bits/ 64 <578000000>;
++		};
++
++		opp-648000000 {
++			opp-hz = /bits/ 64 <648000000>;
++		};
++
++		opp-787000000 {
++			opp-hz = /bits/ 64 <787000000>;
++		};
++
++		opp-910000000 {
++			opp-hz = /bits/ 64 <910000000>;
++		};
++
++		opp-1065000000 {
++			opp-hz = /bits/ 64 <1065000000>;
++		};
++
++		opp-1221000000 {
++			opp-hz = /bits/ 64 <1221000000>;
++		};
++
++		opp-1328000000 {
++			opp-hz = /bits/ 64 <1328000000>;
++		};
++
++		opp-1418000000 {
++			opp-hz = /bits/ 64 <1418000000>;
++		};
++
++		opp-1549000000 {
++			opp-hz = /bits/ 64 <1549000000>;
++		};
++
++		opp-1795000000 {
++			opp-hz = /bits/ 64 <1795000000>;
++		};
++
++		opp-1945000000 {
++			opp-hz = /bits/ 64 <1945000000>;
++		};
++
++		opp-2130000000 {
++			opp-hz = /bits/ 64 <2130000000>;
++		};
++
++		opp-2245000000 {
++			opp-hz = /bits/ 64 <2245000000>;
++		};
++
++		opp-2367000000 {
++			opp-hz = /bits/ 64 <2367000000>;
++		};
++
++		/* 2450 and 2600 MHz stay off: above the cluster's thermal headroom. */
++	};
++
++	cpucl2_opp: opp-table-cpucl2 {
++		compatible = "operating-points-v2";
++		opp-shared;
++
++		opp-700000000 {
++			opp-hz = /bits/ 64 <700000000>;
++		};
++
++		opp-1164000000 {
++			opp-hz = /bits/ 64 <1164000000>;
++		};
++
++		opp-1396000000 {
++			opp-hz = /bits/ 64 <1396000000>;
++		};
++
++		opp-1557000000 {
++			opp-hz = /bits/ 64 <1557000000>;
++		};
++
++		opp-1745000000 {
++			opp-hz = /bits/ 64 <1745000000>;
++		};
++
++		opp-1885000000 {
++			opp-hz = /bits/ 64 <1885000000>;
++		};
++
++		opp-1999000000 {
++			opp-hz = /bits/ 64 <1999000000>;
++		};
++
++		opp-2147000000 {
++			opp-hz = /bits/ 64 <2147000000>;
++		};
++
++		opp-2294000000 {
++			opp-hz = /bits/ 64 <2294000000>;
++		};
++
++		opp-2363000000 {
++			opp-hz = /bits/ 64 <2363000000>;
++		};
++
++		opp-2499000000 {
++			opp-hz = /bits/ 64 <2499000000>;
++		};
++
++		opp-2687000000 {
++			opp-hz = /bits/ 64 <2687000000>;
++		};
++
++		/*
++		 * 2802, 2914, 2943, 2970, 3015 and 3105 MHz stay off: above the
++		 * cluster's thermal headroom.
++		 */
++	};
++
++	thermal-zones {
++		big-thermal {
++			polling-delay-passive = <250>;
++			polling-delay = <1000>;
++			thermal-sensors = <&acpm_tmu 0>;
++
++			trips {
++				big_alert: big-alert {
++					temperature = <80000>;
++					hysteresis = <5000>;
++					type = "passive";
++				};
++
++				big_hot: big-hot {
++					temperature = <95000>;
++					hysteresis = <10000>;
++					type = "passive";
++				};
++
++				big_crit: big-crit {
++					temperature = <105000>;
++					hysteresis = <2000>;
++					type = "critical";
++				};
++			};
++
++			cooling-maps {
++				map0 {
++					trip = <&big_alert>;
++					cooling-device = <&cpu7 0xffffffff 0xffffffff>;
++				};
++
++				map1 {
++					trip = <&big_hot>;
++					cooling-device = <&cpu7 11 0xffffffff>;
++				};
++			};
++		};
++
++		mid-thermal {
++			polling-delay-passive = <250>;
++			polling-delay = <1000>;
++			thermal-sensors = <&acpm_tmu 1>;
++
++			trips {
++				mid_alert: mid-alert {
++					temperature = <80000>;
++					hysteresis = <5000>;
++					type = "passive";
++				};
++
++				mid_hot: mid-hot {
++					temperature = <95000>;
++					hysteresis = <10000>;
++					type = "passive";
++				};
++
++				mid_crit: mid-crit {
++					temperature = <105000>;
++					hysteresis = <2000>;
++					type = "critical";
++				};
++			};
++
++			cooling-maps {
++				map0 {
++					trip = <&mid_alert>;
++					cooling-device = <&cpu4 0xffffffff 0xffffffff>;
++				};
++
++				map1 {
++					trip = <&mid_hot>;
++					cooling-device = <&cpu4 14 0xffffffff>;
++				};
++			};
++		};
++
++		little-thermal {
++			polling-delay-passive = <250>;
++			polling-delay = <1000>;
++			thermal-sensors = <&acpm_tmu 2>;
++
++			trips {
++				little_alert: little-alert {
++					temperature = <80000>;
++					hysteresis = <5000>;
++					type = "passive";
++				};
++
++				little_hot: little-hot {
++					temperature = <95000>;
++					hysteresis = <10000>;
++					type = "passive";
++				};
++
++				little_crit: little-crit {
++					temperature = <105000>;
++					hysteresis = <2000>;
++					type = "critical";
++				};
++			};
++
++			cooling-maps {
++				map0 {
++					trip = <&little_alert>;
++					cooling-device = <&cpu0 0xffffffff 0xffffffff>;
++				};
++
++				map1 {
++					trip = <&little_hot>;
++					cooling-device = <&cpu0 11 0xffffffff>;
++				};
++			};
++		};
++
++		gpu-thermal {
++			polling-delay-passive = <1000>;
++			polling-delay = <2000>;
++			thermal-sensors = <&acpm_tmu 3>;
++
++			trips {
++				gpu_alert: gpu-alert {
++					temperature = <85000>;
++					hysteresis = <5000>;
++					type = "passive";
++				};
++
++				gpu_crit: gpu-crit {
++					temperature = <105000>;
++					hysteresis = <2000>;
++					type = "critical";
++				};
++			};
++
++			/* panthor's devfreq cooling: step_wise walks the GPU down its OPPs. */
++			cooling-maps {
++				map0 {
++					trip = <&gpu_alert>;
++					cooling-device = <&gpu 0xffffffff 0xffffffff>;
++				};
++			};
+ 		};
+ 	};
+ 
+@@ -1115,6 +1492,7 @@ gpu: gpu@1f000000 {
+ 				 <&cmu_g3d CLK_GOUT_G3D_COREGROUP>,
+ 				 <&cmu_g3d CLK_GOUT_G3D_STACKS>;
+ 			clock-names = "core", "coregroup", "stacks";
++			#cooling-cells = <2>;
+ 			status = "disabled";
+ 		};
+ 

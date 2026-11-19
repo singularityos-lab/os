@@ -1,0 +1,51 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Mon, 12 Oct 2026 01:34:30 -0400
+Subject: [PATCH] arm64: dts: exynos: google: gs201: add Trusty
+
+Describe the Trusty secure OS that the bootloader starts, with the irq,
+log and virtio children of Google's gs201 device tree: Trusty IPIs 8-15
+on GIC SGIs 8-15. Disabled: the driver calls into the secure world at
+probe, and fingerprint bring-up enables it one gate at a time.
+
+Assisted-by: LLM
+Signed-off-by: Derek Ross <derekross@gmail.com>
+---
+ arch/arm64/boot/dts/exynos/google/gs201.dtsi | 24 ++++++++++++++++++++
+ 1 file changed, 24 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/gs201.dtsi b/arch/arm64/boot/dts/exynos/google/gs201.dtsi
+index f861f29e6..87882e481 100644
+--- a/arch/arm64/boot/dts/exynos/google/gs201.dtsi
++++ b/arch/arm64/boot/dts/exynos/google/gs201.dtsi
+@@ -795,6 +795,30 @@ dpm-stubs {
+ 		log_slcdump: log-slcdump { status = "disabled"; };
+ 	};
+ 
++	/*
++	 * Trusty, the secure OS that runs from the bootloader's tzsw image.
++	 * Disabled until the fingerprint bring-up gates (it talks to the
++	 * secure world at probe).
++	 */
++	trusty: trusty {
++		compatible = "android,trusty-smc-v1";
++		status = "disabled";
++
++		irq {
++			compatible = "android,trusty-irq-v1";
++			/* Trusty IPIs 8-15 are GIC SGIs 8-15 */
++			ipi-range = <8 15 8>;
++		};
++
++		log {
++			compatible = "android,trusty-log-v1";
++		};
++
++		virtio {
++			compatible = "android,trusty-virtio-v1";
++		};
++	};
++
+ 	soc: soc@0 {
+ 		compatible = "simple-bus";
+ 		#address-cells = <1>;

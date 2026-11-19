@@ -1,0 +1,74 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Tue, 13 Oct 2026 08:56:47 -0400
+Subject: [PATCH] soc: google: cpif: add the uplink priority queue option
+
+Stock builds CONFIG_MODEM_IF_QOS (pantah_defconfig): the rmnet devices
+get one transmit queue per uplink packet processor queue, and
+vnet_select_queue() sends TCP ACKs to queue 1, which xmit_ipc_to_pktproc()
+maps to the modem's high-priority queue (pktproc_ul_hiprio_ack_only in
+stock's device tree). The port has the code but no Kconfig symbol.
+
+Add it, off by default and only with the uplink packet processor. As
+that now follows the device tree, give the devices at least one transmit
+queue and select queue 0 while they have only one.
+
+Assisted-by: LLM
+Signed-off-by: Derek Ross <derekross@gmail.com>
+---
+ drivers/soc/google/cpif/Kconfig           | 12 ++++++++++++
+ drivers/soc/google/cpif/modem_io_device.c |  3 ++-
+ drivers/soc/google/cpif/net_io_device.c   |  3 ++-
+ 3 files changed, 16 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/soc/google/cpif/Kconfig b/drivers/soc/google/cpif/Kconfig
+index 549a1c306..6c618fa9c 100644
+--- a/drivers/soc/google/cpif/Kconfig
++++ b/drivers/soc/google/cpif/Kconfig
+@@ -82,6 +82,18 @@ config CP_PKTPROC_UL
+ 
+ 	  Not yet tested on hardware here. If unsure, say N.
+ 
++config MODEM_IF_QOS
++	bool "Uplink priority queue for TCP ACKs (bring-up)"
++	depends on CP_PKTPROC_UL
++	help
++	  Gives the rmnet devices one transmit queue per uplink packet
++	  processor queue and sends TCP ACKs on the first, the modem's
++	  high-priority queue, as stock does (pantah_defconfig:
++	  CONFIG_MODEM_IF_QOS=m). Without it every packet goes to the
++	  normal-priority queue.
++
++	  If unsure, say N.
++
+ config SHM_IPC
+ 	tristate "Shared-memory regions for the modem"
+ 	default EXYNOS_MODEM_IF
+diff --git a/drivers/soc/google/cpif/modem_io_device.c b/drivers/soc/google/cpif/modem_io_device.c
+index a1c384295..f5f439dad 100644
+--- a/drivers/soc/google/cpif/modem_io_device.c
++++ b/drivers/soc/google/cpif/modem_io_device.c
+@@ -749,7 +749,8 @@ int sipc5_init_io_device(struct io_device *iod, struct mem_link_device *mld)
+ 
+ 	case IODEV_NET:
+ #if IS_ENABLED(CONFIG_MODEM_IF_QOS)
+-		txqs = mld->pktproc_ul.num_queue;
++		/* none without the packet processor in the device tree */
++		txqs = max(mld->pktproc_ul.num_queue, 1U);
+ #endif
+ #if IS_ENABLED(CONFIG_CP_PKTPROC)
+ 		/* none without the packet processor in the device tree */
+diff --git a/drivers/soc/google/cpif/net_io_device.c b/drivers/soc/google/cpif/net_io_device.c
+index 2afa972c9..286b9ae93 100644
+--- a/drivers/soc/google/cpif/net_io_device.c
++++ b/drivers/soc/google/cpif/net_io_device.c
+@@ -331,7 +331,8 @@ static u16 vnet_select_queue(struct net_device *dev, struct sk_buff *skb,
+ 	struct vnet *vnet = netdev_priv(dev);
+ #endif
+ 
+-	if (!skb)
++	/* one queue without the uplink packet processor */
++	if (!skb || dev->real_num_tx_queues < 2)
+ 		return 0;
+ 
+ 	if (is_tcp_ack(skb))

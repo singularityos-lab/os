@@ -1,0 +1,33 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Thu, 22 Oct 2026 16:15:17 -0700
+Subject: [PATCH] dt-bindings: ufs: exynos: Add Tensor G4
+
+Describe the Tensor G4 UFS controller with the six clock inputs used by
+the Google variants. Host and PHY support are separate driver changes.
+
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ Documentation/devicetree/bindings/ufs/samsung,exynos-ufs.yaml | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/Documentation/devicetree/bindings/ufs/samsung,exynos-ufs.yaml b/Documentation/devicetree/bindings/ufs/samsung,exynos-ufs.yaml
+index 6e40fe274..e6053c655 100644
+--- a/Documentation/devicetree/bindings/ufs/samsung,exynos-ufs.yaml
++++ b/Documentation/devicetree/bindings/ufs/samsung,exynos-ufs.yaml
+@@ -17,6 +17,7 @@ properties:
+     enum:
+       - google,gs101-ufs
+       - google,gs201-ufs
++      - google,zumapro-ufs
+       - samsung,exynos7-ufs
+       - samsung,exynosautov9-ufs
+       - samsung,exynosautov9-ufs-vh
+@@ -94,6 +95,7 @@ allOf:
+             enum:
+               - google,gs101-ufs
+               - google,gs201-ufs
++              - google,zumapro-ufs
+ 
+     then:
+       properties:

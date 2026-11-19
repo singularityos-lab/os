@@ -1,0 +1,38 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Brett-Michael Green <brett@bmgvisualtech.com>
+Date: Fri, 30 Oct 2026 16:23:48 -0400
+Subject: [PATCH] arm64: dts: exynos: google: zuma-husky: add the main PMIC
+
+Describe the S2MPG14 behind ACPM. No regulators yet: each will come with
+its consumer, starting with the touchscreen's.
+
+Assisted-by: LLM
+Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
+---
+ arch/arm64/boot/dts/exynos/google/zuma-husky.dts | 13 +++++++++++++
+ 1 file changed, 13 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/zuma-husky.dts b/arch/arm64/boot/dts/exynos/google/zuma-husky.dts
+index 074eee930..283481bb0 100644
+--- a/arch/arm64/boot/dts/exynos/google/zuma-husky.dts
++++ b/arch/arm64/boot/dts/exynos/google/zuma-husky.dts
+@@ -117,6 +117,19 @@ cont_splash_mem: splash@fac00000 {
+ 	};
+ };
+ 
++/*
++ * The main PMIC, behind the ACPM firmware. Its regulators are described
++ * with their consumers, which run them through the firmware.
++ */
++&acpm_ipc {
++	pmic-1 {
++		compatible = "samsung,s2mpg14-pmic";
++
++		regulators {
++		};
++	};
++};
++
+ &usb_dwc3 {
+ 	status = "okay";
+ };

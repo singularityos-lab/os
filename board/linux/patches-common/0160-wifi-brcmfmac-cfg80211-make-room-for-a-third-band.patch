@@ -1,0 +1,29 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Brett-Michael Green <brett@bmgvisualtech.com>
+Date: Sat, 31 Oct 2026 11:45:09 -0400
+Subject: [PATCH] wifi: brcmfmac: cfg80211: make room for a third band
+
+GET_BANDLIST returns the number of bands and then the bands. Firmware
+with a 6 GHz band, like the BCM4398's, reports three, and fails the
+call when the buffer only has room for two ("could not obtain band
+info: err=-52"). Only 2.4 and 5 GHz are set up from it, as before.
+
+Assisted-by: LLM
+Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
+---
+ drivers/net/wireless/broadcom/brcm80211/brcmfmac/cfg80211.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/cfg80211.c b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/cfg80211.c
+index 84341e7f8..473b49cc1 100644
+--- a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/cfg80211.c
++++ b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/cfg80211.c
+@@ -7765,7 +7765,7 @@ static int brcmf_setup_wiphy(struct wiphy *wiphy, struct brcmf_if *ifp)
+ 	struct ieee80211_supported_band *band;
+ 	u16 max_interfaces = 0;
+ 	bool gscan;
+-	__le32 bandlist[3];
++	__le32 bandlist[4];	/* count, then up to 2.4, 5 and 6 GHz */
+ 	u32 n_bands;
+ 	int err, i;
+ 

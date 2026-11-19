@@ -1,0 +1,128 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Tue, 27 Oct 2026 12:29:15 -0647
+Subject: [PATCH] Bluetooth: hci_bcm: Add the BCM4383 and its REG_ON latch
+
+Add the BCM4383, the Bluetooth half of the Google Pixel 9a's Wi-Fi and
+Bluetooth combo chip. Like the BCM4389 it wants its shutdown line held
+low for 30 ms, with the UART open, before it is raised (Google's
+nitrous.c does the same for it).
+
+On the 9a BT_REG_ON reaches the chip through a flip-flop whose clock is
+brcm,ble-dbo-gpios: a level on the shutdown line only counts once that
+line rises. When a board has it, clock it after every change of the
+shutdown line, and lower DEV_WAKE before REG_ON goes low, as Google's
+driver does (toggle_dbo_ff() in nitrous.c); and latch REG_ON low again
+when the driver goes, so the chip doesn't stay powered.
+
+Tested on the Pixel 9a, reloading hci_uart with this file: the ROM
+answers as BCM4383A1, the patch loads and the controller reports
+BCM4383A3; with the board address set and BlueZ running, discovery
+finds devices.
+
+Link: https://android.googlesource.com/kernel/google-modules/bluetooth/broadcom/+/d7bd4dd23cc52fedd2e36c6e45c12f0c2a595ae0/nitrous.c
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ drivers/bluetooth/hci_bcm.c | 44 +++++++++++++++++++++++++++++++++++++
+ 1 file changed, 44 insertions(+)
+
+diff --git a/drivers/bluetooth/hci_bcm.c b/drivers/bluetooth/hci_bcm.c
+index f7f2228c4..2b1b47550 100644
+--- a/drivers/bluetooth/hci_bcm.c
++++ b/drivers/bluetooth/hci_bcm.c
+@@ -80,6 +80,7 @@ struct bcm_device_data {
+  *	deassert = Bluetooth device may sleep when sleep criteria are met
+  * @shutdown: BT_REG_ON pin,
+  *	power up or power down Bluetooth device internal regulators
++ * @ble_dbo: optional enable of the flip-flop that latches BT_REG_ON
+  * @reset: BT_RST_N pin,
+  *	active low resets the Bluetooth logic core
+  * @set_device_wakeup: callback to toggle BT_WAKE pin
+@@ -125,6 +126,7 @@ struct bcm_device {
+ 	const char		*name;
+ 	struct gpio_desc	*device_wakeup;
+ 	struct gpio_desc	*shutdown;
++	struct gpio_desc	*ble_dbo;
+ 	struct gpio_desc	*reset;
+ 	int			(*set_device_wakeup)(struct bcm_device *, bool);
+ 	int			(*set_shutdown)(struct bcm_device *, bool);
+@@ -1082,9 +1084,25 @@ static int bcm_gpio_set_device_wakeup(struct bcm_device *dev, bool awake)
+ 	return 0;
+ }
+ 
++/* Clock BT_REG_ON into the BCM4383's flip-flop. */
++static void bcm_gpio_latch_ble_dbo(struct bcm_device *dev)
++{
++	gpiod_set_value_cansleep(dev->ble_dbo, 0);
++	udelay(1);
++	gpiod_set_value_cansleep(dev->ble_dbo, 1);
++	udelay(1);
++	gpiod_set_value_cansleep(dev->ble_dbo, 0);
++}
++
+ static int bcm_gpio_set_shutdown(struct bcm_device *dev, bool powered)
+ {
++	/* With a latch, DEV_WAKE must fall before REG_ON is latched low. */
++	if (dev->ble_dbo && !powered)
++		gpiod_set_value_cansleep(dev->device_wakeup, 0);
++
+ 	gpiod_set_value_cansleep(dev->shutdown, powered);
++	if (dev->ble_dbo)
++		bcm_gpio_latch_ble_dbo(dev);
+ 	if (dev->reset)
+ 		/*
+ 		 * The reset line is asserted on powerdown and deasserted
+@@ -1097,6 +1115,11 @@ static int bcm_gpio_set_shutdown(struct bcm_device *dev, bool powered)
+ 	return 0;
+ }
+ 
++static void bcm_gpio_latch_power_off(void *data)
++{
++	bcm_gpio_set_shutdown(data, false);
++}
++
+ /* Try a bunch of names for TXCO */
+ static struct clk *bcm_get_txco(struct device *dev)
+ {
+@@ -1159,6 +1182,22 @@ static int bcm_get_resources(struct bcm_device *dev)
+ 	dev->set_device_wakeup = bcm_gpio_set_device_wakeup;
+ 	dev->set_shutdown = bcm_gpio_set_shutdown;
+ 
++	/* Requested high: its rising edge latches REG_ON, low by now. */
++	dev->ble_dbo = devm_gpiod_get_optional(dev->dev, "brcm,ble-dbo",
++					       GPIOD_OUT_HIGH);
++	if (IS_ERR(dev->ble_dbo))
++		return PTR_ERR(dev->ble_dbo);
++	if (dev->ble_dbo) {
++		if (!dev->shutdown || !dev->device_wakeup)
++			return dev_err_probe(dev->dev, -EINVAL,
++					     "BLE DBO needs the REG_ON and DEV_WAKE GPIOs\n");
++		/* Leave the latch holding REG_ON low when the driver goes. */
++		err = devm_add_action_or_reset(dev->dev,
++					       bcm_gpio_latch_power_off, dev);
++		if (err)
++			return err;
++	}
++
+ 	dev->supplies[0].supply = "vbat";
+ 	dev->supplies[1].supply = "vddio";
+ 	err = devm_regulator_bulk_get(dev->dev, BCM_NUM_SUPPLIES,
+@@ -1612,6 +1651,10 @@ static struct bcm_device_data bcm4389_device_data = {
+ 	.power_on_delay_ms = 30,
+ };
+ 
++static struct bcm_device_data bcm4383_device_data = {
++	.power_on_delay_ms = 30,
++};
++
+ static struct bcm_device_data bcm43438_device_data = {
+ 	.drive_rts_on_open = true,
+ };
+@@ -1634,6 +1677,7 @@ static const struct of_device_id bcm_bluetooth_of_match[] = {
+ 	{ .compatible = "brcm,bcm43430a1-bt" },
+ 	{ .compatible = "brcm,bcm43438-bt", .data = &bcm43438_device_data },
+ 	{ .compatible = "brcm,bcm4349-bt", .data = &bcm43438_device_data },
++	{ .compatible = "brcm,bcm4383-bt", .data = &bcm4383_device_data },
+ 	{ .compatible = "brcm,bcm4389-bt", .data = &bcm4389_device_data },
+ 	{ .compatible = "brcm,bcm43540-bt", .data = &bcm4354_device_data },
+ 	{ .compatible = "brcm,bcm4335a0" },

@@ -1,0 +1,30 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Tue, 27 Oct 2026 19:09:59 -0647
+Subject: [PATCH] dt-bindings: net: nfc: nxp,nci: Allow a reference clock
+
+Some boards gate the controller's reference clock, or the SoC pad it
+comes from, in a clock provider: the Pixel 9a's ST54L takes its clock
+from a pad the PMU enables. Allow one clock.
+
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ Documentation/devicetree/bindings/net/nfc/nxp,nci.yaml | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/Documentation/devicetree/bindings/net/nfc/nxp,nci.yaml b/Documentation/devicetree/bindings/net/nfc/nxp,nci.yaml
+index fbf2b14f6..a1d4603a5 100644
+--- a/Documentation/devicetree/bindings/net/nfc/nxp,nci.yaml
++++ b/Documentation/devicetree/bindings/net/nfc/nxp,nci.yaml
+@@ -26,6 +26,11 @@ properties:
+               - st,st54l
+           - const: nxp,nxp-nci-i2c
+ 
++  clocks:
++    maxItems: 1
++    description: The controller's reference clock, or the SoC clock pad
++      that feeds it on the controller's request
++
+   enable-gpios:
+     description: Output GPIO pin used for enabling/disabling the controller
+ 

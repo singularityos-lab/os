@@ -1,0 +1,113 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Mon, 12 Oct 2026 17:13:58 -0400
+Subject: [PATCH] PCI: dwc: gs201-cp: optionally log the modem's cp2ap line
+ changes
+
+During the first link tests UFS ran its error handler twice around modem
+power changes (a PA-layer LINERESET indication, recovered at once), once
+about 21 s after the modem was powered with nothing else happening on
+the AP side. To see whether the modem itself changes state at those
+moments (its ROM giving up on the link and resetting, for example), the
+cp2ap lines need timestamps on the same clock as the UFS messages;
+polling the status file cannot give that.
+
+With watch_lines=1 the driver requests both-edge interrupts on the four
+cp2ap inputs, as Google's CPIF does for three of them, and logs each edge
+(rate-limited). The lines are only read. Off by default.
+
+Assisted-by: LLM
+Signed-off-by: Derek Ross <derekross@gmail.com>
+---
+ drivers/pci/controller/dwc/pcie-gs201-cp.c | 57 ++++++++++++++++++++++
+ 1 file changed, 57 insertions(+)
+
+diff --git a/drivers/pci/controller/dwc/pcie-gs201-cp.c b/drivers/pci/controller/dwc/pcie-gs201-cp.c
+index dbd1b91cb..1d0efd6eb 100644
+--- a/drivers/pci/controller/dwc/pcie-gs201-cp.c
++++ b/drivers/pci/controller/dwc/pcie-gs201-cp.c
+@@ -65,6 +65,10 @@ static bool allow_hw;
+ module_param(allow_hw, bool, 0444);
+ MODULE_PARM_DESC(allow_hw, "Allow the debugfs bring-up steps to touch the hardware (default: off)");
+ 
++static bool watch_lines;
++module_param(watch_lines, bool, 0444);
++MODULE_PARM_DESC(watch_lines, "Log every edge on the modem's cp2ap lines, with its time (default: off)");
++
+ /* ELBI (sub-controller) registers, as in pcie-gs201.c */
+ #define CP_ELBI_IRQ0			0x000
+ #define CP_ELBI_IRQ1			0x004
+@@ -154,6 +158,10 @@ struct gs201_pcie_cp {
+ 	struct pinctrl_state *pins_active;
+ 	struct gpio_desc *out[CP_NUM_OUTPUTS];
+ 	struct gpio_desc *in[CP_NUM_INPUTS];
++	struct gs201_pcie_cp_watch {
++		struct gs201_pcie_cp *cp;
++		unsigned int line;
++	} watch[CP_NUM_INPUTS];
+ 	struct dentry *debugfs;
+ 	struct mutex lock;		/* serializes the steps */
+ 	u32 num_lanes;
+@@ -545,6 +553,52 @@ static int cp_status_show(struct seq_file *s, void *unused)
+ }
+ DEFINE_SHOW_ATTRIBUTE(cp_status);
+ 
++/*
++ * watch_lines: log each edge on a cp2ap input with the kernel's timestamp,
++ * to line the modem's own state changes up with other events in the log
++ * (the UFS errors seen around modem power changes in M2). The lines are
++ * only read; requesting the interrupt switches the pin to its EINT
++ * function, which is how stock uses all four.
++ */
++static irqreturn_t cp_watch_irq(int irq, void *data)
++{
++	struct gs201_pcie_cp_watch *w = data;
++	struct gs201_pcie_cp *cp = w->cp;
++
++	dev_info_ratelimited(cp->dev, "%s -> %d\n", cp_input_names[w->line],
++			     gpiod_get_raw_value_cansleep(cp->in[w->line]));
++	return IRQ_HANDLED;
++}
++
++static void cp_watch_lines(struct gs201_pcie_cp *cp)
++{
++	unsigned int i;
++	int irq, ret;
++
++	for (i = 0; i < CP_NUM_INPUTS; i++) {
++		cp->watch[i].cp = cp;
++		cp->watch[i].line = i;
++		irq = gpiod_to_irq(cp->in[i]);
++		if (irq < 0) {
++			dev_warn(cp->dev, "%s: no interrupt (%d), not watched\n",
++				 cp_input_names[i], irq);
++			continue;
++		}
++		ret = devm_request_threaded_irq(cp->dev, irq, NULL, cp_watch_irq,
++						IRQF_TRIGGER_RISING |
++						IRQF_TRIGGER_FALLING |
++						IRQF_ONESHOT,
++						cp_input_names[i], &cp->watch[i]);
++		if (ret)
++			dev_warn(cp->dev, "%s: cannot watch: %d\n",
++				 cp_input_names[i], ret);
++		else
++			dev_info(cp->dev, "watching %s (now %d)\n",
++				 cp_input_names[i],
++				 gpiod_get_raw_value_cansleep(cp->in[i]));
++	}
++}
++
+ static int gs201_pcie_cp_probe(struct platform_device *pdev)
+ {
+ 	struct device *dev = &pdev->dev;
+@@ -633,6 +687,9 @@ static int gs201_pcie_cp_probe(struct platform_device *pdev)
+ 	}
+ 	fwnode_handle_put(modem);
+ 
++	if (watch_lines)
++		cp_watch_lines(cp);
++
+ 	cp->debugfs = debugfs_create_dir("gs201-pcie-cp", NULL);
+ 	debugfs_create_file("status", 0400, cp->debugfs, cp, &cp_status_fops);
+ 	debugfs_create_file("ctl", 0200, cp->debugfs, cp, &cp_ctl_fops);

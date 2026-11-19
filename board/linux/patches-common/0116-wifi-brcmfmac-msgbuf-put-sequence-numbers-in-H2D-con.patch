@@ -1,0 +1,150 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Mon, 12 Oct 2026 00:33:49 -0400
+Subject: [PATCH] wifi: brcmfmac: msgbuf: put sequence numbers in H2D control
+ messages
+
+Broadcom's driver puts a sequence number in the common header of every
+message it writes to the H2D control submit and rxpost submit rings:
+the byte brcmfmac calls rsvd0 is cmn_msg_hdr_t.epoch, set to the ring's
+seqnum modulo 253, with seqnum starting at 254 and counting up per
+message (bcmdhd bcmmsgbuf.h H2D_EPOCH_MODULO/H2D_EPOCH_INIT_VAL,
+dhd_msgbuf.c dhd_prot_h2d_sync_init() and every ioctl, buffer post and
+flow ring create/delete request). Tx flow rings carry none.
+
+The BCM4389 firmware Google ships (20.101.90) checks these numbers: it
+has an "h2d livelock error" trap for messages whose number does not
+arrive, and brcmfmac leaves the byte at 0. Number the messages the same
+way, after a message is final so a cancelled slot does not use a number.
+While here, clear the ioctl and flow ring create/delete slots before
+filling them, as the buffer posts already do, so no stale bytes from an
+earlier message are left in the fields brcmfmac does not set.
+
+Assisted-by: LLM
+Signed-off-by: Derek Ross <derekross@gmail.com>
+---
+ .../broadcom/brcm80211/brcmfmac/msgbuf.c      | 34 +++++++++++++++++++
+ 1 file changed, 34 insertions(+)
+
+diff --git a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/msgbuf.c b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/msgbuf.c
+index ff47d4827..664f44607 100644
+--- a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/msgbuf.c
++++ b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/msgbuf.c
+@@ -73,6 +73,13 @@
+ 
+ #define BRCMF_MAX_TXSTATUS_WAIT_RETRIES		10
+ 
++/* Sequence number ("epoch") in the common header of each message on the
++ * H2D control and rxpost submission rings, modulo 253; the first message
++ * carries 1.
++ */
++#define BRCMF_MSGBUF_H2D_EPOCH_MODULO		253
++#define BRCMF_MSGBUF_H2D_EPOCH_INIT		(BRCMF_MSGBUF_H2D_EPOCH_MODULO + 1)
++
+ struct msgbuf_common_hdr {
+ 	u8				msgtype;
+ 	u8				ifidx;
+@@ -258,6 +265,7 @@ struct brcmf_msgbuf {
+ 	u16 data_seq_no;
+ 	u16 ioctl_seq_no;
+ 	u32 reqid;
++	u32 h2d_seqnum[BRCMF_NROF_H2D_COMMON_MSGRINGS];
+ 	wait_queue_head_t ioctl_resp_wait;
+ 	bool ctl_completed;
+ 
+@@ -292,6 +300,15 @@ struct brcmf_msgbuf_pktids {
+ static void brcmf_msgbuf_rxbuf_ioctlresp_post(struct brcmf_msgbuf *msgbuf);
+ 
+ 
++/* Called with the ring's write slot reserved, once the message is final. */
++static void brcmf_msgbuf_set_epoch(struct brcmf_msgbuf *msgbuf, u32 ringid,
++				   struct msgbuf_common_hdr *msg)
++{
++	msg->rsvd0 = msgbuf->h2d_seqnum[ringid] % BRCMF_MSGBUF_H2D_EPOCH_MODULO;
++	msgbuf->h2d_seqnum[ringid]++;
++}
++
++
+ static struct brcmf_msgbuf_pktids *
+ brcmf_msgbuf_init_pktids(u32 nr_array_entries,
+ 			 enum dma_data_direction direction)
+@@ -451,6 +468,7 @@ static int brcmf_msgbuf_tx_ioctl(struct brcmf_pub *drvr, int ifidx,
+ 	msgbuf->reqid++;
+ 
+ 	request = (struct msgbuf_ioctl_req_hdr *)ret_ptr;
++	memset(request, 0, sizeof(*request));
+ 	request->msg.msgtype = MSGBUF_TYPE_IOCTLPTR_REQ;
+ 	request->msg.ifidx = (u8)ifidx;
+ 	request->msg.flags = 0;
+@@ -463,6 +481,8 @@ static int brcmf_msgbuf_tx_ioctl(struct brcmf_pub *drvr, int ifidx,
+ 	request->input_buf_len = cpu_to_le16(buf_len);
+ 	request->req_buf_addr.high_addr = cpu_to_le32(msgbuf->ioctbuf_phys_hi);
+ 	request->req_buf_addr.low_addr = cpu_to_le32(msgbuf->ioctbuf_phys_lo);
++	brcmf_msgbuf_set_epoch(msgbuf, BRCMF_H2D_MSGRING_CONTROL_SUBMIT,
++			       &request->msg);
+ 	if (buf)
+ 		memcpy(msgbuf->ioctbuf, buf, buf_len);
+ 	else
+@@ -642,6 +662,7 @@ brcmf_msgbuf_flowring_create_worker(struct brcmf_msgbuf *msgbuf,
+ 	}
+ 
+ 	create = (struct msgbuf_tx_flowring_create_req *)ret_ptr;
++	memset(create, 0, sizeof(*create));
+ 	create->msg.msgtype = MSGBUF_TYPE_FLOW_RING_CREATE;
+ 	create->msg.ifidx = work->ifidx;
+ 	create->msg.request_id = 0;
+@@ -655,6 +676,8 @@ brcmf_msgbuf_flowring_create_worker(struct brcmf_msgbuf *msgbuf,
+ 	create->flow_ring_addr.low_addr = cpu_to_le32(address & 0xffffffff);
+ 	create->max_items = cpu_to_le16(BRCMF_H2D_TXFLOWRING_MAX_ITEM);
+ 	create->len_item = cpu_to_le16(BRCMF_H2D_TXFLOWRING_ITEMSIZE);
++	brcmf_msgbuf_set_epoch(msgbuf, BRCMF_H2D_MSGRING_CONTROL_SUBMIT,
++			       &create->msg);
+ 
+ 	brcmf_dbg(MSGBUF, "Send Flow Create Req flow ID %d for peer %pM prio %d ifindex %d\n",
+ 		  flowid, work->da, create->tid, work->ifidx);
+@@ -996,6 +1019,8 @@ static u32 brcmf_msgbuf_rxbuf_data_post(struct brcmf_msgbuf *msgbuf, u32 count)
+ 			cpu_to_le32(address >> 32);
+ 		rx_bufpost->data_buf_addr.low_addr =
+ 			cpu_to_le32(address & 0xffffffff);
++		brcmf_msgbuf_set_epoch(msgbuf, BRCMF_H2D_MSGRING_RXPOST_SUBMIT,
++				       &rx_bufpost->msg);
+ 
+ 		ret_ptr += brcmf_commonring_len_item(commonring);
+ 	}
+@@ -1096,6 +1121,8 @@ brcmf_msgbuf_rxbuf_ctrl_post(struct brcmf_msgbuf *msgbuf, bool event_buf,
+ 			cpu_to_le32(address >> 32);
+ 		rx_bufpost->host_buf_addr.low_addr =
+ 			cpu_to_le32(address & 0xffffffff);
++		brcmf_msgbuf_set_epoch(msgbuf, BRCMF_H2D_MSGRING_CONTROL_SUBMIT,
++				       &rx_bufpost->msg);
+ 
+ 		ret_ptr += brcmf_commonring_len_item(commonring);
+ 	}
+@@ -1478,6 +1505,7 @@ void brcmf_msgbuf_delete_flowring(struct brcmf_pub *drvr, u16 flowid)
+ 	}
+ 
+ 	delete = (struct msgbuf_tx_flowring_delete_req *)ret_ptr;
++	memset(delete, 0, sizeof(*delete));
+ 
+ 	ifidx = brcmf_flowring_ifidx_get(msgbuf->flow, flowid);
+ 
+@@ -1488,6 +1516,8 @@ void brcmf_msgbuf_delete_flowring(struct brcmf_pub *drvr, u16 flowid)
+ 	delete->flow_ring_id = cpu_to_le16(flowid +
+ 					   BRCMF_H2D_MSGRING_FLOWRING_IDSTART);
+ 	delete->reason = 0;
++	brcmf_msgbuf_set_epoch(msgbuf, BRCMF_H2D_MSGRING_CONTROL_SUBMIT,
++			       &delete->msg);
+ 
+ 	brcmf_dbg(MSGBUF, "Send Flow Delete Req flow ID %d, ifindex %d\n",
+ 		  flowid, ifidx);
+@@ -1617,6 +1647,10 @@ int brcmf_proto_msgbuf_attach(struct brcmf_pub *drvr)
+ 	drvr->proto->pd = msgbuf;
+ 
+ 	init_waitqueue_head(&msgbuf->ioctl_resp_wait);
++	msgbuf->h2d_seqnum[BRCMF_H2D_MSGRING_CONTROL_SUBMIT] =
++		BRCMF_MSGBUF_H2D_EPOCH_INIT;
++	msgbuf->h2d_seqnum[BRCMF_H2D_MSGRING_RXPOST_SUBMIT] =
++		BRCMF_MSGBUF_H2D_EPOCH_INIT;
+ 
+ 	msgbuf->commonrings =
+ 		(struct brcmf_commonring **)if_msgbuf->commonrings;

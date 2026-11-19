@@ -1,0 +1,112 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Mon, 12 Oct 2026 00:29:51 -0400
+Subject: [PATCH] wifi: brcmfmac: chip: size the BCM4389 SYSMEM from its RAM
+ banks
+
+brcmfmac decodes the SYSMEM core's coreinfo register with the SOCRAM
+layout (bank count in bits 7:4) and sizes banks from index 0. On the
+BCM4389 the SYSMEM coreinfo holds the RAM bank count in bits 4:0 and the
+ROM bank count in bits 9:5 (bits 23:16 and 31:24 from core revision 12),
+and the ROM banks come first in the bank index space. That is how
+Broadcom's own driver sizes it (bcmdhd siutils.c si_sysmem_size(),
+sbsysmem.h), and what Google's Pixel 7 Pro logs at boot:
+
+  si_sysmem_size: coreinfo:0x115 num_rom_banks:8 num_ram_baks:21
+  sysmem_banksize: bankidx:8 bankinfo:0xf00060f banksize:131072(0x20000)
+  ...
+  DHD: dongle ram size is set to 2752512(orig 2752512) at 0x200000
+
+With the SOCRAM decoding, coreinfo 0x115 reads as one bank, and bank 0
+is a ROM bank. The register dump of the failed load has the NVRAM length
+token (0xe8b4174b, the same as stock's) and 0x23a2d0, which is
+0x240000 minus the 23856-byte NVRAM: brcmfmac sized the RAM at 256 KiB
+instead of 2688 KiB, and wrote the NVRAM and the random seed into the
+1.7 MB firmware image it had just downloaded to 0x200000. The
+firmware crashed on start, and the shared RAM address read back as
+0xffffffff:
+
+  brcmf_pcie_download_fw_nvram: Invalid shared RAM address 0xffffffff
+
+Decode the BCM4389 the way Broadcom's driver does: count only the RAM
+banks and skip the ROM banks in front of them. Other SYSMEM chips
+(BCM4365/4366 family) keep the current decoding.
+
+Assisted-by: LLM
+Signed-off-by: Derek Ross <derekross@gmail.com>
+---
+ .../broadcom/brcm80211/brcmfmac/chip.c        | 43 ++++++++++++++++++-
+ 1 file changed, 41 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/chip.c b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/chip.c
+index 75b0af85f..e2a628dc3 100644
+--- a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/chip.c
++++ b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/chip.c
+@@ -162,6 +162,19 @@ struct sbconfig {
+ #define	SRCI_SRBSZ_SHIFT	0
+ #define SR_BSZ_BASE		14
+ 
++/* SYSMEM coreinfo as laid out on the BCM4389: RAM bank count in bits 4:0,
++ * ROM bank count in bits 9:5, and the ROM banks come first in the bank
++ * index space. Core revision 12 moved both counts up.
++ */
++#define SYSMEM_SRCI_SRNB_MASK		0x0000001f
++#define SYSMEM_SRCI_SRNB_SHIFT		0
++#define SYSMEM_SRCI_ROMNB_MASK		0x000003e0
++#define SYSMEM_SRCI_ROMNB_SHIFT		5
++#define SYSMEM_SRCI_NEW_SRNB_MASK	0x00ff0000
++#define SYSMEM_SRCI_NEW_SRNB_SHIFT	16
++#define SYSMEM_SRCI_NEW_ROMNB_MASK	0xff000000
++#define SYSMEM_SRCI_NEW_ROMNB_SHIFT	24
++
+ struct sbsocramregs {
+ 	u32 coreinfo;
+ 	u32 bwalloc;
+@@ -660,19 +673,45 @@ static u32 brcmf_chip_sysmem_ramsize(struct brcmf_core_priv *sysmem)
+ 	u32 coreinfo;
+ 	u32 idx;
+ 	u32 nb;
++	u32 nrb;
+ 	u32 banksize;
+ 
+ 	if (!brcmf_chip_iscoreup(&sysmem->pub))
+ 		brcmf_chip_resetcore(&sysmem->pub, 0, 0, 0);
+ 
+ 	coreinfo = brcmf_chip_core_read32(sysmem, SYSMEMREGOFFS(coreinfo));
+-	nb = (coreinfo & SRCI_SRNB_MASK) >> SRCI_SRNB_SHIFT;
++
++	switch (sysmem->chip->pub.chip) {
++	case BRCM_CC_4389_CHIP_ID:
++		/* Count the RAM banks only, and skip the ROM banks in
++		 * front of them.
++		 */
++		if (sysmem->pub.rev >= 12) {
++			nb = (coreinfo & SYSMEM_SRCI_NEW_SRNB_MASK) >>
++			     SYSMEM_SRCI_NEW_SRNB_SHIFT;
++			nrb = (coreinfo & SYSMEM_SRCI_NEW_ROMNB_MASK) >>
++			      SYSMEM_SRCI_NEW_ROMNB_SHIFT;
++		} else {
++			nb = (coreinfo & SYSMEM_SRCI_SRNB_MASK) >>
++			     SYSMEM_SRCI_SRNB_SHIFT;
++			nrb = (coreinfo & SYSMEM_SRCI_ROMNB_MASK) >>
++			      SYSMEM_SRCI_ROMNB_SHIFT;
++		}
++		break;
++	default:
++		nb = (coreinfo & SRCI_SRNB_MASK) >> SRCI_SRNB_SHIFT;
++		nrb = 0;
++		break;
++	}
+ 
+ 	for (idx = 0; idx < nb; idx++) {
+-		brcmf_chip_socram_banksize(sysmem, idx, &banksize);
++		brcmf_chip_socram_banksize(sysmem, nrb + idx, &banksize);
+ 		memsize += banksize;
+ 	}
+ 
++	brcmf_dbg(INFO, "SYSMEM rev %u coreinfo 0x%08x: %u ROM, %u RAM banks\n",
++		  sysmem->pub.rev, coreinfo, nrb, nb);
++
+ 	return memsize;
+ }
+ 

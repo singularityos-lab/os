@@ -1,0 +1,35 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?=C3=81ngel=20Ren=C3=A9?=
+ <17342133+angelrenefm@users.noreply.github.com>
+Date: Sat, 14 Nov 2026 19:27:02 +0100
+Subject: [PATCH] media: s5p-mfc: size the encoder bitstream buffer when the
+ client does not
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+A client may leave the CAPTURE sizeimage to the driver (v4l2-ctl does).
+The encoder then keeps 0 and fails later when it allocates the buffers.
+Use the variant's CPB size.
+
+Assisted-by: LLM
+Signed-off-by: Ángel René <17342133+angelrenefm@users.noreply.github.com>
+---
+ drivers/media/platform/samsung/s5p-mfc/s5p_mfc_enc.c | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_enc.c b/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_enc.c
+index c71536a7d..df9566779 100644
+--- a/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_enc.c
++++ b/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_enc.c
+@@ -1496,6 +1496,10 @@ static int vidioc_s_fmt(struct file *file, void *priv, struct v4l2_format *f)
+ 		ctx->dst_fmt = find_format(f, MFC_FMT_ENC);
+ 		ctx->state = MFCINST_INIT;
+ 		ctx->codec_mode = ctx->dst_fmt->codec_mode;
++		/* A client may leave the bitstream buffer's size to us */
++		if (!pix_fmt_mp->plane_fmt[0].sizeimage)
++			pix_fmt_mp->plane_fmt[0].sizeimage =
++				dev->variant->buf_size->cpb;
+ 		ctx->enc_dst_buf_size =	pix_fmt_mp->plane_fmt[0].sizeimage;
+ 		pix_fmt_mp->plane_fmt[0].bytesperline = 0;
+ 		ctx->dst_bufs_cnt = 0;

@@ -1,0 +1,56 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Josip=20Bila=C4=87?=
+ <39159422+bilacc@users.noreply.github.com>
+Date: Thu, 22 Oct 2026 07:05:54 +0000
+Subject: [PATCH] arm64: dts: exynos: google: gs101-oriole: add soc_id and
+ bootargs
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Oriole boots through the same ABL as raven, so it needs the same two
+board properties raven got with the gs101 bootloader glue; the shared
+part of that change (dpm stubs, watchdog_cl1, -@) already covers it.
+
+- soc_id, which ABL matches the base DTB on. Google's oriole factory
+  image (oriole-cp3a.261005.002.a1) ships two base DTBs in vendor_boot,
+  with soc_id <0x9845000 0x00> and <0x9845001 0x00>. Build with the B0
+  value, as raven does; the image tooling writes the A0 copy from this
+  one. Without a soc_id the tooling refuses the oriole DTB.
+- /chosen/bootargs with panic=10, since ABL appends console=null and a
+  panic would otherwise hang silently.
+
+Both hunks match raven's board file line for line.
+
+Assisted-by: claude-opus-5-5 dt-validate checkpatch
+Signed-off-by: Josip Bilać <39159422+bilacc@users.noreply.github.com>
+---
+ .../arm64/boot/dts/exynos/google/gs101-oriole.dts | 15 +++++++++++++++
+ 1 file changed, 15 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/gs101-oriole.dts b/arch/arm64/boot/dts/exynos/google/gs101-oriole.dts
+index c5a3958c2..28a567fc0 100644
+--- a/arch/arm64/boot/dts/exynos/google/gs101-oriole.dts
++++ b/arch/arm64/boot/dts/exynos/google/gs101-oriole.dts
+@@ -14,6 +14,21 @@
+ / {
+ 	model = "Oriole";
+ 	compatible = "google,gs101-oriole", "google,gs101";
++
++	/*
++	 * ABL picks the base DTB by soc_id (product id 0x09845000 | major
++	 * revision); the factory vendor_boot carries one per revision. B0 = 1.
++	 */
++	soc_id = <0x09845001 0x0>;
++
++	chosen {
++		/*
++		 * ABL appends its own arguments (console=null among them), so a
++		 * panic is silent: panic=10 reboots instead of hanging. init hands
++		 * over to the Arch root on userdata when it finds one.
++		 */
++		bootargs = "console=tty0 panic=10 clk_ignore_unused pd_ignore_unused rdinit=/init";
++	};
+ };
+ 
+ &acpm_ipc {

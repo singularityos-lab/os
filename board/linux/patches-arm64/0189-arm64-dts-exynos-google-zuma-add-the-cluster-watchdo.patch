@@ -1,0 +1,71 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Brett-Michael Green <brett@bmgvisualtech.com>
+Date: Thu, 22 Oct 2026 12:54:14 -0400
+Subject: [PATCH] arm64: dts: exynos: google: zuma: add the cluster watchdogs
+
+ABL hands over with both cluster watchdogs counting a 30 s timeout;
+without a driver taking them over, the phone resets about 80 s into
+boot (stock then reports watchdog,apc,early). Describe both. As for
+USB, a fixed clock stands in for their clocks until zuma has a clock
+driver: stock runs both counters from the 24.576 MHz oscillator.
+
+Assisted-by: LLM
+Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
+---
+ arch/arm64/boot/dts/exynos/google/zuma.dtsi | 37 +++++++++++++++++++++
+ 1 file changed, 37 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/zuma.dtsi b/arch/arm64/boot/dts/exynos/google/zuma.dtsi
+index 99a321f76..ec67fd2ce 100644
+--- a/arch/arm64/boot/dts/exynos/google/zuma.dtsi
++++ b/arch/arm64/boot/dts/exynos/google/zuma.dtsi
+@@ -211,12 +211,49 @@ clk_usb_stub: clock-usb-stub {
+ 		clock-output-names = "usb_stub";
+ 	};
+ 
++	/*
++	 * Stand-in for the watchdogs' clocks (zuma has no clock driver yet):
++	 * stock runs both counters from the 24.576 MHz oscillator, and ABL
++	 * leaves their gates open.
++	 */
++	clk_wdt_stub: clock-wdt-stub {
++		compatible = "fixed-clock";
++		#clock-cells = <0>;
++		clock-frequency = <24576000>;
++		clock-output-names = "wdt_stub";
++	};
++
+ 	soc: soc@0 {
+ 		compatible = "simple-bus";
+ 		#address-cells = <1>;
+ 		#size-cells = <1>;
+ 		ranges = <0x0 0x0 0x0 0x40000000>;
+ 
++		/*
++		 * ABL hands over with both cluster watchdogs counting (30 s);
++		 * without a driver to take them over the phone resets about
++		 * 80 s into boot.
++		 */
++		watchdog_cl0: watchdog@10060000 {
++			compatible = "google,zuma-wdt";
++			reg = <0x10060000 0x100>;
++			interrupts = <GIC_SPI 767 IRQ_TYPE_LEVEL_HIGH>;
++			clocks = <&clk_wdt_stub>, <&clk_wdt_stub>;
++			clock-names = "watchdog", "watchdog_src";
++			samsung,cluster-index = <0>;
++			samsung,syscon-phandle = <&pmu_system_controller>;
++		};
++
++		watchdog_cl1: watchdog@10070000 {
++			compatible = "google,zuma-wdt";
++			reg = <0x10070000 0x100>;
++			interrupts = <GIC_SPI 768 IRQ_TYPE_LEVEL_HIGH>;
++			clocks = <&clk_wdt_stub>, <&clk_wdt_stub>;
++			clock-names = "watchdog", "watchdog_src";
++			samsung,cluster-index = <1>;
++			samsung,syscon-phandle = <&pmu_system_controller>;
++		};
++
+ 		gic: interrupt-controller@10400000 {
+ 			compatible = "arm,gic-v3";
+ 			#interrupt-cells = <3>;

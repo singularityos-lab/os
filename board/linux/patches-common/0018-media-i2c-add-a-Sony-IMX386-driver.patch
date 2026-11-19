@@ -1,0 +1,1145 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Wed, 14 Oct 2026 21:05:08 -0400
+Subject: [PATCH] media: i2c: add a Sony IMX386 driver
+
+The IMX386 is a 12 MP Sony Bayer sensor (the Pixel 7 Pro ultrawide)
+with an SMIA++/CCS-style register map. Its standard registers - mode
+select, frame and line length, integration time, analogue gain, the
+four per-colour digital gains, test pattern and test data - are driven
+here. Its manufacturer initialisation and readout modes are not public,
+so they come from a data file named by firmware-name, which the user
+generates from their own phone's software. The driver refuses a data
+file that would start streaming by itself and offers only modes whose
+link frequency the board allows.
+
+Power-up follows the board's order (optional board supplies of the
+module's regulators first, then I/O, digital and analog), then the
+master clock and the reset release, with the delays the stock device
+tree uses by default.
+
+Measured on the phone: the analogue gain is 512 / (512 - code), 1x-16x
+over codes 0-480 (the register holds 9 bits), so the range is capped at
+480. The test data registers take the sensor's internal 12-bit scale.
+Each mode starts at the longest exposure its default frame allows, and
+VBLANK defaults to a 30 fps frame where a binned mode would run faster,
+so libcamera's simple IPA, which steps exposure a few percent a frame
+from the starting values, reaches a usable exposure indoors.
+
+Each mode's analogue crop is taken from the CCS address registers its
+list writes, and the pixel array is their union, for the selection API.
+With sony,max-line-throughput set, a mode whose lines arrive faster
+than that gets a longer line length at the same pixel clock: on the
+Pixel 7 Pro the 4032x3016 and 4032x2272 modes exceed what the gs201
+CSIS write DMA takes, the binned modes don't.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ drivers/media/i2c/Kconfig  |   11 +
+ drivers/media/i2c/Makefile |    1 +
+ drivers/media/i2c/imx386.c | 1062 ++++++++++++++++++++++++++++++++++++
+ 3 files changed, 1074 insertions(+)
+ create mode 100644 drivers/media/i2c/imx386.c
+
+diff --git a/drivers/media/i2c/Kconfig b/drivers/media/i2c/Kconfig
+index 5c52007f9..972c1073d 100644
+--- a/drivers/media/i2c/Kconfig
++++ b/drivers/media/i2c/Kconfig
+@@ -267,6 +267,17 @@ config VIDEO_IMX355
+ 	  To compile this driver as a module, choose M here: the
+ 	  module will be called imx355.
+ 
++config VIDEO_IMX386
++	tristate "Sony IMX386 sensor support"
++	depends on OF
++	select V4L2_CCI_I2C
++	help
++	  This is a Video4Linux2 sensor driver for the Sony IMX386 camera.
++	  Its initialisation and modes are loaded from a data file.
++
++	  To compile this driver as a module, choose M here: the
++	  module will be called imx386.
++
+ config VIDEO_IMX412
+ 	tristate "Sony IMX412 sensor support"
+ 	depends on OF
+diff --git a/drivers/media/i2c/Makefile b/drivers/media/i2c/Makefile
+index d04bd5724..ccfed5498 100644
+--- a/drivers/media/i2c/Makefile
++++ b/drivers/media/i2c/Makefile
+@@ -59,6 +59,7 @@ obj-$(CONFIG_VIDEO_IMX319) += imx319.o
+ obj-$(CONFIG_VIDEO_IMX334) += imx334.o
+ obj-$(CONFIG_VIDEO_IMX335) += imx335.o
+ obj-$(CONFIG_VIDEO_IMX355) += imx355.o
++obj-$(CONFIG_VIDEO_IMX386) += imx386.o
+ obj-$(CONFIG_VIDEO_IMX412) += imx412.o
+ obj-$(CONFIG_VIDEO_IMX415) += imx415.o
+ obj-$(CONFIG_VIDEO_IMX678) += imx678.o
+diff --git a/drivers/media/i2c/imx386.c b/drivers/media/i2c/imx386.c
+new file mode 100644
+index 000000000..28ef2934f
+--- /dev/null
++++ b/drivers/media/i2c/imx386.c
+@@ -0,0 +1,1062 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * Sony IMX386 image sensor driver
++ *
++ * The IMX386 is a 12 MP Sony Bayer sensor with an SMIA++/CCS-style register
++ * map (16-bit addresses, 8-bit values). The standard registers - mode
++ * select, frame and line length, integration time, gains, test pattern -
++ * are driven from here. The sensor's own initialisation and its readout
++ * modes are not public; they are loaded from a data file the user
++ * generates from their own phone's software (tools/extract-camera-data in
++ * the Omarchy Mobile project), named by the device tree's firmware-name.
++ *
++ * Data file layout (little endian, our own format):
++ *   struct imx386_fw_header, then mode records, then register records.
++ *   A register record is { u16 addr; u8 val; u8 delay_ms; }.
++ */
++
++#include <linux/clk.h>
++#include <linux/delay.h>
++#include <linux/firmware.h>
++#include <linux/gpio/consumer.h>
++#include <linux/i2c.h>
++#include <linux/math64.h>
++#include <linux/module.h>
++#include <linux/pm_runtime.h>
++#include <linux/regulator/consumer.h>
++#include <linux/unaligned.h>
++
++#include <media/v4l2-cci.h>
++#include <media/v4l2-ctrls.h>
++#include <media/v4l2-device.h>
++#include <media/v4l2-fwnode.h>
++#include <media/v4l2-mediabus.h>
++
++#define IMX386_REG_MODE_SELECT		CCI_REG8(0x0100)
++#define IMX386_MODE_STANDBY		0x00
++#define IMX386_MODE_STREAMING		0x01
++#define IMX386_REG_ORIENTATION		CCI_REG8(0x0101)
++#define IMX386_REG_GROUP_HOLD		CCI_REG8(0x0104)
++#define IMX386_REG_FRAME_COUNT		CCI_REG8(0x0005)
++#define IMX386_REG_CHIP_ID		CCI_REG16(0x0016)
++#define IMX386_CHIP_ID			0x0386
++#define IMX386_REG_EXPOSURE		CCI_REG16(0x0202)
++#define IMX386_REG_ANALOG_GAIN		CCI_REG16(0x0204)
++/* per colour channel: Gr, R, B, Gb (CCS) */
++#define IMX386_REG_DIGITAL_GAIN_GR	CCI_REG16(0x020e)
++#define IMX386_REG_DIGITAL_GAIN_R	CCI_REG16(0x0210)
++#define IMX386_REG_DIGITAL_GAIN_B	CCI_REG16(0x0212)
++#define IMX386_REG_DIGITAL_GAIN_GB	CCI_REG16(0x0214)
++#define IMX386_REG_FRAME_LENGTH		CCI_REG16(0x0340)
++#define IMX386_REG_LINE_LENGTH		CCI_REG16(0x0342)
++#define IMX386_REG_TEST_PATTERN		CCI_REG16(0x0600)
++/*
++ * Solid colour test pattern, one value per channel (CCS). On the phone a
++ * value lands in the RAW10 output divided by 4: the registers take the
++ * sensor's internal 12-bit scale.
++ */
++#define IMX386_REG_TEST_DATA_RED	CCI_REG16(0x0602)
++#define IMX386_REG_TEST_DATA_GREENR	CCI_REG16(0x0604)
++#define IMX386_REG_TEST_DATA_BLUE	CCI_REG16(0x0606)
++#define IMX386_REG_TEST_DATA_GREENB	CCI_REG16(0x0608)
++#define IMX386_TEST_DATA_MAX		0xfff
++
++#define IMX386_DGTL_GAIN_MIN		0x0100
++#define IMX386_DGTL_GAIN_MAX		0x0fff
++#define IMX386_DGTL_GAIN_DEFAULT	0x0100
++#define IMX386_FLL_MAX			0xffff
++/*
++ * Analogue gain = 512 / (512 - code), 1x to 16x at 0-480: measured on the
++ * phone (CAMERA-PLAN.md CAM4.3c). The register holds 9 bits; codes from
++ * 512 wrap around.
++ */
++#define IMX386_AGAIN_MAX		480
++/* Default frame rate: a longer frame leaves room for indoor exposures */
++#define IMX386_DEFAULT_FPS		30
++
++#define IMX386_FW_MAGIC			0x5343534f	/* "OSCS" */
++#define IMX386_FW_VERSION		1
++#define IMX386_MAX_MODES		16
++#define IMX386_MAX_REGS			4096
++
++struct imx386_fw_header {
++	__le32 magic;
++	__le16 version;
++	__le16 num_modes;
++	__le16 chip_id;
++	__le16 bayer;		/* 0 RGGB, 1 GRBG, 2 GBRG, 3 BGGR */
++	__le16 again_min;
++	__le16 again_max;
++	__le16 exposure_margin;	/* lines below frame length */
++	__le16 reserved;
++	__le32 init_offset;	/* register records */
++	__le32 init_count;
++} __packed;
++
++struct imx386_fw_mode {
++	__le16 width;
++	__le16 height;
++	__le16 line_length;	/* pixel clocks */
++	__le16 frame_length;	/* default, lines */
++	__le32 pixel_rate;	/* pixels/s */
++	__le32 link_freq;	/* Hz */
++	u8 bpp;			/* 10 */
++	u8 binning;		/* informative */
++	__le16 reserved;
++	__le32 regs_offset;
++	__le32 regs_count;
++} __packed;
++
++struct imx386_reg {
++	u16 addr;
++	u8 val;
++	u8 delay_ms;
++};
++
++struct imx386_mode {
++	u32 width;
++	u32 height;
++	u32 line_length;
++	u32 table_line_length;	/* as the mode's list writes it */
++	u32 frame_length;
++	u64 pixel_rate;
++	s64 link_freq;
++	struct v4l2_rect crop;	/* analogue crop, in pixel array coordinates */
++	const struct imx386_reg *regs;
++	unsigned int num_regs;
++};
++
++static const char * const imx386_supply_names[] = {
++	/* board supplies feeding the module's regulators, first (optional) */
++	"vbb", "vbuck",
++	"vif", "vdig", "vana",
++};
++
++#define IMX386_NUM_SUPPLIES	ARRAY_SIZE(imx386_supply_names)
++
++static const u32 imx386_mbus_codes[] = {
++	MEDIA_BUS_FMT_SRGGB10_1X10, MEDIA_BUS_FMT_SGRBG10_1X10,
++	MEDIA_BUS_FMT_SGBRG10_1X10, MEDIA_BUS_FMT_SBGGR10_1X10,
++};
++
++static const char * const imx386_test_pattern_menu[] = {
++	"Disabled", "Solid Colour", "Eight Vertical Colour Bars",
++	"Colour Bars With Fade to Grey", "Pseudorandom Sequence (PN9)",
++};
++
++struct imx386 {
++	struct device *dev;
++	struct regmap *regmap;
++	struct v4l2_subdev sd;
++	struct media_pad pad;
++
++	struct clk *mclk;
++	struct gpio_desc *reset;
++	struct regulator *supplies[IMX386_NUM_SUPPLIES];
++	u32 delays_us[3];	/* after the last supply, after MCLK, after reset */
++	u32 max_line_mbps;	/* receiver's line throughput, MB/s; 0: none */
++
++	struct v4l2_ctrl_handler ctrls;
++	struct v4l2_ctrl *link_freq;
++	struct v4l2_ctrl *pixel_rate;
++	struct v4l2_ctrl *vblank;
++	struct v4l2_ctrl *hblank;
++	struct v4l2_ctrl *exposure;
++
++	const struct firmware *fw;
++	u32 code;
++	u32 exposure_margin;
++	const struct imx386_reg *init_regs;
++	unsigned int num_init_regs;
++	struct imx386_mode modes[IMX386_MAX_MODES];
++	unsigned int num_modes;
++	const struct imx386_mode *mode;
++	struct v4l2_rect native;	/* the pixel array the modes read from */
++	s64 link_freqs[IMX386_MAX_MODES];
++	unsigned int num_link_freqs;
++	u64 allowed_freqs[IMX386_MAX_MODES];
++	unsigned int num_allowed_freqs;
++};
++
++static inline struct imx386 *to_imx386(struct v4l2_subdev *sd)
++{
++	return container_of(sd, struct imx386, sd);
++}
++
++/* -----------------------------------------------------------------------------
++ * Data file
++ */
++
++static int imx386_parse_regs(struct imx386 *s, u32 offset, u32 count,
++			     const struct imx386_reg **regs)
++{
++	const struct firmware *fw = s->fw;
++	struct imx386_reg *out;
++	const u8 *p;
++	u32 i;
++
++	if (!count || count > IMX386_MAX_REGS ||
++	    offset > fw->size || count * 4 > fw->size - offset)
++		return -EINVAL;
++
++	out = devm_kcalloc(s->dev, count, sizeof(*out), GFP_KERNEL);
++	if (!out)
++		return -ENOMEM;
++
++	p = fw->data + offset;
++	for (i = 0; i < count; i++, p += 4) {
++		out[i].addr = get_unaligned_le16(p);
++		out[i].val = p[2];
++		out[i].delay_ms = p[3];
++		/* never let the data file start streaming by itself */
++		if (out[i].addr == 0x0100)
++			return -EINVAL;
++	}
++
++	*regs = out;
++
++	return 0;
++}
++
++/*
++ * A mode's analogue crop, from the CCS address registers its list writes
++ * (x/y_addr_start 0x0344/0x0346, x/y_addr_end 0x0348/0x034a, 16 bits
++ * each, written as byte pairs). Without them: the output size at 0,0.
++ */
++/*
++ * A receiver that takes lines at no more than so many bytes a second needs
++ * each line to last at least its size over that rate: lengthen the line
++ * (more horizontal blanking at the same pixel clock) where the mode's is
++ * shorter. The frame rate then tops out lower; nothing else changes.
++ */
++static void imx386_limit_line_rate(struct imx386 *s, struct imx386_mode *mode)
++{
++	u64 bytes = DIV_ROUND_UP(mode->width * 10, 8);
++	u64 min_ll;
++
++	if (!s->max_line_mbps)
++		return;
++
++	min_ll = DIV64_U64_ROUND_UP(mode->pixel_rate * bytes,
++				    (u64)s->max_line_mbps * 1000000);
++	if (min_ll > mode->line_length && min_ll <= 0xfff0)
++		mode->line_length = ALIGN(min_ll, 2);
++}
++
++static void imx386_mode_crop(struct imx386_mode *mode)
++{
++	u16 addr[4] = { };
++	bool seen[4] = { };
++	unsigned int i;
++
++	for (i = 0; i < mode->num_regs; i++) {
++		u16 a = mode->regs[i].addr;
++		unsigned int r;
++
++		if (a < 0x0344 || a > 0x034b)
++			continue;
++		r = (a - 0x0344) / 2;
++		if (a & 1)
++			addr[r] = (addr[r] & 0xff00) | mode->regs[i].val;
++		else
++			addr[r] = (addr[r] & 0x00ff) | mode->regs[i].val << 8;
++		seen[r] = true;
++	}
++
++	if (seen[0] && seen[1] && seen[2] && seen[3] &&
++	    addr[2] > addr[0] && addr[3] > addr[1]) {
++		mode->crop.left = addr[0];
++		mode->crop.top = addr[1];
++		mode->crop.width = addr[2] - addr[0] + 1;
++		mode->crop.height = addr[3] - addr[1] + 1;
++	} else {
++		mode->crop = (struct v4l2_rect){ 0, 0, mode->width, mode->height };
++	}
++}
++
++static int imx386_load_data(struct imx386 *s)
++{
++	const struct imx386_fw_header *h;
++	const char *name;
++	unsigned int i;
++	u16 bayer;
++	int ret;
++
++	ret = device_property_read_string(s->dev, "firmware-name", &name);
++	if (ret)
++		return dev_err_probe(s->dev, ret, "no firmware-name\n");
++
++	ret = request_firmware(&s->fw, name, s->dev);
++	if (ret)
++		return dev_err_probe(s->dev, ret,
++				     "%s missing: generate it with tools/extract-camera-data\n",
++				     name);
++
++	if (s->fw->size < sizeof(*h))
++		goto bad;
++	h = (const void *)s->fw->data;
++	if (le32_to_cpu(h->magic) != IMX386_FW_MAGIC ||
++	    le16_to_cpu(h->version) != IMX386_FW_VERSION ||
++	    le16_to_cpu(h->chip_id) != IMX386_CHIP_ID)
++		goto bad;
++
++	s->num_modes = le16_to_cpu(h->num_modes);
++	if (!s->num_modes || s->num_modes > IMX386_MAX_MODES ||
++	    sizeof(*h) + s->num_modes * sizeof(struct imx386_fw_mode) >
++	    s->fw->size)
++		goto bad;
++
++	bayer = le16_to_cpu(h->bayer);
++	if (bayer >= ARRAY_SIZE(imx386_mbus_codes))
++		goto bad;
++	s->code = imx386_mbus_codes[bayer];
++	s->exposure_margin = le16_to_cpu(h->exposure_margin);
++
++	ret = imx386_parse_regs(s, le32_to_cpu(h->init_offset),
++				le32_to_cpu(h->init_count), &s->init_regs);
++	if (ret)
++		goto bad;
++	s->num_init_regs = le32_to_cpu(h->init_count);
++
++	for (i = 0; i < s->num_modes; i++) {
++		const struct imx386_fw_mode *m =
++			(const void *)(s->fw->data + sizeof(*h)) + i * sizeof(*m);
++		struct imx386_mode *mode = &s->modes[i];
++
++		if (m->bpp != 10)
++			goto bad;
++		mode->width = le16_to_cpu(m->width);
++		mode->height = le16_to_cpu(m->height);
++		mode->line_length = le16_to_cpu(m->line_length);
++		mode->frame_length = le16_to_cpu(m->frame_length);
++		mode->table_line_length = mode->line_length;
++		mode->pixel_rate = le32_to_cpu(m->pixel_rate);
++		mode->link_freq = le32_to_cpu(m->link_freq);
++		mode->num_regs = le32_to_cpu(m->regs_count);
++		if (!mode->width || !mode->height ||
++		    mode->line_length < mode->width ||
++		    mode->frame_length < mode->height ||
++		    !mode->pixel_rate || !mode->link_freq)
++			goto bad;
++		ret = imx386_parse_regs(s, le32_to_cpu(m->regs_offset),
++					mode->num_regs, &mode->regs);
++		if (ret)
++			goto bad;
++
++		imx386_mode_crop(mode);
++		imx386_limit_line_rate(s, mode);
++		s->native.width = max_t(u32, s->native.width,
++					mode->crop.left + mode->crop.width);
++		s->native.height = max_t(u32, s->native.height,
++					 mode->crop.top + mode->crop.height);
++	}
++
++	return 0;
++
++bad:
++	dev_err(s->dev, "%s: not a valid IMX386 data file\n", name);
++	return -EINVAL;
++}
++
++static int imx386_check_link_freqs(struct imx386 *s)
++{
++	struct fwnode_handle *ep;
++	struct v4l2_fwnode_endpoint bus = { .bus_type = V4L2_MBUS_CSI2_DPHY };
++	unsigned int i, j;
++	int ret;
++
++	ep = fwnode_graph_get_next_endpoint(dev_fwnode(s->dev), NULL);
++	if (!ep)
++		return dev_err_probe(s->dev, -ENXIO, "no endpoint\n");
++
++	ret = v4l2_fwnode_endpoint_alloc_parse(ep, &bus);
++	fwnode_handle_put(ep);
++	if (ret)
++		return ret;
++
++	/* Only modes whose link frequency the board allows are offered. */
++	for (i = 0; i < s->num_modes; i++) {
++		for (j = 0; j < bus.nr_of_link_frequencies; j++)
++			if (bus.link_frequencies[j] == s->modes[i].link_freq)
++				break;
++		if (j == bus.nr_of_link_frequencies) {
++			dev_warn(s->dev, "mode %ux%u: link frequency %lld not in DT, dropped\n",
++				 s->modes[i].width, s->modes[i].height,
++				 s->modes[i].link_freq);
++			s->modes[i].width = 0;
++			continue;
++		}
++		for (j = 0; j < s->num_link_freqs; j++)
++			if (s->link_freqs[j] == s->modes[i].link_freq)
++				break;
++		if (j == s->num_link_freqs)
++			s->link_freqs[s->num_link_freqs++] = s->modes[i].link_freq;
++	}
++
++	v4l2_fwnode_endpoint_free(&bus);
++
++	if (!s->num_link_freqs)
++		return dev_err_probe(s->dev, -EINVAL, "no usable mode\n");
++
++	return 0;
++}
++
++static const struct imx386_mode *imx386_find_mode(struct imx386 *s,
++						  u32 width, u32 height)
++{
++	const struct imx386_mode *best = NULL;
++	unsigned int i;
++	u32 dist, best_dist = U32_MAX;
++
++	for (i = 0; i < s->num_modes; i++) {
++		const struct imx386_mode *m = &s->modes[i];
++
++		if (!m->width)
++			continue;
++		dist = abs((int)m->width - (int)width) +
++		       abs((int)m->height - (int)height);
++		if (dist < best_dist) {
++			best = m;
++			best_dist = dist;
++		}
++	}
++
++	return best;
++}
++
++static unsigned int imx386_link_freq_index(struct imx386 *s, s64 freq)
++{
++	unsigned int i;
++
++	for (i = 0; i < s->num_link_freqs; i++)
++		if (s->link_freqs[i] == freq)
++			return i;
++
++	return 0;
++}
++
++/* -----------------------------------------------------------------------------
++ * Power
++ */
++
++static int imx386_power_on(struct device *dev)
++{
++	struct v4l2_subdev *sd = dev_get_drvdata(dev);
++	struct imx386 *s = to_imx386(sd);
++	int i, ret;
++
++	gpiod_set_value_cansleep(s->reset, 1);
++
++	for (i = 0; i < IMX386_NUM_SUPPLIES; i++) {
++		if (!s->supplies[i])
++			continue;
++		ret = regulator_enable(s->supplies[i]);
++		if (ret)
++			goto err_supplies;
++	}
++	fsleep(s->delays_us[0]);
++
++	ret = clk_prepare_enable(s->mclk);
++	if (ret)
++		goto err_supplies;
++	fsleep(s->delays_us[1]);
++
++	gpiod_set_value_cansleep(s->reset, 0);
++	fsleep(s->delays_us[2]);
++
++	return 0;
++
++err_supplies:
++	while (--i >= 0)
++		if (s->supplies[i])
++			regulator_disable(s->supplies[i]);
++	return ret;
++}
++
++static int imx386_power_off(struct device *dev)
++{
++	struct v4l2_subdev *sd = dev_get_drvdata(dev);
++	struct imx386 *s = to_imx386(sd);
++	int i;
++
++	gpiod_set_value_cansleep(s->reset, 1);
++	fsleep(1000);
++	clk_disable_unprepare(s->mclk);
++	fsleep(1000);
++
++	for (i = IMX386_NUM_SUPPLIES - 1; i >= 0; i--)
++		if (s->supplies[i])
++			regulator_disable(s->supplies[i]);
++
++	return 0;
++}
++
++/* -----------------------------------------------------------------------------
++ * Controls
++ */
++
++static int imx386_set_ctrl(struct v4l2_ctrl *ctrl)
++{
++	struct imx386 *s = container_of(ctrl->handler, struct imx386, ctrls);
++	int ret = 0;
++
++	if (ctrl->id == V4L2_CID_VBLANK) {
++		int max = s->mode->height + ctrl->val - s->exposure_margin;
++
++		__v4l2_ctrl_modify_range(s->exposure, s->exposure->minimum, max,
++					 s->exposure->step,
++					 min(s->exposure->val, max));
++	}
++
++	/*
++	 * Only write while powered: this also covers probe, where runtime PM
++	 * isn't enabled yet (get_if_in_use returns an error) and the mode
++	 * controls are set before the device is idled.
++	 */
++	if (pm_runtime_get_if_in_use(s->dev) <= 0)
++		return 0;
++
++	switch (ctrl->id) {
++	case V4L2_CID_EXPOSURE:
++		cci_write(s->regmap, IMX386_REG_EXPOSURE, ctrl->val, &ret);
++		break;
++	case V4L2_CID_ANALOGUE_GAIN:
++		cci_write(s->regmap, IMX386_REG_ANALOG_GAIN, ctrl->val, &ret);
++		break;
++	case V4L2_CID_DIGITAL_GAIN:
++		/* the mode lists set all four; one gain for all of them */
++		cci_write(s->regmap, IMX386_REG_DIGITAL_GAIN_GR, ctrl->val, &ret);
++		cci_write(s->regmap, IMX386_REG_DIGITAL_GAIN_R, ctrl->val, &ret);
++		cci_write(s->regmap, IMX386_REG_DIGITAL_GAIN_B, ctrl->val, &ret);
++		cci_write(s->regmap, IMX386_REG_DIGITAL_GAIN_GB, ctrl->val, &ret);
++		break;
++	case V4L2_CID_VBLANK:
++		cci_write(s->regmap, IMX386_REG_FRAME_LENGTH,
++			  s->mode->height + ctrl->val, &ret);
++		break;
++	case V4L2_CID_TEST_PATTERN:
++		cci_write(s->regmap, IMX386_REG_TEST_PATTERN, ctrl->val, &ret);
++		break;
++	case V4L2_CID_TEST_PATTERN_RED:
++		cci_write(s->regmap, IMX386_REG_TEST_DATA_RED, ctrl->val, &ret);
++		break;
++	case V4L2_CID_TEST_PATTERN_GREENR:
++		cci_write(s->regmap, IMX386_REG_TEST_DATA_GREENR, ctrl->val, &ret);
++		break;
++	case V4L2_CID_TEST_PATTERN_BLUE:
++		cci_write(s->regmap, IMX386_REG_TEST_DATA_BLUE, ctrl->val, &ret);
++		break;
++	case V4L2_CID_TEST_PATTERN_GREENB:
++		cci_write(s->regmap, IMX386_REG_TEST_DATA_GREENB, ctrl->val, &ret);
++		break;
++	default:
++		ret = -EINVAL;
++		break;
++	}
++
++	pm_runtime_put(s->dev);
++
++	return ret;
++}
++
++static const struct v4l2_ctrl_ops imx386_ctrl_ops = {
++	.s_ctrl = imx386_set_ctrl,
++};
++
++static void imx386_update_mode_ctrls(struct imx386 *s)
++{
++	const struct imx386_mode *m = s->mode;
++	u32 hblank = m->line_length - m->width;
++	u32 vblank = m->frame_length - m->height;
++	u32 exp_max;
++	u64 fll;
++
++	/*
++	 * The binned modes' own frame length runs them at 60 fps, which
++	 * caps the exposure at 16 ms; default to 30 fps where the mode is
++	 * faster. VBLANK still goes down to the mode's own value.
++	 */
++	fll = div_u64(m->pixel_rate, (u64)m->line_length * IMX386_DEFAULT_FPS);
++	if (fll > m->frame_length && fll <= IMX386_FLL_MAX)
++		vblank = fll - m->height;
++
++	__v4l2_ctrl_s_ctrl(s->link_freq, imx386_link_freq_index(s, m->link_freq));
++	__v4l2_ctrl_s_ctrl_int64(s->pixel_rate, m->pixel_rate);
++	__v4l2_ctrl_modify_range(s->hblank, hblank, hblank, 1, hblank);
++	__v4l2_ctrl_modify_range(s->vblank, m->frame_length - m->height,
++				 IMX386_FLL_MAX - m->height, 1, vblank);
++	__v4l2_ctrl_s_ctrl(s->vblank, vblank);
++
++	/*
++	 * Start at the longest exposure the frame allows: an auto exposure
++	 * loop that steps a few percent a frame takes seconds to climb from
++	 * a short default in indoor light, and comes down faster than it
++	 * goes up.
++	 */
++	exp_max = m->height + vblank - s->exposure_margin;
++	__v4l2_ctrl_modify_range(s->exposure, s->exposure->minimum, exp_max,
++				 s->exposure->step, exp_max);
++	__v4l2_ctrl_s_ctrl(s->exposure, exp_max);
++}
++
++static int imx386_init_controls(struct imx386 *s)
++{
++	const struct imx386_fw_header *h = (const void *)s->fw->data;
++	struct v4l2_ctrl_handler *hdl = &s->ctrls;
++	struct v4l2_fwnode_device_properties props;
++	const struct imx386_mode *m = s->mode;
++	int ret;
++
++	v4l2_ctrl_handler_init(hdl, 14);
++
++	s->link_freq = v4l2_ctrl_new_int_menu(hdl, &imx386_ctrl_ops,
++					      V4L2_CID_LINK_FREQ,
++					      s->num_link_freqs - 1, 0,
++					      s->link_freqs);
++	if (s->link_freq)
++		s->link_freq->flags |= V4L2_CTRL_FLAG_READ_ONLY;
++
++	s->pixel_rate = v4l2_ctrl_new_std(hdl, &imx386_ctrl_ops,
++					  V4L2_CID_PIXEL_RATE, 1, INT_MAX, 1,
++					  m->pixel_rate);
++	s->hblank = v4l2_ctrl_new_std(hdl, &imx386_ctrl_ops, V4L2_CID_HBLANK,
++				      0, 0xffff, 1, 0);
++	if (s->hblank)
++		s->hblank->flags |= V4L2_CTRL_FLAG_READ_ONLY;
++	s->vblank = v4l2_ctrl_new_std(hdl, &imx386_ctrl_ops, V4L2_CID_VBLANK,
++				      0, IMX386_FLL_MAX, 1, 0);
++	s->exposure = v4l2_ctrl_new_std(hdl, &imx386_ctrl_ops,
++					V4L2_CID_EXPOSURE, 1,
++					m->frame_length - s->exposure_margin, 1,
++					m->frame_length / 2);
++	v4l2_ctrl_new_std(hdl, &imx386_ctrl_ops, V4L2_CID_ANALOGUE_GAIN,
++			  le16_to_cpu(h->again_min),
++			  min_t(u16, le16_to_cpu(h->again_max), IMX386_AGAIN_MAX),
++			  1, le16_to_cpu(h->again_min));
++	v4l2_ctrl_new_std(hdl, &imx386_ctrl_ops, V4L2_CID_DIGITAL_GAIN,
++			  IMX386_DGTL_GAIN_MIN, IMX386_DGTL_GAIN_MAX, 1,
++			  IMX386_DGTL_GAIN_DEFAULT);
++	v4l2_ctrl_new_std_menu_items(hdl, &imx386_ctrl_ops,
++				     V4L2_CID_TEST_PATTERN,
++				     ARRAY_SIZE(imx386_test_pattern_menu) - 1,
++				     0, 0, imx386_test_pattern_menu);
++	v4l2_ctrl_new_std(hdl, &imx386_ctrl_ops, V4L2_CID_TEST_PATTERN_RED,
++			  0, IMX386_TEST_DATA_MAX, 1, 0);
++	v4l2_ctrl_new_std(hdl, &imx386_ctrl_ops, V4L2_CID_TEST_PATTERN_GREENR,
++			  0, IMX386_TEST_DATA_MAX, 1, 0);
++	v4l2_ctrl_new_std(hdl, &imx386_ctrl_ops, V4L2_CID_TEST_PATTERN_BLUE,
++			  0, IMX386_TEST_DATA_MAX, 1, 0);
++	v4l2_ctrl_new_std(hdl, &imx386_ctrl_ops, V4L2_CID_TEST_PATTERN_GREENB,
++			  0, IMX386_TEST_DATA_MAX, 1, 0);
++
++	ret = v4l2_fwnode_device_parse(s->dev, &props);
++	if (!ret)
++		v4l2_ctrl_new_fwnode_properties(hdl, &imx386_ctrl_ops, &props);
++
++	if (hdl->error) {
++		ret = hdl->error;
++		v4l2_ctrl_handler_free(hdl);
++		return ret;
++	}
++
++	imx386_update_mode_ctrls(s);
++	s->sd.ctrl_handler = hdl;
++
++	return 0;
++}
++
++/* -----------------------------------------------------------------------------
++ * Subdev
++ */
++
++static int imx386_write_table(struct imx386 *s, const struct imx386_reg *regs,
++			      unsigned int n)
++{
++	unsigned int i;
++	int ret = 0;
++
++	for (i = 0; i < n && !ret; i++) {
++		cci_write(s->regmap, CCI_REG8(regs[i].addr), regs[i].val, &ret);
++		if (regs[i].delay_ms)
++			msleep(regs[i].delay_ms);
++	}
++
++	return ret;
++}
++
++static int imx386_enable_streams(struct v4l2_subdev *sd,
++				 struct v4l2_subdev_state *state, u32 pad,
++				 u64 streams_mask)
++{
++	struct imx386 *s = to_imx386(sd);
++	int ret;
++
++	ret = pm_runtime_resume_and_get(s->dev);
++	if (ret)
++		return ret;
++
++	ret = imx386_write_table(s, s->init_regs, s->num_init_regs);
++	if (!ret)
++		ret = imx386_write_table(s, s->mode->regs, s->mode->num_regs);
++	if (!ret && s->mode->line_length != s->mode->table_line_length)
++		cci_write(s->regmap, IMX386_REG_LINE_LENGTH, s->mode->line_length, &ret);
++	if (!ret)
++		ret = __v4l2_ctrl_handler_setup(&s->ctrls);
++	if (!ret)
++		ret = cci_write(s->regmap, IMX386_REG_MODE_SELECT,
++				IMX386_MODE_STREAMING, NULL);
++	if (ret) {
++		pm_runtime_put(s->dev);
++		return ret;
++	}
++
++	/*
++	 * Bring-up: is the sensor really streaming (CCS frame_count), and did
++	 * the controls reach it after the mode list?
++	 */
++	{
++		u64 mode = 0, fc0 = 0, fc1 = 0, fll = 0, exp = 0, again = 0;
++		u64 dgain = 0, tp = 0;
++
++		cci_read(s->regmap, IMX386_REG_MODE_SELECT, &mode, NULL);
++		cci_read(s->regmap, IMX386_REG_FRAME_COUNT, &fc0, NULL);
++		msleep(100);
++		cci_read(s->regmap, IMX386_REG_FRAME_COUNT, &fc1, NULL);
++		cci_read(s->regmap, IMX386_REG_FRAME_LENGTH, &fll, NULL);
++		cci_read(s->regmap, IMX386_REG_EXPOSURE, &exp, NULL);
++		cci_read(s->regmap, IMX386_REG_ANALOG_GAIN, &again, NULL);
++		cci_read(s->regmap, IMX386_REG_DIGITAL_GAIN_GR, &dgain, NULL);
++		cci_read(s->regmap, IMX386_REG_TEST_PATTERN, &tp, NULL);
++		dev_info(s->dev, "streaming %ux%u: mode_select %llu, frame_count %llu -> %llu in 100 ms, mclk %lu Hz; frame_length %llu, exposure %llu, analogue gain %llu, digital gain 0x%llx, test pattern %llu\n",
++			 s->mode->width, s->mode->height, mode, fc0, fc1,
++			 clk_get_rate(s->mclk), fll, exp, again, dgain, tp);
++	}
++
++	return 0;
++}
++
++static int imx386_disable_streams(struct v4l2_subdev *sd,
++				  struct v4l2_subdev_state *state, u32 pad,
++				  u64 streams_mask)
++{
++	struct imx386 *s = to_imx386(sd);
++	u64 fc = 0;
++
++	cci_read(s->regmap, IMX386_REG_FRAME_COUNT, &fc, NULL);
++	dev_info(s->dev, "stopping: frame_count %llu\n", fc);
++	cci_write(s->regmap, IMX386_REG_MODE_SELECT, IMX386_MODE_STANDBY, NULL);
++	pm_runtime_put(s->dev);
++
++	return 0;
++}
++
++static void imx386_fill_fmt(struct imx386 *s, const struct imx386_mode *m,
++			    struct v4l2_mbus_framefmt *fmt)
++{
++	fmt->code = s->code;
++	fmt->width = m->width;
++	fmt->height = m->height;
++	fmt->field = V4L2_FIELD_NONE;
++	fmt->colorspace = V4L2_COLORSPACE_RAW;
++	fmt->ycbcr_enc = V4L2_YCBCR_ENC_601;
++	fmt->quantization = V4L2_QUANTIZATION_FULL_RANGE;
++	fmt->xfer_func = V4L2_XFER_FUNC_NONE;
++}
++
++static int imx386_enum_mbus_code(struct v4l2_subdev *sd,
++				 struct v4l2_subdev_state *state,
++				 struct v4l2_subdev_mbus_code_enum *code)
++{
++	if (code->index)
++		return -EINVAL;
++
++	code->code = to_imx386(sd)->code;
++
++	return 0;
++}
++
++static int imx386_enum_frame_size(struct v4l2_subdev *sd,
++				  struct v4l2_subdev_state *state,
++				  struct v4l2_subdev_frame_size_enum *fse)
++{
++	struct imx386 *s = to_imx386(sd);
++	unsigned int i, n = 0;
++
++	if (fse->code != s->code)
++		return -EINVAL;
++
++	for (i = 0; i < s->num_modes; i++) {
++		if (!s->modes[i].width)
++			continue;
++		if (n++ == fse->index) {
++			fse->min_width = s->modes[i].width;
++			fse->max_width = s->modes[i].width;
++			fse->min_height = s->modes[i].height;
++			fse->max_height = s->modes[i].height;
++			return 0;
++		}
++	}
++
++	return -EINVAL;
++}
++
++static int imx386_set_fmt(struct v4l2_subdev *sd,
++			  struct v4l2_subdev_state *state,
++			  struct v4l2_subdev_format *sdf)
++{
++	struct imx386 *s = to_imx386(sd);
++	const struct imx386_mode *m;
++
++	m = imx386_find_mode(s, sdf->format.width, sdf->format.height);
++	if (!m)
++		return -EINVAL;
++
++	imx386_fill_fmt(s, m, &sdf->format);
++	*v4l2_subdev_state_get_format(state, 0) = sdf->format;
++
++	if (sdf->which == V4L2_SUBDEV_FORMAT_ACTIVE) {
++		s->mode = m;
++		imx386_update_mode_ctrls(s);
++	}
++
++	return 0;
++}
++
++static int imx386_get_selection(struct v4l2_subdev *sd,
++				struct v4l2_subdev_state *state,
++				struct v4l2_subdev_selection *sel)
++{
++	struct imx386 *s = to_imx386(sd);
++	const struct v4l2_mbus_framefmt *fmt;
++	const struct imx386_mode *m;
++
++	if (sel->pad)
++		return -EINVAL;
++
++	switch (sel->target) {
++	case V4L2_SEL_TGT_CROP:
++		fmt = v4l2_subdev_state_get_format(state, 0);
++		m = imx386_find_mode(s, fmt->width, fmt->height);
++		if (!m)
++			return -EINVAL;
++		sel->r = m->crop;
++		return 0;
++	case V4L2_SEL_TGT_NATIVE_SIZE:
++	case V4L2_SEL_TGT_CROP_BOUNDS:
++	case V4L2_SEL_TGT_CROP_DEFAULT:
++		sel->r = s->native;
++		return 0;
++	default:
++		return -EINVAL;
++	}
++}
++
++static int imx386_init_state(struct v4l2_subdev *sd,
++			     struct v4l2_subdev_state *state)
++{
++	struct imx386 *s = to_imx386(sd);
++
++	imx386_fill_fmt(s, s->mode, v4l2_subdev_state_get_format(state, 0));
++
++	return 0;
++}
++
++static const struct v4l2_subdev_video_ops imx386_video_ops = {
++	.s_stream = v4l2_subdev_s_stream_helper,
++};
++
++static const struct v4l2_subdev_pad_ops imx386_pad_ops = {
++	.enum_mbus_code = imx386_enum_mbus_code,
++	.enum_frame_size = imx386_enum_frame_size,
++	.get_fmt = v4l2_subdev_get_fmt,
++	.set_fmt = imx386_set_fmt,
++	.get_selection = imx386_get_selection,
++	.enable_streams = imx386_enable_streams,
++	.disable_streams = imx386_disable_streams,
++};
++
++static const struct v4l2_subdev_ops imx386_subdev_ops = {
++	.video = &imx386_video_ops,
++	.pad = &imx386_pad_ops,
++};
++
++static const struct v4l2_subdev_internal_ops imx386_internal_ops = {
++	.init_state = imx386_init_state,
++};
++
++/* -----------------------------------------------------------------------------
++ * Probe
++ */
++
++static int imx386_identify(struct imx386 *s)
++{
++	u64 id;
++	int ret;
++
++	ret = cci_read(s->regmap, IMX386_REG_CHIP_ID, &id, NULL);
++	if (ret)
++		return dev_err_probe(s->dev, ret, "chip ID read failed\n");
++
++	if (id != IMX386_CHIP_ID)
++		return dev_err_probe(s->dev, -ENODEV,
++				     "chip ID 0x%04llx, expected 0x%04x\n",
++				     id, IMX386_CHIP_ID);
++
++	dev_info(s->dev, "model 0x%04llx\n", id);
++
++	return 0;
++}
++
++static int imx386_probe(struct i2c_client *client)
++{
++	struct device *dev = &client->dev;
++	struct imx386 *s;
++	unsigned int i;
++	int ret;
++
++	s = devm_kzalloc(dev, sizeof(*s), GFP_KERNEL);
++	if (!s)
++		return -ENOMEM;
++
++	s->dev = dev;
++	v4l2_i2c_subdev_init(&s->sd, client, &imx386_subdev_ops);
++	s->sd.internal_ops = &imx386_internal_ops;
++
++	s->regmap = devm_cci_regmap_init_i2c(client, 16);
++	if (IS_ERR(s->regmap))
++		return PTR_ERR(s->regmap);
++
++	for (i = 0; i < IMX386_NUM_SUPPLIES; i++) {
++		const char *name = imx386_supply_names[i];
++
++		/* vbb and vbuck are optional; the module's own are not */
++		if (i < 2)
++			s->supplies[i] = devm_regulator_get_optional(dev, name);
++		else
++			s->supplies[i] = devm_regulator_get(dev, name);
++		if (IS_ERR(s->supplies[i])) {
++			ret = PTR_ERR(s->supplies[i]);
++			if (i < 2 && ret == -ENODEV) {
++				s->supplies[i] = NULL;
++				continue;
++			}
++			return dev_err_probe(dev, ret, "%s supply\n",
++					     imx386_supply_names[i]);
++		}
++	}
++
++	/* Stock: 1 ms after the analog supply, 1 ms after MCLK, 10 ms after reset */
++	s->delays_us[0] = 1000;
++	s->delays_us[1] = 1000;
++	s->delays_us[2] = 10000;
++	device_property_read_u32_array(dev, "sony,power-delays-us",
++				       s->delays_us, ARRAY_SIZE(s->delays_us));
++	device_property_read_u32(dev, "sony,max-line-throughput", &s->max_line_mbps);
++
++	s->mclk = devm_clk_get(dev, NULL);
++	if (IS_ERR(s->mclk))
++		return dev_err_probe(dev, PTR_ERR(s->mclk), "mclk\n");
++
++	s->reset = devm_gpiod_get(dev, "reset", GPIOD_OUT_HIGH);
++	if (IS_ERR(s->reset))
++		return dev_err_probe(dev, PTR_ERR(s->reset), "reset\n");
++
++	ret = imx386_load_data(s);
++	if (ret)
++		return ret;
++
++	ret = imx386_check_link_freqs(s);
++	if (ret)
++		goto err_fw;
++
++	/* Default to the largest mode the board allows */
++	s->mode = imx386_find_mode(s, U16_MAX, U16_MAX);
++
++	ret = imx386_power_on(dev);
++	if (ret)
++		goto err_fw;
++
++	ret = imx386_identify(s);
++	if (ret)
++		goto err_power;
++
++	ret = imx386_init_controls(s);
++	if (ret)
++		goto err_power;
++
++	s->sd.flags |= V4L2_SUBDEV_FL_HAS_DEVNODE;
++	s->sd.entity.function = MEDIA_ENT_F_CAM_SENSOR;
++	s->pad.flags = MEDIA_PAD_FL_SOURCE;
++	ret = media_entity_pads_init(&s->sd.entity, 1, &s->pad);
++	if (ret)
++		goto err_ctrls;
++
++	s->sd.state_lock = s->ctrls.lock;
++	ret = v4l2_subdev_init_finalize(&s->sd);
++	if (ret)
++		goto err_entity;
++
++	pm_runtime_set_active(dev);
++	pm_runtime_enable(dev);
++
++	ret = v4l2_async_register_subdev_sensor(&s->sd);
++	if (ret)
++		goto err_pm;
++
++	pm_runtime_idle(dev);
++
++	return 0;
++
++err_pm:
++	pm_runtime_disable(dev);
++	pm_runtime_set_suspended(dev);
++	v4l2_subdev_cleanup(&s->sd);
++err_entity:
++	media_entity_cleanup(&s->sd.entity);
++err_ctrls:
++	v4l2_ctrl_handler_free(&s->ctrls);
++err_power:
++	imx386_power_off(dev);
++err_fw:
++	release_firmware(s->fw);
++	return ret;
++}
++
++static void imx386_remove(struct i2c_client *client)
++{
++	struct v4l2_subdev *sd = i2c_get_clientdata(client);
++	struct imx386 *s = to_imx386(sd);
++
++	v4l2_async_unregister_subdev(sd);
++	v4l2_subdev_cleanup(sd);
++	media_entity_cleanup(&sd->entity);
++	v4l2_ctrl_handler_free(&s->ctrls);
++	pm_runtime_disable(s->dev);
++	if (!pm_runtime_status_suspended(s->dev))
++		imx386_power_off(s->dev);
++	pm_runtime_set_suspended(s->dev);
++	release_firmware(s->fw);
++}
++
++static DEFINE_RUNTIME_DEV_PM_OPS(imx386_pm_ops, imx386_power_off,
++				 imx386_power_on, NULL);
++
++static const struct of_device_id imx386_of_match[] = {
++	{ .compatible = "sony,imx386" },
++	{ }
++};
++MODULE_DEVICE_TABLE(of, imx386_of_match);
++
++static struct i2c_driver imx386_driver = {
++	.probe = imx386_probe,
++	.remove = imx386_remove,
++	.driver = {
++		.name = "imx386",
++		.of_match_table = imx386_of_match,
++		.pm = pm_ptr(&imx386_pm_ops),
++	},
++};
++module_i2c_driver(imx386_driver);
++
++MODULE_DESCRIPTION("Sony IMX386 sensor driver");
++MODULE_LICENSE("GPL");

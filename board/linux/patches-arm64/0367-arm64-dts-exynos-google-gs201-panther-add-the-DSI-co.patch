@@ -1,0 +1,90 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Alejandro Garcia <skipper.pelygro@gmail.com>
+Date: Sun, 1 Nov 2026 09:52:13 -0800
+Subject: [PATCH] arm64: dts: exynos: google: gs201-panther: add the DSI
+ command path to the panel
+
+Enable the DPU and DISP clock controllers and DSIM0, and describe the
+panel on it: the Samsung S6E3FC3 P10 with its reset on gpa7-1, as in the
+Pixel 7's live device tree. The bootloader leaves DECON0, DSIM0 and the
+panel running in command mode, and simplefb keeps scanning out its
+buffer; the DSIM command driver and the panel driver take the link and
+the panel over without sending anything, so that brightness and display
+on/off can go over DCS. DECON0 stays disabled.
+
+The panel's supplies, vci on S2MPG12 LDO27 and vddi on S2MPG13 BUCKA
+(Google's gs201-panther-display.dtsi and the live tree), have no driver
+yet and are left as the bootloader set them.
+
+Tested on a Pixel 7 from slot B (7.3.0-rc6): DSIM0 and the panel bind,
+the panel is taken over from the bootloader, the screen stays as it was
+on simplefb, and the backlight device appears. Brightness and display
+off/on over DCS then work (see the panel driver's commit).
+
+Assisted-by: Claude Opus 5.5
+Signed-off-by: Alejandro Garcia <skipper.pelygro@gmail.com>
+---
+ .../boot/dts/exynos/google/gs201-panther.dts  | 36 ++++++++++++++++---
+ 1 file changed, 32 insertions(+), 4 deletions(-)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/gs201-panther.dts b/arch/arm64/boot/dts/exynos/google/gs201-panther.dts
+index cae0e762a..97bc57450 100644
+--- a/arch/arm64/boot/dts/exynos/google/gs201-panther.dts
++++ b/arch/arm64/boot/dts/exynos/google/gs201-panther.dts
+@@ -5,8 +5,8 @@
+  * USB (NCM + ACM), the cluster watchdogs from gs201.dtsi, a
+  * simple-framebuffer on the buffer ABL leaves DPP0 scanning out, UFS, the
+  * three keys, the touchscreen with its rails on the main PMIC, the GPU, the
+- * haptics and the MAX77759's I2C bus with its fuel gauge. The panel driver
+- * stays disabled.
++ * haptics, the MAX77759's I2C bus with its fuel gauge and the DSI command
++ * path to the panel. The display itself stays on simple-framebuffer.
+  */
+ 
+ /dts-v1/;
+@@ -35,8 +35,8 @@ chosen {
+ 		/*
+ 		 * ABL leaves DECON0 -> DSIM0 -> panel (sdc-s6e3fc3) running in
+ 		 * command mode with DPP0 scanning 0xfac00000 (RDMA_BASEADDR_Y8,
+-		 * read on this phone). There is no panel driver, so no panel
+-		 * phandle; the size comes from this node.
++		 * read on this phone). simplefb scans it out and takes the size
++		 * from this node; the panel under dsi0 only takes commands.
+ 		 */
+ 		framebuffer0: framebuffer@fac00000 {
+ 			compatible = "simple-framebuffer";
+@@ -161,6 +161,34 @@ ldo26m: ldo26m {
+ 	};
+ };
+ 
++/*
++ * Display bring-up, gate D1 (device/panther/DISPLAY-PLAN.md): the DPU and
++ * DISP clock controllers, and DSIM0 with the panel, so the panel driver can
++ * take the bootloader's panel over and send it DCS commands. DECON0 stays
++ * disabled, and simplefb keeps scanning out.
++ */
++&cmu_disp {
++	status = "okay";
++};
++
++&cmu_dpu {
++	status = "okay";
++};
++
++&dsi0 {
++	status = "okay";
++
++	panel@0 {
++		compatible = "samsung,s6e3fc3-p10";
++		reg = <0>;
++		/* high = running; the bootloader leaves it high */
++		reset-gpios = <&gpa7 1 GPIO_ACTIVE_LOW>;
++		/* vci (S2MPG12 LDO27M) and vddi (S2MPG13 BUCKA): no driver yet */
++		width-mm = <66>;
++		height-mm = <146>;
++	};
++};
++
+ &gpu {
+ 	/* No mali-supply: the G3D rails follow the PMU power domain and ACPM. */
+ 	status = "okay";

@@ -1,0 +1,123 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Tue, 13 Oct 2026 23:23:26 -0400
+Subject: [PATCH] soc: google: cpif: s51xx: free the MSI vectors on remove
+
+The modem driver allocates the S5300's MSI vectors on the first power-on
+and requests its doorbell handlers on them, but nothing gives them back:
+s51xx_pcie_remove() only frees the saved state. When the endpoint is
+unbound, which the host driver does at every shutdown when it removes
+the bus, the driver core then releases the endpoint's per-device MSI
+domain with the vectors still in it:
+
+  cpif: s51xx_pcie_remove: s51xx PCIe Remove!!!
+  WARNING: kernel/irq/irqdomain.c:408 at irq_domain_remove+0xf0/0x128
+   msi_remove_device_irq_domain+0x78/0xc4
+   msi_device_data_release+0x20/0x4c
+   ...
+   pci_stop_root_bus+0x40/0x68
+   gs201_pcie_cp_remove+0x84/0x140 [pcie_gs201_cp]
+   gs201_pcie_cp_shutdown+0x10/0x1c [pcie_gs201_cp]
+  WARNING: kernel/irq/msi.c:294 at msi_device_data_release+0x44/0x4c
+
+(a reboot with the modem online and its link idle, MODEM-PLAN M4.1j).
+The host driver's order is already right, the bus going before its MSI
+domain; the leak is the endpoint driver's. The handlers stay on the
+freed interrupts as well, and mc->s51xx_pdev keeps pointing at the
+pci_dev the bus removal frees, which the modem's own shutdown then
+reads.
+
+Free the two doorbell handlers (and their wake setting) and then the
+vectors in remove, and forget the pci_dev. The packet queues' vectors
+are the controller's own blocks and are not affected. With the link
+down, as at an idle-link shutdown, the masking this does is dropped by
+the host driver: config space is refused and DBI is not touched while
+the PHY is isolated.
+
+Assisted-by: LLM
+Signed-off-by: Derek Ross <derekross@gmail.com>
+---
+ drivers/soc/google/cpif/modem_ctrl.h       |  1 +
+ drivers/soc/google/cpif/modem_ctrl_s5100.c | 27 ++++++++++++++++++++++
+ drivers/soc/google/cpif/s51xx_pcie.c       | 15 ++++++++++++
+ 3 files changed, 43 insertions(+)
+
+diff --git a/drivers/soc/google/cpif/modem_ctrl.h b/drivers/soc/google/cpif/modem_ctrl.h
+index 0132c1b18..041ba257e 100644
+--- a/drivers/soc/google/cpif/modem_ctrl.h
++++ b/drivers/soc/google/cpif/modem_ctrl.h
+@@ -50,6 +50,7 @@ void change_modem_state(struct modem_ctl *mc, enum modem_state state);
+ #if IS_ENABLED(CONFIG_SEC_MODEM_S5100)
+ int s5100_force_crash_exit_ext(enum crash_type type);
+ int s5100_poweron_pcie(struct modem_ctl *mc, bool boot_on);
++void s5100_free_pcie_int(struct modem_ctl *mc);
+ int s5100_try_gpio_cp_wakeup(struct modem_ctl *mc);
+ void s5100_set_pcie_irq_affinity(struct modem_ctl *mc);
+ int s5100_set_outbound_atu(struct modem_ctl *mc, struct cp_btl *btl,
+diff --git a/drivers/soc/google/cpif/modem_ctrl_s5100.c b/drivers/soc/google/cpif/modem_ctrl_s5100.c
+index cca316a24..6e6824b65 100644
+--- a/drivers/soc/google/cpif/modem_ctrl_s5100.c
++++ b/drivers/soc/google/cpif/modem_ctrl_s5100.c
+@@ -830,6 +830,33 @@ static int request_pcie_int(struct link_device *ld, struct platform_device *pdev
+ 	return base_irq;
+ }
+ 
++/*
++ * Undo request_pcie_int() for the endpoint's own MSI vectors, which go
++ * with the endpoint: s51xx_pcie_remove() calls this before it gives them
++ * back. The packet queues' vectors are the controller's and stay.
++ */
++void s5100_free_pcie_int(struct modem_ctl *mc)
++{
++	struct link_device *ld = mc->iod ? get_current_link(mc->iod) : NULL;
++	struct mem_link_device *mld;
++	int irq;
++
++	if (!ld)
++		return;
++	mld = to_mem_link_device(ld);
++	irq = mld->msi_irq_base;
++	if (!irq)
++		return;
++
++	if (mld->msi_irq_base_wake) {
++		disable_irq_wake(irq);
++		mld->msi_irq_base_wake = false;
++	}
++	devm_free_irq(mc->dev, irq + 1, mld);	/* mif_cp2ap_status */
++	devm_free_irq(mc->dev, irq, mld);	/* mif_cp2ap_msg */
++	mld->msi_irq_base = 0;
++}
++
+ static int register_pcie(struct link_device *ld)
+ {
+ 	struct modem_ctl *mc = ld->mc;
+diff --git a/drivers/soc/google/cpif/s51xx_pcie.c b/drivers/soc/google/cpif/s51xx_pcie.c
+index 2f0b17e3d..013d4f220 100644
+--- a/drivers/soc/google/cpif/s51xx_pcie.c
++++ b/drivers/soc/google/cpif/s51xx_pcie.c
+@@ -557,9 +557,24 @@ void print_msi_register(struct pci_dev *pdev)
+ static void s51xx_pcie_remove(struct pci_dev *pdev)
+ {
+ 	struct s51xx_pcie *s51xx_pcie = pci_get_drvdata(pdev);
++	struct pci_driver *driver = pdev->driver;
++	struct modem_ctl *mc = container_of(driver, struct modem_ctl, pci_driver);
+ 
+ 	mif_err("s51xx PCIe Remove!!!\n");
+ 
++	/*
++	 * The MSI vectors are the endpoint's: its per-device MSI domain goes
++	 * when the driver core releases the device's resources, right after
++	 * this, and must be empty by then. Free the handlers on them, then the
++	 * vectors. With the link down the PCI core's config writes and the
++	 * controller's DBI writes are dropped by the host driver.
++	 */
++	s5100_free_pcie_int(mc);
++	pci_free_irq_vectors(pdev);
++
++	/* the pci_dev goes with the bus: nothing may use it after this */
++	mc->s51xx_pdev = NULL;
++
+ 	if (s51xx_pcie->pci_saved_configs)
+ 		kfree(s51xx_pcie->pci_saved_configs);
+ 

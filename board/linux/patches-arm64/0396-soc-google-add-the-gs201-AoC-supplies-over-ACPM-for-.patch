@@ -1,0 +1,203 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Mon, 12 Oct 2026 12:56:53 -0400
+Subject: [PATCH] soc: google: add the gs201 AoC supplies over ACPM for
+ bring-up
+
+The AoC's digital microphones and sensors are fed by five S2MPG12 and
+S2MPG13 LDOs (LDO20M, LDO19S, LDO20S, LDO7S, LDO5S) that the AP switches,
+and there is no S2MPG12/13 regulator driver yet. Read them over ACPM
+channel 2 and, only with enable=1, set their enable bits, the 1.8 V
+sensor rail before the 3.3 V one. Voltages are never changed, and a rail
+outside the stock device tree's range is not enabled.
+
+Assisted-by: LLM
+Signed-off-by: Derek Ross <derekross@gmail.com>
+---
+ drivers/soc/google/Kconfig           |   8 ++
+ drivers/soc/google/Makefile          |   1 +
+ drivers/soc/google/gs201-aoc-rails.c | 147 +++++++++++++++++++++++++++
+ 3 files changed, 156 insertions(+)
+ create mode 100644 drivers/soc/google/gs201-aoc-rails.c
+
+diff --git a/drivers/soc/google/Kconfig b/drivers/soc/google/Kconfig
+index 92bea641c..24a085b61 100644
+--- a/drivers/soc/google/Kconfig
++++ b/drivers/soc/google/Kconfig
+@@ -42,6 +42,14 @@ config GS201_AOC_BOOT
+ 	  AoC's services; it only checks that the firmware comes up. For
+ 	  bring-up only.
+ 
++config GS201_AOC_RAILS
++	tristate "gs201 AoC microphone and sensor supplies over ACPM (bring-up)"
++	depends on EXYNOS_ACPM_PROTOCOL
++	help
++	  Reads, and with enable=1 turns on, the five S2MPG12/S2MPG13 LDOs that
++	  feed the AoC's digital microphones and sensors, until there is an
++	  S2MPG12/13 regulator driver. For bring-up only.
++
+ endmenu
+ 
+ endif
+diff --git a/drivers/soc/google/Makefile b/drivers/soc/google/Makefile
+index 291272dde..08e290fea 100644
+--- a/drivers/soc/google/Makefile
++++ b/drivers/soc/google/Makefile
+@@ -2,3 +2,4 @@
+ obj-$(CONFIG_GOOGLE_GSA)	+= gsa.o
+ obj-$(CONFIG_GS201_AOC_SYSMMU)	+= gs201-aoc-sysmmu.o
+ obj-$(CONFIG_GS201_AOC_BOOT)	+= gs201-aoc-boot.o
++obj-$(CONFIG_GS201_AOC_RAILS)	+= gs201-aoc-rails.o
+diff --git a/drivers/soc/google/gs201-aoc-rails.c b/drivers/soc/google/gs201-aoc-rails.c
+new file mode 100644
+index 000000000..176e59192
+--- /dev/null
++++ b/drivers/soc/google/gs201-aoc-rails.c
+@@ -0,0 +1,147 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * gs201 AoC peripheral supplies over ACPM, for bring-up
++ *
++ * The AoC (audio and sensor DSP) owns the digital microphones and the
++ * sensors, but their supplies are S2MPG12/S2MPG13 LDOs that the AP switches:
++ *
++ *   LDO20M  DMIC1                      S2MPG12 PM 0x3f, enable bits 7:6
++ *   LDO19S  DMIC3                      S2MPG13 PM 0x3e, enable bits 7:6
++ *   LDO20S  DMIC2                      S2MPG13 PM 0x3f, enable bits 7:6
++ *   LDO7S   sensors (AoC sensor_1v8)   S2MPG13 PM 0x32, enable bit 7
++ *   LDO5S   proximity (sensor_3v3)     S2MPG13 PM 0x30, enable bit 7
++ *
++ * (google-modules/soc/gs include/linux/mfd/samsung/s2mpg1[23]-register.h
++ * and drivers/regulator/s2mpg1[23]-regulator.c). There is no S2MPG12/13
++ * regulator driver yet, so this module reads them over ACPM channel 2 and,
++ * only with enable=1, sets their enable bits in that order (the 1.8 V
++ * sensor rail before the 3.3 V one, as the AoC driver's sensor_power_list).
++ * It never changes a voltage, and refuses to enable a rail whose voltage is
++ * outside the stock device tree's range for it. Rails stay as they are when
++ * the module is removed.
++ *
++ * It binds to nothing in the device tree: it finds the ACPM node by its
++ * compatible.
++ */
++
++#include <linux/device/faux.h>
++#include <linux/firmware/samsung/exynos-acpm-protocol.h>
++#include <linux/module.h>
++#include <linux/of.h>
++
++#define ACPM_PMIC_CHANNEL		2	/* ACPM IPC channel */
++#define PMIC_TYPE_COMMON		0x00
++#define PMIC_TYPE_PM			0x01
++#define PMIC_CHIPID			0x0b	/* in the common block */
++#define LDO_VSEL_MASK			0x3f
++
++static bool enable;
++module_param(enable, bool, 0444);
++MODULE_PARM_DESC(enable, "Turn the five AoC rails on (default: only read them)");
++
++struct aoc_rail {
++	const char *name;
++	u8 bus;			/* 0: S2MPG12 (main), 1: S2MPG13 (sub) */
++	u8 reg;
++	u8 en_mask;
++	u32 min_uv, step_uv;	/* voltage = min_uv + vsel * step_uv */
++	u32 lo_uv, hi_uv;	/* stock device tree range */
++};
++
++static const struct aoc_rail aoc_rails[] = {
++	{ "LDO20M dmic1",   0, 0x3f, 0xc0,  700000, 25000, 1600000, 1950000 },
++	{ "LDO19S dmic3",   1, 0x3e, 0xc0,  700000, 25000, 1600000, 1950000 },
++	{ "LDO20S dmic2",   1, 0x3f, 0xc0,  700000, 25000, 1600000, 1950000 },
++	{ "LDO7S sensors",  1, 0x32, 0x80,  700000, 25000, 1600000, 1950000 },
++	{ "LDO5S prox",     1, 0x30, 0x80, 1800000, 25000, 2500000, 3300000 },
++};
++
++static struct faux_device *aoc_rails_fdev;
++
++static int aoc_rails_probe(struct faux_device *fdev)
++{
++	struct device *dev = &fdev->dev;
++	const struct acpm_pmic_ops *ops;
++	struct acpm_handle *acpm;
++	struct device_node *np;
++	unsigned int i, bus;
++	int ret;
++	u8 val;
++
++	np = of_find_compatible_node(NULL, NULL, "google,gs201-acpm-ipc");
++	if (!np)
++		return dev_err_probe(dev, -ENODEV, "no gs201 ACPM node\n");
++	acpm = devm_acpm_get_by_node(dev, np);
++	of_node_put(np);
++	if (IS_ERR(acpm))
++		return dev_err_probe(dev, PTR_ERR(acpm), "no ACPM handle\n");
++	ops = &acpm->ops->pmic;
++
++	for (bus = 0; bus < 2; bus++) {
++		ret = ops->read_reg(acpm, ACPM_PMIC_CHANNEL, PMIC_TYPE_COMMON,
++				    PMIC_CHIPID, bus, &val);
++		if (ret)
++			return dev_err_probe(dev, ret, "%s CHIPID read failed\n",
++					     bus ? "S2MPG13" : "S2MPG12");
++		dev_info(dev, "%s CHIPID 0x%02x\n", bus ? "S2MPG13" : "S2MPG12",
++			 val);
++	}
++
++	for (i = 0; i < ARRAY_SIZE(aoc_rails); i++) {
++		const struct aoc_rail *r = &aoc_rails[i];
++		u32 uv;
++
++		ret = ops->read_reg(acpm, ACPM_PMIC_CHANNEL, PMIC_TYPE_PM,
++				    r->reg, r->bus, &val);
++		if (ret) {
++			dev_err(dev, "%s: read failed: %d\n", r->name, ret);
++			return ret;
++		}
++		uv = r->min_uv + (val & LDO_VSEL_MASK) * r->step_uv;
++		dev_info(dev, "%s: ctrl 0x%02x, %s, %u mV\n", r->name, val,
++			 (val & r->en_mask) == r->en_mask ? "on" :
++			 (val & r->en_mask) ? "partly on" : "off", uv / 1000);
++
++		if (!enable || (val & r->en_mask) == r->en_mask)
++			continue;
++		if (uv < r->lo_uv || uv > r->hi_uv) {
++			dev_err(dev, "%s: %u mV is outside %u-%u mV, not enabling\n",
++				r->name, uv / 1000, r->lo_uv / 1000, r->hi_uv / 1000);
++			continue;
++		}
++
++		ret = ops->update_reg(acpm, ACPM_PMIC_CHANNEL, PMIC_TYPE_PM,
++				      r->reg, r->bus, r->en_mask, r->en_mask);
++		if (!ret)
++			ret = ops->read_reg(acpm, ACPM_PMIC_CHANNEL, PMIC_TYPE_PM,
++					    r->reg, r->bus, &val);
++		if (ret) {
++			dev_err(dev, "%s: enable failed: %d\n", r->name, ret);
++			return ret;
++		}
++		dev_info(dev, "%s: enabled, ctrl now 0x%02x\n", r->name, val);
++	}
++
++	return 0;
++}
++
++static const struct faux_device_ops aoc_rails_ops = {
++	.probe = aoc_rails_probe,
++};
++
++static int __init aoc_rails_init(void)
++{
++	aoc_rails_fdev = faux_device_create("gs201-aoc-rails", NULL,
++					    &aoc_rails_ops);
++	return aoc_rails_fdev ? 0 : -ENODEV;
++}
++module_init(aoc_rails_init);
++
++static void __exit aoc_rails_exit(void)
++{
++	faux_device_destroy(aoc_rails_fdev);
++}
++module_exit(aoc_rails_exit);
++
++MODULE_DESCRIPTION("gs201 AoC microphone and sensor supplies over ACPM (bring-up)");
++MODULE_LICENSE("GPL");

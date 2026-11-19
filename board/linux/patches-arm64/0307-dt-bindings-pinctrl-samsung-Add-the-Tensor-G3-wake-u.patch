@@ -1,0 +1,31 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Brett-Michael Green <brett@bmgvisualtech.com>
+Date: Fri, 30 Oct 2026 14:44:01 -0400
+Subject: [PATCH] dt-bindings: pinctrl: samsung: Add the Tensor G3 wake-up
+ interrupts
+
+zuma's (Tensor G3) ALIVE pin controller has a wake-up interrupt
+controller like Tensor G4's: each pin has its own GIC interrupt, and its
+EINT registers are at the same offsets. Document zuma's compatible with
+Tensor G4's as the fallback.
+
+Assisted-by: LLM
+Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
+---
+ .../bindings/pinctrl/samsung,pinctrl-wakeup-interrupt.yaml     | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/Documentation/devicetree/bindings/pinctrl/samsung,pinctrl-wakeup-interrupt.yaml b/Documentation/devicetree/bindings/pinctrl/samsung,pinctrl-wakeup-interrupt.yaml
+index c1dffa256..721e589ee 100644
+--- a/Documentation/devicetree/bindings/pinctrl/samsung,pinctrl-wakeup-interrupt.yaml
++++ b/Documentation/devicetree/bindings/pinctrl/samsung,pinctrl-wakeup-interrupt.yaml
+@@ -61,6 +61,9 @@ properties:
+           - const: google,gs101-wakeup-eint
+           - const: samsung,exynos850-wakeup-eint
+           - const: samsung,exynos7-wakeup-eint
++      - items:
++          - const: google,zuma-wakeup-eint
++          - const: google,zumapro-wakeup-eint
+ 
+   interrupts:
+     description:

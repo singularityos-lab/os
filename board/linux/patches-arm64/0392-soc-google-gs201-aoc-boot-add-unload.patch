@@ -1,0 +1,104 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Mon, 12 Oct 2026 13:04:26 -0400
+Subject: [PATCH] soc: google: gs201-aoc-boot: add unload
+
+Add an unload step in the order of Google's aoc_take_offline(): power
+request and acknowledge, GSA_AOC_SHUTDOWN if the AoC runs, then unload,
+then the System MMU off. Load and start can run again afterwards. Also
+request power before the start and shutdown commands, as stock does
+before it calls the GSA.
+
+Assisted-by: LLM
+Signed-off-by: Derek Ross <derekross@gmail.com>
+---
+ drivers/soc/google/gs201-aoc-boot.c | 55 +++++++++++++++++++++++++++++
+ 1 file changed, 55 insertions(+)
+
+diff --git a/drivers/soc/google/gs201-aoc-boot.c b/drivers/soc/google/gs201-aoc-boot.c
+index 51e8cc5c7..031a2354c 100644
+--- a/drivers/soc/google/gs201-aoc-boot.c
++++ b/drivers/soc/google/gs201-aoc-boot.c
+@@ -24,6 +24,10 @@
+  *            control block (magic 0xa0c00a0c) and list its services
+  *   control  the control block and the service names
+  *   shutdown write 1: GSA_AOC_SHUTDOWN (back to "loaded")
++ *   unload   write 1: GSA_AOC_SHUTDOWN if running, then unload (the GSA
++ *            unlocks the carve-out, state "inactive"), System MMU off. The
++ *            order of Google's aoc_take_offline(); load and start can then
++ *            run again.
+  *
+  * Image format: a 4 KiB signed header (auth header with an image config:
+  * load address, size, reset trampoline, IOMMU windows), then the "superbin"
+@@ -566,6 +570,10 @@ static ssize_t aoc_cmd_write(struct aoc_boot *ab, const char __user *ubuf,
+ 		ret = -ENOENT;
+ 		goto out;
+ 	}
++	/* aoc_take_offline(): wake the AoC before calling the GSA */
++	ret = aoc_power(ab, true);
++	if (ret)
++		goto out;
+ 	ret = gsa_send_aoc_cmd(ab->gsa, cmd);
+ 	dev_info(ab->dev, "AoC command %u: GSA state %d (%s)\n", cmd, ret,
+ 		 aoc_state_name(ret));
+@@ -597,6 +605,52 @@ static ssize_t aoc_shutdown_write(struct file *file, const char __user *ubuf,
+ 	return aoc_cmd_write(file->private_data, ubuf, count, GSA_AOC_SHUTDOWN);
+ }
+ 
++static ssize_t aoc_unload_write(struct file *file, const char __user *ubuf,
++				size_t count, loff_t *ppos)
++{
++	struct aoc_boot *ab = file->private_data;
++	bool go;
++	int ret, state;
++
++	ret = kstrtobool_from_user(ubuf, count, &go);
++	if (ret || !go)
++		return ret ?: count;
++
++	mutex_lock(&ab->lock);
++	if (!ab->loaded) {
++		ret = -ENOENT;
++		goto out;
++	}
++	ret = aoc_power(ab, true);
++	if (ret)
++		goto out;
++	state = gsa_send_aoc_cmd(ab->gsa, GSA_AOC_GET_STATE);
++	if (state == GSA_AOC_STATE_RUNNING)
++		state = gsa_send_aoc_cmd(ab->gsa, GSA_AOC_SHUTDOWN);
++	if (state != GSA_AOC_STATE_LOADED) {
++		dev_err(ab->dev, "AoC state %d (%s), not unloading\n", state,
++			aoc_state_name(state));
++		ret = state < 0 ? state : -EBUSY;
++		goto out;
++	}
++	ret = gsa_unload_aoc_fw_image(ab->gsa);
++	if (ret)
++		goto out;
++	aoc_sysmmu_disable(ab->mmu);
++	ab->loaded = false;
++	state = gsa_send_aoc_cmd(ab->gsa, GSA_AOC_GET_STATE);
++	dev_info(ab->dev, "unloaded; GSA AoC state %d (%s)\n", state,
++		 aoc_state_name(state));
++out:
++	mutex_unlock(&ab->lock);
++	return ret < 0 ? ret : count;
++}
++
++static const struct file_operations aoc_unload_fops = {
++	.open = simple_open,
++	.write = aoc_unload_write,
++};
++
+ static const struct file_operations aoc_start_fops = {
+ 	.open = simple_open,
+ 	.write = aoc_start_write,
+@@ -670,6 +724,7 @@ static int aoc_boot_probe(struct platform_device *pdev)
+ 	debugfs_create_file("start", 0200, ab->debugfs, ab, &aoc_start_fops);
+ 	debugfs_create_file("control", 0400, ab->debugfs, ab, &aoc_control_fops);
+ 	debugfs_create_file("shutdown", 0200, ab->debugfs, ab, &aoc_shutdown_fops);
++	debugfs_create_file("unload", 0200, ab->debugfs, ab, &aoc_unload_fops);
+ 
+ 	dev_info(dev, "ready: carve-out %pa + %#zx, nothing touched\n",
+ 		 &ab->dram_base, ab->dram_size);

@@ -1,0 +1,62 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Sat, 31 Oct 2026 11:21:32 -0643
+Subject: [PATCH] arm64: dts: exynos: google: zumapro: Add HSI0's USI4 and its
+ I2C controller
+
+Describe CMU_HSI0's USI4 in I2C mode and its controller, the Pixel 9a's
+I2C19 (the speaker amplifiers' control bus), as USI3's SPI is: the USI
+control registers at 0x111f00c0 apart from the controller's, the HSI0
+sysreg's selector at 0x1024, GIC SPI 410. Both stay disabled.
+
+Booted on the Pixel 9a:
+7.3.0-rc6-omamobile-tegu-s2mpg15-m1-g991042e2eff3-dirty has these two
+nodes, enabled by an overlay at runtime; exynos-usi and exynos5-hsi2c
+bind them and the two TAS2572s answer at 0x48 and 0x49.
+
+Address, selector and interrupt from Google's GPL zumapro-usi.dtsi.
+
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ .../arm64/boot/dts/exynos/google/zumapro.dtsi | 28 +++++++++++++++++++
+ 1 file changed, 28 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/zumapro.dtsi b/arch/arm64/boot/dts/exynos/google/zumapro.dtsi
+index f8be1721d..8fac5f8ab 100644
+--- a/arch/arm64/boot/dts/exynos/google/zumapro.dtsi
++++ b/arch/arm64/boot/dts/exynos/google/zumapro.dtsi
+@@ -1099,6 +1099,34 @@ spi21: spi@111e0000 {
+ 			};
+ 		};
+ 
++		usi4_hsi0: usi@111f00c0 {
++			compatible = "google,zumapro-usi", "samsung,exynos850-usi";
++			reg = <0x0 0x111f00c0 0x20>;
++			clocks = <&cmu_hsi0 CLK_GOUT_HSI0_USI4_PCLK>,
++				 <&cmu_hsi0 CLK_GOUT_HSI0_USI4_IP>;
++			clock-names = "pclk", "ipclk";
++			samsung,sysreg = <&sysreg_hsi0 0x1024>;
++			samsung,mode = <USI_MODE_I2C>;
++			#address-cells = <1>;
++			#size-cells = <1>;
++			ranges = <0x111f0000 0x0 0x111f0000 0x1000>;
++			status = "disabled";
++
++			hsi2c19: i2c@111f0000 {
++				compatible = "google,zumapro-hsi2c",
++					     "samsung,exynosautov9-hsi2c";
++				/* USI control starts at 0xc0; do not claim it twice. */
++				reg = <0x111f0000 0xc0>;
++				interrupts = <GIC_SPI 410 IRQ_TYPE_LEVEL_HIGH>;
++				clocks = <&cmu_hsi0 CLK_GOUT_HSI0_USI4_IP>,
++					 <&cmu_hsi0 CLK_GOUT_HSI0_USI4_PCLK>;
++				clock-names = "hsi2c", "hsi2c_pclk";
++				#address-cells = <1>;
++				#size-cells = <0>;
++				status = "disabled";
++			};
++		};
++
+ 		usb: usb@11210000 {
+ 			compatible = "snps,dwc3";
+ 			reg = <0x0 0x11210000 0x10000>;

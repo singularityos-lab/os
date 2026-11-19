@@ -1,0 +1,47 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Tue, 13 Oct 2026 14:06:03 -0400
+Subject: [PATCH] PCI: dwc: gs201-cp: ask for the target link speed after the
+ first L0
+
+dw_pcie_setup_rc() ends by setting PORT_LOGIC_SPEED_CHANGE, without
+which a DesignWare port trains to L0 at 2.5 GT/s and stays there
+whatever the target in Link Control 2. Google's establish_link runs
+dw_pcie_setup_rc(), so stock's modem boot loader link comes up at
+Gen3; the root port setup copied from it here stopped one write short.
+
+Since then the boot loader link to the modem has trained at Gen1 x2
+on every boot ("link at Gen1, below Gen3: retrying" twice, then kept on
+the last try), each retry with a PERST# cycle under the modem's boot
+loader. The modem has booted at that speed but then never serviced its
+IPC buffers (MODEM-PLAN M4.1-M4.1c), while stock and another Linux port
+on the same phone, both at Gen3 x2, carry IPC within seconds of ONLINE.
+
+Set the bit with the rest of the root port setup. For the ROM link the
+target is Gen1, so nothing changes there.
+
+Assisted-by: LLM
+Signed-off-by: Derek Ross <derekross@gmail.com>
+---
+ drivers/pci/controller/dwc/pcie-gs201-cp.c | 8 ++++++++
+ 1 file changed, 8 insertions(+)
+
+diff --git a/drivers/pci/controller/dwc/pcie-gs201-cp.c b/drivers/pci/controller/dwc/pcie-gs201-cp.c
+index e157878d3..737ee525c 100644
+--- a/drivers/pci/controller/dwc/pcie-gs201-cp.c
++++ b/drivers/pci/controller/dwc/pcie-gs201-cp.c
+@@ -370,6 +370,14 @@ static void cp_setup_root_port(struct gs201_pcie_cp *cp)
+ 	 * was never sized or assigned.
+ 	 */
+ 	dw_pcie_writew_dbi(pci, PCI_CLASS_DEVICE, PCI_CLASS_BRIDGE_PCI);
++
++	/*
++	 * Training always reaches L0 at 2.5 GT/s first; the port moves to
++	 * the target speed only when told to.
++	 */
++	val = dw_pcie_readl_dbi(pci, PCIE_LINK_WIDTH_SPEED_CONTROL);
++	val |= PORT_LOGIC_SPEED_CHANGE;
++	dw_pcie_writel_dbi(pci, PCIE_LINK_WIDTH_SPEED_CONTROL, val);
+ }
+ 
+ /* exynos_pcie_setup_rc() for EP_SAMSUNG_MODEM, plus Google's EQ-off write */

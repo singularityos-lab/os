@@ -1,0 +1,74 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Tue, 27 Oct 2026 12:16:31 -0647
+Subject: [PATCH] arm64: dts: exynos: google: zumapro-tegu: Enable the display
+
+Turn on the Pixel 9a's display pipeline: DECON0 with a 64 MiB reusable
+scanout pool below 4 GiB and the bootloader's splash as its boot
+framebuffer, scanning out to DSIM0, and the TG4C panel on DSIM0's
+virtual channel 0. With DECON's output on DSIM0, gs-decon switches the
+link and the panel between 60 and 120 Hz.
+
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ .../boot/dts/exynos/google/zumapro-tegu.dts   | 40 +++++++++++++++++++
+ 1 file changed, 40 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/zumapro-tegu.dts b/arch/arm64/boot/dts/exynos/google/zumapro-tegu.dts
+index d68fd18f8..5f2a479c3 100644
+--- a/arch/arm64/boot/dts/exynos/google/zumapro-tegu.dts
++++ b/arch/arm64/boot/dts/exynos/google/zumapro-tegu.dts
+@@ -158,6 +158,15 @@ cont_splash_mem: splash@fac00000 {
+ 		reg = <0x0 0xfac00000 0x009fc900>;
+ 		no-map;
+ 	};
++
++	/* DECON's scanout buffers, below 4 GiB for its 32-bit DMA. */
++	display_pool: display-pool {
++		compatible = "shared-dma-pool";
++		reusable;
++		size = <0x04000000>;
++		alignment = <0x0 0x00200000>;
++		alloc-ranges = <0x0 0x98000000 0x06000000>;
++	};
+ };
+ 
+ &acpm_ipc {
+@@ -230,6 +239,37 @@ &cmu_top {
+ 	status = "okay";
+ };
+ 
++/*
++ * DECON0 scans out to DSIM0, so gs-decon can switch the link and the
++ * panel between 60 and 120 Hz.
++ */
++&decon0 {
++	memory-region = <&display_pool>, <&cont_splash_mem>;
++	memory-region-names = "pool", "boot-framebuffer";
++	status = "okay";
++
++	port {
++		decon0_out: endpoint {
++			remote-endpoint = <&dsi0_in>;
++		};
++	};
++};
++
++&dsi0 {
++	status = "okay";
++
++	panel@0 {
++		compatible = "google,tg4c";
++		reg = <0>;
++	};
++
++	port {
++		dsi0_in: endpoint {
++			remote-endpoint = <&decon0_out>;
++		};
++	};
++};
++
+ /* The keys' banks and the touchscreen's raise their own interrupts. */
+ &gpa4 {
+ 	interrupt-controller;

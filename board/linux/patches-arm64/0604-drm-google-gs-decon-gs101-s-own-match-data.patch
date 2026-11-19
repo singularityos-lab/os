@@ -1,0 +1,62 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: saiththerobo <the.tom.sharp@gmail.com>
+Date: Thu, 29 Oct 2026 06:18:07 +0000
+Subject: [PATCH] drm: google: gs-decon: gs101's own match data
+
+gs101's DECON is gs201's (Google's cal_9845 register layout), and it
+falls back to gs201's compatible. Give "google,gs101-decon" its own match
+data, gs201's for now, so that behaviour found and tested on the Pixel 6
+Pro only can be turned on for gs101 without changing the Pixel 7 Pro. The
+DSIM needs nothing of its own and matches through the gs201 fallback.
+
+Assisted-by: Claude Opus 5.5
+Signed-off-by: saiththerobo <the.tom.sharp@gmail.com>
+---
+ drivers/gpu/drm/google/gs-decon.c | 20 +++++++++++++++++---
+ 1 file changed, 17 insertions(+), 3 deletions(-)
+
+diff --git a/drivers/gpu/drm/google/gs-decon.c b/drivers/gpu/drm/google/gs-decon.c
+index cbeeddc11..1df22cdc7 100644
+--- a/drivers/gpu/drm/google/gs-decon.c
++++ b/drivers/gpu/drm/google/gs-decon.c
+@@ -33,9 +33,10 @@
+  *
+  * Register layout from Google's GPL display driver
+  * (google-modules/display/samsung/cal_9845/regs-decon.h and regs-dpp.h),
+- * which gs201 shares with gs101. G3 and G4 offsets and the fourteen-window
+- * mask follow cal_9865/regs-decon.h and regs-dpp.h in the same GPL driver,
+- * which builds that CAL for both.
++ * which gs201 shares with gs101. On gs101 only DECON0's address and the
++ * interrupt numbers differ (device tree). G3 and G4 offsets and the
++ * fourteen-window mask follow cal_9865/regs-decon.h and regs-dpp.h in the
++ * same GPL driver, which builds that CAL for both.
+  */
+ 
+ #include <linux/aperture.h>
+@@ -278,6 +279,18 @@ static const struct gs_decon_soc_data gs201_decon_data = {
+ 	.shadow_update_mask = SHD_REG_UP_REQ_FLIP(SHD_REG_UP_REQ_ALL_WIN),
+ };
+ 
++/*
++ * gs101 is gs201's DECON; the boot framebuffer and sleep handling below were
++ * found and tested on raven only, so they stay off for gs201.
++ */
++static const struct gs_decon_soc_data gs101_decon_data = {
++	.modes = gs_decon_modes,
++	.num_modes = ARRAY_SIZE(gs_decon_modes),
++	.image_size_reg = RDMA_IMG_SIZE,
++	.source_offset_reg = RDMA_SRC_OFFSET,
++	.shadow_update_mask = SHD_REG_UP_REQ_FLIP(SHD_REG_UP_REQ_ALL_WIN),
++};
++
+ static const struct gs_decon_soc_data zumapro_decon_data = {
+ 	.modes = tegu_decon_modes,
+ 	.num_modes = ARRAY_SIZE(tegu_decon_modes),
+@@ -1579,6 +1592,7 @@ static void gs_decon_shutdown(struct platform_device *pdev)
+ }
+ 
+ static const struct of_device_id gs_decon_of_match[] = {
++	{ .compatible = "google,gs101-decon", .data = &gs101_decon_data },
+ 	{ .compatible = "google,gs201-decon", .data = &gs201_decon_data },
+ 	{ .compatible = "google,zuma-decon", .data = &zuma_decon_data },
+ 	{ .compatible = "google,zumapro-decon", .data = &zumapro_decon_data },

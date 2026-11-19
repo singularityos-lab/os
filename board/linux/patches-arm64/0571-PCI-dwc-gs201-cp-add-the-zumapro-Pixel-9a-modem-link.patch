@@ -1,0 +1,601 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Mon, 2 Nov 2026 13:18:57 -0647
+Subject: [PATCH] PCI: dwc: gs201-cp: add the zumapro (Pixel 9a) modem link
+
+The Pixel 9a's S5300 modem hangs off zumapro's HSI1 GEN3A_0, the zuma
+family's root complex, with the two-lane PHY that phy-zuma-pcie drives
+as google,zumapro-pcie-gen3x2-phy. Add it as a second compatible of this
+driver, selected through of_device_id data, with the PHY taken through
+the generic PHY API as on gs201. What stays in the host, from Google's
+GPL zuma driver (pcie-exynos-rc.c):
+
+- RC mode, the soft power reset pulse and the slave NAK are written
+  before phy_power_on(). zuma's CAL writes them inside its PHY
+  configuration, which the PHY driver leaves to the host; pcie-gs201.c
+  does the same on zuma's Wi-Fi link. ELBI is clocked then because the
+  PHY's power_off returns its input clock (SOC 0x4000) to the
+  oscillator, as Google's poweroff does.
+- APP_XFER_PENDING is raised from training to the end of link_up, and
+  around each read of the endpoint's configuration space, as
+  exynos_pcie_rc_rd_other_conf() does.
+- Two lanes are set in the port logic, and phy_calibrate() holds the
+  PHY's PLL and bias on once the link has trained.
+- The PHY leaves isolation at the first link_up and stays out, as
+  stock's zumapro node has no use-phy-isol-en: link_down runs the
+  controller's power-down steps and phy_power_off(), nothing else.
+- There is no secure-ATU SMC: the host writes the unrolled outbound
+  iATU, config space to bus 1 and the first 2 MiB of the memory window.
+- I/O coherency only when samsung,sysreg is given.
+
+The new fields go at the end of struct gs201_pcie_cp, and gs201's steps
+are unchanged; the exported calls are the same, so cpif drives either
+link.
+
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ drivers/pci/controller/dwc/Kconfig         |  12 +-
+ drivers/pci/controller/dwc/pcie-gs201-cp.c | 331 ++++++++++++++++++++-
+ 2 files changed, 327 insertions(+), 16 deletions(-)
+
+diff --git a/drivers/pci/controller/dwc/Kconfig b/drivers/pci/controller/dwc/Kconfig
+index 43efbf32e..f5226c8db 100644
+--- a/drivers/pci/controller/dwc/Kconfig
++++ b/drivers/pci/controller/dwc/Kconfig
+@@ -404,17 +404,19 @@ config PCI_EXYNOS
+ 	  functions to implement the driver.
+ 
+ config PCIE_GS201_CP
+-	tristate "Google gs201 PCIe for the modem (bring-up)"
++	tristate "Google gs201 and zumapro PCIe for the modem (bring-up)"
+ 	depends on ARCH_EXYNOS || COMPILE_TEST
+ 	depends on OF && PCI_MSI && HAVE_ARM_SMCCC
+ 	select PCIE_DW
+ 	select EXYNOS_PMU
+ 	select MFD_SYSCON
+ 	help
+-	  Bring-up driver for PCIe GEN4A_0 of Google's gs201 (Tensor G2), the
+-	  link to the Samsung S5300 modem. It powers the modem through its
+-	  control lines and trains the link one debugfs step at a time, for
+-	  testing on a bench; it does not register a PCI host yet.
++	  Bring-up driver for the link to the Samsung S5300 modem: PCIe
++	  GEN4A_0 of Google's gs201 (Tensor G2, Pixel 7) and GEN3A_0 of
++	  zumapro (Tensor G4, Pixel 9a), whose two-lane PHY is driven by
++	  PHY_ZUMA_PCIE. It powers the modem through its control lines and
++	  trains the link one debugfs step at a time, for testing on a
++	  bench, or on request of the modem driver (EXYNOS_MODEM_IF).
+ 
+ config PCIE_GS201
+ 	tristate "Google gs201 PCIe controller (host mode)"
+diff --git a/drivers/pci/controller/dwc/pcie-gs201-cp.c b/drivers/pci/controller/dwc/pcie-gs201-cp.c
+index 7990508fb..30eae683a 100644
+--- a/drivers/pci/controller/dwc/pcie-gs201-cp.c
++++ b/drivers/pci/controller/dwc/pcie-gs201-cp.c
+@@ -36,7 +36,8 @@
+  *              it is disabled, the modem driver owns the lines)
+  *   link_up    PHY out of isolation, PHY and controller setup, PERST#
+  *              release, LTSSM, wait for L0 (Gen1 unless "link_up 3")
+- *   atu        the secure-ATU SMC (config and memory windows)
++ *   atu        the secure-ATU SMC (config and memory windows); on zumapro
++ *              the host's own iATU
+  *   id         read the endpoint's vendor/device ID through the config window
+  *   bus        register the PCI host bridge and scan it (first time), with
+  *              the DWC MSI controller aimed at the modem's MSI page; after
+@@ -56,6 +57,28 @@
+  * The "status" file only reads GPIO levels and the PMU isolation bit, plus
+  * controller registers once the PHY is out of isolation (an ELBI access
+  * while it is isolated hangs the SoC, as found on the Wi-Fi link).
++ *
++ * zumapro (Tensor G4, "google,zumapro-pcie-cp") connects the Pixel 9a's
++ * S5300 through HSI1 GEN3A_0, the zuma family's root complex, with the
++ * two-lane PHY of phy-zuma-pcie. Its steps follow Google's GPL driver for
++ * the zuma family (google-modules/soc/gs/drivers/pci/controller/dwc/
++ * pcie-exynos-rc.c: exynos_pcie_rc_poweron(), _establish_link(),
++ * _poweroff(), _rd_other_conf() and _prog_viewport_*()), and differ from
++ * gs201's in these places:
++ *  - RC mode, the soft power reset and the slave NAK are written before
++ *    the PHY is configured (zuma's CAL does them inside its PHY
++ *    configuration, which the PHY driver leaves to the host), and the PHY
++ *    is calibrated, its PLL and bias held on, once the link has trained;
++ *  - APP_XFER_PENDING is raised from training to the end of link_up and
++ *    around each read of the endpoint's configuration space;
++ *  - the port logic is set for two lanes;
++ *  - the PHY leaves isolation at the first link_up and stays out, as
++ *    stock's node has no use-phy-isol-en: link_down powers it down, and
++ *    its power_off returns its input clock to the oscillator first, so
++ *    that ELBI is clocked until the next power_on;
++ *  - no secure-ATU SMC: the host programs the unrolled outbound iATU;
++ *  - I/O coherency only when samsung,sysreg is given.
++ *
+  * Copyright (C) 2021 Samsung Electronics Co., Ltd. (sequences)
+  */
+ 
+@@ -76,6 +99,7 @@
+ #include <linux/phy/phy.h>
+ #include <linux/pinctrl/consumer.h>
+ #include <linux/platform_device.h>
++#include <linux/property.h>
+ #include <linux/regmap.h>
+ #include <linux/seq_file.h>
+ #include <linux/soc/samsung/exynos-pmu.h>
+@@ -126,6 +150,9 @@ MODULE_PARM_DESC(watch_lines, "Log every edge on the modem's cp2ap lines, with i
+ #define CP_ELBI_L1_REQ_NAK_MASTER	BIT(4)
+ #define CP_ELBI_MSTR_PEND_SEL_NAK	0x474
+ #define CP_ELBI_DBI_L1_EXIT_DISABLE	0x1078
++#define CP_ELBI_APP_XFER_PENDING	0x074	/* zumapro */
++#define CP_ELBI_SOFT_RESET_ALL		0xf	/* zumapro: written as a word */
++#define CP_ELBI_SLV_PEND_SEL_NAK	0x3d8	/* zumapro */
+ 
+ /* PMU PHY control (PHY_CTRL_PCIE_GEN4_0): bit 0 set = isolation bypassed */
+ #define CP_PMU_PHY_BYPASS		BIT(0)
+@@ -142,6 +169,21 @@ MODULE_PARM_DESC(watch_lines, "Log every edge on the modem's cp2ap lines, with i
+ /* Secure ATU: the outbound iATU is programmed by EL3 (Google's exynos_smc()) */
+ #define CP_SMC_SECURE_ATU_SETUP		0x820020d8
+ 
++/* zumapro: the unrolled outbound iATU, DBI + 0x300000, 0x200 per region */
++#define CP_ATU_OB(r, reg)		(0x300000 + (r) * 0x200 + (reg))
++#define CP_ATU_CR1			0x00
++#define CP_ATU_CR2			0x04
++#define CP_ATU_LOWER_BASE		0x08
++#define CP_ATU_UPPER_BASE		0x0c
++#define CP_ATU_LIMIT			0x10
++#define CP_ATU_LOWER_TARGET		0x14
++#define CP_ATU_UPPER_TARGET		0x18
++#define CP_ATU_TYPE_MEM			0x0
++#define CP_ATU_TYPE_CFG0		0x4
++#define CP_ATU_ENABLE			BIT(31)
++#define CP_ATU_BUS(x)			(((x) & 0xff) << 24)
++#define CP_ATU_MEM_SIZE			SZ_2M	/* Google's limit */
++
+ #define CP_PERST_DELAY_US		18000	/* modem: 18-20 ms, Wi-Fi 20 */
+ #define CP_LINK_POLL_US			10
+ #define CP_LINK_TIMEOUT_US		48000
+@@ -191,6 +233,26 @@ static const char * const cp_input_names[CP_NUM_INPUTS] = {
+ 
+ #define CP_ROOT_WIN_REGS	7	/* ARRAY_SIZE(cp_root_win_offs) */
+ 
++/**
++ * struct gs201_pcie_cp_data - what differs between the SoCs
++ * @zuma_ctrl: the zuma family's controller steps: RC mode, the soft power
++ *	reset and the slave NAK before the PHY configuration;
++ *	APP_XFER_PENDING from training to the end of link_up and around
++ *	endpoint configuration reads; two lanes in the port logic; and
++ *	phy_calibrate() once the link has trained
++ * @phy_bypass_once: the PHY leaves isolation at the first link_up and
++ *	stays out until the driver goes away
++ * @host_atu: no secure-ATU SMC; the host programs the outbound iATU
++ * @sysreg_optional: without samsung,sysreg the link runs without I/O
++ *	coherency
++ */
++struct gs201_pcie_cp_data {
++	bool zuma_ctrl;
++	bool phy_bypass_once;
++	bool host_atu;
++	bool sysreg_optional;
++};
++
+ struct gs201_pcie_cp {
+ 	struct device *dev;
+ 	struct dw_pcie pci;		/* only for the DBI helpers */
+@@ -248,6 +310,9 @@ struct gs201_pcie_cp {
+ 	struct pci_saved_state *ep_state;	/* its config after the scan */
+ 	u32 root_win[CP_ROOT_WIN_REGS];	/* root port windows after the scan */
+ 	bool root_win_saved;
++	const struct gs201_pcie_cp_data *data;
++	phys_addr_t cfg_phys;		/* host_atu: the config window */
++	resource_size_t cfg_size;
+ };
+ 
+ /*
+@@ -472,10 +537,21 @@ static int cp_cfg_read(struct pci_bus *bus, unsigned int devfn, int where,
+ {
+ 	struct gs201_pcie_cp *cp = bus->sysdata;
+ 	unsigned long flags;
++	bool xfer;
+ 	int ret;
+ 
+ 	raw_spin_lock_irqsave(&cp->cfg_lock, flags);
++	/*
++	 * zumapro: as Google's exynos_pcie_rc_rd_other_conf(), hold the link
++	 * out of L1 while an endpoint read is in flight. cfg_ep_ok means the
++	 * link is up, so ELBI is reachable.
++	 */
++	xfer = cp->data->zuma_ctrl && !pci_is_root_bus(bus) && cp->cfg_ep_ok;
++	if (xfer)
++		cp_elbi_write(cp, CP_ELBI_APP_XFER_PENDING, 1);
+ 	ret = pci_generic_config_read(bus, devfn, where, size, val);
++	if (xfer)
++		cp_elbi_write(cp, CP_ELBI_APP_XFER_PENDING, 0);
+ 	raw_spin_unlock_irqrestore(&cp->cfg_lock, flags);
+ 
+ 	/*
+@@ -937,6 +1013,54 @@ static void cp_ctrl_irq(struct gs201_pcie_cp *cp, bool on)
+ 	cp->ctrl_irq_on = on;
+ }
+ 
++/*
++ * zumapro: exynos_pcie_rc_poweroff() from PERST# on, while the PHY still
++ * runs: LTSSM off, APP_XFER_PENDING dropped, the controller's interrupts
++ * off and a soft power reset pulse; then phy_power_off(), which returns the
++ * PHY's input clock to the oscillator and powers the PHY down. ELBI stays
++ * clocked from there to the next phy_power_on(), whose controller steps
++ * come before the PHY's (cp_zuma_link_prepare()). Also the cleanup after a
++ * failed try.
++ */
++static void cp_zuma_phy_off(struct gs201_pcie_cp *cp)
++{
++	u32 val;
++
++	if (!cp->phy_on)
++		return;
++	gpiod_direction_output(cp->perst, 1);
++	cp_elbi_write(cp, CP_ELBI_LTSSM_EN, 0);
++	cp_elbi_write(cp, CP_ELBI_APP_XFER_PENDING, 0);
++	cp_elbi_write(cp, CP_ELBI_IRQ0_EN, 0);
++	cp_elbi_write(cp, CP_ELBI_IRQ1_EN, 0);
++	cp_elbi_write(cp, CP_ELBI_IRQ2_EN, 0);
++	val = cp_elbi_read(cp, CP_ELBI_SOFT_RESET);
++	cp_elbi_write(cp, CP_ELBI_SOFT_RESET, val & ~CP_ELBI_SOFT_PWR_RESET);
++	usleep_range(20, 40);
++	cp_elbi_write(cp, CP_ELBI_SOFT_RESET, val | CP_ELBI_SOFT_PWR_RESET);
++	phy_power_off(cp->phy);
++	cp->phy_on = false;
++}
++
++/*
++ * zumapro: the link down with the PHY powered down but left out of
++ * isolation, as stock. DBI is closed to readers until the next link_up.
++ */
++static void cp_zuma_link_down(struct gs201_pcie_cp *cp)
++{
++	bool was_on = cp->phy_on;
++
++	cp_ctrl_irq(cp, false);		/* reads ELBI: before anything else */
++	cp_cfg_allow(cp, false, false);
++	cp_msi_irqs(cp, false);
++	cp_zuma_phy_off(cp);
++	cp_dbi_allow(cp, false);
++	if (was_on)
++		dev_info(cp->dev, "link down, PHY powered down\n");
++	cp->link_up = false;
++	cp->atu_done = false;
++}
++
+ /*
+  * exynos_pcie_rc_poweroff(): PERST#, LTSSM off, a soft power reset of the
+  * controller, PHY power-down; then isolation, as on suspend.
+@@ -946,6 +1070,11 @@ static void cp_link_down(struct gs201_pcie_cp *cp)
+ 	bool was_inited = cp->phy_inited;
+ 	u32 val;
+ 
++	if (cp->data->phy_bypass_once) {
++		cp_zuma_link_down(cp);
++		return;
++	}
++
+ 	cp_ctrl_irq(cp, false);		/* reads ELBI: before anything else */
+ 	cp_cfg_allow(cp, false, false);
+ 	cp_msi_irqs(cp, false);
+@@ -1016,12 +1145,78 @@ static int cp_link_settle(struct gs201_pcie_cp *cp, unsigned int speed,
+ 	return 0;
+ }
+ 
++/*
++ * zumapro: exynos_pcie_rc_poweron() and _establish_link() up to the LTSSM.
++ * The CAL writes RC mode, the soft power reset and the slave NAK in the
++ * middle of its PHY configuration, after the external PLL has locked; the
++ * PHY driver leaves ELBI to the host, so they come first, as pcie-gs201.c
++ * does on zuma's Wi-Fi link. ELBI is clocked here: the PHY is out of
++ * isolation, and it is powered down with its input clock on the
++ * oscillator (boot, or the last phy_power_off()).
++ */
++static int cp_zuma_link_prepare(struct gs201_pcie_cp *cp, unsigned int speed)
++{
++	struct dw_pcie *pci = &cp->pci;
++	u32 val;
++	int ret;
++
++	cp_elbi_write(cp, CP_ELBI_DEVICE_TYPE, CP_ELBI_DEVICE_TYPE_RC);
++	cp_elbi_write(cp, CP_ELBI_SOFT_RESET, CP_ELBI_SOFT_RESET_ALL);
++	cp_elbi_write(cp, CP_ELBI_SOFT_RESET,
++		      CP_ELBI_SOFT_RESET_ALL & ~CP_ELBI_SOFT_PWR_RESET);
++	fsleep(10);
++	cp_elbi_write(cp, CP_ELBI_SOFT_RESET, CP_ELBI_SOFT_RESET_ALL);
++	fsleep(10);
++	cp_elbi_write(cp, CP_ELBI_SLV_PEND_SEL_NAK, 1);
++
++	ret = phy_power_on(cp->phy);	/* power-down clear, CAL, lock checks */
++	if (ret)
++		return ret;
++	cp->phy_on = true;
++
++	/* "EQ off" before PERST# release, as Google (again in cp_setup_dbi()) */
++	dw_pcie_writel_dbi(pci, GEN3_RELATED_OFF, 0x12000);
++	gpiod_set_value_cansleep(cp->perst, 0);
++	fsleep(CP_PERST_DELAY_US);
++
++	cp_elbi_rmw(cp, CP_ELBI_REQ_EXIT_L1_MODE, 0,
++		    CP_ELBI_APP_REQ_EXIT_L1 | CP_ELBI_L1_REQ_NAK_MASTER);
++	cp_elbi_write(cp, CP_ELBI_LINKDOWN_RST_SEL, CP_ELBI_LINKDOWN_RST_MANUAL);
++	cp_elbi_write(cp, CP_ELBI_APP_XFER_PENDING, 1);	/* to the end of link_up */
++	cp_elbi_rmw(cp, CP_ELBI_QCH_SEL, CP_ELBI_QCH_GATING_MASK, 0);
++	cp_elbi_write(cp, CP_ELBI_MSTR_PEND_SEL_NAK, 1);
++	cp_elbi_write(cp, CP_ELBI_DBI_L1_EXIT_DISABLE, 1);
++
++	cp_setup_dbi(cp, speed);
++	if (cp->sysreg)
++		cp_set_iocc(cp, true);
++
++	if (cp->num_lanes == 2) {
++		val = dw_pcie_readl_dbi(pci, PCIE_PORT_LINK_CONTROL);
++		val = (val & ~PORT_LINK_MODE_MASK) | PORT_LINK_MODE_2_LANES;
++		dw_pcie_writel_dbi(pci, PCIE_PORT_LINK_CONTROL, val);
++		val = dw_pcie_readl_dbi(pci, PCIE_LINK_WIDTH_SPEED_CONTROL);
++		val = (val & ~PORT_LOGIC_LINK_WIDTH_MASK) |
++		      PORT_LOGIC_LINK_WIDTH_2_LANES;
++		dw_pcie_writel_dbi(pci, PCIE_LINK_WIDTH_SPEED_CONTROL, val);
++	}
++
++	return 0;
++}
++
+ /* exynos_pcie_rc_establish_link(), one try */
+ static int cp_link_try(struct gs201_pcie_cp *cp, unsigned int speed, bool last)
+ {
+ 	u32 val;
+ 	int ret;
+ 
++	if (cp->data->zuma_ctrl) {
++		ret = cp_zuma_link_prepare(cp, speed);
++		if (ret)
++			return ret;
++		goto ltssm;
++	}
++
+ 	ret = phy_power_on(cp->phy);	/* power-down clear, CAL, lock checks */
+ 	if (ret)
+ 		return ret;
+@@ -1055,6 +1250,7 @@ static int cp_link_try(struct gs201_pcie_cp *cp, unsigned int speed, bool last)
+ 	cp_setup_dbi(cp, speed);
+ 	cp_set_iocc(cp, true);
+ 
++ltssm:
+ 	cp_elbi_write(cp, CP_ELBI_LTSSM_EN, 1);
+ 	ret = readl_poll_timeout(cp->elbi + CP_ELBI_LTSSM_STATE, val,
+ 				 FIELD_GET(CP_ELBI_LTSSM_MASK, val) ==
+@@ -1080,6 +1276,10 @@ static int cp_link_up(struct gs201_pcie_cp *cp, unsigned int speed)
+ 	if (cp->has_lines && !cp->cp_powered)
+ 		dev_warn(cp->dev, "modem not powered (cp_on): expect no link\n");
+ 
++	/* zumapro: the PHY stays initialized; only a powered-down one trains */
++	if (cp->data->phy_bypass_once && cp->phy_on)
++		return -EBUSY;
++
+ 	if (!cp->phy_inited) {
+ 		/* PERST# asserted and CLKREQ# in its function before the PHY */
+ 		gpiod_direction_output(cp->perst, 1);
+@@ -1094,19 +1294,32 @@ static int cp_link_up(struct gs201_pcie_cp *cp, unsigned int speed)
+ 			return ret;
+ 		cp_dbi_allow(cp, true);
+ 		cp->phy_inited = true;
++	} else if (cp->data->phy_bypass_once) {
++		cp_dbi_allow(cp, true);
+ 	}
+ 
+ 	for (try = 1; try <= CP_LINK_TRIES; try++) {
+ 		ret = cp_link_try(cp, speed, try == CP_LINK_TRIES);
+ 		if (!ret)
+ 			break;
++		if (cp->data->zuma_ctrl) {
++			cp_zuma_phy_off(cp);
++			continue;
++		}
+ 		gpiod_set_value_cansleep(cp->perst, 1);
+ 		cp_elbi_write(cp, CP_ELBI_LTSSM_EN, 0);
+ 		phy_power_off(cp->phy);
+ 		cp->phy_on = false;
+ 	}
+-	if (ret)
++	if (ret) {
++		if (cp->data->phy_bypass_once)	/* PHY down: DBI closed */
++			cp_dbi_allow(cp, false);
+ 		return ret;
++	}
++
++	/* zumapro: PLL and bias held on (Google's poweron, channel 0) */
++	if (cp->data->zuma_ctrl)
++		phy_calibrate(cp->phy);
+ 
+ 	cap = dw_pcie_find_capability(pci, PCI_CAP_ID_EXP);
+ 	lnksta = cap ? dw_pcie_readw_dbi(pci, cap + PCI_EXP_LNKSTA) : 0;
+@@ -1118,6 +1331,8 @@ static int cp_link_up(struct gs201_pcie_cp *cp, unsigned int speed)
+ 	cp_elbi_write(cp, CP_ELBI_IRQ0, cp_elbi_read(cp, CP_ELBI_IRQ0));
+ 	cp_elbi_write(cp, CP_ELBI_IRQ1, cp_elbi_read(cp, CP_ELBI_IRQ1));
+ 	cp_elbi_write(cp, CP_ELBI_IRQ2, cp_elbi_read(cp, CP_ELBI_IRQ2));
++	if (cp->data->zuma_ctrl)
++		cp_elbi_write(cp, CP_ELBI_APP_XFER_PENDING, 0);
+ 	cp->link_up = true;
+ 	cp_cfg_allow(cp, true, false);
+ 	cp_ctrl_irq(cp, true);
+@@ -1125,6 +1340,57 @@ static int cp_link_up(struct gs201_pcie_cp *cp, unsigned int speed)
+ 	return 0;
+ }
+ 
++/*
++ * zumapro: exynos_pcie_rc_prog_viewport_cfg0() and _mem_outbound(), in
++ * place of the secure-ATU SMC. Region 0 maps the config window to bus 1
++ * (the modem, device 0), region 1 the first 2 MiB of the memory window,
++ * Google's limit. The controller's soft power reset clears both, so this
++ * runs after every link_up.
++ */
++static int cp_host_atu(struct gs201_pcie_cp *cp)
++{
++	struct dw_pcie *pci = &cp->pci;
++	struct resource_entry *win;
++	u64 cpu, pci_addr;
++
++	win = resource_list_first_type(&cp->bridge->windows, IORESOURCE_MEM);
++	if (!win)
++		return -EINVAL;
++	cpu = win->res->start;
++	pci_addr = cpu - win->offset;
++
++	dw_pcie_writel_dbi(pci, CP_ATU_OB(0, CP_ATU_LOWER_BASE),
++			   lower_32_bits(cp->cfg_phys));
++	dw_pcie_writel_dbi(pci, CP_ATU_OB(0, CP_ATU_UPPER_BASE),
++			   upper_32_bits(cp->cfg_phys));
++	dw_pcie_writel_dbi(pci, CP_ATU_OB(0, CP_ATU_LIMIT),
++			   lower_32_bits(cp->cfg_phys + cp->cfg_size - 1));
++	dw_pcie_writel_dbi(pci, CP_ATU_OB(0, CP_ATU_LOWER_TARGET), CP_ATU_BUS(1));
++	dw_pcie_writel_dbi(pci, CP_ATU_OB(0, CP_ATU_UPPER_TARGET), 0);
++	dw_pcie_writel_dbi(pci, CP_ATU_OB(0, CP_ATU_CR1), CP_ATU_TYPE_CFG0);
++	dw_pcie_writel_dbi(pci, CP_ATU_OB(0, CP_ATU_CR2), CP_ATU_ENABLE);
++
++	dw_pcie_writel_dbi(pci, CP_ATU_OB(1, CP_ATU_CR1), CP_ATU_TYPE_MEM);
++	dw_pcie_writel_dbi(pci, CP_ATU_OB(1, CP_ATU_LOWER_BASE),
++			   lower_32_bits(cpu));
++	dw_pcie_writel_dbi(pci, CP_ATU_OB(1, CP_ATU_UPPER_BASE),
++			   upper_32_bits(cpu));
++	dw_pcie_writel_dbi(pci, CP_ATU_OB(1, CP_ATU_LIMIT),
++			   lower_32_bits(cpu + CP_ATU_MEM_SIZE - 1));
++	dw_pcie_writel_dbi(pci, CP_ATU_OB(1, CP_ATU_LOWER_TARGET),
++			   lower_32_bits(pci_addr));
++	dw_pcie_writel_dbi(pci, CP_ATU_OB(1, CP_ATU_UPPER_TARGET),
++			   upper_32_bits(pci_addr));
++	dw_pcie_writel_dbi(pci, CP_ATU_OB(1, CP_ATU_CR2), CP_ATU_ENABLE);
++
++	dev_info(cp->dev, "iATU: config %pa to bus 1, memory %#llx to PCI %#llx (2 MiB)\n",
++		 &cp->cfg_phys, cpu, pci_addr);
++	cp->atu_done = true;
++	cp_cfg_allow(cp, true, true);
++
++	return 0;
++}
++
+ static int cp_secure_atu(struct gs201_pcie_cp *cp)
+ {
+ 	struct arm_smccc_res res;
+@@ -1277,7 +1543,7 @@ int gs201_pcie_cp_poweron(unsigned int speed)
+ 
+ 	ret = cp_link_up(cp, speed);
+ 	if (!ret)
+-		ret = cp_secure_atu(cp);
++		ret = cp->data->host_atu ? cp_host_atu(cp) : cp_secure_atu(cp);
+ 	if (ret)
+ 		goto err;
+ 
+@@ -1635,7 +1901,11 @@ static ssize_t cp_ctl_write(struct file *file, const char __user *ubuf,
+ 	} else if (!strcmp(cmd, "link_down")) {
+ 		cp_link_down(cp);
+ 	} else if (!strcmp(cmd, "atu")) {
+-		ret = cp->link_up ? cp_secure_atu(cp) : -ENOLINK;
++		if (!cp->link_up)
++			ret = -ENOLINK;
++		else
++			ret = cp->data->host_atu ? cp_host_atu(cp) :
++						   cp_secure_atu(cp);
+ 	} else if (!strcmp(cmd, "id")) {
+ 		ret = cp->atu_done ? cp_read_id(cp) : -ENOLINK;
+ 	} else if (!strcmp(cmd, "bus")) {
+@@ -1699,7 +1969,8 @@ static int cp_status_show(struct seq_file *s, void *unused)
+ 			   (unsigned int)FIELD_GET(PCI_EXP_LNKSTA_NLW, lnksta),
+ 			   cp->speed);
+ 	}
+-	if (cp->phy_inited)
++	/* zumapro: the controller only while the PHY is powered */
++	if (cp->data->phy_bypass_once ? cp->phy_on : cp->phy_inited)
+ 		seq_printf(s, "LTSSM %#lx, IRQ0/1/2 %#x %#x %#x\n",
+ 			   FIELD_GET(CP_ELBI_LTSSM_MASK,
+ 				     cp_elbi_read(cp, CP_ELBI_LTSSM_STATE)),
+@@ -1806,6 +2077,22 @@ static int cp_get_lines(struct gs201_pcie_cp *cp)
+ 			     i < CP_NUM_OUTPUTS ? cp_output_names[i] : "input");
+ }
+ 
++/* The shareability register for I/O coherency; zumapro may run without */
++static int cp_get_sysreg(struct gs201_pcie_cp *cp)
++{
++	struct device_node *np = cp->dev->of_node;
++
++	if (cp->data->sysreg_optional &&
++	    !of_property_present(np, "samsung,sysreg"))
++		return 0;
++	cp->sysreg = syscon_regmap_lookup_by_phandle_args(np, "samsung,sysreg",
++							  1, &cp->sysreg_offset);
++	if (IS_ERR(cp->sysreg))
++		return dev_err_probe(cp->dev, PTR_ERR(cp->sysreg), "no sysreg\n");
++
++	return 0;
++}
++
+ static int gs201_pcie_cp_probe(struct platform_device *pdev)
+ {
+ 	struct device *dev = &pdev->dev;
+@@ -1818,6 +2105,9 @@ static int gs201_pcie_cp_probe(struct platform_device *pdev)
+ 	if (!cp)
+ 		return -ENOMEM;
+ 	cp->dev = dev;
++	cp->data = device_get_match_data(dev);
++	if (!cp->data)
++		return -ENODEV;
+ 	mutex_init(&cp->lock);
+ 	raw_spin_lock_init(&cp->cfg_lock);
+ 	raw_spin_lock_init(&cp->dbi_lock);
+@@ -1840,11 +2130,15 @@ static int gs201_pcie_cp_probe(struct platform_device *pdev)
+ 	cp->cfg = devm_platform_ioremap_resource_byname(pdev, "config");
+ 	if (IS_ERR(cp->cfg))
+ 		return PTR_ERR(cp->cfg);
++	if (cp->data->host_atu) {
++		res = platform_get_resource_byname(pdev, IORESOURCE_MEM, "config");
++		cp->cfg_phys = res->start;
++		cp->cfg_size = resource_size(res);
++	}
+ 
+-	cp->sysreg = syscon_regmap_lookup_by_phandle_args(np, "samsung,sysreg",
+-							   1, &cp->sysreg_offset);
+-	if (IS_ERR(cp->sysreg))
+-		return dev_err_probe(dev, PTR_ERR(cp->sysreg), "no sysreg\n");
++	ret = cp_get_sysreg(cp);
++	if (ret)
++		return ret;
+ 
+ 	cp->pmu = exynos_get_pmu_regmap_by_phandle(np, "samsung,pmu-syscon");
+ 	if (IS_ERR(cp->pmu))
+@@ -1950,6 +2244,10 @@ static void gs201_pcie_cp_remove(struct platform_device *pdev)
+ 	cp_ep_forget(cp);
+ 	cp_bus_remove(cp);
+ 	cp_link_down(cp);
++	if (cp->phy_inited) {		/* phy_bypass_once */
++		phy_exit(cp->phy);
++		cp->phy_inited = false;
++	}
+ 	if (cp->msi_ready) {
+ 		dw_pcie_free_msi(&cp->pci.pp);
+ 		cp->msi_ready = false;
+@@ -1967,8 +2265,19 @@ static void gs201_pcie_cp_shutdown(struct platform_device *pdev)
+ 	gs201_pcie_cp_remove(pdev);
+ }
+ 
++static const struct gs201_pcie_cp_data gs201_pcie_cp_data = {
++};
++
++static const struct gs201_pcie_cp_data zumapro_pcie_cp_data = {
++	.zuma_ctrl = true,
++	.phy_bypass_once = true,
++	.host_atu = true,
++	.sysreg_optional = true,
++};
++
+ static const struct of_device_id gs201_pcie_cp_of_match[] = {
+-	{ .compatible = "google,gs201-pcie-cp" },
++	{ .compatible = "google,gs201-pcie-cp", .data = &gs201_pcie_cp_data },
++	{ .compatible = "google,zumapro-pcie-cp", .data = &zumapro_pcie_cp_data },
+ 	{ }
+ };
+ MODULE_DEVICE_TABLE(of, gs201_pcie_cp_of_match);
+@@ -1985,5 +2294,5 @@ static struct platform_driver gs201_pcie_cp_driver = {
+ };
+ module_platform_driver(gs201_pcie_cp_driver);
+ 
+-MODULE_DESCRIPTION("Google gs201 PCIe GEN4A_0 (modem) bring-up");
++MODULE_DESCRIPTION("Google gs201 and zumapro PCIe modem link bring-up");
+ MODULE_LICENSE("GPL");

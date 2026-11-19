@@ -1,0 +1,56 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Thu, 22 Oct 2026 20:23:08 -0700
+Subject: [PATCH] firmware: samsung: acpm: Add Tensor G4 match data
+
+Google's zumapro.dtsi specifies initdata-base = <0xa000>. Use that
+initialization-data base and a distinct clock child name for G4.
+The existing polling transport handles its channel table and PMIC
+requests without a new queue implementation. The PMIC client source
+is unchanged from the public base.
+
+The private Pixel 9a bring-up used this match to read and enable the
+two touch rails through the existing ACPM API. The G4 clock child
+intentionally remains unbound: no DVFS clock table, scaling or thermal
+support is claimed. PMIC and board support are separate dependencies.
+
+Link: https://android.googlesource.com/kernel/devices/google/zumapro/+/8831630eee2ad095b85ed452944e6353940966a5/dts/zumapro.dtsi#562
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ drivers/firmware/samsung/exynos-acpm.c | 9 +++++++++
+ 1 file changed, 9 insertions(+)
+
+diff --git a/drivers/firmware/samsung/exynos-acpm.c b/drivers/firmware/samsung/exynos-acpm.c
+index cae59ebe9..45f3a5616 100644
+--- a/drivers/firmware/samsung/exynos-acpm.c
++++ b/drivers/firmware/samsung/exynos-acpm.c
+@@ -42,6 +42,7 @@
+ 
+ #define ACPM_GS101_INITDATA_BASE	0xa000
+ #define ACPM_GS201_INITDATA_BASE	0xa000
++#define ACPM_ZUMAPRO_INITDATA_BASE	0xa000
+ 
+ /* Sanity limit for the channel count read from SRAM. */
+ #define ACPM_MAX_CHANS			64
+@@ -974,6 +975,11 @@ static const struct acpm_match_data acpm_gs201 = {
+ 	.acpm_clk_dev_name = "gs201-acpm-clk",
+ };
+ 
++static const struct acpm_match_data acpm_zumapro = {
++	.initdata_base = ACPM_ZUMAPRO_INITDATA_BASE,
++	.acpm_clk_dev_name = "zumapro-acpm-clk",
++};
++
+ static const struct of_device_id acpm_match[] = {
+ 	{
+ 		.compatible = "google,gs101-acpm-ipc",
+@@ -981,6 +987,9 @@ static const struct of_device_id acpm_match[] = {
+ 	}, {
+ 		.compatible = "google,gs201-acpm-ipc",
+ 		.data = &acpm_gs201,
++	}, {
++		.compatible = "google,zumapro-acpm-ipc",
++		.data = &acpm_zumapro,
+ 	},
+ 	{},
+ };

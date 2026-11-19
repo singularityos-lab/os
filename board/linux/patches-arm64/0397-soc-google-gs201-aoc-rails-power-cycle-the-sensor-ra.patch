@@ -1,0 +1,122 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Mon, 12 Oct 2026 17:18:53 -0400
+Subject: [PATCH] soc: google: gs201-aoc-rails: power-cycle the sensor rails on
+ request
+
+The sensor supplies (LDO7S, LDO5S) stay on through a warm reboot. The
+LSM6DSV accelerometer on the AoC's I3C bus then keeps the state the
+previous AoC session gave it, and the new AoC never finds it, while the
+I2C sensors come up: on every boot where the rails read "on" before the
+AoC start the accelerometer was missing, and on the boot where they read
+"off" it was there.
+
+Google's AoC driver power-cycles these supplies around an AoC restart
+(reset_sensor_power(): off in reverse order, 150 ms, then on). Add
+cycle=1, used with enable=1, which does the same before the first start
+when the rails are already on; cycle_ms sets the off time.
+
+Assisted-by: LLM
+Signed-off-by: Derek Ross <derekross@gmail.com>
+---
+ drivers/soc/google/gs201-aoc-rails.c | 53 +++++++++++++++++++++++++---
+ 1 file changed, 49 insertions(+), 4 deletions(-)
+
+diff --git a/drivers/soc/google/gs201-aoc-rails.c b/drivers/soc/google/gs201-aoc-rails.c
+index 176e59192..036a9d6aa 100644
+--- a/drivers/soc/google/gs201-aoc-rails.c
++++ b/drivers/soc/google/gs201-aoc-rails.c
+@@ -17,8 +17,9 @@
+  * only with enable=1, sets their enable bits in that order (the 1.8 V
+  * sensor rail before the 3.3 V one, as the AoC driver's sensor_power_list).
+  * It never changes a voltage, and refuses to enable a rail whose voltage is
+- * outside the stock device tree's range for it. Rails stay as they are when
+- * the module is removed.
++ * outside the stock device tree's range for it. With cycle=1 as well, it
++ * first turns the sensor rails off if they are on (see cycle below). Rails
++ * stay as they are when the module is removed.
+  *
+  * It binds to nothing in the device tree: it finds the ACPM node by its
+  * compatible.
+@@ -26,6 +27,7 @@
+ 
+ #include <linux/device/faux.h>
+ #include <linux/firmware/samsung/exynos-acpm-protocol.h>
++#include <linux/delay.h>
+ #include <linux/module.h>
+ #include <linux/of.h>
+ 
+@@ -39,6 +41,21 @@ static bool enable;
+ module_param(enable, bool, 0444);
+ MODULE_PARM_DESC(enable, "Turn the five AoC rails on (default: only read them)");
+ 
++/*
++ * The sensor rails stay on through a warm reboot, and then the LSM6DSV (I3C)
++ * keeps the state the previous AoC session left it in: the new AoC never
++ * finds it, while the I2C sensors come up. Google's driver power-cycles the
++ * sensor supplies around an AoC restart (reset_sensor_power(): off in reverse
++ * order, 150 ms, on in order); cycle=1 does the same before the first start.
++ */
++static bool cycle;
++module_param(cycle, bool, 0444);
++MODULE_PARM_DESC(cycle, "With enable=1: turn the sensor rails off first if they are on");
++
++static unsigned int cycle_ms = 150;
++module_param(cycle_ms, uint, 0444);
++MODULE_PARM_DESC(cycle_ms, "Time the sensor rails stay off when cycled (ms)");
++
+ struct aoc_rail {
+ 	const char *name;
+ 	u8 bus;			/* 0: S2MPG12 (main), 1: S2MPG13 (sub) */
+@@ -46,14 +63,15 @@ struct aoc_rail {
+ 	u8 en_mask;
+ 	u32 min_uv, step_uv;	/* voltage = min_uv + vsel * step_uv */
+ 	u32 lo_uv, hi_uv;	/* stock device tree range */
++	bool sensor;		/* a sensor supply (cycle=1) */
+ };
+ 
+ static const struct aoc_rail aoc_rails[] = {
+ 	{ "LDO20M dmic1",   0, 0x3f, 0xc0,  700000, 25000, 1600000, 1950000 },
+ 	{ "LDO19S dmic3",   1, 0x3e, 0xc0,  700000, 25000, 1600000, 1950000 },
+ 	{ "LDO20S dmic2",   1, 0x3f, 0xc0,  700000, 25000, 1600000, 1950000 },
+-	{ "LDO7S sensors",  1, 0x32, 0x80,  700000, 25000, 1600000, 1950000 },
+-	{ "LDO5S prox",     1, 0x30, 0x80, 1800000, 25000, 2500000, 3300000 },
++	{ "LDO7S sensors",  1, 0x32, 0x80,  700000, 25000, 1600000, 1950000, true },
++	{ "LDO5S prox",     1, 0x30, 0x80, 1800000, 25000, 2500000, 3300000, true },
+ };
+ 
+ static struct faux_device *aoc_rails_fdev;
+@@ -87,6 +105,33 @@ static int aoc_rails_probe(struct faux_device *fdev)
+ 			 val);
+ 	}
+ 
++	if (enable && cycle) {
++		bool cycled = false;
++
++		/* Off in reverse order (3.3 V before 1.8 V), as Google's driver */
++		for (i = ARRAY_SIZE(aoc_rails); i-- > 0;) {
++			const struct aoc_rail *r = &aoc_rails[i];
++
++			if (!r->sensor)
++				continue;
++			ret = ops->read_reg(acpm, ACPM_PMIC_CHANNEL, PMIC_TYPE_PM,
++					    r->reg, r->bus, &val);
++			if (ret)
++				return dev_err_probe(dev, ret, "%s: read failed\n", r->name);
++			if (!(val & r->en_mask))
++				continue;
++			ret = ops->update_reg(acpm, ACPM_PMIC_CHANNEL, PMIC_TYPE_PM,
++					      r->reg, r->bus, 0, r->en_mask);
++			if (ret)
++				return dev_err_probe(dev, ret, "%s: disable failed\n", r->name);
++			dev_info(dev, "%s: was on (ctrl 0x%02x), cycled: off for %u ms\n",
++				 r->name, val, cycle_ms);
++			cycled = true;
++		}
++		if (cycled)
++			msleep(cycle_ms);
++	}
++
+ 	for (i = 0; i < ARRAY_SIZE(aoc_rails); i++) {
+ 		const struct aoc_rail *r = &aoc_rails[i];
+ 		u32 uv;

@@ -1,0 +1,140 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: boozedog <code@booze.dog>
+Date: Fri, 23 Oct 2026 13:27:35 -0400
+Subject: [PATCH] arm64: dts: exynos: google: gs201-felix: describe the cover
+ touch
+
+The cover controller is an ST SALIXP on USI6 SPI, chip select
+gpp12-3, reset gpp23-3, attention gpa6-7, supplies LDO25M and
+LDO26M. The node stays disabled. The SPI bus pins use the SoC
+spi6_bus group at 5 mA. Reset direction is left to the GPIO
+request. The inner panel and its touch controller are not
+described.
+
+Signed-off-by: boozedog <code@booze.dog>
+---
+ .../boot/dts/exynos/google/gs201-felix.dts    | 80 +++++++++++++++++--
+ arch/arm64/boot/dts/exynos/google/gs201.dtsi  |  7 +-
+ 2 files changed, 78 insertions(+), 9 deletions(-)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/gs201-felix.dts b/arch/arm64/boot/dts/exynos/google/gs201-felix.dts
+index 15f452388..69a8ab115 100644
+--- a/arch/arm64/boot/dts/exynos/google/gs201-felix.dts
++++ b/arch/arm64/boot/dts/exynos/google/gs201-felix.dts
+@@ -4,9 +4,11 @@
+  *
+  * Same GS201 silicon as the Pixel 7 Pro. This board file brings up USB,
+  * the cover framebuffer the bootloader is already scanning, UFS, the
+- * GPU, the volume keys, the hinge hall sensor, and the cover touch
+- * rails on the main PMIC. It does not describe either panel or either
+- * touch controller. The inner panel has no node that could drive it.
++ * GPU, the volume keys, the hinge hall sensor, the cover touch rails,
++ * and the cover touch controller. The controller stays disabled until
++ * a bring-up overlay enables it. This file does not describe either
++ * panel or the inner touch controller. The inner panel has no node
++ * that could drive it.
+  */
+ 
+ /dts-v1/;
+@@ -144,10 +146,10 @@ &acpm_ipc {
+ 	/*
+ 	 * Main PMIC, cover touch rails only. LDO25M is L25M_OUTER_TS_DVDD,
+ 	 * fixed at 1.8 V, and LDO26M is L26M_OUTER_TS_AVDD, fixed at 3.3 V.
+-	 * Nothing else on the stock board consumes them. The sub-PMIC is
+-	 * not described.
++	 * The cover touch controller is their only stock consumer. The
++	 * sub-PMIC is not described.
+ 	 */
+-	pmic-1 {
++	s2mpg12: pmic-1 {
+ 		compatible = "samsung,s2mpg12-pmic";
+ 		interrupts = <GIC_SPI 72 IRQ_TYPE_LEVEL_HIGH>;
+ 		google,vgpio2ap-sysreg = <&sysreg_vgpio2ap>;
+@@ -169,3 +171,69 @@ ldo26m: ldo26m {
+ 		};
+ 	};
+ };
++
++&pinctrl_far_alive {
++	cover_ts_irq: cover-ts-irq-pins {
++		samsung,pins = "gpa6-7";
++		samsung,pin-function = <GS101_PIN_FUNC_EINT>;
++		samsung,pin-pud = <GS101_PIN_PULL_NONE>;
++		samsung,pin-drv = <GS101_PIN_DRV_2_5_MA>;
++	};
++};
++
++&pinctrl_peric0 {
++	cover_ts_spi_cs: cover-ts-spi-cs-pins {
++		samsung,pins = "gpp12-3";
++		samsung,pin-function = <GS101_PIN_FUNC_OUTPUT>;
++		samsung,pin-pud = <GS101_PIN_PULL_NONE>;
++		samsung,pin-drv = <GS101_PIN_DRV_2_5_MA>;
++	};
++};
++
++&spi6_bus {
++	samsung,pin-drv = <GS101_PIN_DRV_5_MA>;
++};
++
++&pinctrl_peric1 {
++	cover_ts_reset: cover-ts-reset-pins {
++		samsung,pins = "gpp23-3";
++		samsung,pin-pud = <GS101_PIN_PULL_NONE>;
++		samsung,pin-con-pdn = <GS101_PIN_PDN_PREV>;
++		samsung,pin-pud-pdn = <GS101_PIN_PULL_NONE>;
++	};
++};
++
++/*
++ * Cover touch: ST SALIXP (chip id 0x36 0x40) on USI6 SPI. USI6, SPI6 and
++ * PERIC0 stay disabled in the SoC file. The touchscreen node stays
++ * disabled here. A bring-up overlay enables that path and the main
++ * PMIC, and the driver switches LDO25M and LDO26M. There is no
++ * regulator-always-on. The inner touch controller is not described.
++ */
++&usi6 {
++	samsung,mode = <USI_MODE_SPI>;
++};
++
++&spi_6 {
++	pinctrl-0 = <&spi6_bus &cover_ts_spi_cs>;
++	cs-gpios = <&gpp12 3 GPIO_ACTIVE_LOW>;
++	num-cs = <1>;
++
++	cover_touch: touchscreen@0 {
++		compatible = "st,salixp";
++		reg = <0>;
++		spi-max-frequency = <10000000>;
++		interrupt-parent = <&gpa6>;
++		interrupts = <7 IRQ_TYPE_LEVEL_LOW>;
++		vdd-supply = <&ldo25m>;
++		avdd-supply = <&ldo26m>;
++		reset-gpios = <&gpp23 3 GPIO_ACTIVE_LOW>;
++		pinctrl-names = "default";
++		pinctrl-0 = <&cover_ts_irq &cover_ts_reset>;
++		status = "disabled";
++
++		controller-data {
++			samsung,spi-feedback-delay = <1>;
++		};
++	};
++};
+diff --git a/arch/arm64/boot/dts/exynos/google/gs201.dtsi b/arch/arm64/boot/dts/exynos/google/gs201.dtsi
+index 5ccb5bd5d..58d84a7dc 100644
+--- a/arch/arm64/boot/dts/exynos/google/gs201.dtsi
++++ b/arch/arm64/boot/dts/exynos/google/gs201.dtsi
+@@ -348,9 +348,10 @@ sysreg_peric0: syscon@10820000 {
+ 		};
+ 
+ 		/*
+-		 * Off by default: only Bluetooth (BT_REG_ON, BT_DEV_WAKE on gpp16)
+-		 * and the haptics I2C bus (gpp16-0/1) use it so far, and both are
+-		 * still at bring-up.
++		 * Off by default. Bluetooth (BT_REG_ON, BT_DEV_WAKE on gpp16),
++		 * the haptics I2C bus (gpp16-0/1), and the Pixel Fold cover
++		 * touch SPI bus (gpp12) use it. All of those are still at
++		 * bring-up.
+ 		 */
+ 		pinctrl_peric0: pinctrl@10840000 {
+ 			compatible = "google,gs201-pinctrl";

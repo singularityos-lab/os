@@ -1,0 +1,39 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Sun, 11 Oct 2026 18:17:21 -0400
+Subject: [PATCH] dt-bindings: ufs: exynos: add Google gs201 UFS host
+ controller
+
+Add a compatible for the UFS host controller of the Google gs201 (Tensor
+G2) SoC. It takes the same six clocks as gs101. gs101 is not a usable
+fallback: gs201 fixed the UTRD/PRDT descriptor handling, so the gs101
+driver quirks would program the descriptors wrongly.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ .../devicetree/bindings/ufs/samsung,exynos-ufs.yaml          | 5 ++++-
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/Documentation/devicetree/bindings/ufs/samsung,exynos-ufs.yaml b/Documentation/devicetree/bindings/ufs/samsung,exynos-ufs.yaml
+index 710ce493f..6e40fe274 100644
+--- a/Documentation/devicetree/bindings/ufs/samsung,exynos-ufs.yaml
++++ b/Documentation/devicetree/bindings/ufs/samsung,exynos-ufs.yaml
+@@ -16,6 +16,7 @@ properties:
+   compatible:
+     enum:
+       - google,gs101-ufs
++      - google,gs201-ufs
+       - samsung,exynos7-ufs
+       - samsung,exynosautov9-ufs
+       - samsung,exynosautov9-ufs-vh
+@@ -90,7 +91,9 @@ allOf:
+       properties:
+         compatible:
+           contains:
+-            const: google,gs101-ufs
++            enum:
++              - google,gs101-ufs
++              - google,gs201-ufs
+ 
+     then:
+       properties:

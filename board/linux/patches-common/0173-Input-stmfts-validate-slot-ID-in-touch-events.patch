@@ -1,0 +1,82 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Dmitry Torokhov <dmitry.torokhov@gmail.com>
+Date: Tue, 3 Nov 2026 14:58:42 -0800
+Subject: [PATCH] Input: stmfts - validate slot ID in touch events
+
+Both FTS4 and FTS5 contact and release reporting functions extract a
+4-bit slot/touch ID (values 0 to 15) from the event payload. However,
+the driver initializes only STMFTS_MAX_FINGERS (10) multi-touch slots.
+
+Passing a slot ID greater than or equal to STMFTS_MAX_FINGERS to
+input_mt_slot() is silently rejected by the input core without updating
+mt->slot, which causes subsequent slot state, coordinate, or release
+reports to corrupt or release the previously active slot.
+
+Validate that the slot ID is strictly less than STMFTS_MAX_FINGERS in
+stmfts_report_contact_event(), stmfts_report_contact_release(),
+stmfts5_report_contact_event(), and stmfts5_report_contact_release(),
+logging a warning and returning early when an invalid slot ID is
+encountered.
+
+Signed-off-by: Dmitry Torokhov <dmitry.torokhov@gmail.com>
+Signed-off-by: quatrixone <quatrix1@gmail.com>
+---
+ drivers/input/touchscreen/stmfts.c | 24 ++++++++++++++++++++++++
+ 1 file changed, 24 insertions(+)
+
+diff --git a/drivers/input/touchscreen/stmfts.c b/drivers/input/touchscreen/stmfts.c
+index 3613c7f2a..25d127aa8 100644
+--- a/drivers/input/touchscreen/stmfts.c
++++ b/drivers/input/touchscreen/stmfts.c
+@@ -232,6 +232,12 @@ static void stmfts_report_contact_event(struct stmfts_data *sdata,
+ 	u8 orientation = event[6];
+ 	u8 area = event[7];
+ 
++	if (slot_id >= STMFTS_MAX_FINGERS) {
++		dev_warn(&sdata->client->dev,
++			 "invalid slot ID %u\n", slot_id);
++		return;
++	}
++
+ 	input_mt_slot(sdata->input, slot_id);
+ 
+ 	input_mt_report_slot_state(sdata->input, MT_TOOL_FINGER, true);
+@@ -250,6 +256,12 @@ static void stmfts_report_contact_release(struct stmfts_data *sdata,
+ {
+ 	u8 slot_id = (event[0] & STMFTS_MASK_TOUCH_ID) >> 4;
+ 
++	if (slot_id >= STMFTS_MAX_FINGERS) {
++		dev_warn(&sdata->client->dev,
++			 "invalid slot ID %u\n", slot_id);
++		return;
++	}
++
+ 	input_mt_slot(sdata->input, slot_id);
+ 	input_mt_report_slot_inactive(sdata->input);
+ 
+@@ -282,6 +294,12 @@ static void stmfts5_report_contact_event(struct stmfts_data *sdata,
+ 	int distance = 0;
+ 	unsigned int tool;
+ 
++	if (touch_id >= STMFTS_MAX_FINGERS) {
++		dev_warn(&sdata->client->dev,
++			 "invalid slot ID %u\n", touch_id);
++		return;
++	}
++
+ 	switch (touch_type) {
+ 	case STMFTS_TOUCH_TYPE_STYLUS:
+ 		tool = MT_TOOL_PEN;
+@@ -340,6 +358,12 @@ static void stmfts5_report_contact_release(struct stmfts_data *sdata,
+ 	/* format: touch ID is in high 4 bits of event[1] */
+ 	u8 touch_id = (event[1] & STMFTS_MASK_TOUCH_ID) >> 4;
+ 
++	if (touch_id >= STMFTS_MAX_FINGERS) {
++		dev_warn(&sdata->client->dev,
++			 "invalid slot ID %u\n", touch_id);
++		return;
++	}
++
+ 	input_mt_slot(sdata->input, touch_id);
+ 	input_mt_report_slot_inactive(sdata->input);
+ }

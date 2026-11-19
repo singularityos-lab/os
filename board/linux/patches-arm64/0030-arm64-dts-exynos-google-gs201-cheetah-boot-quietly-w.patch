@@ -1,0 +1,27 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Sun, 11 Oct 2026 20:00:07 -0400
+Subject: [PATCH] arm64: dts: exynos: google: gs201-cheetah: boot quietly with
+ a splash
+
+Let Plymouth show the boot animation from the moment systemd starts
+instead of kernel and initramfs messages. Bring-up only, not for upstream.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts b/arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts
+index 29b0330f0..36da14619 100644
+--- a/arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts
++++ b/arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts
+@@ -24,7 +24,7 @@ aliases {
+ 
+ 	chosen {
+ 		/* ABL requires bootargs to exist; it appends its own after these. */
+-		bootargs = "console=tty0 fbcon=font:TER16x32 panic=10 clk_ignore_unused pd_ignore_unused rdinit=/init omandroid.ufs-probe";
++		bootargs = "console=tty0 fbcon=font:TER16x32 quiet splash panic=10 clk_ignore_unused pd_ignore_unused rdinit=/init omandroid.ufs-probe";
+ 		#address-cells = <2>;
+ 		#size-cells = <1>;
+ 		ranges;

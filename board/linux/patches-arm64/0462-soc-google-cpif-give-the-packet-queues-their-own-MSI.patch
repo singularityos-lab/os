@@ -1,0 +1,104 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Tue, 13 Oct 2026 08:55:07 -0400
+Subject: [PATCH] soc: google: cpif: give the packet queues their own MSI
+ blocks
+
+Stock's device tree runs the downlink packet processor with exclusive
+interrupts (pktproc_dl_use_exclusive_irq): each queue registers its
+handler for an MSI block of its own through
+register_separated_msi_vector(), and the modem signals the queue there.
+Map that call to the gs201 modem link driver, which now gives blocks 1-4
+to the queues.
+
+The rings live in DRAM and survive the link going down, but the MSI
+controller is reset with it, so a packet the modem queued around a link
+power-down can be left without its interrupt. After the link comes back
+up, run each exclusive queue's handler once from s5100_poweron_pcie():
+it only schedules NAPI, which finds the ring empty if nothing came, and
+no MSI status is faked.
+
+Assisted-by: LLM
+Signed-off-by: Derek Ross <derekross@gmail.com>
+---
+ drivers/soc/google/cpif/modem_ctrl_s5100.c  | 28 +++++++++++++++++++++
+ drivers/soc/google/cpif/pcie-gs201-compat.c | 10 +++++---
+ 2 files changed, 34 insertions(+), 4 deletions(-)
+
+diff --git a/drivers/soc/google/cpif/modem_ctrl_s5100.c b/drivers/soc/google/cpif/modem_ctrl_s5100.c
+index 6c8827879..19ba6d38a 100644
+--- a/drivers/soc/google/cpif/modem_ctrl_s5100.c
++++ b/drivers/soc/google/cpif/modem_ctrl_s5100.c
+@@ -730,6 +730,33 @@ static void set_pcie_msi_int(struct link_device *ld, bool enabled)
+ 	mld->msi_irq_enabled = enabled;
+ }
+ 
++/*
++ * The packet processor's rings are in DRAM and survive the link going
++ * down, but the MSI controller is reset with it, so a queue the modem
++ * filled around a link power-down can be left without its interrupt.
++ * Once the link is back, run each exclusive queue's handler once: it only
++ * schedules NAPI, which finds the ring empty if nothing came.
++ */
++static void pktproc_kick_rx_queues(struct mem_link_device *mld)
++{
++#if IS_ENABLED(CONFIG_CP_PKTPROC)
++	struct pktproc_adaptor *ppa = &mld->pktproc;
++	unsigned int i;
++
++	if (!pktproc_check_support(ppa) || !ppa->use_exclusive_irq)
++		return;
++
++	local_bh_disable();	/* NAPI runs at local_bh_enable() */
++	for (i = 0; i < ppa->num_queue; i++) {
++		struct pktproc_queue *q = ppa->q[i];
++
++		if (q && q->irq && pktproc_check_active(ppa, i))
++			q->irq_handler(q->irq, q);
++	}
++	local_bh_enable();
++#endif
++}
++
+ static int request_pcie_int(struct link_device *ld, struct platform_device *pdev)
+ {
+ #define DOORBELL_INT_MASK(x)	((x) | 0x10000)
+@@ -1852,6 +1879,7 @@ int s5100_poweron_pcie(struct modem_ctl *mc, bool boot_on)
+ 	}
+ 
+ 	set_pcie_msi_int(ld, true);
++	pktproc_kick_rx_queues(mld);
+ 
+ 	if ((mc->s51xx_pdev != NULL) && mc->pcie_registered && (mc->phone_state != STATE_CRASH_EXIT)) {
+ 		/* DBG */
+diff --git a/drivers/soc/google/cpif/pcie-gs201-compat.c b/drivers/soc/google/cpif/pcie-gs201-compat.c
+index 4623ce1b6..b580059a4 100644
+--- a/drivers/soc/google/cpif/pcie-gs201-compat.c
++++ b/drivers/soc/google/cpif/pcie-gs201-compat.c
+@@ -2,8 +2,8 @@
+ /*
+  * The exynos_pcie_*() calls CPIF makes into Google's root complex driver,
+  * mapped onto the gs201 modem link driver (pcie-gs201-cp). There is one
+- * modem link, channel 0. The calls only the left-out parts use (BTL's
+- * outbound window, the packet processor's exclusive MSI vectors) fail.
++ * modem link, channel 0. The call only a left-out part uses (BTL's
++ * outbound window) fails.
+  */
+ 
+ #include <linux/interrupt.h>
+@@ -151,11 +151,13 @@ void exynos_pcie_set_ready_cto_recovery(int ch_num)
+ 		gs201_pcie_cp_prepare_recovery();
+ }
+ 
+-/* The packet processor's exclusive vectors: not ported */
++/* The packet processor's own MSI blocks, one per downlink queue */
+ int register_separated_msi_vector(int ch_num, irq_handler_t handler,
+ 				  void *context, int *irq_num)
+ {
+-	return -EOPNOTSUPP;
++	return cp_ch_ok(ch_num) ?
++	       gs201_pcie_cp_register_queue(handler, context, irq_num) :
++	       -ENODEV;
+ }
+ 
+ /* The target is the link's memory-region; check that both nodes agree. */

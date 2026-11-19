@@ -1,0 +1,81 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Sun, 11 Oct 2026 23:42:48 -0400
+Subject: [PATCH] dt-bindings: power: supply: max17042: add MAX77759 battery
+ model
+
+The MAX77759 fuel gauge has no non-volatile memory. After a power-on
+reset it runs a generic model with a 3000 mAh design capacity and the
+temperature input disabled, until the host loads the battery model
+(ModelGauge m5): a 48-word cell characterization table and the register
+values that go with it.
+
+Describe both as maxim,fg-model and maxim,fg-params. The parameters
+keep the fixed order of the model data already published for Pixel
+phones, so a model can be taken over as is.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ .../bindings/power/supply/maxim,max17042.yaml | 42 +++++++++++++++++++
+ 1 file changed, 42 insertions(+)
+
+diff --git a/Documentation/devicetree/bindings/power/supply/maxim,max17042.yaml b/Documentation/devicetree/bindings/power/supply/maxim,max17042.yaml
+index 2d9bad1c6..2ec496baa 100644
+--- a/Documentation/devicetree/bindings/power/supply/maxim,max17042.yaml
++++ b/Documentation/devicetree/bindings/power/supply/maxim,max17042.yaml
+@@ -11,6 +11,16 @@ maintainers:
+ 
+ allOf:
+   - $ref: power-supply.yaml#
++  - if:
++      not:
++        properties:
++          compatible:
++            contains:
++              const: maxim,max77759-fg
++    then:
++      properties:
++        maxim,fg-model: false
++        maxim,fg-params: false
+ 
+ properties:
+   compatible:
+@@ -67,6 +77,38 @@ properties:
+       Voltage threshold to report battery as over voltage (in mV).
+       Default is not to report over-voltage events.
+ 
++  maxim,fg-model:
++    $ref: /schemas/types.yaml#/definitions/uint16-array
++    minItems: 48
++    maxItems: 48
++    description:
++      Cell characterization table of the MAX77759 fuel gauge (its "M5"
++      ModelGauge m5 algorithm), as produced by Maxim's battery modelling for
++      the cell. Written to registers 0x80-0xaf, followed by a model load, only
++      after a power-on reset of the gauge (the gauge has no non-volatile
++      memory).
++
++  maxim,fg-params:
++    $ref: /schemas/types.yaml#/definitions/uint16-array
++    minItems: 27
++    maxItems: 28
++    description:
++      Register values that go with maxim,fg-model, from the same battery
++      model, in this fixed order (register address in parentheses)
++        IAvgEmpty (0x36, not written), RelaxCfg (0x2a), LearnCfg (0x28),
++        Config (0x1d), Config2 (0xbb), FullSOCThr (0x13), FullCapRep (0x35),
++        DesignCap (0x18), dPAcc (0x46), dQAcc (0x45), FullCapNom (0x23),
++        VEmpty (0x3a), QRTable00 (0x12), QRTable10 (0x22), QRTable20 (0x32),
++        QRTable30 (0x42), RComp0 (0x38), TempCo (0x39), IChgTerm (0x1e),
++        TGain (0x2c), TOff (0x2d), Curve (0xb9), MiscCfg (0x2b), AtRate (0x04),
++        ConvgCfg (0x49), FilterCfg (0x29), TaskPeriod (0x3c) and, optionally,
++        CGain (0x2e, 0x0400 if absent). Capacities are in units of the
++        capacity LSB set by TaskPeriod.
++
++dependencies:
++  maxim,fg-model: [ 'maxim,fg-params' ]
++  maxim,fg-params: [ 'maxim,fg-model' ]
++
+ required:
+   - compatible
+   - reg

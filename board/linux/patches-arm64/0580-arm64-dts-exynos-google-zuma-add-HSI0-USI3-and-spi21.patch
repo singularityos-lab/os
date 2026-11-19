@@ -1,0 +1,66 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Lef <me@lefteros.com>
+Date: Sat, 7 Nov 2026 11:42:56 +0200
+Subject: [PATCH] arm64: dts: exynos: google: zuma: add HSI0 USI3 and spi21,
+ disabled
+
+A USI wrapper and the SPI controller under it for HSI0 USI3 (Google's
+spi_21, the Pixel 8 Pro's GNSS receiver bus), laid out like USI2 and its
+spi20. Both are status = "disabled", so nothing changes for any board
+that includes zuma.dtsi until one enables them.
+
+Values are from Google's zuma USI tables and the stock device tree (one
+node at 0x111e0000, split here at 0xc0 like spi20): USI registers
+0x111e00c0 and SPI registers 0x111e0000, interrupt GIC SPI 409, USI sysreg
+offset 0x1020. No DMA, no power domain and no pin group, as for
+spi20: stock's spi_21 has no pin group either.
+
+Built, not booted.
+
+Signed-off-by: Lef <me@lefteros.com>
+---
+ arch/arm64/boot/dts/exynos/google/zuma.dtsi | 31 +++++++++++++++++++++
+ 1 file changed, 31 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/zuma.dtsi b/arch/arm64/boot/dts/exynos/google/zuma.dtsi
+index 17fa18b06..3e7f5ce27 100644
+--- a/arch/arm64/boot/dts/exynos/google/zuma.dtsi
++++ b/arch/arm64/boot/dts/exynos/google/zuma.dtsi
+@@ -599,6 +599,37 @@ spi20: spi@111d0000 {
+ 			};
+ 		};
+ 
++		/*
++		 * USI3 on HSI0: the SPI of the Pixel 8 Pro's GNSS receiver (Google's
++		 * spi_21). Same layout as USI2 above.
++		 */
++		usi3_hsi0: usi@111e00c0 {
++			compatible = "google,zuma-usi", "samsung,exynos850-usi";
++			reg = <0x111e00c0 0x20>;
++			clocks = <&cmu_hsi0 CLK_GOUT_HSI0_USI3_PCLK>,
++				 <&cmu_hsi0 CLK_GOUT_HSI0_USI3_IP>;
++			clock-names = "pclk", "ipclk";
++			samsung,sysreg = <&sysreg_hsi0 0x1020>;
++			samsung,mode = <USI_MODE_SPI>;
++			#address-cells = <1>;
++			#size-cells = <1>;
++			ranges;
++			status = "disabled";
++
++			spi21: spi@111e0000 {
++				compatible = "google,zuma-spi", "google,gs101-spi";
++				/* USI control starts at 0xc0; do not claim it twice. */
++				reg = <0x111e0000 0xc0>;
++				interrupts = <GIC_SPI 409 IRQ_TYPE_LEVEL_HIGH>;
++				clocks = <&cmu_hsi0 CLK_GOUT_HSI0_USI3_PCLK>,
++					 <&cmu_hsi0 CLK_GOUT_HSI0_USI3_IP>;
++				clock-names = "spi", "spi_busclk0";
++				#address-cells = <1>;
++				#size-cells = <0>;
++				status = "disabled";
++			};
++		};
++
+ 		/*
+ 		 * The DWC3 controller, in peripheral mode as on stock (which
+ 		 * wraps it in Google's exynos9-dwusb glue). On a normal boot

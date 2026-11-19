@@ -1,0 +1,560 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Mon, 12 Oct 2026 12:04:01 -0400
+Subject: [PATCH] mfd: sec: add S2MPG12
+
+Add the gs201 main PMIC, for its RTC. The register layout and the
+interrupt bits are those of Google's GPL S2MPG12 driver.
+
+S2MPG12 has no common interrupt register. Its PMIC events reach the SoC
+in-band and the VGPIO2AP block raises them as one level interrupt that
+stays asserted until its pending bit is written back. So the PM status
+registers INT1-INT5 get a one-level regmap-irq chip whose pre-handler
+acknowledges the VGPIO2AP latch. The status registers clear on read and
+are read as one block. At probe the power meter's interrupts are masked
+and only the PMIC source is left unmasked in IBIM1, as the vendor driver
+does.
+
+The regmaps only allow writes to the interrupt masks and the RTC, and
+don't cache, so nothing here can change a rail; the only child is the
+RTC.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ drivers/mfd/sec-acpm.c              | 110 +++++++++++++++++++++++++
+ drivers/mfd/sec-common.c            |  14 ++++
+ drivers/mfd/sec-irq.c               | 119 ++++++++++++++++++++++++++++
+ include/linux/mfd/samsung/core.h    |   1 +
+ include/linux/mfd/samsung/irq.h     |  80 +++++++++++++++++++
+ include/linux/mfd/samsung/s2mpg12.h |  85 ++++++++++++++++++++
+ 6 files changed, 409 insertions(+)
+ create mode 100644 include/linux/mfd/samsung/s2mpg12.h
+
+diff --git a/drivers/mfd/sec-acpm.c b/drivers/mfd/sec-acpm.c
+index d11fbf5b9..7970a7251 100644
+--- a/drivers/mfd/sec-acpm.c
++++ b/drivers/mfd/sec-acpm.c
+@@ -14,6 +14,7 @@
+ #include <linux/mfd/samsung/rtc.h>
+ #include <linux/mfd/samsung/s2mpg10.h>
+ #include <linux/mfd/samsung/s2mpg11.h>
++#include <linux/mfd/samsung/s2mpg12.h>
+ #include <linux/module.h>
+ #include <linux/of.h>
+ #include <linux/platform_device.h>
+@@ -365,6 +366,104 @@ static const struct regmap_config s2mpg11_regmap_config_meter = {
+ 	.cache_type = REGCACHE_FLAT,
+ };
+ 
++/*
++ * S2MPG12 (gs201 main PMIC): only what the RTC and the interrupt controller
++ * need. Writes are limited to the interrupt masks and the RTC, so that
++ * nothing here can change a rail. No caching: every access goes to the PMIC.
++ */
++static const struct regmap_range s2mpg12_common_registers[] = {
++	regmap_reg_range(0x00, 0x10), /* VGPIO, I3C, IBI, CHIPID, IBI masks */
++	regmap_reg_range(0x25, 0x25), /* TEST_MODE2 */
++};
++
++static const struct regmap_range s2mpg12_common_wr_registers[] = {
++	regmap_reg_range(S2MPG12_COMMON_IBIM1, S2MPG12_COMMON_IBIM2),
++};
++
++static const struct regmap_access_table s2mpg12_common_wr_table = {
++	.yes_ranges = s2mpg12_common_wr_registers,
++	.n_yes_ranges = ARRAY_SIZE(s2mpg12_common_wr_registers),
++};
++
++static const struct regmap_access_table s2mpg12_common_rd_table = {
++	.yes_ranges = s2mpg12_common_registers,
++	.n_yes_ranges = ARRAY_SIZE(s2mpg12_common_registers),
++};
++
++static const struct regmap_config s2mpg12_regmap_config_common = {
++	.name = "common",
++	.reg_bits = ACPM_ADDR_BITS,
++	.val_bits = 8,
++	.max_register = S2MPG12_COMMON_TEST_MODE2,
++	.wr_table = &s2mpg12_common_wr_table,
++	.rd_table = &s2mpg12_common_rd_table,
++	.cache_type = REGCACHE_NONE,
++};
++
++static const struct regmap_range s2mpg12_pmic_wr_registers[] = {
++	regmap_reg_range(S2MPG12_PMIC_INT1M, S2MPG12_PMIC_INT5M),
++};
++
++static const struct regmap_range s2mpg12_pmic_precious_registers[] = {
++	regmap_reg_range(S2MPG12_PMIC_INT1, S2MPG12_PMIC_INT5), /* clear on read */
++};
++
++static const struct regmap_access_table s2mpg12_pmic_wr_table = {
++	.yes_ranges = s2mpg12_pmic_wr_registers,
++	.n_yes_ranges = ARRAY_SIZE(s2mpg12_pmic_wr_registers),
++};
++
++static const struct regmap_access_table s2mpg12_pmic_precious_table = {
++	.yes_ranges = s2mpg12_pmic_precious_registers,
++	.n_yes_ranges = ARRAY_SIZE(s2mpg12_pmic_precious_registers),
++};
++
++static const struct regmap_config s2mpg12_regmap_config_pmic = {
++	.name = "pmic",
++	.reg_bits = ACPM_ADDR_BITS,
++	.val_bits = 8,
++	.max_register = S2MPG12_PMIC_SW_RESET,
++	.wr_table = &s2mpg12_pmic_wr_table,
++	.precious_table = &s2mpg12_pmic_precious_table,
++	.cache_type = REGCACHE_NONE,
++};
++
++static const struct regmap_config s2mpg12_regmap_config_rtc = {
++	.name = "rtc",
++	.reg_bits = ACPM_ADDR_BITS,
++	.val_bits = 8,
++	.max_register = S2MPG12_RTC_LAST,
++	.cache_type = REGCACHE_NONE,
++};
++
++static const struct regmap_range s2mpg12_meter_registers[] = {
++	regmap_reg_range(S2MPG12_METER_INT1, S2MPG12_METER_INT2M),
++};
++
++static const struct regmap_range s2mpg12_meter_wr_registers[] = {
++	regmap_reg_range(S2MPG12_METER_INT1M, S2MPG12_METER_INT2M),
++};
++
++static const struct regmap_access_table s2mpg12_meter_wr_table = {
++	.yes_ranges = s2mpg12_meter_wr_registers,
++	.n_yes_ranges = ARRAY_SIZE(s2mpg12_meter_wr_registers),
++};
++
++static const struct regmap_access_table s2mpg12_meter_rd_table = {
++	.yes_ranges = s2mpg12_meter_registers,
++	.n_yes_ranges = ARRAY_SIZE(s2mpg12_meter_registers),
++};
++
++static const struct regmap_config s2mpg12_regmap_config_meter = {
++	.name = "meter",
++	.reg_bits = ACPM_ADDR_BITS,
++	.val_bits = 8,
++	.max_register = S2MPG12_METER_INT2M,
++	.wr_table = &s2mpg12_meter_wr_table,
++	.rd_table = &s2mpg12_meter_rd_table,
++	.cache_type = REGCACHE_NONE,
++};
++
+ struct sec_pmic_acpm_shared_bus_context {
+ 	struct acpm_handle *acpm;
+ 	unsigned int acpm_chan_id;
+@@ -559,9 +658,20 @@ static const struct sec_pmic_acpm_platform_data s2mpg11_data = {
+ 	.regmap_cfg_meter = &s2mpg11_regmap_config_meter,
+ };
+ 
++static const struct sec_pmic_acpm_platform_data s2mpg12_data = {
++	.device_type = S2MPG12,
++	.acpm_chan_id = 2,
++	.speedy_channel = 0,
++	.regmap_cfg_common = &s2mpg12_regmap_config_common,
++	.regmap_cfg_pmic = &s2mpg12_regmap_config_pmic,
++	.regmap_cfg_rtc = &s2mpg12_regmap_config_rtc,
++	.regmap_cfg_meter = &s2mpg12_regmap_config_meter,
++};
++
+ static const struct of_device_id sec_pmic_acpm_of_match[] = {
+ 	{ .compatible = "samsung,s2mpg10-pmic", .data = &s2mpg10_data, },
+ 	{ .compatible = "samsung,s2mpg11-pmic", .data = &s2mpg11_data, },
++	{ .compatible = "samsung,s2mpg12-pmic", .data = &s2mpg12_data, },
+ 	{ },
+ };
+ MODULE_DEVICE_TABLE(of, sec_pmic_acpm_of_match);
+diff --git a/drivers/mfd/sec-common.c b/drivers/mfd/sec-common.c
+index fe92bc4a3..023aadadb 100644
+--- a/drivers/mfd/sec-common.c
++++ b/drivers/mfd/sec-common.c
+@@ -56,6 +56,15 @@ static const struct mfd_cell s2mpg11_devs[] = {
+ 	MFD_CELL_OF("s2mpg11-gpio", NULL, NULL, 0, 0, "samsung,s2mpg11-gpio"),
+ };
+ 
++static const struct resource s2mpg12_rtc_resources[] = {
++	DEFINE_RES_IRQ_NAMED(S2MPG12_IRQ_RTCA0, "alarm"),
++};
++
++/* Only the RTC so far: the rails stay as the bootloader set them. */
++static const struct mfd_cell s2mpg12_devs[] = {
++	MFD_CELL_RES("s2mpg12-rtc", s2mpg12_rtc_resources),
++};
++
+ static const struct resource s2mps11_rtc_resources[] = {
+ 	DEFINE_RES_IRQ_NAMED(S2MPS11_IRQ_RTCA0, "alarm"),
+ };
+@@ -125,6 +134,7 @@ static void sec_pmic_dump_rev(struct sec_pmic_dev *sec_pmic)
+ 	switch (sec_pmic->device_type) {
+ 	case S2MPG10:
+ 	case S2MPG11:
++	case S2MPG12:
+ 		/* For s2mpg1x, the revision is in a different regmap */
+ 		return;
+ 	case S2MU005:
+@@ -247,6 +257,10 @@ int sec_pmic_probe(struct device *dev, int device_type, unsigned int irq,
+ 		sec_devs = s2mpg11_devs;
+ 		num_sec_devs = ARRAY_SIZE(s2mpg11_devs);
+ 		break;
++	case S2MPG12:
++		sec_devs = s2mpg12_devs;
++		num_sec_devs = ARRAY_SIZE(s2mpg12_devs);
++		break;
+ 	case S2MPS11X:
+ 		sec_devs = s2mps11_devs;
+ 		num_sec_devs = ARRAY_SIZE(s2mps11_devs);
+diff --git a/drivers/mfd/sec-irq.c b/drivers/mfd/sec-irq.c
+index 42862807b..8e7325d02 100644
+--- a/drivers/mfd/sec-irq.c
++++ b/drivers/mfd/sec-irq.c
+@@ -6,12 +6,15 @@
+ #include <linux/array_size.h>
+ #include <linux/build_bug.h>
+ #include <linux/dev_printk.h>
++#include <linux/device.h>
+ #include <linux/interrupt.h>
+ #include <linux/irq.h>
++#include <linux/mfd/syscon.h>
+ #include <linux/mfd/samsung/core.h>
+ #include <linux/mfd/samsung/irq.h>
+ #include <linux/mfd/samsung/s2mpg10.h>
+ #include <linux/mfd/samsung/s2mpg11.h>
++#include <linux/mfd/samsung/s2mpg12.h>
+ #include <linux/mfd/samsung/s2mps11.h>
+ #include <linux/mfd/samsung/s2mps14.h>
+ #include <linux/mfd/samsung/s2mpu02.h>
+@@ -139,6 +142,46 @@ static const struct regmap_irq s2mpg11_pmic_irqs[] = {
+ 	REGMAP_IRQ_REG(S2MPG11_IRQ_NTC_WARN_CH7, 5, S2MPG11_IRQ_NTC_WARN_CH7_MASK),
+ };
+ 
++static const struct regmap_irq s2mpg12_pmic_irqs[] = {
++	REGMAP_IRQ_REG(S2MPG12_IRQ_PWRONF, 0, S2MPG12_IRQ_PWRONF_MASK),
++	REGMAP_IRQ_REG(S2MPG12_IRQ_PWRONR, 0, S2MPG12_IRQ_PWRONR_MASK),
++	REGMAP_IRQ_REG(S2MPG12_IRQ_JIGONBF, 0, S2MPG12_IRQ_JIGONBF_MASK),
++	REGMAP_IRQ_REG(S2MPG12_IRQ_JIGONBR, 0, S2MPG12_IRQ_JIGONBR_MASK),
++	REGMAP_IRQ_REG(S2MPG12_IRQ_ACOKBF, 0, S2MPG12_IRQ_ACOKBF_MASK),
++	REGMAP_IRQ_REG(S2MPG12_IRQ_ACOKBR, 0, S2MPG12_IRQ_ACOKBR_MASK),
++	REGMAP_IRQ_REG(S2MPG12_IRQ_PWRON1S, 0, S2MPG12_IRQ_PWRON1S_MASK),
++	REGMAP_IRQ_REG(S2MPG12_IRQ_MRB, 0, S2MPG12_IRQ_MRB_MASK),
++
++	REGMAP_IRQ_REG(S2MPG12_IRQ_RTC60S, 1, S2MPG12_IRQ_RTC60S_MASK),
++	REGMAP_IRQ_REG(S2MPG12_IRQ_RTCA1, 1, S2MPG12_IRQ_RTCA1_MASK),
++	REGMAP_IRQ_REG(S2MPG12_IRQ_RTCA0, 1, S2MPG12_IRQ_RTCA0_MASK),
++	REGMAP_IRQ_REG(S2MPG12_IRQ_RTC1S, 1, S2MPG12_IRQ_RTC1S_MASK),
++	REGMAP_IRQ_REG(S2MPG12_IRQ_WTSR_COLDRST, 1, S2MPG12_IRQ_WTSR_COLDRST_MASK),
++	REGMAP_IRQ_REG(S2MPG12_IRQ_WTSR, 1, S2MPG12_IRQ_WTSR_MASK),
++	REGMAP_IRQ_REG(S2MPG12_IRQ_WRST, 1, S2MPG12_IRQ_WRST_MASK),
++	REGMAP_IRQ_REG(S2MPG12_IRQ_SMPL, 1, S2MPG12_IRQ_SMPL_MASK),
++
++	REGMAP_IRQ_REG(S2MPG12_IRQ_120C, 2, S2MPG12_IRQ_INT120C_MASK),
++	REGMAP_IRQ_REG(S2MPG12_IRQ_140C, 2, S2MPG12_IRQ_INT140C_MASK),
++	REGMAP_IRQ_REG(S2MPG12_IRQ_TSD, 2, S2MPG12_IRQ_TSD_MASK),
++	REGMAP_IRQ_REG(S2MPG12_IRQ_SCL_SOFTRST, 2, S2MPG12_IRQ_SCL_SOFTRST_MASK),
++	REGMAP_IRQ_REG(S2MPG12_IRQ_WLWP_ACC, 2, S2MPG12_IRQ_WLWP_ACC_MASK),
++
++	REGMAP_IRQ_REG(S2MPG12_IRQ_OCP_B1M, 3, S2MPG12_IRQ_OCP_B1M_MASK),
++	REGMAP_IRQ_REG(S2MPG12_IRQ_OCP_B2M, 3, S2MPG12_IRQ_OCP_B2M_MASK),
++	REGMAP_IRQ_REG(S2MPG12_IRQ_OCP_B3M, 3, S2MPG12_IRQ_OCP_B3M_MASK),
++	REGMAP_IRQ_REG(S2MPG12_IRQ_OCP_B4M, 3, S2MPG12_IRQ_OCP_B4M_MASK),
++	REGMAP_IRQ_REG(S2MPG12_IRQ_OCP_B5M, 3, S2MPG12_IRQ_OCP_B5M_MASK),
++	REGMAP_IRQ_REG(S2MPG12_IRQ_OCP_B6M, 3, S2MPG12_IRQ_OCP_B6M_MASK),
++	REGMAP_IRQ_REG(S2MPG12_IRQ_OCP_B7M, 3, S2MPG12_IRQ_OCP_B7M_MASK),
++	REGMAP_IRQ_REG(S2MPG12_IRQ_OCP_B8M, 3, S2MPG12_IRQ_OCP_B8M_MASK),
++
++	REGMAP_IRQ_REG(S2MPG12_IRQ_OCP_B9M, 4, S2MPG12_IRQ_OCP_B9M_MASK),
++	REGMAP_IRQ_REG(S2MPG12_IRQ_OCP_B10M, 4, S2MPG12_IRQ_OCP_B10M_MASK),
++	REGMAP_IRQ_REG(S2MPG12_IRQ_SMPL_TIMEOUT, 4, S2MPG12_IRQ_SMPL_TIMEOUT_MASK),
++	REGMAP_IRQ_REG(S2MPG12_IRQ_WTSR_TIMEOUT, 4, S2MPG12_IRQ_WTSR_TIMEOUT_MASK),
++};
++
+ static const struct regmap_irq s2mps11_irqs[] = {
+ 	REGMAP_IRQ_REG(S2MPS11_IRQ_PWRONF, 0, S2MPS11_IRQ_PWRONF_MASK),
+ 	REGMAP_IRQ_REG(S2MPS11_IRQ_PWRONR, 0, S2MPS11_IRQ_PWRONR_MASK),
+@@ -476,6 +519,80 @@ static struct regmap_irq_chip_data *sec_irq_init_s2mpg1x(struct sec_pmic_dev *se
+ 	return s2mpg1x_add_chained_pmic(sec_pmic, chained_pirq, irq_data, chained_irq_chip);
+ }
+ 
++/*
++ * S2MPG12 has no common interrupt register: it reports PMIC events in-band,
++ * and the SoC's VGPIO2AP block raises them as one level interrupt that stays
++ * asserted until its pending bit is written back. The status registers clear
++ * on read and must be read as one block: regmap-irq does a bulk read here.
++ */
++static const struct regmap_irq_chip s2mpg12_irq_chip_pmic = {
++	.name = "s2mpg12-pmic",
++	.domain_suffix = "pmic",
++	.status_base = S2MPG12_PMIC_INT1,
++	.mask_base = S2MPG12_PMIC_INT1M,
++	.num_regs = 5,
++	.irqs = s2mpg12_pmic_irqs,
++	.num_irqs = ARRAY_SIZE(s2mpg12_pmic_irqs),
++};
++
++static int s2mpg12_irq_ack_vgpio(void *irq_drv_data)
++{
++	struct regmap *vgpio2ap = irq_drv_data;
++	unsigned int pend;
++	int ret;
++
++	ret = regmap_read(vgpio2ap, S2MPG12_VGPIO2AP_INTC0_IPEND, &pend);
++	if (!ret && pend)
++		ret = regmap_write(vgpio2ap, S2MPG12_VGPIO2AP_INTC0_IPEND, pend);
++
++	return ret;
++}
++
++static struct regmap_irq_chip_data *sec_irq_init_s2mpg12(struct sec_pmic_dev *sec_pmic)
++{
++	struct device *dev = sec_pmic->dev;
++	struct regmap_irq_chip_data *irq_data;
++	struct regmap_irq_chip *chip;
++	struct regmap *regmap_common, *regmap_meter, *vgpio2ap;
++	int ret;
++
++	vgpio2ap = syscon_regmap_lookup_by_phandle(dev->of_node, "google,vgpio2ap-sysreg");
++	if (IS_ERR(vgpio2ap))
++		return dev_err_cast_probe(dev, vgpio2ap, "no VGPIO2AP sysreg\n");
++
++	regmap_common = dev_get_regmap(dev, "common");
++	regmap_meter = dev_get_regmap(dev, "meter");
++	if (!regmap_common || !regmap_meter)
++		return dev_err_ptr_probe(dev, -EINVAL, "missing common or meter regmap\n");
++
++	/* Nothing handles the power meter's interrupts: keep them masked. */
++	ret = regmap_write(regmap_meter, S2MPG12_METER_INT1M, 0xff);
++	if (!ret)
++		ret = regmap_write(regmap_meter, S2MPG12_METER_INT2M, 0xff);
++	if (ret)
++		return dev_err_ptr_probe(dev, ret, "failed to mask meter interrupts\n");
++
++	chip = devm_kmemdup(dev, &s2mpg12_irq_chip_pmic, sizeof(*chip), GFP_KERNEL);
++	if (!chip)
++		return ERR_PTR(-ENOMEM);
++	chip->handle_pre_irq = s2mpg12_irq_ack_vgpio;
++	chip->irq_drv_data = vgpio2ap;
++
++	/* Masks every PMIC source first, then requests the interrupt. */
++	ret = devm_regmap_add_irq_chip(dev, sec_pmic->regmap_pmic, sec_pmic->irq,
++				       IRQF_ONESHOT, 0, chip, &irq_data);
++	if (ret)
++		return dev_err_ptr_probe(dev, ret, "Failed to add %s IRQ chip\n", chip->name);
++
++	/* Route PMIC events (and only those) to the in-band interrupt. */
++	ret = regmap_write(regmap_common, S2MPG12_COMMON_IBIM1,
++			   0xff & ~S2MPG12_COMMON_IBIM1_PMIC);
++	if (ret)
++		return dev_err_ptr_probe(dev, ret, "failed to unmask PMIC IBI\n");
++
++	return irq_data;
++}
++
+ struct regmap_irq_chip_data *sec_irq_init(struct sec_pmic_dev *sec_pmic)
+ {
+ 	struct regmap_irq_chip_data *sec_irq_chip_data;
+@@ -494,6 +611,8 @@ struct regmap_irq_chip_data *sec_irq_init(struct sec_pmic_dev *sec_pmic)
+ 	case S2MPG10:
+ 	case S2MPG11:
+ 		return sec_irq_init_s2mpg1x(sec_pmic);
++	case S2MPG12:
++		return sec_irq_init_s2mpg12(sec_pmic);
+ 	case S2MPS11X:
+ 		sec_irq_chip = &s2mps11_irq_chip;
+ 		break;
+diff --git a/include/linux/mfd/samsung/core.h b/include/linux/mfd/samsung/core.h
+index 6191f409d..e4db230e3 100644
+--- a/include/linux/mfd/samsung/core.h
++++ b/include/linux/mfd/samsung/core.h
+@@ -41,6 +41,7 @@ enum sec_device_type {
+ 	S2MPA01,
+ 	S2MPG10,
+ 	S2MPG11,
++	S2MPG12,
+ 	S2MPS11X,
+ 	S2MPS13X,
+ 	S2MPS14X,
+diff --git a/include/linux/mfd/samsung/irq.h b/include/linux/mfd/samsung/irq.h
+index 19d0f0e12..bed0ea252 100644
+--- a/include/linux/mfd/samsung/irq.h
++++ b/include/linux/mfd/samsung/irq.h
+@@ -271,6 +271,86 @@ enum s2mpg11_irq {
+ 	S2MPG11_IRQ_NR,
+ };
+ 
++enum s2mpg12_irq {
++	/* PMIC INT1 */
++	S2MPG12_IRQ_PWRONF,
++	S2MPG12_IRQ_PWRONR,
++	S2MPG12_IRQ_JIGONBF,
++	S2MPG12_IRQ_JIGONBR,
++	S2MPG12_IRQ_ACOKBF,
++	S2MPG12_IRQ_ACOKBR,
++	S2MPG12_IRQ_PWRON1S,
++	S2MPG12_IRQ_MRB,
++#define S2MPG12_IRQ_PWRONF_MASK		BIT(0)
++#define S2MPG12_IRQ_PWRONR_MASK		BIT(1)
++#define S2MPG12_IRQ_JIGONBF_MASK	BIT(2)
++#define S2MPG12_IRQ_JIGONBR_MASK	BIT(3)
++#define S2MPG12_IRQ_ACOKBF_MASK		BIT(4)
++#define S2MPG12_IRQ_ACOKBR_MASK		BIT(5)
++#define S2MPG12_IRQ_PWRON1S_MASK	BIT(6)
++#define S2MPG12_IRQ_MRB_MASK		BIT(7)
++
++	/* PMIC INT2 */
++	S2MPG12_IRQ_RTC60S,
++	S2MPG12_IRQ_RTCA1,
++	S2MPG12_IRQ_RTCA0,
++	S2MPG12_IRQ_RTC1S,
++	S2MPG12_IRQ_WTSR_COLDRST,
++	S2MPG12_IRQ_WTSR,
++	S2MPG12_IRQ_WRST,
++	S2MPG12_IRQ_SMPL,
++#define S2MPG12_IRQ_RTC60S_MASK		BIT(0)
++#define S2MPG12_IRQ_RTCA1_MASK		BIT(1)
++#define S2MPG12_IRQ_RTCA0_MASK		BIT(2)
++#define S2MPG12_IRQ_RTC1S_MASK		BIT(3)
++#define S2MPG12_IRQ_WTSR_COLDRST_MASK	BIT(4)
++#define S2MPG12_IRQ_WTSR_MASK		BIT(5)
++#define S2MPG12_IRQ_WRST_MASK		BIT(6)
++#define S2MPG12_IRQ_SMPL_MASK		BIT(7)
++
++	/* PMIC INT3 */
++	S2MPG12_IRQ_120C,
++	S2MPG12_IRQ_140C,
++	S2MPG12_IRQ_TSD,
++	S2MPG12_IRQ_SCL_SOFTRST,
++	S2MPG12_IRQ_WLWP_ACC,
++#define S2MPG12_IRQ_INT120C_MASK	BIT(0)
++#define S2MPG12_IRQ_INT140C_MASK	BIT(1)
++#define S2MPG12_IRQ_TSD_MASK		BIT(2)
++#define S2MPG12_IRQ_SCL_SOFTRST_MASK	BIT(3)
++#define S2MPG12_IRQ_WLWP_ACC_MASK	BIT(7)
++
++	/* PMIC INT4 */
++	S2MPG12_IRQ_OCP_B1M,
++	S2MPG12_IRQ_OCP_B2M,
++	S2MPG12_IRQ_OCP_B3M,
++	S2MPG12_IRQ_OCP_B4M,
++	S2MPG12_IRQ_OCP_B5M,
++	S2MPG12_IRQ_OCP_B6M,
++	S2MPG12_IRQ_OCP_B7M,
++	S2MPG12_IRQ_OCP_B8M,
++#define S2MPG12_IRQ_OCP_B1M_MASK	BIT(0)
++#define S2MPG12_IRQ_OCP_B2M_MASK	BIT(1)
++#define S2MPG12_IRQ_OCP_B3M_MASK	BIT(2)
++#define S2MPG12_IRQ_OCP_B4M_MASK	BIT(3)
++#define S2MPG12_IRQ_OCP_B5M_MASK	BIT(4)
++#define S2MPG12_IRQ_OCP_B6M_MASK	BIT(5)
++#define S2MPG12_IRQ_OCP_B7M_MASK	BIT(6)
++#define S2MPG12_IRQ_OCP_B8M_MASK	BIT(7)
++
++	/* PMIC INT5 */
++	S2MPG12_IRQ_OCP_B9M,
++	S2MPG12_IRQ_OCP_B10M,
++	S2MPG12_IRQ_SMPL_TIMEOUT,
++	S2MPG12_IRQ_WTSR_TIMEOUT,
++#define S2MPG12_IRQ_OCP_B9M_MASK	BIT(0)
++#define S2MPG12_IRQ_OCP_B10M_MASK	BIT(1)
++#define S2MPG12_IRQ_SMPL_TIMEOUT_MASK	BIT(5)
++#define S2MPG12_IRQ_WTSR_TIMEOUT_MASK	BIT(6)
++
++	S2MPG12_IRQ_NR,
++};
++
+ enum s2mps11_irq {
+ 	S2MPS11_IRQ_PWRONF,
+ 	S2MPS11_IRQ_PWRONR,
+diff --git a/include/linux/mfd/samsung/s2mpg12.h b/include/linux/mfd/samsung/s2mpg12.h
+new file mode 100644
+index 000000000..e2b71c1ee
+--- /dev/null
++++ b/include/linux/mfd/samsung/s2mpg12.h
+@@ -0,0 +1,85 @@
++/* SPDX-License-Identifier: GPL-2.0+ */
++/*
++ * Copyright 2015 Samsung Electronics
++ *
++ * Registers of the Samsung S2MPG12 PMIC, as used with Google's gs201 SoC.
++ */
++
++#ifndef __LINUX_MFD_S2MPG12_H
++#define __LINUX_MFD_S2MPG12_H
++
++#include <linux/bits.h>
++
++/* Common registers (type 0x000) */
++enum s2mpg12_common_reg {
++	S2MPG12_COMMON_VGPIO0,
++	S2MPG12_COMMON_VGPIO1,
++	S2MPG12_COMMON_VGPIO2,
++	S2MPG12_COMMON_VGPIO3,
++	S2MPG12_COMMON_I3C_DAA,
++	S2MPG12_COMMON_IBI0,
++	S2MPG12_COMMON_IBI1,
++	S2MPG12_COMMON_IBI2,
++	S2MPG12_COMMON_IBI3,
++	S2MPG12_COMMON_CHIPID = 0x0b,
++	S2MPG12_COMMON_I3C_CFG1,
++	S2MPG12_COMMON_I3C_CFG2,
++	S2MPG12_COMMON_I3C_STA,
++	S2MPG12_COMMON_IBIM1,
++	S2MPG12_COMMON_IBIM2,
++	S2MPG12_COMMON_TEST_MODE2 = 0x25,
++};
++
++/* S2MPG12_COMMON_IBIM1: in-band interrupt sources, 1 = masked */
++#define S2MPG12_COMMON_IBIM1_PMIC	BIT(0)
++
++/* PMIC (PM) registers (type 0x100) */
++enum s2mpg12_pmic_reg {
++	S2MPG12_PMIC_INT1,
++	S2MPG12_PMIC_INT2,
++	S2MPG12_PMIC_INT3,
++	S2MPG12_PMIC_INT4,
++	S2MPG12_PMIC_INT5,
++	S2MPG12_PMIC_INT1M,
++	S2MPG12_PMIC_INT2M,
++	S2MPG12_PMIC_INT3M,
++	S2MPG12_PMIC_INT4M,
++	S2MPG12_PMIC_INT5M,
++	S2MPG12_PMIC_STATUS1,
++	S2MPG12_PMIC_STATUS2,
++	S2MPG12_PMIC_PWRONSRC,
++	S2MPG12_PMIC_OFFSRC1,
++	S2MPG12_PMIC_OFFSRC2,
++	S2MPG12_PMIC_BUCHG,
++	S2MPG12_PMIC_RTCBUF,
++	S2MPG12_PMIC_CTRL1,
++	S2MPG12_PMIC_SW_RESET = 0xec,
++};
++
++/* S2MPG12_PMIC_STATUS2 */
++#define S2MPG12_STATUS2_RTCA1E		BIT(1)
++#define S2MPG12_STATUS2_RTCA0E		BIT(2)
++
++/*
++ * RTC registers (type 0x200): the same layout as S2MPG10's, see
++ * enum s2mpg10_rtc_reg in rtc.h. The last one is SCRATCH4.
++ */
++#define S2MPG12_RTC_LAST		0x30
++
++/* Meter registers (type 0xa00), only those the core needs */
++enum s2mpg12_meter_reg {
++	S2MPG12_METER_INT1,
++	S2MPG12_METER_INT2,
++	S2MPG12_METER_INT1M = 0x04,
++	S2MPG12_METER_INT2M,
++	S2MPG12_METER_LAST = 0xe5,
++};
++
++/*
++ * The PMIC signals its interrupts in-band (I3C IBI). The SoC turns them into
++ * a level interrupt through its VGPIO2AP block, which latches them in
++ * INTC0_IPEND until written back.
++ */
++#define S2MPG12_VGPIO2AP_INTC0_IPEND	0x290
++
++#endif /* __LINUX_MFD_S2MPG12_H */

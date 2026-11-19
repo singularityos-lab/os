@@ -1,0 +1,158 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Mon, 12 Oct 2026 21:09:53 -0400
+Subject: [PATCH] wifi: brcmfmac: pcie: stop ring processing before a bus reset
+
+A bus reset through debugfs (echo 1 > .../ieee80211/phy0/reset) on a
+Pixel 7 Pro (BCM4389) oopsed in the D2H poll worker:
+
+  Workqueue: events brcmf_pcie_poll_worker [brcmfmac]
+  pc : brcmf_proto_msgbuf_rx_trigger+0x24/0x144 [brcmfmac]
+
+brcmf_pcie_reset() only masks the device's interrupts before
+brcmf_detach() frees the protocol layer. The interrupt thread, the poll
+worker and the console timer stay live and keep processing the rings
+through freed memory; the worker died holding rx_lock, and the system
+wedged. Stop them first, as brcmf_pcie_remove() does: set STATE_DOWN so
+nothing re-arms, stop the console timer, mask and synchronise the
+interrupt, cancel the poll. brcmf_pcie_setup() brings the state back up.
+Also make the RX path refuse to run without a protocol layer.
+
+The missed-D3-ACK path no longer requests a bus reset. A firmware
+re-download without a power cycle hasn't been shown to work on this chip
+(a driver-only reload failed with "FW failed to initialize"; a reload of
+the whole stack, which cycles WL_REG_ON, works), and the host-ready
+doorbell it rang can trap this firmware. Log that the stack needs a
+reload instead, as Broadcom's driver leaves it to a full restart.
+
+Assisted-by: LLM
+Signed-off-by: Derek Ross <derekross@gmail.com>
+---
+ .../broadcom/brcm80211/brcmfmac/bus.h         |  1 -
+ .../broadcom/brcm80211/brcmfmac/core.c        | 15 ---------
+ .../broadcom/brcm80211/brcmfmac/msgbuf.c      |  6 +++-
+ .../broadcom/brcm80211/brcmfmac/pcie.c        | 33 ++++++++++++++-----
+ 4 files changed, 29 insertions(+), 26 deletions(-)
+
+diff --git a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/bus.h b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/bus.h
+index 34fe674df..f41d87dd5 100644
+--- a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/bus.h
++++ b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/bus.h
+@@ -323,7 +323,6 @@ void brcmf_dev_reset(struct device *dev);
+ void brcmf_dev_coredump(struct device *dev);
+ /* Indication that firmware has halted or crashed */
+ void brcmf_fw_crashed(struct device *dev);
+-void brcmf_bus_request_reset(struct device *dev);
+ 
+ /* Configure the "global" bus state used by upper layers */
+ void brcmf_bus_change_state(struct brcmf_bus *bus, enum brcmf_bus_state state);
+diff --git a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/core.c b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/core.c
+index a3b8d23a6..1e8a0b183 100644
+--- a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/core.c
++++ b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/core.c
+@@ -1468,21 +1468,6 @@ void brcmf_fw_crashed(struct device *dev)
+ 	brcmf_bus_schedule_reset(bus_if);
+ }
+ 
+-/**
+- * brcmf_bus_request_reset() - reload the firmware for a bus driver
+- * @dev: the bus device
+- *
+- * For a device that stopped answering without reporting a crash, so no
+- * memory dump is taken.
+- */
+-void brcmf_bus_request_reset(struct device *dev)
+-{
+-	struct brcmf_bus *bus_if = dev_get_drvdata(dev);
+-
+-	if (bus_if)
+-		brcmf_bus_schedule_reset(bus_if);
+-}
+-
+ void brcmf_detach(struct device *dev)
+ {
+ 	s32 i;
+diff --git a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/msgbuf.c b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/msgbuf.c
+index d91085116..77a524a43 100644
+--- a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/msgbuf.c
++++ b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/msgbuf.c
+@@ -1576,12 +1576,16 @@ int brcmf_proto_msgbuf_rx_trigger(struct device *dev)
+ {
+ 	struct brcmf_bus *bus_if = dev_get_drvdata(dev);
+ 	struct brcmf_pub *drvr = bus_if->drvr;
+-	struct brcmf_msgbuf *msgbuf = (struct brcmf_msgbuf *)drvr->proto->pd;
++	struct brcmf_msgbuf *msgbuf;
+ 	struct brcmf_commonring *commonring;
+ 	void *buf;
+ 	u32 flowid;
+ 	int qlen;
+ 
++	if (!drvr || !drvr->proto || !drvr->proto->pd)
++		return -ENODEV;
++	msgbuf = (struct brcmf_msgbuf *)drvr->proto->pd;
++
+ 	buf = msgbuf->commonrings[BRCMF_D2H_MSGRING_RX_COMPLETE];
+ 	brcmf_msgbuf_process_rx(msgbuf, buf);
+ 	buf = msgbuf->commonrings[BRCMF_D2H_MSGRING_TX_COMPLETE];
+diff --git a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/pcie.c b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/pcie.c
+index e863aaa17..bcb390ae8 100644
+--- a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/pcie.c
++++ b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/pcie.c
+@@ -1288,8 +1288,11 @@ static irqreturn_t brcmf_pcie_quick_check_isr(int irq, void *arg)
+ /* Process the D2H rings; the interrupt thread and the poll both get here. */
+ static void brcmf_pcie_rx_process(struct brcmf_pciedev_info *devinfo)
+ {
++	struct brcmf_bus *bus = dev_get_drvdata(&devinfo->pdev->dev);
++
+ 	mutex_lock(&devinfo->rx_lock);
+-	if (devinfo->state == BRCMFMAC_PCIE_STATE_UP)
++	if (devinfo->state == BRCMFMAC_PCIE_STATE_UP && bus && bus->drvr &&
++	    bus->drvr->proto)
+ 		brcmf_proto_msgbuf_rx_trigger(&devinfo->pdev->dev);
+ 	/*
+ 	 * The rings' read pointers are written back now, so a D3 ACK that
+@@ -2013,7 +2016,19 @@ static int brcmf_pcie_reset(struct device *dev)
+ 	struct brcmf_fw_request *fwreq;
+ 	int err;
+ 
++	/*
++	 * Stop everything that processes the rings before brcmf_detach()
++	 * frees the protocol layer: the interrupt thread, the D2H poll and
++	 * the console timer. As in brcmf_pcie_remove(); STATE_DOWN keeps the
++	 * interrupt thread and the poll from re-arming. brcmf_pcie_setup()
++	 * sets it UP again.
++	 */
++	devinfo->state = BRCMFMAC_PCIE_STATE_DOWN;
++	brcmf_pcie_fwcon_timer(devinfo, false);
+ 	brcmf_pcie_intr_disable(devinfo);
++	if (devinfo->irq_allocated)
++		synchronize_irq(devinfo->pdev->irq);
++	cancel_delayed_work_sync(&devinfo->poll_work);
+ 
+ 	brcmf_pcie_bus_console_read(devinfo, true);
+ 
+@@ -3234,16 +3249,16 @@ static int brcmf_pcie_pm_enter_D3(struct device *dev)
+ 			  brcmf_pcie_read_reg32(devinfo,
+ 						devinfo->reginfo->mailboxint));
+ 		/*
+-		 * The device may have taken the inform and stopped, or may
+-		 * still act on it: the host-ready doorbell is how Broadcom's
+-		 * driver brings a device back from D3, but an inform still
+-		 * queued would put it to sleep again. Reload the firmware, as
+-		 * Broadcom's driver does after a missed D3 ACK, so a failed
+-		 * suspend doesn't leave Wi-Fi dead.
++		 * The device may have taken the inform and stopped. Broadcom's
++		 * driver gives up on it here and has the whole stack
++		 * restarted; a host-ready doorbell is no cure (an inform still
++		 * queued puts it to sleep again, and this firmware traps on an
++		 * unexpected host ready), and brcmfmac's own bus reset doesn't
++		 * bring this chip back. Leave recovery to a reload of the
++		 * stack, which power-cycles the chip.
+ 		 */
+-		brcmf_pcie_hostready(devinfo);
++		brcmf_err(bus, "device unresponsive after D3 inform; reload the driver stack to recover\n");
+ 		brcmf_bus_change_state(bus, BRCMF_BUS_UP);
+-		brcmf_bus_request_reset(dev);
+ 		return -EIO;
+ 	}
+ 

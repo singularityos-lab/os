@@ -1,0 +1,62 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Sun, 8 Nov 2026 11:35:13 -0500
+Subject: [PATCH] power: supply: max17042_battery: tell the MAX77759 model load
+ timeouts apart
+
+The MAX77759 model load waits twice after setting Config2.LdMdl: for
+the gauge to clear LdMdl, and for RepCap, which the load procedure
+zeroes first, to become non-zero again. Both timeouts print the same
+"model load did not complete: -110".
+
+On a Pixel 7 Pro (gs201) that message appears only on the first boot
+after the battery ran flat (issue #169: at 3.26 V it failed, two hours
+later at 3.87 V on the same kernel it loaded). The cheetah model's
+VEmpty is 0xa561, an empty voltage of 3.30 V, so on such a cell the
+model's RepCap is 0 and the second wait can time out even when the
+load itself completed.
+
+Keep the message for LdMdl and give the RepCap wait its own, with the
+cell voltage, so that a log tells which of the two it was.
+
+Assisted-by: Claude Opus 5.5
+Signed-off-by: Derek Ross <derekross@gmail.com>
+---
+ drivers/power/supply/max17042_battery.c | 23 ++++++++++++++++++-----
+ 1 file changed, 18 insertions(+), 5 deletions(-)
+
+diff --git a/drivers/power/supply/max17042_battery.c b/drivers/power/supply/max17042_battery.c
+index 725066381..c045436e5 100644
+--- a/drivers/power/supply/max17042_battery.c
++++ b/drivers/power/supply/max17042_battery.c
+@@ -1454,12 +1454,25 @@ static int max77759_fg_load_params(struct max17042_chip *chip)
+ 				       !(val & MAX77759_FG_CONFIG2_LDMDL),
+ 				       MAX77759_FG_LDMDL_POLL_US,
+ 				       MAX77759_FG_LDMDL_TIMEOUT_US);
+-	if (!ret)
+-		ret = regmap_read_poll_timeout(map, MAX17042_RepCap, val, val,
+-					       MAX77759_FG_LDMDL_POLL_US,
+-					       MAX77759_FG_LDMDL_TIMEOUT_US);
+-	if (ret)
++	if (ret) {
+ 		dev_err(chip->dev, "model load did not complete: %d\n", ret);
++		return ret;
++	}
++
++	/*
++	 * RepCap was zeroed above and comes back once the gauge has run the
++	 * new model. A cell below VEmpty is empty by the model, so its RepCap
++	 * can stay 0 even after a good load.
++	 */
++	ret = regmap_read_poll_timeout(map, MAX17042_RepCap, val, val,
++				       MAX77759_FG_LDMDL_POLL_US,
++				       MAX77759_FG_LDMDL_TIMEOUT_US);
++	if (ret) {
++		if (regmap_read(map, MAX17042_VCELL, &val))
++			val = 0;
++		dev_err(chip->dev, "RepCap still 0 after the model load: %d (VCell %u mV)\n",
++			ret, val * MAX17042_VOLTAGE_LSB / 1000);
++	}
+ 
+ 	return ret;
+ }

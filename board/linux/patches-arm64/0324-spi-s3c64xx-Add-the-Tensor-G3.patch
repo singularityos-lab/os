@@ -1,0 +1,31 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Brett-Michael Green <brett@bmgvisualtech.com>
+Date: Fri, 30 Oct 2026 16:34:34 -0400
+Subject: [PATCH] spi: s3c64xx: Add the Tensor G3
+
+zuma's (Tensor G3) SPI controllers match Tensor G4's: rate from the CMU,
+64-byte FIFOs, 32-bit access. Stock drives the Pixel 8 Pro's touchscreen
+with manual chip select (samsung,spi-chip-select-mode = <0>), as the
+Pixel 9a's, so use Tensor G4's port configuration, which holds native
+chip select for a whole message.
+
+Assisted-by: LLM
+Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
+---
+ drivers/spi/spi-s3c64xx.c | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/drivers/spi/spi-s3c64xx.c b/drivers/spi/spi-s3c64xx.c
+index 185de17f6..59ca74c27 100644
+--- a/drivers/spi/spi-s3c64xx.c
++++ b/drivers/spi/spi-s3c64xx.c
+@@ -1681,6 +1681,9 @@ static const struct platform_device_id s3c64xx_spi_driver_ids[] = {
+ MODULE_DEVICE_TABLE(platform, s3c64xx_spi_driver_ids);
+ 
+ static const struct of_device_id s3c64xx_spi_dt_match[] = {
++	{ .compatible = "google,zuma-spi",
++			.data = &zumapro_spi_port_config,
++	},
+ 	{ .compatible = "google,zumapro-spi",
+ 			.data = &zumapro_spi_port_config,
+ 	},

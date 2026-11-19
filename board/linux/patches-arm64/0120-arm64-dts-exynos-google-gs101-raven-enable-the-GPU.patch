@@ -1,0 +1,75 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: saiththerobo <the.tom.sharp@gmail.com>
+Date: Tue, 20 Oct 2026 07:45:18 +0100
+Subject: [PATCH] arm64: dts: exynos: google: gs101-raven: enable the GPU
+
+The Mali-G78 runs on S2MPG11's BUCK2S (VDD_G3D), BUCK8S (VDD_G3D_L2) and
+LDO1S (VDD_G3D_M), and S2MPG10's BUCK7M (VDD_INT_M), all always-on.
+Label those four regulators in gs101-pixel-common.dtsi, in the file's
+s2mpg1x_<name> style, so the board can refer to them.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Signed-off-by: saiththerobo <the.tom.sharp@gmail.com>
+---
+ .../boot/dts/exynos/google/gs101-pixel-common.dtsi     |  8 ++++----
+ arch/arm64/boot/dts/exynos/google/gs101-raven.dts      | 10 ++++++++++
+ 2 files changed, 14 insertions(+), 4 deletions(-)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/gs101-pixel-common.dtsi b/arch/arm64/boot/dts/exynos/google/gs101-pixel-common.dtsi
+index a1ea429f9..4717ec221 100644
+--- a/arch/arm64/boot/dts/exynos/google/gs101-pixel-common.dtsi
++++ b/arch/arm64/boot/dts/exynos/google/gs101-pixel-common.dtsi
+@@ -202,7 +202,7 @@ buck6m {
+ 				samsung,ext-control = <S2MPG10_EXTCTRL_CPUCL2_EN2>;
+ 			};
+ 
+-			buck7m {
++			s2mpg10_buck7m: buck7m {
+ 				/* GPU */
+ 				regulator-name = "vdd_int_m";
+ 				regulator-min-microvolt = <450000>;
+@@ -462,7 +462,7 @@ buck1s {
+ 				samsung,ext-control = <S2MPG11_EXTCTRL_PWREN_MIF>;
+ 			};
+ 
+-			buck2s {
++			s2mpg11_buck2s: buck2s {
+ 				regulator-name = "vdd_g3d";
+ 				regulator-min-microvolt = <450000>;
+ 				regulator-max-microvolt = <1300000>;
+@@ -511,7 +511,7 @@ s2mpg11_buck7s: buck7s {
+ 				regulator-ramp-delay = <6250>;
+ 			};
+ 
+-			buck8s {
++			s2mpg11_buck8s: buck8s {
+ 				regulator-name = "vdd_g3d_l2";
+ 				regulator-min-microvolt = <450000>;
+ 				regulator-max-microvolt = <1300000>;
+@@ -561,7 +561,7 @@ s2mpg11_buckboost: buckboost {
+ 				regulator-max-microvolt = <3600000>;
+ 			};
+ 
+-			ldo1s {
++			s2mpg11_ldo1s: ldo1s {
+ 				regulator-name = "vdd_g3d_m";
+ 				regulator-min-microvolt = <450000>;
+ 				regulator-max-microvolt = <950000>;
+diff --git a/arch/arm64/boot/dts/exynos/google/gs101-raven.dts b/arch/arm64/boot/dts/exynos/google/gs101-raven.dts
+index 219c0ab7d..80cbaea5f 100644
+--- a/arch/arm64/boot/dts/exynos/google/gs101-raven.dts
++++ b/arch/arm64/boot/dts/exynos/google/gs101-raven.dts
+@@ -62,3 +62,13 @@ &framebuffer0 {
+ 
+ 	status = "okay";
+ };
++
++/* The Mali-G78 MP20 on its S2MPG10/11 rails, as postmarketOS describes them */
++&gpu {
++	mali-supply = <&s2mpg11_buck2s>;
++	g3d-l2-supply = <&s2mpg11_buck8s>;
++	g3d-m-supply = <&s2mpg11_ldo1s>;
++	int-m-supply = <&s2mpg10_buck7m>;
++
++	status = "okay";
++};

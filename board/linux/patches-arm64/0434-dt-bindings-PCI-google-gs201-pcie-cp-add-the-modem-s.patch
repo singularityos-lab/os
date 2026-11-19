@@ -1,0 +1,56 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Mon, 12 Oct 2026 19:08:20 -0400
+Subject: [PATCH] dt-bindings: PCI: google,gs201-pcie-cp: add the modem's
+ shared memory
+
+The S5300 exchanges its IPC messages and packets with the host through
+three reserved regions: the IPC buffers, the MSI page (which the
+controller also targets) and the packet buffers. They belong to the
+modem, as its lines do, so describe them in the "modem" child, where
+the modem driver finds both.
+
+Assisted-by: LLM
+Signed-off-by: Derek Ross <derekross@gmail.com>
+---
+ .../bindings/pci/google,gs201-pcie-cp.yaml       | 16 ++++++++++++----
+ 1 file changed, 12 insertions(+), 4 deletions(-)
+
+diff --git a/Documentation/devicetree/bindings/pci/google,gs201-pcie-cp.yaml b/Documentation/devicetree/bindings/pci/google,gs201-pcie-cp.yaml
+index f27f839ba..0b8ed61f0 100644
+--- a/Documentation/devicetree/bindings/pci/google,gs201-pcie-cp.yaml
++++ b/Documentation/devicetree/bindings/pci/google,gs201-pcie-cp.yaml
+@@ -105,14 +105,21 @@ properties:
+     type: object
+     additionalProperties: false
+     description:
+-      The modem's power, reset and handshake lines (raw levels), for
+-      driving the modem without its own driver. When the modem driver
+-      describes the lines in its own node instead, this node is absent or
+-      disabled, so that each line has one owner.
++      The modem, with its power, reset and handshake lines (raw levels) and the
++      memory it shares with the host. The link driver drives the lines
++      while this node is available, to power the modem without a modem
++      driver; when a modem driver owns them, this node is disabled, so
++      that each line has one owner, and the modem driver takes the lines
++      and the memory from it.
+     properties:
+       compatible:
+         const: samsung,s5300-modem
+       status: true
++      memory-region:
++        items:
++          - description: IPC buffers shared with the modem
++          - description: the modem's MSI page (also the controller's)
++          - description: packet buffers shared with the modem
+       ap2cp-pda-active-gpios:
+         maxItems: 1
+       ap2cp-cp-pwr-on-gpios:
+@@ -194,6 +201,7 @@ examples:
+ 
+         modem {
+             compatible = "samsung,s5300-modem";
++            memory-region = <&cp_ipc_mem>, <&cp_msi_mem>, <&cp_pkt_mem>;
+             ap2cp-pda-active-gpios = <&gph1 1 GPIO_ACTIVE_HIGH>;
+             ap2cp-cp-pwr-on-gpios = <&gph1 2 GPIO_ACTIVE_HIGH>;
+             ap2cp-nreset-gpios = <&gph1 3 GPIO_ACTIVE_HIGH>;

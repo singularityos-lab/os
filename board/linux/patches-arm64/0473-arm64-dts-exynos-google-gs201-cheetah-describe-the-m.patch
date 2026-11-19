@@ -1,0 +1,43 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Mon, 12 Oct 2026 13:59:15 -0400
+Subject: [PATCH] arm64: dts: exynos: google: gs201-cheetah: describe the
+ modem's control lines
+
+The S5300's power, reset and handshake lines on gph0, gph1, gpa0 and gpa8,
+as in the stock cpif node, under pcie_0 (disabled).
+
+Assisted-by: LLM
+Signed-off-by: Derek Ross <derekross@gmail.com>
+---
+ .../boot/dts/exynos/google/gs201-cheetah.dts    | 17 +++++++++++++++++
+ 1 file changed, 17 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts b/arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts
+index 161c0575c..51f752c9e 100644
+--- a/arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts
++++ b/arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts
+@@ -894,6 +894,23 @@ wlan_dev_wake: wlan-dev-wake-pins {
+ 	};
+ };
+ 
++&pcie_0 {
++	modem {
++		compatible = "samsung,s5300-modem";
++		ap2cp-pda-active-gpios = <&gph1 1 GPIO_ACTIVE_HIGH>;
++		ap2cp-cp-pwr-on-gpios = <&gph1 2 GPIO_ACTIVE_HIGH>;
++		ap2cp-nreset-gpios = <&gph1 3 GPIO_ACTIVE_HIGH>;
++		ap2cp-cp-wrst-gpios = <&gph1 6 GPIO_ACTIVE_HIGH>;
++		ap2cp-pm-wrst-gpios = <&gpa0 3 GPIO_ACTIVE_HIGH>;
++		ap2cp-wakeup-gpios = <&gph0 2 GPIO_ACTIVE_HIGH>;
++		ap2cp-dump-noti-gpios = <&gph0 3 GPIO_ACTIVE_HIGH>;
++		cp2ap-cp-wrst-gpios = <&gpa0 2 GPIO_ACTIVE_HIGH>;
++		cp2ap-ps-hold-gpios = <&gpa8 2 GPIO_ACTIVE_HIGH>;
++		cp2ap-wakeup-gpios = <&gpa8 3 GPIO_ACTIVE_HIGH>;
++		cp2ap-phone-active-gpios = <&gpa8 4 GPIO_ACTIVE_HIGH>;
++	};
++};
++
+ /*
+  * Camera power (CAMERA-PLAN.md 1.2), from Google's GPL pantah camera PMIC
+  * device tree: two fixed supplies switched by S2MPG13 GPIOs feed the

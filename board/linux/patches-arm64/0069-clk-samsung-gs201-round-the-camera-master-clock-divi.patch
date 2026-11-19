@@ -1,0 +1,78 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Mon, 12 Oct 2026 19:46:14 -0400
+Subject: [PATCH] clk: samsung: gs201: round the camera master clock dividers
+ to the closest rate
+
+The CIS_CLK0-7 dividers feed the camera sensors' master clocks, which
+device trees and sensor drivers ask for by their nominal rate (24 or
+26 MHz). None of the dividers' mux parents (the 24.576 MHz oscillator,
+SHARED0/3, SHARED1/3, SHARED2/2, SHARED3/2, SPARE) gives those exactly,
+and a plain divider rounds down: 24 MHz from the oscillator becomes
+12.288 MHz, half of what the sensor expects.
+
+Google's clock code for these dividers picks the closest ratio, so a
+24 MHz request on the oscillator gets 24.576 MHz there. That is what
+the Pixel 7 Pro's ultrawide runs at on stock: its own external-clock
+registers are set for 24.574 MHz. Round to the closest rate too.
+---
+ drivers/clk/samsung/clk-gs201.c | 46 +++++++++++++++++++++------------
+ 1 file changed, 30 insertions(+), 16 deletions(-)
+
+diff --git a/drivers/clk/samsung/clk-gs201.c b/drivers/clk/samsung/clk-gs201.c
+index 1d610c37f..95fb07566 100644
+--- a/drivers/clk/samsung/clk-gs201.c
++++ b/drivers/clk/samsung/clk-gs201.c
+@@ -1192,22 +1192,36 @@ static const struct samsung_div_clock top_div_clks[] __initconst = {
+ 	    "gout_cmu_aur_noc", CLK_CON_DIV_CLKCMU_AUR_NOC, 0, 4),
+ 	DIV(CLK_DOUT_CMU_BO_NOC, "dout_cmu_bo_noc",
+ 	    "gout_cmu_bo_noc", CLK_CON_DIV_CLKCMU_BO_NOC, 0, 4),
+-	DIV(CLK_DOUT_CMU_CIS_CLK0, "dout_cmu_cis_clk0",
+-	    "gout_cmu_cis_clk0", CLK_CON_DIV_CLKCMU_CIS_CLK0, 0, 5),
+-	DIV(CLK_DOUT_CMU_CIS_CLK1, "dout_cmu_cis_clk1",
+-	    "gout_cmu_cis_clk1", CLK_CON_DIV_CLKCMU_CIS_CLK1, 0, 5),
+-	DIV(CLK_DOUT_CMU_CIS_CLK2, "dout_cmu_cis_clk2",
+-	    "gout_cmu_cis_clk2", CLK_CON_DIV_CLKCMU_CIS_CLK2, 0, 5),
+-	DIV(CLK_DOUT_CMU_CIS_CLK3, "dout_cmu_cis_clk3",
+-	    "gout_cmu_cis_clk3", CLK_CON_DIV_CLKCMU_CIS_CLK3, 0, 5),
+-	DIV(CLK_DOUT_CMU_CIS_CLK4, "dout_cmu_cis_clk4",
+-	    "gout_cmu_cis_clk4", CLK_CON_DIV_CLKCMU_CIS_CLK4, 0, 5),
+-	DIV(CLK_DOUT_CMU_CIS_CLK5, "dout_cmu_cis_clk5",
+-	    "gout_cmu_cis_clk5", CLK_CON_DIV_CLKCMU_CIS_CLK5, 0, 5),
+-	DIV(CLK_DOUT_CMU_CIS_CLK6, "dout_cmu_cis_clk6",
+-	    "gout_cmu_cis_clk6", CLK_CON_DIV_CLKCMU_CIS_CLK6, 0, 5),
+-	DIV(CLK_DOUT_CMU_CIS_CLK7, "dout_cmu_cis_clk7",
+-	    "gout_cmu_cis_clk7", CLK_CON_DIV_CLKCMU_CIS_CLK7, 0, 5),
++	/*
++	 * Camera sensor master clocks. None of the parents divides down to
++	 * exactly the 24 or 26 MHz the sensors ask for, so round to the
++	 * closest rate as Google's clock code does (24 MHz from the
++	 * oscillator is 24.576 MHz), not to the next lower one.
++	 */
++	DIV_F(CLK_DOUT_CMU_CIS_CLK0, "dout_cmu_cis_clk0",
++	      "gout_cmu_cis_clk0", CLK_CON_DIV_CLKCMU_CIS_CLK0, 0, 5,
++	      0, CLK_DIVIDER_ROUND_CLOSEST),
++	DIV_F(CLK_DOUT_CMU_CIS_CLK1, "dout_cmu_cis_clk1",
++	      "gout_cmu_cis_clk1", CLK_CON_DIV_CLKCMU_CIS_CLK1, 0, 5,
++	      0, CLK_DIVIDER_ROUND_CLOSEST),
++	DIV_F(CLK_DOUT_CMU_CIS_CLK2, "dout_cmu_cis_clk2",
++	      "gout_cmu_cis_clk2", CLK_CON_DIV_CLKCMU_CIS_CLK2, 0, 5,
++	      0, CLK_DIVIDER_ROUND_CLOSEST),
++	DIV_F(CLK_DOUT_CMU_CIS_CLK3, "dout_cmu_cis_clk3",
++	      "gout_cmu_cis_clk3", CLK_CON_DIV_CLKCMU_CIS_CLK3, 0, 5,
++	      0, CLK_DIVIDER_ROUND_CLOSEST),
++	DIV_F(CLK_DOUT_CMU_CIS_CLK4, "dout_cmu_cis_clk4",
++	      "gout_cmu_cis_clk4", CLK_CON_DIV_CLKCMU_CIS_CLK4, 0, 5,
++	      0, CLK_DIVIDER_ROUND_CLOSEST),
++	DIV_F(CLK_DOUT_CMU_CIS_CLK5, "dout_cmu_cis_clk5",
++	      "gout_cmu_cis_clk5", CLK_CON_DIV_CLKCMU_CIS_CLK5, 0, 5,
++	      0, CLK_DIVIDER_ROUND_CLOSEST),
++	DIV_F(CLK_DOUT_CMU_CIS_CLK6, "dout_cmu_cis_clk6",
++	      "gout_cmu_cis_clk6", CLK_CON_DIV_CLKCMU_CIS_CLK6, 0, 5,
++	      0, CLK_DIVIDER_ROUND_CLOSEST),
++	DIV_F(CLK_DOUT_CMU_CIS_CLK7, "dout_cmu_cis_clk7",
++	      "gout_cmu_cis_clk7", CLK_CON_DIV_CLKCMU_CIS_CLK7, 0, 5,
++	      0, CLK_DIVIDER_ROUND_CLOSEST),
+ 	DIV(CLK_DOUT_CMU_CPUCL0_DBG, "dout_cmu_cpucl0_dbg",
+ 	    "gout_cmu_cpucl0_dbg_noc", CLK_CON_DIV_CLKCMU_CPUCL0_DBG, 0, 4),
+ 	DIV(CLK_DOUT_CMU_CPUCL0_SWITCH, "dout_cmu_cpucl0_switch",

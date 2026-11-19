@@ -1,0 +1,717 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Sun, 11 Oct 2026 22:39:16 -0400
+Subject: [PATCH] phy: samsung: add Google gs201 PCIe PHY driver
+
+Add a driver for the PCIe Gen4 PHY of the Google gs201 (Tensor G2) SoC,
+which connects the Wi-Fi chip on Pixel 7 phones.
+
+The bootloader leaves the PHY isolated in the PMU and does not train the
+link, so the whole Samsung init sequence is needed. phy_init() is
+Google's probe-time step: release the PMU isolation (a secure register,
+written through the PMU regmap's SMC path) and power the PHY down.
+phy_power_on() clears the power-down and runs "CAL ver 210802": PHY
+resets, the common PMA block for a 100 MHz LCPLL with a 38.4 MHz input
+clock, the per-lane tables, PCS settings for root complex mode, the
+external XO selection and an AFC calibration restart, then polls the PLL,
+CDR and offset calibration status. phy_calibrate() reports the offset
+calibration after the controller's soft power reset.
+
+The sequence follows the driver Google builds for gs201
+(google-modules/soc/gs/drivers/pci/controller/dwc-whi:
+pcie-exynos-gs201-rc-cal.c and pcie-exynos-rc.c, Copyright Samsung
+Electronics). Most PMA registers have no public names, so the tables keep
+the raw offsets. As on stock, the PHY is not isolated again after init:
+controller register accesses hang the SoC while it is isolated.
+
+For bring-up, trace=1 logs every hardware step before it happens (with a
+short sleep so a remote log reader receives the line before a possible
+bus hang), and check_tcxo=1 reads and fixes the PMU TCXO buffer bits that
+Google's driver checks.
+
+The controller sets the lane count with phy_set_bus_width(); the
+default is one lane, as on Pixel 7.
+
+Assisted-by: LLM
+Signed-off-by: Derek Ross <derekross@gmail.com>
+---
+ drivers/phy/samsung/Kconfig          |  10 +
+ drivers/phy/samsung/Makefile         |   1 +
+ drivers/phy/samsung/phy-gs201-pcie.c | 635 +++++++++++++++++++++++++++
+ 3 files changed, 646 insertions(+)
+ create mode 100644 drivers/phy/samsung/phy-gs201-pcie.c
+
+diff --git a/drivers/phy/samsung/Kconfig b/drivers/phy/samsung/Kconfig
+index 6849ced7a..a9cada809 100644
+--- a/drivers/phy/samsung/Kconfig
++++ b/drivers/phy/samsung/Kconfig
+@@ -29,6 +29,16 @@ config PHY_EXYNOS_PCIE
+ 	  Enable PCIe PHY support for Exynos SoC series.
+ 	  This driver provides PHY interface for Exynos PCIe controller.
+ 
++config PHY_GS201_PCIE
++	tristate "Google gs201 PCIe PHY driver"
++	depends on OF && (ARCH_EXYNOS || COMPILE_TEST)
++	depends on EXYNOS_PMU || COMPILE_TEST
++	select GENERIC_PHY
++	help
++	  Enable support for the PCIe Gen4 PHY of the Google gs201 (Tensor G2)
++	  SoC. It is used by the gs201 PCIe controller driver, which connects
++	  the Wi-Fi chip on Pixel 7 phones.
++
+ config PHY_GS201_MIPI_DCPHY
+ 	tristate "Google gs201 MIPI DC-PHY receiver driver"
+ 	depends on OF && (ARCH_EXYNOS || COMPILE_TEST)
+diff --git a/drivers/phy/samsung/Makefile b/drivers/phy/samsung/Makefile
+index 463585ec9..a24c25524 100644
+--- a/drivers/phy/samsung/Makefile
++++ b/drivers/phy/samsung/Makefile
+@@ -2,6 +2,7 @@
+ obj-$(CONFIG_PHY_EXYNOS_DP_VIDEO)	+= phy-exynos-dp-video.o
+ obj-$(CONFIG_PHY_EXYNOS_MIPI_VIDEO)	+= phy-exynos-mipi-video.o
+ obj-$(CONFIG_PHY_EXYNOS_PCIE)		+= phy-exynos-pcie.o
++obj-$(CONFIG_PHY_GS201_PCIE)		+= phy-gs201-pcie.o
+ obj-$(CONFIG_PHY_GS201_MIPI_DCPHY)	+= phy-gs201-mipi-dcphy-rx.o
+ obj-$(CONFIG_PHY_SAMSUNG_UFS)		+= phy-exynos-ufs.o
+ phy-exynos-ufs-y			+= phy-gs101-ufs.o
+diff --git a/drivers/phy/samsung/phy-gs201-pcie.c b/drivers/phy/samsung/phy-gs201-pcie.c
+new file mode 100644
+index 000000000..4218f8674
+--- /dev/null
++++ b/drivers/phy/samsung/phy-gs201-pcie.c
+@@ -0,0 +1,635 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * Google gs201 (Tensor G2) PCIe Gen4 PHY driver
++ *
++ * The register sequence is Samsung's "CAL ver 210802" for gs201, taken from
++ * the driver Google builds for gs201 (pcie-exynos-gs201-rc-cal.c and
++ * pcie-exynos-rc.c in google-modules/soc/gs/drivers/pci/controller/dwc-whi).
++ * Most PMA registers have no public names, so the tables keep Samsung's raw
++ * offsets and values.
++ *
++ * Copyright (C) 2021 Samsung Electronics Co., Ltd.
++ */
++
++#include <linux/bits.h>
++#include <linux/clk.h>
++#include <linux/delay.h>
++#include <linux/io.h>
++#include <linux/iopoll.h>
++#include <linux/module.h>
++#include <linux/of.h>
++#include <linux/phy/phy.h>
++#include <linux/platform_device.h>
++#include <linux/regmap.h>
++#include <linux/soc/samsung/exynos-pmu.h>
++
++/*
++ * Bring-up tracing: with trace=1 every step that touches the hardware is
++ * logged before it happens, and the driver sleeps trace_delay_ms after each
++ * line so that a reader of /dev/kmsg (dmesg -w over SSH) receives it before a
++ * possible bus hang stops the CPU. Both can be changed at runtime through
++ * /sys/module/phy_gs201_pcie/parameters/.
++ */
++static bool trace;
++module_param(trace, bool, 0644);
++MODULE_PARM_DESC(trace, "Log every hardware step before doing it (bring-up)");
++
++static unsigned int trace_delay_ms = 20;
++module_param(trace_delay_ms, uint, 0644);
++MODULE_PARM_DESC(trace_delay_ms, "Sleep after each trace line, in ms (default 20)");
++
++static bool check_tcxo;
++module_param(check_tcxo, bool, 0644);
++MODULE_PARM_DESC(check_tcxo,
++		 "Read PMU TCXO_BUF_CTRL in phy_init and set the bits Google's driver expects (default: off)");
++
++/*
++ * PHY reset block, in the controller's sub-control (ELBI) space at +0x1400.
++ * All three are active low. INIT_RST is released before the PMA is
++ * programmed, the other two after it.
++ */
++#define GS201_PHY_RST_CMN		0x0
++#define GS201_PHY_RST_INIT		0x4
++#define GS201_PHY_RST_PORT		0x8
++
++/* PMU PHY control (PHY_CTRL_PCIE_GEN4_x) */
++#define GS201_PMU_PHY_BYPASS		BIT(0)	/* 0 = isolated */
++
++/* PMU TCXO_BUF_CTRL: Google checks these are set before using PCIe ch1 */
++#define GS201_PMU_TCXO_BUF_CTRL		0x3c10
++#define GS201_PMU_TCXO_PCIE_MASK	(BIT(2) | BIT(3) | BIT(10))
++
++/* PMA common registers used outside the tables */
++#define GS201_PMA_INPUT_CLK		0x0d8
++#define GS201_PMA_INPUT_CLK_VAL		0x28
++#define GS201_PMA_CMN_CTRL		0x400
++#define GS201_PMA_CMN_CTRL_PMA_EN	BIT(7)
++#define GS201_PMA_CMN_PWRDN0		0x404
++#define GS201_PMA_CMN_PWRDN1		0x408
++#define GS201_PMA_CMN_PWRDN2		0x40c
++#define GS201_PMA_XO_CFG		0x5d0
++#define GS201_PMA_XO_CFG_EXT		BIT(4)
++#define GS201_PMA_XO_CFG_INT		BIT(3)
++#define GS201_PMA_OC_STATUS		0x5fc	/* logged by Google before config */
++#define GS201_PMA_CMN_STATUS		0x3f0
++#define GS201_PMA_CMN_STATUS_PLL_LOCK	BIT(3)
++#define GS201_PMA_AFC_CAL_MODE		0xbf4
++#define GS201_PMA_AFC_CAL_RESTART	0x4
++#define GS201_PMA_OC_DONE		0xde8
++#define GS201_PMA_OC_DONE_MASK		GENMASK(3, 0)
++#define GS201_PMA_CDR_STATUS		0xe0c
++#define GS201_PMA_CDR_LOCK		BIT(2)
++#define GS201_PMA_OC_STATUS2		0xe18
++#define GS201_PMA_OC_STATUS2_DONE	BIT(7)
++#define GS201_PMA_LN0_STATUS		0xfc0
++
++/* PCS */
++#define GS201_PCS_BIFURCATION		0x004
++#define GS201_PCS_CLK_CTRL		0x008
++#define GS201_PCS_CLK_MUX_GLITCH_WA	BIT(7)
++#define GS201_PCS_ERIO_CLK_GATE_MASK	GENMASK(5, 4)
++#define GS201_PCS_L2_PWR		0x150
++#define GS201_PCS_RC_MODE		0x154
++#define GS201_PCS_L2_PWRDN_DELAY	0x170
++#define GS201_PCS_RATE_CTRL		0x184
++#define GS201_PCS_RATE_CTRL_SWITCH	0xb0
++#define GS201_PCS_PM_STATE		0x188
++#define GS201_PCS_PLL_BIAS_OFF_DELAY	0x190
++#define GS201_PCS_LANE_STRIDE		0x800
++
++#define GS201_PMA_LANE_STRIDE		0x800
++#define GS201_PHY_MAX_LANES		2
++
++/* Google polls the lock bits 10000 times, 1 us apart */
++#define GS201_PHY_LOCK_TIMEOUT_US	10000
++
++struct gs201_pcie_phy_reg {
++	u16 off;
++	u8 val;
++};
++
++/* Common PMA block, 100 MHz LCPLL, RC mode, then the 38.4 MHz input clock */
++static const struct gs201_pcie_phy_reg gs201_pma_common[] = {
++	{ 0x018, 0x50 }, { 0x048, 0x33 }, { 0x068, 0x01 }, { 0x070, 0x12 },
++	{ 0x08c, 0x00 }, { 0x090, 0x21 }, { 0x0b0, 0x14 }, { 0x0b8, 0x50 },
++	{ 0x0e0, 0x51 }, { 0x100, 0x00 }, { 0x104, 0x80 }, { 0x140, 0x38 },
++	{ 0x180, 0xa4 },
++	{ 0x188, 0x03 },	/* LCPLL 100 MHz, no divider */
++	{ 0x2a8, 0x38 }, { 0x2e4, 0x12 },
++	/* PMA enable, aggregation (non-bifurcated) mode */
++	{ 0x400, 0x80 }, { 0x408, 0x20 }, { 0x550, 0x00 }, { 0x5a8, 0x00 },
++	{ 0x5ec, 0xff },
++	/* PCIe type: RC */
++	{ 0x458, 0x02 },	/* 100 MHz clock on */
++	{ 0x5b0, 0x34 },	/* differential REFCLK source control */
++	{ 0x450, 0x20 },	/* extra delay when entering L1.2 */
++	/* 38.4 MHz PHY input clock */
++	{ 0x0ac, 0x34 }, { 0x0b4, 0x34 }, { 0x0e0, 0x50 }, { 0x0f4, 0x00 },
++	{ 0x0f8, 0x08 }, { 0x104, 0xa0 }, { 0x11c, 0x19 }, { 0x124, 0x17 },
++	{ 0x220, 0x41 },
++};
++
++/* Per-lane PMA block (offsets for lane 0; lane n adds n * 0x800) */
++static const struct gs201_pcie_phy_reg gs201_pma_lane[] = {
++	{ 0x82c, 0x08 }, { 0x830, 0x24 }, { 0x878, 0x80 }, { 0x894, 0x40 },
++	{ 0x8c0, 0x00 }, { 0x8f4, 0x30 }, { 0x908, 0x05 }, { 0x90c, 0xe0 },
++	{ 0x914, 0xd4 }, { 0x91c, 0xd3 }, { 0x920, 0xce }, { 0x924, 0x01 },
++	{ 0x928, 0x35 }, { 0x92c, 0xba }, { 0x930, 0x41 }, { 0x934, 0x15 },
++	{ 0x938, 0x13 }, { 0x93c, 0x4e }, { 0x948, 0x43 }, { 0x94c, 0xfc },
++	{ 0x954, 0x10 }, { 0x958, 0x69 }, { 0x964, 0x40 }, { 0x9b4, 0xf6 },
++	{ 0x9c0, 0x2d }, { 0x9c4, 0xb7 }, { 0x9cc, 0x3c }, { 0x9dc, 0x7e },
++	{ 0xa40, 0x02 }, { 0xa70, 0x26 }, { 0xa74, 0x00 },
++	{ 0xb40, 0x06 }, { 0xb44, 0x06 }, { 0xb48, 0x04 }, { 0xb4c, 0x03 },
++	{ 0xb50, 0x03 }, { 0xb54, 0x03 }, { 0xb58, 0x03 }, { 0xb5c, 0x03 },
++	{ 0xc10, 0x1b }, { 0xc44, 0x10 }, { 0xc48, 0x10 }, { 0xc4c, 0x10 },
++	{ 0xc50, 0x10 }, { 0xc54, 0x02 }, { 0xc58, 0x02 }, { 0xc5c, 0x02 },
++	{ 0xc60, 0x02 }, { 0xc6c, 0x02 }, { 0xc70, 0x02 }, { 0xca8, 0xe7 },
++	{ 0xcac, 0x00 }, { 0xcb0, 0x0e }, { 0xccc, 0x1c }, { 0xcd4, 0x05 },
++	{ 0xcd8, 0x77 }, { 0xcdc, 0x7a }, { 0xdb4, 0x2f },
++	/* RX tuning */
++	{ 0x8fc, 0x80 }, { 0x914, 0xf4 }, { 0x91c, 0xd3 }, { 0x920, 0xca },
++	{ 0x928, 0x3d }, { 0x92c, 0xb8 }, { 0x930, 0x41 }, { 0x934, 0x17 },
++	{ 0x93c, 0x4c }, { 0x948, 0x73 }, { 0x94c, 0xfc }, { 0x96c, 0x55 },
++	{ 0x988, 0x78 }, { 0x994, 0x3b }, { 0x9b4, 0xf6 }, { 0x9c4, 0xff },
++	{ 0x9c8, 0x20 }, { 0xa08, 0x2f }, { 0xb9c, 0x3f },
++	/* TX termination resistor */
++	{ 0x9cc, 0x00 }, { 0xcd8, 0xff }, { 0xcdc, 0x6e },
++	{ 0x82c, 0x0f }, { 0x830, 0x60 }, { 0x834, 0x7e },
++	/* Auto FBB */
++	{ 0xc08, 0x00 }, { 0xc10, 0x09 }, { 0xc40, 0x04 }, { 0xc70, 0x00 },
++	/* DFE */
++	{ 0x9b4, 0x76 },
++};
++
++/* 38.4 MHz input clock, per lane, written for both lanes of the PHY */
++static const struct gs201_pcie_phy_reg gs201_pma_lane_clk[] = {
++	{ 0xbcc, 0x41 }, { 0xbd4, 0x41 }, { 0xbdc, 0x68 }, { 0xbe0, 0x00 },
++	{ 0xbe4, 0xd0 },
++};
++
++/* PHY power-down, per lane (offsets for lane 0) */
++static const struct gs201_pcie_phy_reg gs201_pma_lane_pwrdn[] = {
++	{ 0x800, 0x0a }, { 0x804, 0xbf }, { 0xa40, 0x02 }, { 0xa44, 0x2a },
++	{ 0xa48, 0xaa }, { 0xa4c, 0xa8 }, { 0xa50, 0x80 },
++};
++
++/*
++ * PMA values right after the PHY reset. Google's driver compares them before
++ * every configuration ("check if PCIe PHY is being reset correctly").
++ */
++static const struct gs201_pcie_phy_reg gs201_pma_reset_vals[] = {
++	{ 0x010, 0x55 }, { 0x014, 0x51 }, { 0x040, 0x50 }, { 0x044, 0x0c },
++	{ 0x0d8, 0x28 }, { 0x1054, 0x77 },
++};
++
++struct gs201_pcie_phy {
++	struct device *dev;
++	void __iomem *pma;
++	void __iomem *pcs;
++	void __iomem *rst;
++	void __iomem *udbg;
++	struct regmap *pmu;
++	u32 pmu_offset;
++	struct clk_bulk_data *clks;
++	int num_clks;
++};
++
++static __printf(2, 3) void gs201_phy_trace(struct gs201_pcie_phy *gp,
++					   const char *fmt, ...)
++{
++	struct va_format vaf;
++	va_list args;
++
++	if (!trace)
++		return;
++
++	va_start(args, fmt);
++	vaf.fmt = fmt;
++	vaf.va = &args;
++	dev_info(gp->dev, "trace: %pV\n", &vaf);
++	va_end(args);
++
++	if (trace_delay_ms)
++		msleep(trace_delay_ms);
++}
++
++static void gs201_pcie_phy_write_table(void __iomem *base,
++				       const struct gs201_pcie_phy_reg *tbl,
++				       size_t n)
++{
++	size_t i;
++
++	for (i = 0; i < n; i++)
++		writel(tbl[i].val, base + tbl[i].off);
++}
++
++static void gs201_pcie_phy_rmw(void __iomem *reg, u32 clr, u32 set)
++{
++	writel((readl(reg) & ~clr) | set, reg);
++}
++
++static unsigned int gs201_pcie_phy_lanes(struct phy *phy)
++{
++	unsigned int lanes = phy_get_bus_width(phy);
++
++	return clamp(lanes, 1U, (unsigned int)GS201_PHY_MAX_LANES);
++}
++
++/* Power down both lanes and the PMA; the inverse of _pwrdn_clear() */
++static void gs201_pcie_phy_pwrdn(struct gs201_pcie_phy *gp)
++{
++	unsigned int lane;
++
++	gs201_phy_trace(gp, "about to write PMA 0x404-0x40c and the lane power-down registers");
++	writel(0xa8, gp->pma + GS201_PMA_CMN_PWRDN0);
++	writel(0x20, gp->pma + GS201_PMA_CMN_PWRDN1);
++	writel(0x0a, gp->pma + GS201_PMA_CMN_PWRDN2);
++
++	for (lane = 0; lane < GS201_PHY_MAX_LANES; lane++)
++		gs201_pcie_phy_write_table(gp->pma + lane * GS201_PMA_LANE_STRIDE,
++					   gs201_pma_lane_pwrdn,
++					   ARRAY_SIZE(gs201_pma_lane_pwrdn));
++
++	gs201_phy_trace(gp, "about to read PMA 0x400 (first PMA read): disable the PMA");
++	gs201_pcie_phy_rmw(gp->pma + GS201_PMA_CMN_CTRL,
++			   GS201_PMA_CMN_CTRL_PMA_EN, 0);
++
++	gs201_phy_trace(gp, "about to read PCS 0x184 (first PCS read): rate switching off");
++	gs201_pcie_phy_rmw(gp->pcs + GS201_PCS_RATE_CTRL,
++			   GS201_PCS_RATE_CTRL_SWITCH, 0);
++}
++
++static void gs201_pcie_phy_pwrdn_clear(struct gs201_pcie_phy *gp)
++{
++	unsigned int lane;
++	size_t i;
++
++	gs201_phy_trace(gp, "about to write PMA 0xd8 (input clock), then clear the power-downs");
++	writel(GS201_PMA_INPUT_CLK_VAL, gp->pma + GS201_PMA_INPUT_CLK);
++	mdelay(1);
++
++	writel(0, gp->pma + GS201_PMA_CMN_PWRDN0);
++	writel(0, gp->pma + GS201_PMA_CMN_PWRDN1);
++	writel(0, gp->pma + GS201_PMA_CMN_PWRDN2);
++
++	for (lane = 0; lane < GS201_PHY_MAX_LANES; lane++)
++		for (i = 0; i < ARRAY_SIZE(gs201_pma_lane_pwrdn); i++)
++			writel(0, gp->pma + lane * GS201_PMA_LANE_STRIDE +
++			       gs201_pma_lane_pwrdn[i].off);
++
++	gs201_phy_trace(gp, "about to write PCS 0x184 (rate change and power-down reset)");
++	writel(0, gp->pcs + GS201_PCS_RATE_CTRL);
++}
++
++/* Google's debug check that the PMA came out of reset with its defaults */
++static void gs201_pcie_phy_check_reset(struct gs201_pcie_phy *gp)
++{
++	size_t i;
++	u32 val;
++
++	gs201_phy_trace(gp, "about to read PMA reset defaults (0x10 0x14 0x40 0x44 0xd8 0x1054)");
++	for (i = 0; i < ARRAY_SIZE(gs201_pma_reset_vals); i++) {
++		val = readl(gp->pma + gs201_pma_reset_vals[i].off);
++		if (val != gs201_pma_reset_vals[i].val)
++			dev_info(gp->dev, "PMA %#x after reset: %#x (expected %#x)\n",
++				 gs201_pma_reset_vals[i].off, val,
++				 gs201_pma_reset_vals[i].val);
++	}
++}
++
++static void gs201_pcie_phy_config(struct gs201_pcie_phy *gp, unsigned int lanes)
++{
++	unsigned int lane;
++
++	gs201_phy_trace(gp, "about to read PMA 0x5fc (OC status)");
++	dev_dbg(gp->dev, "OC initial status %#x\n",
++		readl(gp->pma + GS201_PMA_OC_STATUS));
++
++	gs201_pcie_phy_check_reset(gp);
++
++	/* Input clock path */
++	writel(GS201_PMA_INPUT_CLK_VAL, gp->pma + GS201_PMA_INPUT_CLK);
++
++	gs201_phy_trace(gp, "about to read-modify-write PCS 0x008 (clock mux glitch workaround)");
++	for (lane = 0; lane < lanes; lane++)
++		gs201_pcie_phy_rmw(gp->pcs + lane * GS201_PCS_LANE_STRIDE +
++				   GS201_PCS_CLK_CTRL, 0,
++				   GS201_PCS_CLK_MUX_GLITCH_WA);
++
++	gs201_phy_trace(gp, "about to pulse the PHY resets (ELBI 0x1400-0x1408), release INIT_RST");
++	writel(1, gp->rst + GS201_PHY_RST_INIT);
++	writel(1, gp->rst + GS201_PHY_RST_PORT);
++	writel(1, gp->rst + GS201_PHY_RST_CMN);
++	writel(0, gp->rst + GS201_PHY_RST_INIT);
++	writel(0, gp->rst + GS201_PHY_RST_PORT);
++	writel(0, gp->rst + GS201_PHY_RST_CMN);
++	udelay(10);
++	writel(1, gp->rst + GS201_PHY_RST_INIT);
++	udelay(10);
++
++	gs201_phy_trace(gp, "about to write the PMA tables (common, %u lane(s), lane clocks)",
++			lanes);
++	gs201_pcie_phy_write_table(gp->pma, gs201_pma_common,
++				   ARRAY_SIZE(gs201_pma_common));
++
++	for (lane = 0; lane < lanes; lane++)
++		gs201_pcie_phy_write_table(gp->pma + lane * GS201_PMA_LANE_STRIDE,
++					   gs201_pma_lane,
++					   ARRAY_SIZE(gs201_pma_lane));
++
++	for (lane = 0; lane < GS201_PHY_MAX_LANES; lane++)
++		gs201_pcie_phy_write_table(gp->pma + lane * GS201_PMA_LANE_STRIDE,
++					   gs201_pma_lane_clk,
++					   ARRAY_SIZE(gs201_pma_lane_clk));
++
++	gs201_phy_trace(gp, "about to write PCS 0x004 0x154 0x150 0x170 0x008 0x190");
++	for (lane = 0; lane < lanes; lane++) {
++		void __iomem *pcs = gp->pcs + lane * GS201_PCS_LANE_STRIDE;
++
++		writel(0x00000, pcs + GS201_PCS_BIFURCATION);
++		writel(0x700d5, pcs + GS201_PCS_RC_MODE);
++		writel(0x300ff, pcs + GS201_PCS_L2_PWR);
++		writel(0x40, pcs + GS201_PCS_L2_PWRDN_DELAY);
++	}
++
++	/* ERIO clock gating in L1.2 */
++	for (lane = 0; lane < lanes; lane++)
++		gs201_pcie_phy_rmw(gp->pcs + lane * GS201_PCS_LANE_STRIDE +
++				   GS201_PCS_CLK_CTRL,
++				   GS201_PCS_ERIO_CLK_GATE_MASK,
++				   GS201_PCS_ERIO_CLK_GATE_MASK);
++
++	/* PLL and bias enable off delay */
++	writel(0x100b0808, gp->pcs + GS201_PCS_PLL_BIAS_OFF_DELAY);
++
++	gs201_phy_trace(gp, "about to release CMN_RST and PORT_RST");
++	writel(1, gp->rst + GS201_PHY_RST_CMN);
++	writel(1, gp->rst + GS201_PHY_RST_PORT);
++
++	gs201_phy_trace(gp, "about to read-modify-write PMA 0x5d0 (external XO)");
++	gs201_pcie_phy_rmw(gp->pma + GS201_PMA_XO_CFG, GS201_PMA_XO_CFG_INT,
++			   GS201_PMA_XO_CFG_EXT);
++
++	/*
++	 * Restart AFC calibration from its simulated initial value instead of
++	 * the previous result; Google found the stale value can flag AFC done
++	 * too early and break CDR lock.
++	 */
++	writel(GS201_PMA_AFC_CAL_RESTART, gp->pma + GS201_PMA_AFC_CAL_MODE);
++}
++
++static bool gs201_pcie_phy_wait(struct gs201_pcie_phy *gp, const char *what,
++				u32 off, u32 mask, u32 want)
++{
++	u32 val;
++	int ret;
++
++	gs201_phy_trace(gp, "about to poll PMA %#x for %s (up to %u us)", off,
++			what, GS201_PHY_LOCK_TIMEOUT_US);
++	ret = readl_poll_timeout_atomic(gp->pma + off, val, (val & mask) == want,
++					1, GS201_PHY_LOCK_TIMEOUT_US);
++
++	return !ret;
++}
++
++static void gs201_pcie_phy_check_lock(struct gs201_pcie_phy *gp)
++{
++	bool pll, cdr, oc;
++
++	pll = gs201_pcie_phy_wait(gp, "PLL lock", GS201_PMA_CMN_STATUS,
++				  GS201_PMA_CMN_STATUS_PLL_LOCK,
++				  GS201_PMA_CMN_STATUS_PLL_LOCK);
++	cdr = gs201_pcie_phy_wait(gp, "CDR lock", GS201_PMA_CDR_STATUS,
++				  GS201_PMA_CDR_LOCK, GS201_PMA_CDR_LOCK);
++	oc = gs201_pcie_phy_wait(gp, "offset calibration", GS201_PMA_OC_DONE,
++				 GS201_PMA_OC_DONE_MASK, GS201_PMA_OC_DONE_MASK);
++
++	/* CDR lock needs a link partner; without one only the PLL matters */
++	dev_info(gp->dev,
++		 "PLL lock %d, CDR lock %d, OC done %d (PMA 0x3f0 %#x 0xfc0 %#x, PCS 0x188 %#x)\n",
++		 pll, cdr, oc, readl(gp->pma + GS201_PMA_CMN_STATUS),
++		 readl(gp->pma + GS201_PMA_LN0_STATUS),
++		 readl(gp->pcs + GS201_PCS_PM_STATE));
++}
++
++static int gs201_pcie_phy_clks_on(struct gs201_pcie_phy *gp)
++{
++	int i, ret;
++
++	for (i = 0; i < gp->num_clks; i++) {
++		gs201_phy_trace(gp, "enable clk %pC",
++				gp->clks[i].clk);
++		ret = clk_prepare_enable(gp->clks[i].clk);
++		if (ret) {
++			while (--i >= 0)
++				clk_disable_unprepare(gp->clks[i].clk);
++			return ret;
++		}
++	}
++
++	return 0;
++}
++
++static void gs201_pcie_phy_check_tcxo(struct gs201_pcie_phy *gp)
++{
++	unsigned int val;
++	int ret;
++
++	gs201_phy_trace(gp, "about to read PMU %#x (TCXO_BUF_CTRL)",
++			GS201_PMU_TCXO_BUF_CTRL);
++	ret = regmap_read(gp->pmu, GS201_PMU_TCXO_BUF_CTRL, &val);
++	if (ret) {
++		dev_warn(gp->dev, "cannot read TCXO_BUF_CTRL: %d\n", ret);
++		return;
++	}
++
++	dev_info(gp->dev, "PMU TCXO_BUF_CTRL %#x\n", val);
++	if ((val & GS201_PMU_TCXO_PCIE_MASK) == GS201_PMU_TCXO_PCIE_MASK)
++		return;
++
++	gs201_phy_trace(gp, "about to set PMU %#x bits %#lx (SMC)",
++			GS201_PMU_TCXO_BUF_CTRL, GS201_PMU_TCXO_PCIE_MASK);
++	ret = regmap_update_bits(gp->pmu, GS201_PMU_TCXO_BUF_CTRL,
++				 GS201_PMU_TCXO_PCIE_MASK,
++				 GS201_PMU_TCXO_PCIE_MASK);
++	if (ret)
++		dev_warn(gp->dev, "cannot set TCXO_BUF_CTRL: %d\n", ret);
++}
++
++/*
++ * Init = Google's probe-time "resumed_phydown": take the PHY out of
++ * isolation and leave it powered down. This is the first access to the PMA
++ * and PCS.
++ */
++static int gs201_pcie_phy_init(struct phy *phy)
++{
++	struct gs201_pcie_phy *gp = phy_get_drvdata(phy);
++	int ret;
++
++	ret = gs201_pcie_phy_clks_on(gp);
++	if (ret)
++		return ret;
++
++	if (check_tcxo)
++		gs201_pcie_phy_check_tcxo(gp);
++
++	gs201_phy_trace(gp, "about to set PMU %#x bit 0 (PHY isolation off, SMC)",
++			gp->pmu_offset);
++	ret = regmap_update_bits(gp->pmu, gp->pmu_offset,
++				 GS201_PMU_PHY_BYPASS, GS201_PMU_PHY_BYPASS);
++	if (ret) {
++		dev_err(gp->dev, "PMU write failed: %d\n", ret);
++		clk_bulk_disable_unprepare(gp->num_clks, gp->clks);
++		return ret;
++	}
++
++	gs201_pcie_phy_pwrdn(gp);
++	gs201_phy_trace(gp, "PHY out of isolation and powered down");
++
++	return 0;
++}
++
++/*
++ * Google never isolates this PHY again after probe (use-phy-isol-con is not
++ * set for ch1), and DBI accesses hang while it is isolated. So exit leaves
++ * isolation off and only drops the clock references.
++ */
++static int gs201_pcie_phy_exit(struct phy *phy)
++{
++	struct gs201_pcie_phy *gp = phy_get_drvdata(phy);
++
++	gs201_phy_trace(gp, "exit: release clocks (isolation stays off, as stock)");
++	clk_bulk_disable_unprepare(gp->num_clks, gp->clks);
++
++	return 0;
++}
++
++static int gs201_pcie_phy_power_on(struct phy *phy)
++{
++	struct gs201_pcie_phy *gp = phy_get_drvdata(phy);
++
++	gs201_pcie_phy_pwrdn_clear(gp);
++	gs201_pcie_phy_config(gp, gs201_pcie_phy_lanes(phy));
++	gs201_pcie_phy_check_lock(gp);
++	gs201_phy_trace(gp, "PHY configured");
++
++	return 0;
++}
++
++static int gs201_pcie_phy_power_off(struct phy *phy)
++{
++	struct gs201_pcie_phy *gp = phy_get_drvdata(phy);
++
++	gs201_pcie_phy_pwrdn(gp);
++
++	return 0;
++}
++
++/*
++ * Called by the controller after its soft power reset: Google logs the PMA
++ * offset calibration state at that point. Exposed as a PHY "calibrate" op so
++ * the controller can trigger it at the right time.
++ */
++static int gs201_pcie_phy_calibrate(struct phy *phy)
++{
++	struct gs201_pcie_phy *gp = phy_get_drvdata(phy);
++	u32 val;
++
++	gs201_phy_trace(gp, "about to read PMA 0xe18 (OC after soft power reset)");
++	val = readl(gp->pma + GS201_PMA_OC_STATUS2);
++	if (!(val & GS201_PMA_OC_STATUS2_DONE))
++		dev_info(gp->dev,
++			 "OC not done after soft power reset: PMA 0x760 %#x 0xe0c %#x 0x3f0 %#x 0xfc0 %#x\n",
++			 readl(gp->pma + 0x760),
++			 readl(gp->pma + GS201_PMA_CDR_STATUS),
++			 readl(gp->pma + GS201_PMA_CMN_STATUS),
++			 readl(gp->pma + GS201_PMA_LN0_STATUS));
++
++	return 0;
++}
++
++static const struct phy_ops gs201_pcie_phy_ops = {
++	.init		= gs201_pcie_phy_init,
++	.exit		= gs201_pcie_phy_exit,
++	.power_on	= gs201_pcie_phy_power_on,
++	.power_off	= gs201_pcie_phy_power_off,
++	.calibrate	= gs201_pcie_phy_calibrate,
++	.owner		= THIS_MODULE,
++};
++
++static int gs201_pcie_phy_probe(struct platform_device *pdev)
++{
++	struct device *dev = &pdev->dev;
++	struct phy_provider *provider;
++	struct gs201_pcie_phy *gp;
++	struct phy *phy;
++	int ret;
++
++	gp = devm_kzalloc(dev, sizeof(*gp), GFP_KERNEL);
++	if (!gp)
++		return -ENOMEM;
++
++	gp->dev = dev;
++
++	/* Only mappings here: the PHY is not touched until phy_init() */
++	gp->pma = devm_platform_ioremap_resource_byname(pdev, "pma");
++	if (IS_ERR(gp->pma))
++		return PTR_ERR(gp->pma);
++
++	gp->pcs = devm_platform_ioremap_resource_byname(pdev, "pcs");
++	if (IS_ERR(gp->pcs))
++		return PTR_ERR(gp->pcs);
++
++	gp->rst = devm_platform_ioremap_resource_byname(pdev, "rst");
++	if (IS_ERR(gp->rst))
++		return PTR_ERR(gp->rst);
++
++	gp->udbg = devm_platform_ioremap_resource_byname(pdev, "udbg");
++	if (IS_ERR(gp->udbg))
++		return PTR_ERR(gp->udbg);
++
++	gp->pmu = exynos_get_pmu_regmap_by_phandle(dev->of_node,
++						   "samsung,pmu-syscon");
++	if (IS_ERR(gp->pmu))
++		return dev_err_probe(dev, PTR_ERR(gp->pmu),
++				     "failed to get the PMU regmap\n");
++
++	ret = of_property_read_u32_index(dev->of_node, "samsung,pmu-syscon", 1,
++					 &gp->pmu_offset);
++	if (ret)
++		return dev_err_probe(dev, ret,
++				     "missing PMU PHY control offset\n");
++
++	gp->num_clks = devm_clk_bulk_get_all(dev, &gp->clks);
++	if (gp->num_clks < 0)
++		return dev_err_probe(dev, gp->num_clks, "failed to get clocks\n");
++
++	phy = devm_phy_create(dev, NULL, &gs201_pcie_phy_ops);
++	if (IS_ERR(phy))
++		return dev_err_probe(dev, PTR_ERR(phy), "failed to create PHY\n");
++
++	phy_set_drvdata(phy, gp);
++
++	provider = devm_of_phy_provider_register(dev, of_phy_simple_xlate);
++
++	return PTR_ERR_OR_ZERO(provider);
++}
++
++static const struct of_device_id gs201_pcie_phy_of_match[] = {
++	{ .compatible = "google,gs201-pcie-phy" },
++	{ }
++};
++MODULE_DEVICE_TABLE(of, gs201_pcie_phy_of_match);
++
++static struct platform_driver gs201_pcie_phy_driver = {
++	.probe	= gs201_pcie_phy_probe,
++	.driver = {
++		.name		= "gs201-pcie-phy",
++		.of_match_table	= gs201_pcie_phy_of_match,
++		.suppress_bind_attrs = true,
++	},
++};
++module_platform_driver(gs201_pcie_phy_driver);
++
++MODULE_DESCRIPTION("Google gs201 PCIe PHY driver");
++MODULE_LICENSE("GPL");

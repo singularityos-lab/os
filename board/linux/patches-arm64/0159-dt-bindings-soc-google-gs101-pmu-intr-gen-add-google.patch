@@ -1,0 +1,38 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Fri, 23 Oct 2026 23:36:55 -0400
+Subject: [PATCH] dt-bindings: soc: google: gs101-pmu-intr-gen: add
+ google,gs201-pmu-intr-gen
+
+gs201 (Tensor G2) has the same PMU interrupt generator as gs101, used
+by exynos-pmu for the CPU hotplug handshake. Document it with the gs101
+compatible as the fallback.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Signed-off-by: Derek Ross <derekross@gmail.com>
+---
+ .../soc/google/google,gs101-pmu-intr-gen.yaml         | 11 ++++++++---
+ 1 file changed, 8 insertions(+), 3 deletions(-)
+
+diff --git a/Documentation/devicetree/bindings/soc/google/google,gs101-pmu-intr-gen.yaml b/Documentation/devicetree/bindings/soc/google/google,gs101-pmu-intr-gen.yaml
+index 2be022ca6..f84ec35a0 100644
+--- a/Documentation/devicetree/bindings/soc/google/google,gs101-pmu-intr-gen.yaml
++++ b/Documentation/devicetree/bindings/soc/google/google,gs101-pmu-intr-gen.yaml
+@@ -14,9 +14,14 @@ maintainers:
+ 
+ properties:
+   compatible:
+-    items:
+-      - const: google,gs101-pmu-intr-gen
+-      - const: syscon
++    oneOf:
++      - items:
++          - const: google,gs101-pmu-intr-gen
++          - const: syscon
++      - items:
++          - const: google,gs201-pmu-intr-gen
++          - const: google,gs101-pmu-intr-gen
++          - const: syscon
+ 
+   reg:
+     maxItems: 1

@@ -1,0 +1,30 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Sun, 11 Oct 2026 19:19:11 -0400
+Subject: [PATCH] arm64: dts: exynos: google: gs201-cheetah: enable the GPU
+
+Enable the Mali-G710 on the Pixel 7 Pro. Panthor is built as a module;
+during bring-up userspace keeps it from autoloading and loads it by
+hand.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts b/arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts
+index fbb8195db..29b0330f0 100644
+--- a/arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts
++++ b/arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts
+@@ -76,6 +76,11 @@ cont_splash_mem: splash@fac00000 {
+ 	};
+ };
+ 
++&gpu {
++	/* No mali-supply: the G3D rails follow the PMU power domain and ACPM. */
++	status = "okay";
++};
++
+ /* Touchscreen: Synaptics S3908 on USI0 SPI */
+ &usi0 {
+ 	samsung,mode = <USI_MODE_SPI>;

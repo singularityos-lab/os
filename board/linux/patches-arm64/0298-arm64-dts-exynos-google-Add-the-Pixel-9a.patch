@@ -1,0 +1,340 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Tue, 27 Oct 2026 09:53:53 -0647
+Subject: [PATCH] arm64: dts: exynos: google: Add the Pixel 9a
+
+Add a first-light board file for the Pixel 9a (tegu): ABL's selector
+nodes for its A0 and A1 IPOP parts, the clocks, pins, system registers
+and PMU, both watchdogs, ACPM with the S2MPG14's two eUSB2 supplies,
+UFS behind its GPIO-switched VCC, USB 2.0 peripheral and the three
+keys. That is enough to boot the root file system from UFS and reach it
+over USB networking. Display, touch, battery, sound and the radios
+follow in their own changes. The bootargs pick suspend to idle: the
+firmware advertises PSCI SYSTEM_SUSPEND, but Linux has no Tensor SoC
+sleep sequence for "deep".
+
+The USB core also holds CMU_HSI0's sub-control clock: it clocks the
+link's registers, the PHY turns it off in suspend, and dwc3 touches
+those registers before it initialises the PHY again on resume.
+
+Tested on the Pixel 9a: a kernel built from this tree with its
+zumapro-tegu.dtb boots to the root file system on UFS, reachable over USB
+networking, and stays up past the bootloader watchdogs (85 s at the
+check). tools/phone-smoke passes boot, the storage guard, root, kernel
+health and USB gadget.
+
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ arch/arm64/boot/dts/exynos/google/Makefile    |   4 +-
+ .../boot/dts/exynos/google/zumapro-tegu.dts   | 283 ++++++++++++++++++
+ 2 files changed, 286 insertions(+), 1 deletion(-)
+ create mode 100644 arch/arm64/boot/dts/exynos/google/zumapro-tegu.dts
+
+diff --git a/arch/arm64/boot/dts/exynos/google/Makefile b/arch/arm64/boot/dts/exynos/google/Makefile
+index 35e586793..90969cf84 100644
+--- a/arch/arm64/boot/dts/exynos/google/Makefile
++++ b/arch/arm64/boot/dts/exynos/google/Makefile
+@@ -7,7 +7,8 @@ dtb-$(CONFIG_ARCH_EXYNOS) += \
+ 	gs201-felix.dtb \
+ 	gs201-lynx.dtb \
+ 	gs201-panther.dtb \
+-	zuma-husky.dtb
++	zuma-husky.dtb \
++	zumapro-tegu.dtb
+ 
+ # ABL applies board overlays, so keep symbols for labels
+ DTC_FLAGS_gs101-oriole += -@
+@@ -17,3 +18,4 @@ DTC_FLAGS_gs201-felix += -@
+ DTC_FLAGS_gs201-lynx += -@
+ DTC_FLAGS_gs201-panther += -@
+ DTC_FLAGS_zuma-husky += -@
++DTC_FLAGS_zumapro-tegu += -@
+diff --git a/arch/arm64/boot/dts/exynos/google/zumapro-tegu.dts b/arch/arm64/boot/dts/exynos/google/zumapro-tegu.dts
+new file mode 100644
+index 000000000..b211a1f87
+--- /dev/null
++++ b/arch/arm64/boot/dts/exynos/google/zumapro-tegu.dts
+@@ -0,0 +1,283 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * Google Pixel 9a (tegu): first-light board file.
++ *
++ * Bootloader selector values from Google's GPL zumapro device tree.
++ * Copyright 2023 Google LLC.
++ */
++
++/dts-v1/;
++
++#include <dt-bindings/gpio/gpio.h>
++#include <dt-bindings/input/linux-event-codes.h>
++#include "zumapro.dtsi"
++#include "zumapro-reserved-memory.dtsi"
++
++/ {
++	model = "Google Pixel 9a";
++	compatible = "google,zumapro-tegu", "google,zumapro";
++
++	chosen {
++		/*
++		 * ABL requires bootargs to exist and appends its own after
++		 * these. It also appends console=null, so a panic is silent:
++		 * panic=10 resets the phone by itself.
++		 * The firmware advertises PSCI SYSTEM_SUSPEND, but Linux has no
++		 * Tensor SoC sleep sequence for "deep": suspend to idle only.
++		 */
++		bootargs = "console=tty0 clk_ignore_unused pd_ignore_unused rdinit=/init panic=10 mem_sleep_default=s2idle";
++	};
++
++	/*
++	 * ABL picks the base DTB by matching these children against the
++	 * SoC's product id, revision and package. The Pixel 9a has an A0 or
++	 * A1 IPOP part.
++	 */
++	soc_compatible {
++		A0_IPOP {
++			product_id = <0x9875>;
++			major = <0>;
++			minor = <0>;
++			pkg_mode = <1>;
++		};
++
++		A1_IPOP {
++			product_id = <0x9875>;
++			major = <0>;
++			minor = <1>;
++			pkg_mode = <1>;
++		};
++	};
++
++	gpio-keys {
++		compatible = "gpio-keys";
++
++		key-power {
++			label = "Power";
++			linux,code = <KEY_POWER>;
++			gpios = <&gpa4 0 GPIO_ACTIVE_LOW>;
++			wakeup-source;
++		};
++
++		key-volume-down {
++			label = "Volume Down";
++			linux,code = <KEY_VOLUMEDOWN>;
++			gpios = <&gpa4 1 GPIO_ACTIVE_LOW>;
++		};
++
++		key-volume-up {
++			label = "Volume Up";
++			linux,code = <KEY_VOLUMEUP>;
++			gpios = <&gpa6 2 GPIO_ACTIVE_LOW>;
++		};
++	};
++
++	/* UFS VCC, switched by gpp0-1 as on stock. */
++	ufs_vcc: regulator-ufs-vcc {
++		compatible = "regulator-fixed";
++		regulator-name = "ufs-vcc";
++		gpio = <&gpp0 1 GPIO_ACTIVE_HIGH>;
++		enable-active-high;
++		regulator-boot-on;
++		regulator-always-on;
++	};
++};
++
++&{/reserved-memory} {
++	abl@f8800000 {
++		reg = <0x0 0xf8800000 0x02000000>;
++		no-map;
++	};
++
++	/* ABL's splash, still scanned out at handover. */
++	cont_splash_mem: splash@fac00000 {
++		reg = <0x0 0xfac00000 0x009fc900>;
++		no-map;
++	};
++};
++
++&acpm_ipc {
++	status = "okay";
++
++	pmic-1 {
++		compatible = "samsung,s2mpg14-pmic";
++
++		regulators {
++			eusb_vdd: ldo8m {
++				regulator-name = "eusb-vdd";
++			};
++
++			eusb_vdda12: ldo9m {
++				regulator-name = "eusb-vdda12";
++			};
++		};
++	};
++};
++
++&ap2apm_mailbox {
++	status = "okay";
++};
++
++&apm_sram {
++	status = "okay";
++};
++
++&cmu_apm {
++	status = "okay";
++};
++
++&cmu_hsi0 {
++	status = "okay";
++};
++
++&cmu_hsi1 {
++	status = "okay";
++};
++
++&cmu_hsi2 {
++	status = "okay";
++};
++
++&cmu_misc {
++	status = "okay";
++};
++
++&cmu_peric0 {
++	status = "okay";
++};
++
++&cmu_peric1 {
++	status = "okay";
++};
++
++&cmu_top {
++	status = "okay";
++};
++
++/* The keys' banks raise their own interrupts. */
++&gpa4 {
++	interrupt-controller;
++	#interrupt-cells = <2>;
++	interrupts = <GIC_SPI 28 IRQ_TYPE_LEVEL_HIGH>,
++		     <GIC_SPI 29 IRQ_TYPE_LEVEL_HIGH>;
++};
++
++&gpa6 {
++	interrupt-controller;
++	#interrupt-cells = <2>;
++	interrupts = <GIC_SPI 30 IRQ_TYPE_LEVEL_HIGH>,
++		     <GIC_SPI 31 IRQ_TYPE_LEVEL_HIGH>,
++		     <GIC_SPI 32 IRQ_TYPE_LEVEL_HIGH>,
++		     <GIC_SPI 33 IRQ_TYPE_LEVEL_HIGH>,
++		     <GIC_SPI 34 IRQ_TYPE_LEVEL_HIGH>,
++		     <GIC_SPI 35 IRQ_TYPE_LEVEL_HIGH>;
++};
++
++&pinctrl_alive {
++	status = "okay";
++};
++
++&pinctrl_custom_alive {
++	status = "okay";
++};
++
++&pinctrl_far_alive {
++	status = "okay";
++};
++
++&pinctrl_hsi1 {
++	status = "okay";
++};
++
++&pinctrl_hsi2 {
++	status = "okay";
++};
++
++&pinctrl_hsi2ufs {
++	status = "okay";
++};
++
++&pinctrl_peric0 {
++	status = "okay";
++};
++
++&pinctrl_peric1 {
++	status = "okay";
++};
++
++&pmu_system_controller {
++	status = "okay";
++};
++
++&reboot_mode {
++	status = "okay";
++};
++
++&sysreg_apm {
++	status = "okay";
++};
++
++&sysreg_hsi0 {
++	status = "okay";
++};
++
++&sysreg_peric0 {
++	status = "okay";
++};
++
++&sysreg_peric1 {
++	status = "okay";
++};
++
++&sysreg_ufs {
++	status = "okay";
++};
++
++/*
++ * Behind the init's storage guard (only slot B's boot images and userdata
++ * writable), which runs before the disks appear.
++ */
++&ufs {
++	vcc-supply = <&ufs_vcc>;
++	status = "okay";
++};
++
++&ufs_phy {
++	status = "okay";
++};
++
++/*
++ * USB 2.0 peripheral. The core also holds the sub-control clock, which
++ * clocks its link registers: the PHY turns that clock off in suspend, and
++ * the core touches those registers before it initialises the PHY again.
++ */
++&usb {
++	clocks = <&cmu_hsi0 CLK_GOUT_HSI0_USB_LINK>,
++		 <&cmu_hsi0 CLK_MOUT_HSI0_USB20_REF>,
++		 <&cmu_hsi0 CLK_GOUT_HSI0_USB_SUSPEND>,
++		 <&cmu_hsi0 CLK_GOUT_HSI0_USB_SUBCTL>;
++	clock-names = "bus_early", "ref", "suspend", "subctl";
++	dr_mode = "peripheral";
++	maximum-speed = "high-speed";
++	snps,dis-u2-freeclk-exists-quirk;
++	snps,usb2-gadget-lpm-disable;
++	status = "okay";
++};
++
++&usb_hsphy {
++	vdd-supply = <&eusb_vdd>;
++	vdda12-supply = <&eusb_vdda12>;
++	status = "okay";
++};
++
++&usbdrd_phy {
++	status = "okay";
++};
++
++&watchdog_cl0 {
++	status = "okay";
++};
++
++&watchdog_cl1 {
++	status = "okay";
++};

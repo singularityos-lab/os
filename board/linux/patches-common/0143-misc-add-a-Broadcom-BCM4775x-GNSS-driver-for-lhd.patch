@@ -1,0 +1,1993 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Mon, 12 Oct 2026 13:26:35 -0400
+Subject: [PATCH] misc: add a Broadcom BCM4775x GNSS driver for lhd
+
+Broadcom's BCM4775x GNSS receivers need a firmware patch at every power-up
+and speak a proprietary protocol, which only Broadcom's own daemons (lhd,
+gpsd) implement. They talk to the chip through /dev/ttyBCM, the chip's
+SSI link over SPI, and open /dev/bbd_control, /dev/bbd_patch,
+/dev/bbd_pwrstat and /dev/bbd_sensor next to it. The nstandby attribute
+of the SPI device takes the chip in and out of standby.
+
+This is Google's GPL gs201 driver (google-modules/gps/broadcom/bcm47765:
+bcm_gps_spi.c, bcm_gps_regs.c, bbd.c) on current interfaces:
+
+- GPIO descriptors, and the three supplies, switched on while
+  /dev/ttyBCM is open and off when it closes, the chip back in standby;
+- 8-bit SPI words throughout: Google's switched to 32-bit words for
+  DMA-sized transfers, relying on its controller's byte swap;
+- host_req is re-armed after resume only while /dev/ttyBCM is open;
+- the bbd control strings are matched with strstr() on a terminated
+  copy (Google's strcmp() chain was inverted, so every string took the
+  first branch), and the whole chrdev region is freed;
+- no sensor-hub, coredump or 1 Hz statistics code (the last is compiled
+  out in Google's build too);
+- debugfs: "pins", and "probe", which powers the chip, wakes its MCU and
+  reads two host interface status registers, for bring-up.
+
+The SSI framing, flow control and wake handshake are unchanged.
+
+Assisted-by: LLM
+Signed-off-by: Derek Ross <derekross@gmail.com>
+---
+ drivers/misc/Kconfig                 |   1 +
+ drivers/misc/Makefile                |   1 +
+ drivers/misc/bcm4775x/Kconfig        |  12 +
+ drivers/misc/bcm4775x/Makefile       |   3 +
+ drivers/misc/bcm4775x/bbd.c          | 357 ++++++++++
+ drivers/misc/bcm4775x/bbd.h          |  99 +++
+ drivers/misc/bcm4775x/bcm_gps_regs.c | 304 +++++++++
+ drivers/misc/bcm4775x/bcm_gps_spi.c  | 954 +++++++++++++++++++++++++++
+ drivers/misc/bcm4775x/bcm_gps_spi.h  | 152 +++++
+ 9 files changed, 1883 insertions(+)
+ create mode 100644 drivers/misc/bcm4775x/Kconfig
+ create mode 100644 drivers/misc/bcm4775x/Makefile
+ create mode 100644 drivers/misc/bcm4775x/bbd.c
+ create mode 100644 drivers/misc/bcm4775x/bbd.h
+ create mode 100644 drivers/misc/bcm4775x/bcm_gps_regs.c
+ create mode 100644 drivers/misc/bcm4775x/bcm_gps_spi.c
+ create mode 100644 drivers/misc/bcm4775x/bcm_gps_spi.h
+
+diff --git a/drivers/misc/Kconfig b/drivers/misc/Kconfig
+index 7364931da..386003197 100644
+--- a/drivers/misc/Kconfig
++++ b/drivers/misc/Kconfig
+@@ -586,4 +586,5 @@ source "drivers/misc/keba/Kconfig"
+ source "drivers/misc/amd-sbi/Kconfig"
+ source "drivers/misc/rp1/Kconfig"
+ source "drivers/misc/issei/Kconfig"
++source "drivers/misc/bcm4775x/Kconfig"
+ endmenu
+diff --git a/drivers/misc/Makefile b/drivers/misc/Makefile
+index e8d8d5d88..b64a76f1c 100644
+--- a/drivers/misc/Makefile
++++ b/drivers/misc/Makefile
+@@ -71,3 +71,4 @@ obj-y				+= keba/
+ obj-y				+= amd-sbi/
+ obj-$(CONFIG_MISC_RP1)		+= rp1/
+ obj-$(CONFIG_INTEL_SSEI)	+= issei/
++obj-$(CONFIG_BCM4775X_GNSS)	+= bcm4775x/
+diff --git a/drivers/misc/bcm4775x/Kconfig b/drivers/misc/bcm4775x/Kconfig
+new file mode 100644
+index 000000000..808e8d250
+--- /dev/null
++++ b/drivers/misc/bcm4775x/Kconfig
+@@ -0,0 +1,12 @@
++# SPDX-License-Identifier: GPL-2.0
++config BCM4775X_GNSS
++	tristate "Broadcom BCM4775x GNSS receiver on SPI (lhd interface)"
++	depends on SPI && GPIOLIB && REGULATOR
++	help
++	  The Broadcom BCM4775x GNSS receiver on SPI, as used in Google's
++	  Pixel 7 phones. It exposes the chip's SSI link as /dev/ttyBCM and
++	  the /dev/bbd_* nodes for Broadcom's own location daemons (lhd,
++	  gpsd), which load the chip's patch and produce the positions.
++
++	  To compile this driver as a module, choose M here: the module
++	  will be called bcm4775x-gnss.
+diff --git a/drivers/misc/bcm4775x/Makefile b/drivers/misc/bcm4775x/Makefile
+new file mode 100644
+index 000000000..e45721726
+--- /dev/null
++++ b/drivers/misc/bcm4775x/Makefile
+@@ -0,0 +1,3 @@
++# SPDX-License-Identifier: GPL-2.0
++obj-$(CONFIG_BCM4775X_GNSS) += bcm4775x-gnss.o
++bcm4775x-gnss-y := bcm_gps_spi.o bcm_gps_regs.o bbd.o
+diff --git a/drivers/misc/bcm4775x/bbd.c b/drivers/misc/bcm4775x/bbd.c
+new file mode 100644
+index 000000000..483cbf576
+--- /dev/null
++++ b/drivers/misc/bcm4775x/bbd.c
+@@ -0,0 +1,357 @@
++// SPDX-License-Identifier: GPL-2.0
++/*
++ * Copyright 2014 Broadcom Corporation
++ *
++ * The BBD (Broadcom Bridge Driver)
++ *
++ * Google's gs201 bbd.c, reduced to what the stock lhd daemon uses on a
++ * Pixel 7 Pro: /dev/bbd_control (control strings in), /dev/bbd_patch (an
++ * empty embedded patch, as on stock: lhd loads the patch file itself over
++ * /dev/ttyBCM), /dev/bbd_pwrstat (GNSS on/off statistics) and
++ * /dev/bbd_sensor (no sensor hub here, so it never has data).
++ *
++ * Changes from Google's: the control strings are matched with strstr() on a
++ * NUL-terminated copy (Google's strcmp() chain was inverted, so every string
++ * took the first branch); the whole chrdev region is freed on exit and on
++ * error; no PM notifier (there was nothing left for it to do without the
++ * 1 Hz statistics timer).
++ */
++
++#define pr_fmt(fmt) "bbd: " fmt
++
++#include <linux/fs.h>
++#include <linux/kernel.h>
++#include <linux/poll.h>
++#include <linux/slab.h>
++#include <linux/string.h>
++#include <linux/timekeeping.h>
++#include <linux/uaccess.h>
++
++#include "bbd.h"
++
++static const char * const bbd_dev_name[BBD_DEVICE_INDEX] = {
++	[BBD_MINOR_SHMD]	= "bbd_shmd",
++	[BBD_MINOR_SENSOR]	= "bbd_sensor",
++	[BBD_MINOR_CONTROL]	= "bbd_control",
++	[BBD_MINOR_PATCH]	= "bbd_patch",
++	[BBD_MINOR_PWRSTAT]	= "bbd_pwrstat",
++};
++
++static void bbd_log_hex(struct bbd_device *bbd, const char *prefix,
++			const void *buf, size_t len)
++{
++	if (likely(!bbd->dbg->bbd))
++		return;
++
++	print_hex_dump(KERN_INFO, prefix, DUMP_PREFIX_NONE, 32, 1, buf, len,
++		       false);
++}
++
++static void bbd_pwrstat_switch(struct bbd_device *bbd, bool on)
++{
++	struct bbd_cdev_priv *p = &bbd->priv[BBD_MINOR_PWRSTAT];
++	struct gnss_pwrstats *s = &p->pwrstats;
++	u64 now = ktime_to_us(ktime_get_boottime());
++
++	mutex_lock(&p->lock);
++	if (on) {
++		s->gps_on = true;
++		s->gps_on_cnt++;
++		s->gps_on_entry = now;
++		s->gps_off_exit = now;
++		s->gps_off_duration += s->gps_off_exit - s->gps_off_entry;
++	} else {
++		s->gps_on = false;
++		s->gps_off_cnt++;
++		s->gps_off_entry = now;
++		s->gps_on_exit = now;
++		s->gps_on_duration += s->gps_on_exit - s->gps_on_entry;
++	}
++	mutex_unlock(&p->lock);
++}
++
++/* Handles one control string from lhd; @buf is NUL-terminated. */
++static void bbd_control(struct bbd_device *bbd, const char *buf)
++{
++	struct bbd_debug *dbg = bbd->dbg;
++
++	if (dbg->bbd)
++		pr_info("control: %s\n", buf);
++
++	if (strstr(buf, BBD_CTRL_DEBUG_ON))
++		dbg->bbd = true;
++	else if (strstr(buf, BBD_CTRL_DEBUG_OFF))
++		dbg->bbd = false;
++	else if (strstr(buf, SSI_DEBUG_ON))
++		dbg->ssi = true;
++	else if (strstr(buf, SSI_DEBUG_OFF))
++		dbg->ssi = false;
++	else if (strstr(buf, PZC_DEBUG_ON))
++		dbg->pzc = true;
++	else if (strstr(buf, PZC_DEBUG_OFF))
++		dbg->pzc = false;
++	else if (strstr(buf, RNG_DEBUG_ON))
++		dbg->rng = true;
++	else if (strstr(buf, RNG_DEBUG_OFF))
++		dbg->rng = false;
++	else if (strstr(buf, GPSD_CORE_ON))
++		bbd_pwrstat_switch(bbd, true);
++	else if (strstr(buf, GPSD_CORE_OFF))
++		bbd_pwrstat_switch(bbd, false);
++	/* Anything else (BBD:PassThru, ESW:READY, ...) needs nothing here. */
++}
++
++static int bbd_common_open(struct inode *inode, struct file *filp)
++{
++	struct bbd_cdev_priv *p = container_of(inode->i_cdev,
++					       struct bbd_cdev_priv, cdev);
++	unsigned int minor = iminor(inode);
++
++	if (minor >= BBD_DEVICE_INDEX)
++		return -ENODEV;
++
++	if (p->busy && minor != BBD_MINOR_CONTROL)
++		return -EBUSY;
++
++	p->busy = true;
++	mutex_lock(&p->lock);
++	p->read_buf.head = p->read_buf.tail = 0;
++	mutex_unlock(&p->lock);
++	filp->private_data = p;
++
++	return 0;
++}
++
++static int bbd_common_release(struct inode *inode, struct file *filp)
++{
++	struct bbd_cdev_priv *p = filp->private_data;
++
++	p->busy = false;
++
++	return 0;
++}
++
++static ssize_t bbd_common_read(struct file *filp, char __user *buf,
++			       size_t size, loff_t *ppos)
++{
++	struct bbd_cdev_priv *p = filp->private_data;
++	struct circ_buf *circ = &p->read_buf;
++	size_t rd_size = 0;
++
++	mutex_lock(&p->lock);
++	while (size > 0 && CIRC_CNT(circ->head, circ->tail, BBD_BUFF_SIZE)) {
++		size_t cnt_to_end = CIRC_CNT_TO_END(circ->head, circ->tail,
++						    BBD_BUFF_SIZE);
++		size_t copied = min(cnt_to_end, size);
++
++		if (copy_to_user(buf + rd_size, circ->buf + circ->tail,
++				 copied)) {
++			mutex_unlock(&p->lock);
++			return -EFAULT;
++		}
++		bbd_log_hex(p->bbd, "bbd r ", circ->buf + circ->tail, copied);
++
++		size -= copied;
++		rd_size += copied;
++		circ->tail = (circ->tail + copied) & (BBD_BUFF_SIZE - 1);
++	}
++	mutex_unlock(&p->lock);
++
++	return rd_size;
++}
++
++static __poll_t bbd_common_poll(struct file *filp, poll_table *wait)
++{
++	struct bbd_cdev_priv *p = filp->private_data;
++	struct circ_buf *circ = &p->read_buf;
++	__poll_t mask = 0;
++
++	poll_wait(filp, &p->poll_wait, wait);
++
++	if (CIRC_CNT(circ->head, circ->tail, BBD_BUFF_SIZE))
++		mask |= EPOLLIN | EPOLLRDNORM;
++
++	return mask;
++}
++
++static ssize_t bbd_control_write(struct file *filp, const char __user *buf,
++				 size_t size, loff_t *ppos)
++{
++	struct bbd_cdev_priv *p = filp->private_data;
++
++	if (size >= BBD_BUFF_SIZE)
++		return -EINVAL;
++
++	mutex_lock(&p->lock);
++	if (copy_from_user(p->write_buf, buf, size)) {
++		mutex_unlock(&p->lock);
++		return -EFAULT;
++	}
++	/* lhd does not terminate its strings */
++	p->write_buf[size] = '\0';
++	bbd_log_hex(p->bbd, "bbd w ", p->write_buf, size);
++	mutex_unlock(&p->lock);
++
++	bbd_control(p->bbd, p->write_buf);
++
++	return size;
++}
++
++/* Stock embeds no patch: lhd reads EOF here and loads its patch file. */
++static ssize_t bbd_patch_read(struct file *filp, char __user *buf,
++			      size_t size, loff_t *ppos)
++{
++	return 0;
++}
++
++#define BBD_MAX_PWRSTAT_SIZE 512
++
++static ssize_t bbd_pwrstat_read(struct file *filp, char __user *buf,
++				size_t size, loff_t *ppos)
++{
++	struct bbd_cdev_priv *p = filp->private_data;
++	struct gnss_pwrstats *s = &p->pwrstats;
++	u64 now, on_dur, off_dur;
++	char *out;
++	ssize_t ret;
++	int n = 0;
++
++	out = kmalloc(BBD_MAX_PWRSTAT_SIZE, GFP_KERNEL);
++	if (!out)
++		return -ENOMEM;
++
++	mutex_lock(&p->lock);
++	now = ktime_to_us(ktime_get_boottime());
++	on_dur = s->gps_on_duration;
++	off_dur = s->gps_off_duration;
++	if (s->gps_on)
++		on_dur += now - s->gps_on_entry;
++	else
++		off_dur += now - s->gps_off_entry;
++
++	n += scnprintf(out + n, BBD_MAX_PWRSTAT_SIZE - n,
++		       "GPS_ON:\ncount: 0x%llx\nduration_usec: 0x%llx\n"
++		       "last_entry_timestamp_usec: 0x%llx\n"
++		       "last_exit_timestamp_usec: 0x%llx\n",
++		       s->gps_on_cnt, on_dur, s->gps_on_entry, s->gps_on_exit);
++	n += scnprintf(out + n, BBD_MAX_PWRSTAT_SIZE - n,
++		       "GPS_OFF:\ncount: 0x%llx\nduration_usec: 0x%llx\n"
++		       "last_entry_timestamp_usec: 0x%llx\n"
++		       "last_exit_timestamp_usec: 0x%llx\n",
++		       s->gps_off_cnt, off_dur, s->gps_off_entry,
++		       s->gps_off_exit);
++	mutex_unlock(&p->lock);
++
++	ret = simple_read_from_buffer(buf, size, ppos, out, n);
++	kfree(out);
++
++	return ret;
++}
++
++static const struct file_operations bbd_fops[BBD_DEVICE_INDEX] = {
++	[BBD_MINOR_SENSOR] = {
++		.owner		= THIS_MODULE,
++		.open		= bbd_common_open,
++		.release	= bbd_common_release,
++		.read		= bbd_common_read,
++		.poll		= bbd_common_poll,
++	},
++	[BBD_MINOR_CONTROL] = {
++		.owner		= THIS_MODULE,
++		.open		= bbd_common_open,
++		.release	= bbd_common_release,
++		.read		= bbd_common_read,
++		.write		= bbd_control_write,
++		.poll		= bbd_common_poll,
++	},
++	[BBD_MINOR_PATCH] = {
++		.owner		= THIS_MODULE,
++		.open		= bbd_common_open,
++		.release	= bbd_common_release,
++		.read		= bbd_patch_read,
++	},
++	[BBD_MINOR_PWRSTAT] = {
++		.owner		= THIS_MODULE,
++		.open		= bbd_common_open,
++		.release	= bbd_common_release,
++		.read		= bbd_pwrstat_read,
++	},
++};
++
++static void bbd_remove_cdevs(struct bbd_device *bbd, int last)
++{
++	int minor;
++
++	for (minor = last; minor > BBD_MINOR_SHMD; minor--) {
++		struct bbd_cdev_priv *p = &bbd->priv[minor];
++
++		device_destroy(bbd->class, p->devno);
++		cdev_del(&p->cdev);
++	}
++}
++
++struct bbd_device *bbd_init(struct device *parent, struct bbd_debug *dbg)
++{
++	struct bbd_device *bbd;
++	int minor, ret;
++
++	bbd = kvzalloc(sizeof(*bbd), GFP_KERNEL);
++	if (!bbd)
++		return ERR_PTR(-ENOMEM);
++
++	bbd->dbg = dbg;
++
++	ret = alloc_chrdev_region(&bbd->dev_num, 0, BBD_DEVICE_INDEX, "bbd");
++	if (ret)
++		goto err_free;
++
++	bbd->class = class_create("bbd");
++	if (IS_ERR(bbd->class)) {
++		ret = PTR_ERR(bbd->class);
++		goto err_region;
++	}
++
++	/* Minor 0 (bbd_shmd) is not created, as on stock. */
++	for (minor = BBD_MINOR_SENSOR; minor < BBD_DEVICE_INDEX; minor++) {
++		struct bbd_cdev_priv *p = &bbd->priv[minor];
++
++		p->bbd = bbd;
++		p->devno = MKDEV(MAJOR(bbd->dev_num), minor);
++		p->read_buf.buf = p->_read_buf;
++		init_waitqueue_head(&p->poll_wait);
++		mutex_init(&p->lock);
++
++		cdev_init(&p->cdev, &bbd_fops[minor]);
++		p->cdev.owner = THIS_MODULE;
++		ret = cdev_add(&p->cdev, p->devno, 1);
++		if (ret)
++			goto err_cdevs;
++
++		p->dev = device_create(bbd->class, parent, p->devno, bbd,
++				       "%s", bbd_dev_name[minor]);
++		if (IS_ERR(p->dev)) {
++			ret = PTR_ERR(p->dev);
++			cdev_del(&p->cdev);
++			goto err_cdevs;
++		}
++	}
++
++	return bbd;
++
++err_cdevs:
++	bbd_remove_cdevs(bbd, minor - 1);
++	class_destroy(bbd->class);
++err_region:
++	unregister_chrdev_region(bbd->dev_num, BBD_DEVICE_INDEX);
++err_free:
++	kvfree(bbd);
++	return ERR_PTR(ret);
++}
++
++void bbd_exit(struct bbd_device *bbd)
++{
++	bbd_remove_cdevs(bbd, BBD_DEVICE_INDEX - 1);
++	class_destroy(bbd->class);
++	unregister_chrdev_region(bbd->dev_num, BBD_DEVICE_INDEX);
++	kvfree(bbd);
++}
+diff --git a/drivers/misc/bcm4775x/bbd.h b/drivers/misc/bcm4775x/bbd.h
+new file mode 100644
+index 000000000..f7e6df899
+--- /dev/null
++++ b/drivers/misc/bcm4775x/bbd.h
+@@ -0,0 +1,99 @@
++/* SPDX-License-Identifier: GPL-2.0 */
++/*
++ * Copyright 2014 Broadcom Corporation
++ *
++ * The BBD (Broadcom Bridge Driver): the /dev/bbd_* nodes the stock lhd
++ * daemon opens next to /dev/ttyBCM. Based on Google's gs201 bbd.c/bbd.h,
++ * without the Samsung sensor-hub (SSP) glue and the 1 Hz debug statistics.
++ */
++
++#ifndef __BBD_H__
++#define __BBD_H__
++
++#include <linux/cdev.h>
++#include <linux/circ_buf.h>
++#include <linux/device.h>
++#include <linux/mutex.h>
++#include <linux/types.h>
++#include <linux/wait.h>
++
++union long_union_t {
++	u8 uc[sizeof(u32)];
++	u32 ul;
++} __packed __aligned(4);
++
++union short_union_t {
++	u8  uc[sizeof(u16)];
++	u16 us;
++} __packed __aligned(4);
++
++enum {
++	BBD_MINOR_SHMD = 0,	/* not created, as on stock */
++	BBD_MINOR_SENSOR,
++	BBD_MINOR_CONTROL,
++	BBD_MINOR_PATCH,
++	BBD_MINOR_PWRSTAT,
++	BBD_DEVICE_INDEX
++};
++
++/* Control strings lhd writes to /dev/bbd_control */
++#define BBD_CTRL_DEBUG_ON	"BBD:DEBUG=1"
++#define BBD_CTRL_DEBUG_OFF	"BBD:DEBUG=0"
++#define SSI_DEBUG_ON		"SSI:DEBUG=1"
++#define SSI_DEBUG_OFF		"SSI:DEBUG=0"
++#define PZC_DEBUG_ON		"PZC:DEBUG=1"
++#define PZC_DEBUG_OFF		"PZC:DEBUG=0"
++#define RNG_DEBUG_ON		"RNG:DEBUG=1"
++#define RNG_DEBUG_OFF		"RNG:DEBUG=0"
++#define GPSD_CORE_ON		"GPSD:CORE_ON"
++#define GPSD_CORE_OFF		"GPSD:CORE_OFF"
++
++#define BBD_BUFF_SIZE		(4096 * 2)
++
++struct gnss_pwrstats {
++	bool gps_on;
++	u64 gps_on_cnt;
++	u64 gps_on_duration;
++	u64 gps_on_entry;
++	u64 gps_on_exit;
++	u64 gps_off_cnt;
++	u64 gps_off_duration;
++	u64 gps_off_entry;
++	u64 gps_off_exit;
++};
++
++struct bbd_device;
++
++struct bbd_cdev_priv {
++	struct bbd_device *bbd;
++	struct cdev cdev;
++	struct device *dev;
++	dev_t devno;
++	bool busy;
++	struct circ_buf read_buf;		/* lhd reads from BBD */
++	struct mutex lock;			/* protects read_buf, pwrstats */
++	char _read_buf[BBD_BUFF_SIZE];
++	char write_buf[BBD_BUFF_SIZE];		/* lhd writes into BBD */
++	wait_queue_head_t poll_wait;
++	struct gnss_pwrstats pwrstats;		/* BBD_MINOR_PWRSTAT only */
++};
++
++/* Debug switches lhd can flip through /dev/bbd_control */
++struct bbd_debug {
++	bool bbd;
++	bool ssi;
++	bool pzc;
++	bool rng;
++};
++
++struct bbd_device {
++	struct class *class;
++	dev_t dev_num;
++	struct bbd_cdev_priv priv[BBD_DEVICE_INDEX];
++	struct bbd_debug *dbg;			/* owned by the SPI driver */
++};
++
++struct bbd_device *bbd_init(struct device *parent, struct bbd_debug *dbg);
++void bbd_exit(struct bbd_device *bbd);
++
++#endif /* __BBD_H__ */
+diff --git a/drivers/misc/bcm4775x/bcm_gps_regs.c b/drivers/misc/bcm4775x/bcm_gps_regs.c
+new file mode 100644
+index 000000000..14aea3d64
+--- /dev/null
++++ b/drivers/misc/bcm4775x/bcm_gps_regs.c
+@@ -0,0 +1,304 @@
++// SPDX-License-Identifier: GPL-2.0
++/*
++ * Copyright 2015 Broadcom Corporation
++ *
++ * The Broadcom GPS SPI driver: access to the BCM477x host interface
++ * registers through SSI debug frames. Google's gs201 bcm_gps_regs.c with
++ * const ids and the transfer size as the only bcm_spi_sync() argument (the
++ * words are always 8 bits here).
++ */
++
++#include <linux/device.h>
++#include <linux/kernel.h>
++#include <linux/spi/spi.h>
++#include <linux/string.h>
++
++#include "bcm_gps_spi.h"
++
++/**
++ * bcm_dreg_write - write to direct addressable registers in command controller
++ * @priv:           @bcm_spi_priv structure data
++ * @id:             name of indirect register, just for debug print
++ * @offset:         the command offset of the direct addressable register
++ * @buf:            pointer of data to be written to the register
++ * @size:           number of bytes to write
++ * Return:          upon successful completion, this function returns number of
++ *                  written bytes otherwise exit with specific error code <0
++ */
++int bcm_dreg_write(struct bcm_spi_priv *priv, const char *id, u8 offset, u8 *buf, u8 size)
++{
++
++	int i;
++	struct bcm_ssi_tx_frame *tx = priv->tx_buf;
++	struct bcm_ssi_rx_frame *rx = priv->rx_buf;
++
++	if  (size > MAX_SPI_DREG_FRAME_LEN)
++		return -1;
++
++	/*
++	 * writing in 1 transaction
++	 * 0x80 : < CHWXX > = half-duplex, SPI write command packet
++	 */
++	tx->cmd = SSI_MODE_DEBUG | SSI_MODE_HALF_DUPLEX | SSI_WRITE_TRANS;
++
++	/*
++	 * bit-8 is a write transaction and the lower 7-bits is
++	 * the command offset of the
++	 */
++	tx->data[0] = offset & 0x7F;
++	/* the number of valid bytes available on MOSI following this byte */
++	tx->data[1] = size;
++	memcpy(&tx->data[2], buf, size);
++	rx->status = 0;
++
++	if (bcm_spi_sync(priv, tx, rx, size + 3))
++		return -1;
++
++	for (i = 0; i < size; i++) {
++		dev_dbg(&priv->spi->dev, "regW REG %s @ [%02X]: %08X", id,
++				offset, buf[i]);
++	}
++
++	return size;
++}
++
++
++/**
++ * bcm_dreg_read - read direct addressable registers in command controller
++ * @priv:          @bcm_spi_priv structure data
++ * @offset:        the command offset of the direct addressable register.
++ * @buf            pointer data to be read from the register
++ * @size           number of bytes to read
++ * Return:         upon successful completion, this function returns number of
++ *                 read bytes otherwise exit with specific error code <0
++ */
++int bcm_dreg_read(struct bcm_spi_priv *priv, const char *id, u8 offset, u8 *buf, u8 size)
++{
++	/* Reading in 2 transactions */
++	int i = 0;
++	/* int status; */
++	struct bcm_ssi_tx_frame *tx = priv->tx_buf;
++	struct bcm_ssi_rx_frame *rx = priv->rx_buf;
++
++	if  (size > MAX_SPI_DREG_FRAME_LEN)
++		return -1;
++
++	/*
++	 * First transaction will setup SPI Command Logic
++	 * to Read Data from Register.
++	 * 0x80 : < CHWXX > = half-duplex, SPI write command packet
++	 */
++	tx->cmd = SSI_MODE_DEBUG | SSI_MODE_HALF_DUPLEX | SSI_WRITE_TRANS;
++
++	/*
++	 * <8?h1000_0100> = Bit-8 is a read transaction and the lower 7-bits
++	 * is the command offset of the register
++	 */
++	tx->data[0] = 0x80 | (offset & 0x7F);
++	/*
++	 * The number of bytes host will read from this offset
++	 * in next packet
++	 */
++	tx->data[1] = size;
++	rx->status = 0;
++
++	if (bcm_spi_sync(priv, tx, rx, 3))
++		return -1;
++
++	dev_dbg(&priv->spi->dev, "regR: REG(W) %s @ [%02X]: %08X ", id,
++			offset, size);
++
++	/*
++	 *  Second Transaction will read data
++	 *  0xa0 : < CHRXX > = half-duplex, SPI read command packet
++	 */
++	tx->cmd = SSI_MODE_DEBUG | SSI_MODE_HALF_DUPLEX | SSI_READ_TRANS;
++	/*
++	 * READ : the number of valid read bytes available plus one
++	 * to account for the read offset address that accompanies
++	 * the read data == <cmdByteNum+1>
++	 */
++	tx->data[0] = 0;
++	/* READ : the command offset of the register == <cmdRegOffset>. */
++	tx->data[1] = 0;
++	rx->status  = 0;
++
++	memset(&tx->data[2], 0, size);
++
++	if (bcm_spi_sync(priv, tx, rx, size + 3))
++		return -1;
++
++	memcpy(buf, &rx->data[2], size);
++
++	for (i = 0 ; i < size ; i++)
++		dev_dbg(&priv->spi->dev, "regR: REG(R) %s @ [%02X]: %08X", id,
++			offset, buf[i]);
++
++	return size;
++}
++
++
++/**
++ * bcm_ireg_write - write to indirect addressable register
++ * @priv:           @bcm_spi_priv structure data
++ * @id:             name of indirect register, just for debug print
++ * @regaddr:        the stream address of the indirect addressable register.
++ * @regval:         pointer data to be read from the register
++ * Return:          upon successful completion, this function returns number
++ *                  of written bytes otherwise exit with specific error code <0
++ */
++int bcm_ireg_write(struct bcm_spi_priv *priv, const char *id, u32 regaddr, u32 regval)
++{
++	union long_union_t  swap_addr, swap_reg;
++	struct bcm_ssi_tx_frame *tx = priv->tx_buf;
++	struct bcm_ssi_rx_frame *rx = priv->rx_buf;
++
++	/*
++	 * Writing in 2 transactions
++	 * First transaction will set up the SPI Debug Logic to Write Data
++	 * into Configuration Register or Memory Location.
++	 *
++	 * 0x80 : <Command Byte>
++	 * 0xD1 : <SPI Address Left Shifted with Write Bit as LSB>
++	 * 0x00 : < SPI Offset of DMA Start Addr >
++	 * 0x00, 0x00, 0x00, 0x00 : < Start Address>,
++	 *                          Should be set from 'regaddr'
++	 * 0x04, 0x00 : <Number of bytes to write>
++	 * 0x01 : <Write Enable>
++	 *
++	 * uint8_t transaction_1st[13] = {
++	 * 0x80, 0xD1,  0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0x00,  0x03 };
++	 * uint8_t transaction_1st[19] = {
++	 * 0x00, 0x00,  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
++	 * 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
++	 */
++
++	swap_addr.ul = regaddr;
++	swap_reg.ul  = regval;
++
++	/*
++	 * First transaction will setup SPI Command Logic
++	 * to Read Data from Register.
++	 * HSI_MOSI_COMMAND_PCKT | HSI_MOSI_HALF_DUPLEX | HSI_MOSI_WRITE_TRANS;
++	 * 0x80 : < CHWXX > = half-duplex, SPI write command packet
++	 */
++	tx->cmd = 0x80;
++	/*
++	 * <8’h0100_0000> = Bit-8 is a write transaction.
++	 * The lower 7-bits is the command offset of
++	 */
++	tx->data[0] = 0x20;
++	/*
++	 * The register (CONFIG_REG_DATA) the host is starting to write from.
++	 * the number of valid bytes available on MOSI following this byte
++	 */
++	tx->data[1] = 9;
++
++	tx->data[2] = swap_reg.uc[0];
++	tx->data[3] = swap_reg.uc[1];
++	tx->data[4] = swap_reg.uc[2];
++	tx->data[5] = swap_reg.uc[3];
++
++	tx->data[6] = swap_addr.uc[0];
++	tx->data[7] = swap_addr.uc[1];
++	tx->data[8] = swap_addr.uc[2];
++	tx->data[9] = swap_addr.uc[3];
++
++	tx->data[10] = 0x03;
++	tx->data[11] = 0x00;
++	tx->data[12] = 0x00;
++	tx->data[13] = 0x00;
++	rx->status = 0;
++
++	if (bcm_spi_sync(priv, tx, rx, 15))
++		return -1;
++
++	if (id)
++		dev_dbg(&priv->spi->dev, "reg32w: %s @ : [%08X] %08X ", id,
++				(unsigned int)swap_addr.ul,
++				(unsigned int)swap_reg.ul);
++
++	return 1;
++}
++
++/**
++ * bcm_ireg_read - read indirect addressable register
++ * @priv:          @bcm_spi_priv structure data
++ * @id:            the name of indirect register. Just for debug print.
++ * @regaddr:       the stream address of the indirect addressable register.
++ * @regval:        the pointer data to be read from the register
++ * Return:         upon successful completion, this function returns number of
++ *                 read bytes otherwise exit with specific error code <0
++ */
++int bcm_ireg_read(struct bcm_spi_priv *priv, const char *id, u32 regaddr,
++	  u32 *regval, s32 n)
++{
++	s32 i;
++	union long_union_t  swap_addr, swap_reg;
++	union long_union_t  swap_addr2;
++	struct bcm_ssi_tx_frame *tx = priv->tx_buf;
++	struct bcm_ssi_rx_frame *rx = priv->rx_buf;
++
++	for (i = 0; i < n; i++) {
++		swap_addr.ul = regaddr + (i * 4);
++
++		/*
++		 * First transaction will setup SPI Command Logic
++		 * to Read Data from Register.
++		 * HSI_MOSI_COMMAND_PCKT |
++		 * HSI_MOSI_HALF_DUPLEX |
++		 * HSI_MOSI_WRITE_TRANS;
++		 * 0x80 : < CHWXX > = half-duplex, SPI write command packet
++		 */
++		tx->cmd = 0x80;
++
++		/*
++		 * <8?h0100_0000> = Bit-8 is a write transaction.
++		 * The lower 7-bits is the command offset of
++		 */
++		tx->data[0] = 0x24;
++		/*
++		 * The register (RFIFO Read DATA) the host is
++		 * starting to write from. the number of valid bytes
++		 * available on MOSI following this byte
++		 */
++		tx->data[1] = 5;
++		tx->data[2] = swap_addr.uc[0];
++		tx->data[3] = swap_addr.uc[1];
++		tx->data[4] = swap_addr.uc[2];
++		tx->data[5] = swap_addr.uc[3];
++		tx->data[6] = 0x02;   /* AHB read transaction */
++		rx->status = 0;
++
++		if (bcm_spi_sync(priv, tx, rx, 8))
++			return -1;
++
++		tx->cmd = 0xa0;
++		memset(tx->data, 0, 11);
++		rx->status = 0;
++
++		if (bcm_spi_sync(priv, tx, rx, 12))
++			return -1;
++
++		swap_addr2.uc[0] = rx->data[1];
++		swap_addr2.uc[1] = rx->data[2];
++		swap_addr2.uc[2] = rx->data[3];
++		swap_addr2.uc[3] = rx->data[4];
++
++		swap_reg.uc[0] = rx->data[5];
++		swap_reg.uc[1] = rx->data[6];
++		swap_reg.uc[2] = rx->data[7];
++		swap_reg.uc[3] = rx->data[8];
++
++		if (id)
++			dev_dbg(&priv->spi->dev, "reg32r: %s @ : [%08X] %08X ", id,
++				(unsigned int)swap_addr2.ul,
++				(unsigned int)swap_reg.ul);
++
++		if (regval)
++			*regval++ = swap_reg.ul;
++
++	}
++
++	return i;
++}
+diff --git a/drivers/misc/bcm4775x/bcm_gps_spi.c b/drivers/misc/bcm4775x/bcm_gps_spi.c
+new file mode 100644
+index 000000000..828d85832
+--- /dev/null
++++ b/drivers/misc/bcm4775x/bcm_gps_spi.c
+@@ -0,0 +1,954 @@
++// SPDX-License-Identifier: GPL-2.0
++/*
++ * Copyright 2015 Broadcom Corporation
++ *
++ * The Broadcom GPS SPI driver: the BCM4775x GNSS receiver's SSI link,
++ * exposed as /dev/ttyBCM for Broadcom's lhd daemon, plus the /dev/bbd_*
++ * nodes lhd opens next to it (bbd.c).
++ *
++ * Based on Google's gs201 bcm_gps_spi.c (google-modules/gps/broadcom/
++ * bcm47765). Changes:
++ * - GPIO descriptors and the three supplies from the device tree; the
++ *   supplies are on only while /dev/ttyBCM is open (lhd), or for the
++ *   debugfs probe, and the chip goes back to standby first;
++ * - 8-bit SPI words throughout (Google's switched to 32-bit words for
++ *   DMA-sized transfers, which relies on its SPI controller's byte swap);
++ * - the host_req interrupt is re-armed after resume only if /dev/ttyBCM is
++ *   open; Google's re-armed it unconditionally;
++ * - no sensor-hub (SSP), coredump or 1 Hz statistics code;
++ * - a debugfs "probe" file that powers the chip, wakes its MCU and reads
++ *   two host interface status registers, for bring-up.
++ */
++
++#include <linux/circ_buf.h>
++#include <linux/debugfs.h>
++#include <linux/delay.h>
++#include <linux/fs.h>
++#include <linux/gpio/consumer.h>
++#include <linux/interrupt.h>
++#include <linux/kernel.h>
++#include <linux/miscdevice.h>
++#include <linux/module.h>
++#include <linux/of.h>
++#include <linux/poll.h>
++#include <linux/seq_file.h>
++#include <linux/slab.h>
++#include <linux/spi/spi.h>
++#include <linux/timekeeping.h>
++#include <linux/uaccess.h>
++
++#include "bbd.h"
++#include "bcm_gps_spi.h"
++
++/* Full duplex, 2-byte packet lengths, no flow control: as Google's */
++#define SSI_LEN		2
++
++/* Time from the supplies to nstandby, and from nstandby to the MCU */
++#define BCM_POWER_ON_DELAY_US	2000
++#define BCM_WAKE_TIMEOUT_MS	100
++
++static const char * const bcm_supply_names[BCM_NUM_SUPPLIES] = {
++	"vddcore", "vddrf", "vddaux",
++};
++
++static void bcm_on_packet_received(struct bcm_spi_priv *priv,
++				   unsigned char *data, unsigned int size);
++
++/* Power */
++
++static int bcm_power_on(struct bcm_spi_priv *priv)
++{
++	int ret = 0;
++
++	mutex_lock(&priv->power_lock);
++	if (!priv->powered) {
++		gpiod_set_raw_value_cansleep(priv->nstandby, 0);
++		gpiod_set_value_cansleep(priv->mcu_req, 0);
++		ret = regulator_bulk_enable(BCM_NUM_SUPPLIES, priv->supplies);
++		if (!ret) {
++			usleep_range(BCM_POWER_ON_DELAY_US,
++				     BCM_POWER_ON_DELAY_US + 500);
++			priv->powered = true;
++		}
++	}
++	mutex_unlock(&priv->power_lock);
++
++	return ret;
++}
++
++static void bcm_power_off(struct bcm_spi_priv *priv)
++{
++	mutex_lock(&priv->power_lock);
++	if (priv->powered) {
++		gpiod_set_value_cansleep(priv->mcu_req, 0);
++		gpiod_set_raw_value_cansleep(priv->nstandby, 0);
++		regulator_bulk_disable(BCM_NUM_SUPPLIES, priv->supplies);
++		priv->powered = false;
++	}
++	mutex_unlock(&priv->power_lock);
++}
++
++/* sysfs: the lines lhd drives itself (GpioNStdbyPath in lhd.conf/gps.xml) */
++
++static ssize_t nstandby_show(struct device *dev,
++			     struct device_attribute *attr, char *buf)
++{
++	struct bcm_spi_priv *priv = spi_get_drvdata(to_spi_device(dev));
++
++	return sysfs_emit(buf, "%d\n",
++			  gpiod_get_raw_value_cansleep(priv->nstandby));
++}
++
++static ssize_t nstandby_store(struct device *dev,
++			      struct device_attribute *attr,
++			      const char *buf, size_t count)
++{
++	struct bcm_spi_priv *priv = spi_get_drvdata(to_spi_device(dev));
++	bool on = buf[0] != '0';
++
++	mutex_lock(&priv->power_lock);
++	/* The chip leaves standby only while its supplies are on. */
++	if (on && !priv->powered) {
++		mutex_unlock(&priv->power_lock);
++		return -EPERM;
++	}
++	/* Raw level, as Google's: 1 runs the chip. */
++	gpiod_set_raw_value_cansleep(priv->nstandby, on);
++	mutex_unlock(&priv->power_lock);
++
++	return count;
++}
++static DEVICE_ATTR_RW(nstandby);
++
++static ssize_t sspmcureq_show(struct device *dev,
++			      struct device_attribute *attr, char *buf)
++{
++	struct bcm_spi_priv *priv = spi_get_drvdata(to_spi_device(dev));
++
++	return sysfs_emit(buf, "%d\n",
++			  gpiod_get_value_cansleep(priv->mcu_req));
++}
++
++static ssize_t sspmcureq_store(struct device *dev,
++			       struct device_attribute *attr,
++			       const char *buf, size_t count)
++{
++	struct bcm_spi_priv *priv = spi_get_drvdata(to_spi_device(dev));
++
++	gpiod_set_value_cansleep(priv->mcu_req, buf[0] != '0');
++
++	return count;
++}
++static DEVICE_ATTR_RW(sspmcureq);
++
++static struct attribute *bcm_spi_attrs[] = {
++	&dev_attr_nstandby.attr,
++	&dev_attr_sspmcureq.attr,
++	NULL
++};
++ATTRIBUTE_GROUPS(bcm_spi);
++
++/* SSI framing */
++
++static const unsigned long rx_buffer_block_size[4] = {
++	32, 256, 1024 * 2, 1024 * 16
++};
++
++static unsigned long bcm_ssi_chk_pzc(struct bcm_spi_priv *priv,
++				     unsigned char stat_byte)
++{
++	unsigned long blk_bytes = rx_buffer_block_size[(stat_byte &
++			HSI_F_MOSI_CTRL_SZE_MASK) >> HSI_F_MOSI_CTRL_SZE_SHIFT];
++	unsigned long blk_counts = (stat_byte & HSI_F_MOSI_CTRL_CNT_MASK) >>
++			HSI_F_MOSI_CTRL_CNT_SHIFT;
++
++	priv->rx_buffer_avail_bytes = blk_bytes * blk_counts;
++
++	if (priv->dbg.pzc && (stat_byte & HSI_F_MOSI_CTRL_PE_MASK))
++		dev_info(&priv->spi->dev, "PZC: rx stat 0x%02x (PE) avail %lu\n",
++			 stat_byte, priv->rx_buffer_avail_bytes);
++
++	return priv->rx_buffer_avail_bytes;
++}
++
++static void pk_log(struct bcm_spi_priv *priv, const char *dir,
++		   const void *data, int len)
++{
++	if (likely(!priv->dbg.ssi))
++		return;
++
++	print_hex_dump(KERN_INFO, dir, DUMP_PREFIX_NONE, 32, 1, data, len,
++		       false);
++}
++
++int bcm_spi_sync(struct bcm_spi_priv *priv, void *tx_buf, void *rx_buf,
++		 int len)
++{
++	struct spi_transfer xfer = {
++		.tx_buf = tx_buf,
++		.rx_buf = rx_buf,
++		.len = len,
++		.bits_per_word = 8,
++	};
++	int ret;
++
++	pk_log(priv, "w ", tx_buf, len);
++	ret = spi_sync_transfer(priv->spi, &xfer, 1);
++	pk_log(priv, "r ", rx_buf, len);
++	if (ret)
++		dev_err(&priv->spi->dev, "spi_sync error for cmd 0x%x: %d\n",
++			((struct bcm_ssi_tx_frame *)tx_buf)->cmd, ret);
++
++	return ret;
++}
++
++static unsigned short bcm_ssi_get_len(unsigned char ctrl_byte,
++				      unsigned char *data)
++{
++	if (ctrl_byte & SSI_PCKT_2B_LENGTH)
++		return data[0] | (data[1] << 8);
++
++	return data[0];
++}
++
++static void bcm_ssi_set_len(unsigned char ctrl_byte, unsigned char *data,
++			    unsigned short len)
++{
++	if (ctrl_byte & SSI_PCKT_2B_LENGTH) {
++		data[0] = len & 0xff;
++		data[1] = (len >> 8) & 0xff;
++	} else {
++		data[0] = len;
++	}
++}
++
++static int bcm_ssi_tx(struct bcm_spi_priv *priv, int length)
++{
++	struct bcm_ssi_tx_frame *tx = priv->tx_buf;
++	struct bcm_ssi_rx_frame *rx = priv->rx_buf;
++	struct bcm_spi_strm_protocol *strm = &priv->tx_strm;
++	unsigned short frame_data_size = strm->frame_len - strm->ctrl_len;
++	unsigned short m_write = length;
++	unsigned short bytes_to_write = length;
++	unsigned short n_read;
++	unsigned char *data_p;
++	int ret;
++
++	tx->cmd = strm->ctrl_byte;
++	if (strm->pckt_len)
++		bcm_ssi_set_len(strm->ctrl_byte, tx->data, m_write);
++
++	ret = bcm_spi_sync(priv, tx, rx, bytes_to_write + strm->ctrl_len);
++	if (ret) {
++		priv->ssi_tx_fail++;
++		return ret;
++	}
++
++	/* Full duplex: what the chip sent while we wrote */
++	data_p = rx->data + strm->pckt_len;
++	n_read = bcm_ssi_get_len(strm->ctrl_byte, rx->data);
++	if (n_read > frame_data_size) {
++		dev_err(&priv->spi->dev, "FD n_read %u overflows frame %u\n",
++			n_read, frame_data_size);
++		n_read = frame_data_size;
++	}
++	if (m_write < n_read) {
++		bcm_on_packet_received(priv, data_p, m_write);
++		n_read -= m_write;
++		bytes_to_write -= m_write;
++		data_p += m_write + strm->fc_len;
++	} else {
++		bytes_to_write = n_read;
++	}
++	if (bytes_to_write)
++		bcm_on_packet_received(priv, data_p, bytes_to_write);
++
++	bcm_ssi_chk_pzc(priv, rx->status);
++
++	return 0;
++}
++
++static int bcm_ssi_rx(struct bcm_spi_priv *priv, size_t *length)
++{
++	struct bcm_ssi_tx_frame *tx = priv->tx_buf;
++	struct bcm_ssi_rx_frame *rx = priv->rx_buf;
++	struct circ_buf *rd_circ = &priv->read_buf;
++	struct bcm_spi_strm_protocol *strm = &priv->rx_strm;
++	unsigned short ctrl_len = strm->pckt_len + 1;	/* + status byte */
++	unsigned short payload_len;
++
++	bcm_ssi_set_len(strm->ctrl_byte, tx->data, 0);
++	tx->cmd = strm->ctrl_byte;
++	rx->status = 0;
++	if (bcm_spi_sync(priv, tx, rx, ctrl_len))
++		return -EIO;
++
++	bcm_ssi_chk_pzc(priv, rx->status);
++
++	payload_len = bcm_ssi_get_len(strm->ctrl_byte, rx->data);
++	if (!payload_len) {
++		dev_dbg(&priv->spi->dev, "RX length is 0\n");
++		return -EAGAIN;
++	}
++
++	*length = min_t(size_t, strm->frame_len - ctrl_len, payload_len);
++
++	/* Slow down if lhd is not keeping up (half the ring is full) */
++	if (CIRC_CNT(rd_circ->head, rd_circ->tail, BCM_SPI_READ_BUF_SIZE) >
++	    BCM_SPI_READ_BUF_SIZE / 2) {
++		msleep(DELAY_FOR_SYSTEM_OVERLOADED_MS);
++		if (*length >= READ_SIZE_FOR_SYSTEM_OVERLOADED)
++			*length = READ_SIZE_FOR_SYSTEM_OVERLOADED;
++	}
++
++	memset(tx->data, 0, *length + ctrl_len - 1);
++	if (bcm_spi_sync(priv, tx, rx, *length + ctrl_len))
++		return -EIO;
++
++	payload_len = bcm_ssi_get_len(strm->ctrl_byte, rx->data);
++	if (payload_len < *length)
++		*length = payload_len;
++
++	return 0;
++}
++
++static void bcm_check_overrun(struct bcm_spi_priv *priv, size_t avail)
++{
++	unsigned long now = jiffies;
++
++	if (!avail)
++		return;
++
++	if (time_before(now, priv->last_tick + msecs_to_jiffies(100))) {
++		priv->skip_count++;
++		return;
++	}
++
++	if (priv->skip_count)
++		dev_err(&priv->spi->dev, "%lu messages skipped\n",
++			priv->skip_count);
++	dev_err(&priv->spi->dev, "input overrun by %zu bytes\n", avail);
++	priv->skip_count = 0;
++	priv->last_tick = now;
++}
++
++static void bcm_on_packet_received(struct bcm_spi_priv *priv,
++				   unsigned char *data, unsigned int size)
++{
++	struct circ_buf *rd_circ = &priv->read_buf;
++	size_t written = 0, avail = size;
++
++	mutex_lock(&priv->rlock);
++	while (avail > 0 && CIRC_SPACE(rd_circ->head, rd_circ->tail,
++				       BCM_SPI_READ_BUF_SIZE)) {
++		size_t space_to_end = CIRC_SPACE_TO_END(rd_circ->head,
++				rd_circ->tail, BCM_SPI_READ_BUF_SIZE);
++		size_t copied = min(space_to_end, avail);
++
++		memcpy(rd_circ->buf + rd_circ->head, data + written, copied);
++		avail -= copied;
++		written += copied;
++		rd_circ->head = (rd_circ->head + copied) &
++				(BCM_SPI_READ_BUF_SIZE - 1);
++	}
++	priv->packet_received += size;
++	mutex_unlock(&priv->rlock);
++
++	wake_up(&priv->poll_wait);
++	bcm_check_overrun(priv, avail);
++}
++
++/* Wake the chip's MCU: raise mcu_req until it answers on mcu_resp. */
++static bool bcm477x_hello(struct bcm_spi_priv *priv)
++{
++	int count = 0;
++
++	gpiod_set_value_cansleep(priv->mcu_req, 1);
++	while (!gpiod_get_value_cansleep(priv->mcu_resp)) {
++		if (count++ > BCM_WAKE_TIMEOUT_MS) {
++			gpiod_set_value_cansleep(priv->mcu_req, 0);
++			dev_err(&priv->spi->dev, "MCU_RESP does not answer MCU_REQ\n");
++			return false;
++		}
++
++		usleep_range(1000, 2000);
++		if (gpiod_get_value_cansleep(priv->mcu_resp))
++			break;
++
++		/* Toggle the request every 20 tries, as Google's */
++		if (count % 20 == 0) {
++			gpiod_set_value_cansleep(priv->mcu_req, 0);
++			usleep_range(1000, 2000);
++			gpiod_set_value_cansleep(priv->mcu_req, 1);
++			usleep_range(1000, 2000);
++		}
++	}
++
++	return true;
++}
++
++static void bcm477x_bye(struct bcm_spi_priv *priv)
++{
++	gpiod_set_value_cansleep(priv->mcu_req, 0);
++}
++
++static void bcm_irq_enable(struct bcm_spi_priv *priv)
++{
++	unsigned long flags;
++
++	spin_lock_irqsave(&priv->irq_lock, flags);
++	if (!atomic_xchg(&priv->irq_enabled, 1))
++		enable_irq(priv->irq);
++	spin_unlock_irqrestore(&priv->irq_lock, flags);
++}
++
++static void bcm_irq_disable(struct bcm_spi_priv *priv)
++{
++	unsigned long flags;
++
++	spin_lock_irqsave(&priv->irq_lock, flags);
++	if (atomic_xchg(&priv->irq_enabled, 0))
++		disable_irq_nosync(priv->irq);
++	spin_unlock_irqrestore(&priv->irq_lock, flags);
++}
++
++static void bcm_rxtx_work_func(struct work_struct *work)
++{
++	struct bcm_spi_priv *priv = container_of(work, struct bcm_spi_priv,
++						 rxtx_work);
++	struct circ_buf *rd_circ = &priv->read_buf;
++	struct circ_buf *wr_circ = &priv->write_buf;
++	struct bcm_spi_strm_protocol *strm = &priv->tx_strm;
++	unsigned short rx_pckt_len = priv->rx_strm.pckt_len;
++	int wait_for_pzc = 0;
++
++	if (!bcm477x_hello(priv))
++		goto out;
++
++	do {
++		size_t avail = 0, written = 0;
++		int ret = 0;
++
++		/* Read first */
++		if (gpiod_get_value_cansleep(priv->host_req) || wait_for_pzc) {
++			wait_for_pzc = 0;
++			ret = bcm_ssi_rx(priv, &avail);
++			if (ret == -EIO)
++				break;
++			if (!ret)
++				bcm_on_packet_received(priv,
++					priv->rx_buf->data + rx_pckt_len,
++					avail);
++		}
++
++		/* Then write */
++		avail = CIRC_CNT(wr_circ->head, wr_circ->tail,
++				 BCM_SPI_WRITE_BUF_SIZE);
++		if (!avail)
++			continue;
++
++		mutex_lock(&priv->wlock);
++		if (avail > strm->frame_len - strm->ctrl_len)
++			avail = strm->frame_len - strm->ctrl_len;
++
++		/*
++		 * Don't send more than the chip's receive ring can take
++		 * (its "PZC" status). When it is full, read and retry.
++		 */
++		if (avail > priv->rx_buffer_avail_bytes) {
++			if (priv->rx_buffer_avail_bytes)
++				priv->ssi_tx_pzc_retries++;
++			else
++				priv->ssi_tx_pzc_retry_delays++;
++
++			if (!priv->rx_buffer_avail_bytes && priv->dbg.rng) {
++				u32 regval32[3];
++
++				bcm_ireg_read(priv, "RNGDMA_RX",
++					      HSI_RNGDMA_RX_SW_ADDR_OFFSET,
++					      regval32, 3);
++			}
++			avail = priv->rx_buffer_avail_bytes;
++			usleep_range(1000, 2000);
++			wait_for_pzc = 1;
++		}
++
++		while (avail > 0) {
++			size_t cnt_to_end = CIRC_CNT_TO_END(wr_circ->head,
++					wr_circ->tail, BCM_SPI_WRITE_BUF_SIZE);
++			size_t copied = min(cnt_to_end, avail);
++
++			memcpy(priv->tx_buf->data + strm->pckt_len + written,
++			       wr_circ->buf + wr_circ->tail, copied);
++			avail -= copied;
++			written += copied;
++			wr_circ->tail = (wr_circ->tail + copied) &
++					(BCM_SPI_WRITE_BUF_SIZE - 1);
++		}
++
++		if (written)
++			ret = bcm_ssi_tx(priv, written);
++		mutex_unlock(&priv->wlock);
++		if (ret)
++			break;
++
++		/* Wake lhd only once the ring is 1/8 full while looping */
++		if (CIRC_CNT(rd_circ->head, rd_circ->tail,
++			     BCM_SPI_READ_BUF_SIZE) > BCM_SPI_READ_BUF_SIZE / 8)
++			wake_up(&priv->poll_wait);
++	} while (!atomic_read(&priv->suspending) &&
++		 (gpiod_get_value_cansleep(priv->host_req) ||
++		  CIRC_CNT(wr_circ->head, wr_circ->tail,
++			   BCM_SPI_WRITE_BUF_SIZE)));
++
++	bcm477x_bye(priv);
++out:
++	wake_up(&priv->poll_wait);
++
++	if (!atomic_read(&priv->suspending) && priv->busy)
++		bcm_irq_enable(priv);
++}
++
++static irqreturn_t bcm_irq_handler(int irq, void *data)
++{
++	struct bcm_spi_priv *priv = data;
++
++	/* Level interrupt: off until the worker has drained the chip */
++	spin_lock(&priv->irq_lock);
++	if (atomic_xchg(&priv->irq_enabled, 0))
++		disable_irq_nosync(priv->irq);
++	spin_unlock(&priv->irq_lock);
++
++	if (!atomic_read(&priv->suspending))
++		queue_work(priv->serial_wq, &priv->rxtx_work);
++
++	return IRQ_HANDLED;
++}
++
++/* /dev/ttyBCM */
++
++static void bcm_ssi_init_strm(struct bcm_spi_priv *priv)
++{
++	struct bcm_spi_strm_protocol *strm;
++	unsigned char len_mask = SSI_LEN == 2 ? SSI_PCKT_2B_LENGTH :
++						SSI_PCKT_1B_LENGTH;
++
++	strm = &priv->tx_strm;
++	strm->pckt_len = SSI_LEN;
++	strm->fc_len = 0;
++	strm->ctrl_len = strm->pckt_len + strm->fc_len + 1;	/* + cmd */
++	strm->frame_len = SSI_LEN == 2 ? MAX_SPI_FRAME_LEN :
++					 MAX_SPI_DREG_FRAME_LEN;
++	strm->ctrl_byte = SSI_MODE_FULL_DUPLEX | SSI_MODE_STREAM | len_mask |
++			  SSI_WRITE_TRANS | SSI_FLOW_CONTROL_DISABLED;
++
++	strm = &priv->rx_strm;
++	strm->pckt_len = SSI_LEN;
++	strm->fc_len = 0;
++	strm->ctrl_len = strm->pckt_len + strm->fc_len + 1;	/* + status */
++	strm->frame_len = SSI_LEN == 2 ? MAX_SPI_FRAME_LEN :
++					 MAX_SPI_DREG_FRAME_LEN;
++	/*
++	 * Google's picks SSI_READ_TRANS here (its "SSI_MODE ==
++	 * SSI_MODE_FULL_DUPLEX" test compares 1 with 0x40), so the read
++	 * command byte stock sends is 0x70. Keep that.
++	 */
++	strm->ctrl_byte = SSI_MODE_FULL_DUPLEX | SSI_MODE_STREAM | len_mask |
++			  SSI_READ_TRANS;
++}
++
++static int bcm_spi_open(struct inode *inode, struct file *filp)
++{
++	struct bcm_spi_priv *priv = container_of(filp->private_data,
++						 struct bcm_spi_priv, misc);
++	int ret;
++
++	if (priv->busy)
++		return -EBUSY;
++
++	ret = bcm_power_on(priv);
++	if (ret)
++		return ret;
++
++	priv->busy = true;
++	priv->read_buf.head = priv->read_buf.tail = 0;
++	priv->write_buf.head = priv->write_buf.tail = 0;
++	priv->packet_received = 0;
++	priv->ssi_tx_fail = 0;
++	priv->ssi_tx_pzc_retries = 0;
++	priv->ssi_tx_pzc_retry_delays = 0;
++	priv->rx_buffer_avail_bytes = HSI_PZC_MAX_RX_BUFFER;
++	bcm_ssi_init_strm(priv);
++
++	filp->private_data = priv;
++	bcm_irq_enable(priv);
++	enable_irq_wake(priv->irq);
++
++	return 0;
++}
++
++static int bcm_spi_release(struct inode *inode, struct file *filp)
++{
++	struct bcm_spi_priv *priv = filp->private_data;
++
++	disable_irq_wake(priv->irq);
++	bcm_irq_disable(priv);
++	priv->busy = false;
++	flush_workqueue(priv->serial_wq);
++	bcm_power_off(priv);
++
++	return 0;
++}
++
++static ssize_t bcm_spi_read(struct file *filp, char __user *buf,
++			    size_t size, loff_t *ppos)
++{
++	struct bcm_spi_priv *priv = filp->private_data;
++	struct circ_buf *circ = &priv->read_buf;
++	size_t rd_size = 0;
++
++	mutex_lock(&priv->rlock);
++	while (size > 0 && CIRC_CNT(circ->head, circ->tail,
++				    BCM_SPI_READ_BUF_SIZE)) {
++		size_t cnt_to_end = CIRC_CNT_TO_END(circ->head, circ->tail,
++						    BCM_SPI_READ_BUF_SIZE);
++		size_t copied = min(cnt_to_end, size);
++
++		if (copy_to_user(buf + rd_size, circ->buf + circ->tail,
++				 copied)) {
++			mutex_unlock(&priv->rlock);
++			return -EFAULT;
++		}
++		size -= copied;
++		rd_size += copied;
++		circ->tail = (circ->tail + copied) &
++			     (BCM_SPI_READ_BUF_SIZE - 1);
++	}
++	mutex_unlock(&priv->rlock);
++
++	return rd_size;
++}
++
++static ssize_t bcm_spi_write(struct file *filp, const char __user *buf,
++			     size_t size, loff_t *ppos)
++{
++	struct bcm_spi_priv *priv = filp->private_data;
++	struct circ_buf *circ = &priv->write_buf;
++	size_t wr_size = 0;
++
++	mutex_lock(&priv->wlock);
++	while (size > 0 && CIRC_SPACE(circ->head, circ->tail,
++				      BCM_SPI_WRITE_BUF_SIZE)) {
++		size_t space_to_end = CIRC_SPACE_TO_END(circ->head,
++				circ->tail, BCM_SPI_WRITE_BUF_SIZE);
++		size_t copied = min(space_to_end, size);
++
++		if (copy_from_user(circ->buf + circ->head, buf + wr_size,
++				   copied)) {
++			mutex_unlock(&priv->wlock);
++			return -EFAULT;
++		}
++		size -= copied;
++		wr_size += copied;
++		circ->head = (circ->head + copied) &
++			     (BCM_SPI_WRITE_BUF_SIZE - 1);
++	}
++	mutex_unlock(&priv->wlock);
++
++	if (!atomic_read(&priv->suspending))
++		queue_work(priv->serial_wq, &priv->rxtx_work);
++
++	return wr_size;
++}
++
++static __poll_t bcm_spi_poll(struct file *filp, poll_table *wait)
++{
++	struct bcm_spi_priv *priv = filp->private_data;
++	struct circ_buf *rd = &priv->read_buf;
++	struct circ_buf *wr = &priv->write_buf;
++	__poll_t mask = 0;
++
++	poll_wait(filp, &priv->poll_wait, wait);
++
++	if (CIRC_CNT(rd->head, rd->tail, BCM_SPI_READ_BUF_SIZE))
++		mask |= EPOLLIN | EPOLLRDNORM;
++	if (CIRC_SPACE(wr->head, wr->tail, BCM_SPI_WRITE_BUF_SIZE))
++		mask |= EPOLLOUT | EPOLLWRNORM;
++
++	return mask;
++}
++
++static const struct file_operations bcm_spi_fops = {
++	.owner		= THIS_MODULE,
++	.open		= bcm_spi_open,
++	.release	= bcm_spi_release,
++	.read		= bcm_spi_read,
++	.write		= bcm_spi_write,
++	.poll		= bcm_spi_poll,
++	.llseek		= noop_llseek,
++};
++
++/*
++ * debugfs "probe": with /dev/ttyBCM closed, power the chip, take it out of
++ * standby, wake its MCU and read HSI_STATUS and HSI_ERROR_STATUS through an
++ * SSI debug frame. Then everything goes back off. Bring-up only.
++ */
++static int bcm_probe_show(struct seq_file *s, void *unused)
++{
++	struct bcm_spi_priv *priv = s->private;
++	u8 status = 0xff, error = 0xff;
++	bool awake;
++	int ret;
++
++	if (priv->busy)
++		return -EBUSY;
++
++	ret = bcm_power_on(priv);
++	if (ret)
++		return ret;
++
++	gpiod_set_raw_value_cansleep(priv->nstandby, 1);
++	msleep(20);
++	awake = bcm477x_hello(priv);
++	if (awake) {
++		mutex_lock(&priv->wlock);
++		bcm_dreg_read(priv, "HSI_STATUS", HSI_STATUS, &status, 1);
++		bcm_dreg_read(priv, "HSI_ERROR_STATUS", HSI_ERROR_STATUS,
++			      &error, 1);
++		mutex_unlock(&priv->wlock);
++	}
++	bcm477x_bye(priv);
++	bcm_power_off(priv);
++
++	seq_printf(s, "mcu_resp: %s\nHSI_STATUS: 0x%02x\nHSI_ERROR_STATUS: 0x%02x\n",
++		   awake ? "answered" : "no answer", status, error);
++
++	return 0;
++}
++DEFINE_SHOW_ATTRIBUTE(bcm_probe);
++
++static int bcm_pins_show(struct seq_file *s, void *unused)
++{
++	struct bcm_spi_priv *priv = s->private;
++
++	seq_printf(s, "powered: %d\nnstandby: %d\nmcu_req: %d\nmcu_resp: %d\nhost_req: %d\nirq_enabled: %d\n",
++		   priv->powered,
++		   gpiod_get_raw_value_cansleep(priv->nstandby),
++		   gpiod_get_value_cansleep(priv->mcu_req),
++		   gpiod_get_value_cansleep(priv->mcu_resp),
++		   gpiod_get_value_cansleep(priv->host_req),
++		   atomic_read(&priv->irq_enabled));
++	seq_printf(s, "packets: %lu\ntx_fail: %d\npzc_retries: %d\npzc_delays: %d\n",
++		   priv->packet_received, priv->ssi_tx_fail,
++		   priv->ssi_tx_pzc_retries, priv->ssi_tx_pzc_retry_delays);
++
++	return 0;
++}
++DEFINE_SHOW_ATTRIBUTE(bcm_pins);
++
++/* SPI driver */
++
++static int bcm_spi_suspend(struct device *dev)
++{
++	struct bcm_spi_priv *priv = spi_get_drvdata(to_spi_device(dev));
++
++	atomic_set(&priv->suspending, 1);
++	bcm_irq_disable(priv);
++	flush_workqueue(priv->serial_wq);
++
++	return 0;
++}
++
++static int bcm_spi_resume(struct device *dev)
++{
++	struct bcm_spi_priv *priv = spi_get_drvdata(to_spi_device(dev));
++
++	atomic_set(&priv->suspending, 0);
++	if (priv->busy)
++		bcm_irq_enable(priv);
++
++	return 0;
++}
++
++static DEFINE_SIMPLE_DEV_PM_OPS(bcm_spi_pm_ops, bcm_spi_suspend,
++				bcm_spi_resume);
++
++static int bcm_spi_probe(struct spi_device *spi)
++{
++	struct device *dev = &spi->dev;
++	struct bcm_spi_priv *priv;
++	int i, ret;
++
++	priv = kvzalloc(sizeof(*priv), GFP_KERNEL);
++	if (!priv)
++		return -ENOMEM;
++
++	priv->spi = spi;
++	spi_set_drvdata(spi, priv);
++
++	spi->bits_per_word = 8;
++	ret = spi_setup(spi);
++	if (ret)
++		goto err_free;
++
++	/* All lines start low: chip in standby, no wake request. */
++	priv->nstandby = devm_gpiod_get(dev, "nstandby", GPIOD_ASIS);
++	if (IS_ERR(priv->nstandby)) {
++		ret = PTR_ERR(priv->nstandby);
++		goto err_free;
++	}
++	ret = gpiod_direction_output_raw(priv->nstandby, 0);
++	if (ret)
++		goto err_free;
++
++	priv->mcu_req = devm_gpiod_get(dev, "mcu-req", GPIOD_OUT_LOW);
++	if (IS_ERR(priv->mcu_req)) {
++		ret = PTR_ERR(priv->mcu_req);
++		goto err_free;
++	}
++
++	priv->mcu_resp = devm_gpiod_get(dev, "mcu-resp", GPIOD_IN);
++	if (IS_ERR(priv->mcu_resp)) {
++		ret = PTR_ERR(priv->mcu_resp);
++		goto err_free;
++	}
++
++	priv->host_req = devm_gpiod_get(dev, "host-req", GPIOD_IN);
++	if (IS_ERR(priv->host_req)) {
++		ret = PTR_ERR(priv->host_req);
++		goto err_free;
++	}
++
++	priv->irq = spi->irq > 0 ? spi->irq : gpiod_to_irq(priv->host_req);
++	if (priv->irq < 0) {
++		ret = priv->irq;
++		goto err_free;
++	}
++
++	for (i = 0; i < BCM_NUM_SUPPLIES; i++)
++		priv->supplies[i].supply = bcm_supply_names[i];
++	ret = devm_regulator_bulk_get(dev, BCM_NUM_SUPPLIES, priv->supplies);
++	if (ret)
++		goto err_free;
++
++	priv->tx_buf = devm_kzalloc(dev, sizeof(*priv->tx_buf), GFP_KERNEL);
++	priv->rx_buf = devm_kzalloc(dev, sizeof(*priv->rx_buf), GFP_KERNEL);
++	if (!priv->tx_buf || !priv->rx_buf) {
++		ret = -ENOMEM;
++		goto err_free;
++	}
++
++	init_waitqueue_head(&priv->poll_wait);
++	priv->read_buf.buf = priv->_read_buf;
++	priv->write_buf.buf = priv->_write_buf;
++	mutex_init(&priv->rlock);
++	mutex_init(&priv->wlock);
++	mutex_init(&priv->power_lock);
++	spin_lock_init(&priv->irq_lock);
++	atomic_set(&priv->irq_enabled, 0);
++	atomic_set(&priv->suspending, 0);
++	INIT_WORK(&priv->rxtx_work, bcm_rxtx_work_func);
++
++	priv->serial_wq = alloc_workqueue("bcm477x_wq",
++					  WQ_HIGHPRI | WQ_UNBOUND |
++					  WQ_MEM_RECLAIM, 1);
++	if (!priv->serial_wq) {
++		ret = -ENOMEM;
++		goto err_free;
++	}
++
++	ret = request_irq(priv->irq, bcm_irq_handler,
++			  IRQF_TRIGGER_HIGH | IRQF_NO_AUTOEN, "ttyBCM", priv);
++	if (ret)
++		goto err_wq;
++
++	priv->bbd = bbd_init(dev, &priv->dbg);
++	if (IS_ERR(priv->bbd)) {
++		ret = PTR_ERR(priv->bbd);
++		goto err_irq;
++	}
++
++	priv->misc.minor = MISC_DYNAMIC_MINOR;
++	priv->misc.name = "ttyBCM";
++	priv->misc.fops = &bcm_spi_fops;
++	priv->misc.parent = dev;
++	ret = misc_register(&priv->misc);
++	if (ret)
++		goto err_bbd;
++
++	priv->debugfs = debugfs_create_dir(dev_name(dev), NULL);
++	debugfs_create_file("probe", 0400, priv->debugfs, priv,
++			    &bcm_probe_fops);
++	debugfs_create_file("pins", 0400, priv->debugfs, priv,
++			    &bcm_pins_fops);
++
++	dev_info(dev, "BCM4775x GNSS on SPI, irq %d; supplies off until /dev/ttyBCM opens\n",
++		 priv->irq);
++
++	return 0;
++
++err_bbd:
++	bbd_exit(priv->bbd);
++err_irq:
++	free_irq(priv->irq, priv);
++err_wq:
++	destroy_workqueue(priv->serial_wq);
++err_free:
++	kvfree(priv);
++	return dev_err_probe(dev, ret, "probe failed\n");
++}
++
++static void bcm_spi_teardown(struct bcm_spi_priv *priv)
++{
++	atomic_set(&priv->suspending, 1);
++	bcm_irq_disable(priv);
++	flush_workqueue(priv->serial_wq);
++	bcm_power_off(priv);
++}
++
++static void bcm_spi_remove(struct spi_device *spi)
++{
++	struct bcm_spi_priv *priv = spi_get_drvdata(spi);
++
++	debugfs_remove_recursive(priv->debugfs);
++	misc_deregister(&priv->misc);
++	bcm_spi_teardown(priv);
++	bbd_exit(priv->bbd);
++	free_irq(priv->irq, priv);
++	destroy_workqueue(priv->serial_wq);
++	kvfree(priv);
++}
++
++static void bcm_spi_shutdown(struct spi_device *spi)
++{
++	bcm_spi_teardown(spi_get_drvdata(spi));
++}
++
++static const struct of_device_id bcm_spi_of_match[] = {
++	{ .compatible = "brcm,bcm4775-gnss" },
++	{ }
++};
++MODULE_DEVICE_TABLE(of, bcm_spi_of_match);
++
++static const struct spi_device_id bcm_spi_id[] = {
++	{ "bcm4775-gnss" },
++	{ }
++};
++MODULE_DEVICE_TABLE(spi, bcm_spi_id);
++
++static struct spi_driver bcm_spi_driver = {
++	.driver = {
++		.name = "bcm4775x-gnss",
++		.of_match_table = bcm_spi_of_match,
++		.pm = pm_sleep_ptr(&bcm_spi_pm_ops),
++		.dev_groups = bcm_spi_groups,
++	},
++	.id_table = bcm_spi_id,
++	.probe = bcm_spi_probe,
++	.remove = bcm_spi_remove,
++	.shutdown = bcm_spi_shutdown,
++};
++module_spi_driver(bcm_spi_driver);
++
++MODULE_DESCRIPTION("Broadcom BCM4775x GNSS SPI/SSI bridge for lhd");
++MODULE_LICENSE("GPL");
+diff --git a/drivers/misc/bcm4775x/bcm_gps_spi.h b/drivers/misc/bcm4775x/bcm_gps_spi.h
+new file mode 100644
+index 000000000..ccf0fca90
+--- /dev/null
++++ b/drivers/misc/bcm4775x/bcm_gps_spi.h
+@@ -0,0 +1,152 @@
++/* SPDX-License-Identifier: GPL-2.0 */
++/*
++ * Copyright 2015 Broadcom Corporation
++ *
++ * The Broadcom GPS SPI driver: SSI framing for the BCM4775x GNSS receivers.
++ * Based on Google's gs201 bcm_gps_spi.h.
++ */
++
++#ifndef __BCM_GPS_SPI_H__
++#define __BCM_GPS_SPI_H__
++
++#include <linux/atomic.h>
++#include <linux/circ_buf.h>
++#include <linux/miscdevice.h>
++#include <linux/mutex.h>
++#include <linux/regulator/consumer.h>
++#include <linux/spinlock.h>
++#include <linux/types.h>
++#include <linux/wait.h>
++#include <linux/workqueue.h>
++
++#include "bbd.h"
++
++#define DELAY_FOR_SYSTEM_OVERLOADED_MS	100
++#define READ_SIZE_FOR_SYSTEM_OVERLOADED	1024
++
++#define SSI_MODE_STREAM		0x00
++#define SSI_MODE_DEBUG		0x80
++
++#define SSI_MODE_HALF_DUPLEX	0x00
++#define SSI_MODE_FULL_DUPLEX	0x40
++
++#define SSI_WRITE_TRANS		0x00
++#define SSI_READ_TRANS		0x20
++
++#define SSI_PCKT_1B_LENGTH	0
++#define SSI_PCKT_2B_LENGTH	0x10
++
++#define SSI_FLOW_CONTROL_DISABLED	0
++#define SSI_FLOW_CONTROL_ENABLED	0x08
++
++#define HSI_F_MOSI_CTRL_CNT_SHIFT	0
++#define HSI_F_MOSI_CTRL_CNT_MASK	0x07
++#define HSI_F_MOSI_CTRL_SZE_SHIFT	3
++#define HSI_F_MOSI_CTRL_SZE_MASK	0x18
++#define HSI_F_MOSI_CTRL_PE_MASK		0x40
++
++/* Size of the chip's receive buffer, bytes */
++#define HSI_PZC_MAX_RX_BUFFER		6144
++
++/* BCM477x host interface registers */
++#define HSI_ERROR_STATUS		0x2c
++#define HSI_STATUS			0x30
++#define HSI_RNGDMA_RX_SW_ADDR_OFFSET	0x40104050
++
++struct bcm_spi_strm_protocol {
++	int pckt_len;
++	int fc_len;
++	int ctrl_len;
++	unsigned char ctrl_byte;
++	unsigned short frame_len;
++} __packed;
++
++#define BCM_SPI_READ_BUF_SIZE	(16 * 4096)
++#define BCM_SPI_WRITE_BUF_SIZE	(16 * 4096)
++
++#define MAX_SPI_DREG_FRAME_LEN	254
++#define MAX_SPI_FRAME_LEN	(1024 * 8)
++
++struct bcm_ssi_tx_frame {
++	unsigned char cmd;
++	unsigned char data[MAX_SPI_FRAME_LEN - 1];
++} __packed;
++
++struct bcm_ssi_rx_frame {
++	unsigned char status;
++	unsigned char data[MAX_SPI_FRAME_LEN - 1];
++} __packed;
++
++#define BCM_NUM_SUPPLIES	3
++
++struct bcm_spi_priv {
++	struct spi_device *spi;
++
++	/* /dev/ttyBCM */
++	struct miscdevice misc;
++	bool busy;
++	struct circ_buf read_buf;
++	struct circ_buf write_buf;
++	struct mutex rlock;			/* read_buf */
++	struct mutex wlock;			/* write_buf */
++	char _read_buf[BCM_SPI_READ_BUF_SIZE];
++	char _write_buf[BCM_SPI_WRITE_BUF_SIZE];
++	wait_queue_head_t poll_wait;
++
++	/* Lines */
++	struct gpio_desc *host_req;
++	struct gpio_desc *mcu_req;
++	struct gpio_desc *mcu_resp;
++	struct gpio_desc *nstandby;
++	int irq;
++
++	/* Supplies, on while /dev/ttyBCM is open (or for a debugfs probe) */
++	struct regulator_bulk_data supplies[BCM_NUM_SUPPLIES];
++	struct mutex power_lock;
++	bool powered;
++
++	/* IRQ and its control */
++	atomic_t irq_enabled;
++	spinlock_t irq_lock;
++
++	/* Work */
++	struct work_struct rxtx_work;
++	struct workqueue_struct *serial_wq;
++	atomic_t suspending;
++
++	/* SPI tx/rx frames */
++	struct bcm_ssi_tx_frame *tx_buf;
++	struct bcm_ssi_rx_frame *rx_buf;
++
++	/* SPI streaming protocol */
++	struct bcm_spi_strm_protocol tx_strm;
++	struct bcm_spi_strm_protocol rx_strm;
++
++	unsigned long packet_received;
++	unsigned long skip_count;
++	unsigned long last_tick;
++	int ssi_tx_fail;
++	int ssi_tx_pzc_retries;
++	int ssi_tx_pzc_retry_delays;
++	unsigned long rx_buffer_avail_bytes;
++
++	struct bbd_debug dbg;
++	struct bbd_device *bbd;
++	struct dentry *debugfs;
++};
++
++/* bcm_gps_regs.c */
++int bcm_dreg_write(struct bcm_spi_priv *priv, const char *id, u8 offset,
++		   u8 *buf, u8 size);
++int bcm_dreg_read(struct bcm_spi_priv *priv, const char *id, u8 offset,
++		  u8 *buf, u8 size);
++int bcm_ireg_write(struct bcm_spi_priv *priv, const char *id, u32 regaddr,
++		   u32 regval);
++int bcm_ireg_read(struct bcm_spi_priv *priv, const char *id, u32 regaddr,
++		  u32 *regval, s32 n);
++
++/* bcm_gps_spi.c */
++int bcm_spi_sync(struct bcm_spi_priv *priv, void *tx_buf, void *rx_buf,
++		 int len);
++
++#endif /* __BCM_GPS_SPI_H__ */

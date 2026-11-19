@@ -1,0 +1,126 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Tue, 27 Oct 2026 11:35:48 -0647
+Subject: [PATCH] clk: samsung: acpm: Add Tensor G4 (zumapro) with a paired GPU
+ clock
+
+The ACPM protocol driver already creates a "zumapro-acpm-clk" child for
+the Tensor G4, but clk-acpm had no match for it. The G4 firmware has 17
+DVFS domains, with DSU, BCI, AOC and BW among them, so the indices differ
+from gs101's: G3D is 7 and G3DL2 is 8.
+
+Add the zumapro variant: the 17 domains as clocks, and a paired "gpu"
+clock (index 17) that moves G3D and G3DL2 together through the Pixel
+9a's GPU DVFS table, the same way the gs201 "gpu" clock does. Its rate
+is capped by zumapro_gpu_max_khz, read-only by default, as gs201's is.
+
+Tested on the Pixel 9a: clk-acpm binds zumapro-acpm-clk in place of the
+out-of-tree driver it replaces, cpufreq-dt runs the three CPU clusters
+on cpucl0-2, and with zumapro_gpu_max_khz=890000 panthor's devfreq
+moves the GPU between 150 and 890 MHz under load. The tested
+clk-acpm.c is this one (blob 82dae93f4f46). The 940 MHz point was not
+sent: the cap stayed at 890 MHz.
+
+Link: https://android.googlesource.com/kernel/google-modules/soc/gs/+/204078758737776959ecc85c527a00fd2cabb62f/drivers/soc/google/cal-if/zuma/acpm_dvfs_zuma.h
+Link: https://android.googlesource.com/kernel/devices/google/zuma/+/42395e8adcb880aa336f0da6bb2a19ed53929c40/dts/zuma-gpu.dtsi
+Link: https://android.googlesource.com/kernel/devices/google/zumapro/+/8831630eee2ad095b85ed452944e6353940966a5/dts/zumapro-gpu.dtsi
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ drivers/clk/samsung/clk-acpm.c | 77 ++++++++++++++++++++++++++++++++++
+ 1 file changed, 77 insertions(+)
+
+diff --git a/drivers/clk/samsung/clk-acpm.c b/drivers/clk/samsung/clk-acpm.c
+index 996e69d9d..82dae93f4 100644
+--- a/drivers/clk/samsung/clk-acpm.c
++++ b/drivers/clk/samsung/clk-acpm.c
+@@ -163,6 +163,80 @@ static const struct acpm_clk_driver_data acpm_clk_gs201 = {
+ 	.mbox_chan_id = 0,
+ };
+ 
++/*
++ * Tensor G4 (zumapro) DVFS domains, in the ACPM firmware's order: there are
++ * 17, with DSU, BCI, AOC and BW among them, so the indices differ from gs101.
++ */
++static const struct acpm_clk_variant zumapro_acpm_clks[] = {
++	ACPM_CLK("mif"),
++	ACPM_CLK("int"),
++	ACPM_CLK("cpucl0"),
++	ACPM_CLK("cpucl1"),
++	ACPM_CLK("cpucl2"),
++	ACPM_CLK("dsu"),
++	ACPM_CLK("bci"),
++	ACPM_CLK("g3d"),
++	ACPM_CLK("g3dl2"),
++	ACPM_CLK("tpu"),
++	ACPM_CLK("intcam"),
++	ACPM_CLK("tnr"),
++	ACPM_CLK("cam"),
++	ACPM_CLK("mfc"),
++	ACPM_CLK("disp"),
++	ACPM_CLK("aoc"),
++	ACPM_CLK("bw"),
++};
++
++/*
++ * zumapro GPU operating points: shader (G3D) rate and the top/L2 (G3DL2)
++ * rate paired with it, in kHz, from the Pixel 9a's GPU DVFS table (its
++ * gpu_dvfs_table_v2). 940 MHz is the top level (gpu_dvfs_max_freq in
++ * Google's zumapro-gpu.dtsi).
++ */
++static const struct acpm_clk_pair zumapro_gpu_pairs[] = {
++	{ 150000, 160000 },
++	{ 302000, 386000 },
++	{ 337000, 430000 },
++	{ 376000, 531000 },
++	{ 419000, 531000 },
++	{ 467000, 659000 },
++	{ 521000, 659000 },
++	{ 580000, 749000 },
++	{ 649000, 749000 },
++	{ 723000, 900000 },
++	{ 807000, 900000 },
++	{ 850000, 900000 },
++	{ 890000, 900000 },
++	{ 940000, 950000 },
++};
++
++/* As gs201_gpu_max_khz: 0 (the default) leaves the GPU clock read-only. */
++static unsigned int zumapro_gpu_max_khz;
++module_param(zumapro_gpu_max_khz, uint, 0644);
++MODULE_PARM_DESC(zumapro_gpu_max_khz,
++		 "zumapro: highest GPU shader rate in kHz, 0 = read-only (default)");
++
++static const struct acpm_clk_paired zumapro_acpm_paired[] = {
++	{
++		.name = "gpu",
++		.id = 7,	/* G3D: shader cores */
++		.id2 = 8,	/* G3DL2: top level and L2 */
++		.pairs = zumapro_gpu_pairs,
++		.nr_pairs = ARRAY_SIZE(zumapro_gpu_pairs),
++		.max_khz = &zumapro_gpu_max_khz,
++	},
++};
++
++static const struct acpm_clk_driver_data acpm_clk_zumapro = {
++	.clks = zumapro_acpm_clks,
++	.nr_clks = ARRAY_SIZE(zumapro_acpm_clks),
++	.paired = zumapro_acpm_paired,
++	.nr_paired = ARRAY_SIZE(zumapro_acpm_paired),
++	/* Show the firmware's rate, not the last one asked for. */
++	.flags = CLK_GET_RATE_NOCACHE,
++	.mbox_chan_id = 0,
++};
++
+ static unsigned long acpm_clk_recalc_rate(struct clk_hw *hw,
+ 					  unsigned long parent_rate)
+ {
+@@ -402,6 +476,9 @@ static const struct platform_device_id acpm_clk_id[] = {
+ 	}, {
+ 		.name = "gs201-acpm-clk",
+ 		.driver_data = (kernel_ulong_t)&acpm_clk_gs201,
++	}, {
++		.name = "zumapro-acpm-clk",
++		.driver_data = (kernel_ulong_t)&acpm_clk_zumapro,
+ 	},
+ 	{ }
+ };

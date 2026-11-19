@@ -1,0 +1,226 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Roberto Nuzzarello <nuzzarello@gmail.com>
+Date: Sat, 7 Nov 2026 16:47:08 -0300
+Subject: [PATCH] Input: synaptics-tcm: Probe a controller that sends no
+ identify report
+
+On a Pixel 7 Pro (cheetah, SKU GE2AE, Samsung S6E3HC4 panel) the
+controller keeps running its application firmware when the reset line is
+toggled, and it keeps streaming reports. No identify report follows the
+reset, and probe fails:
+
+  synaptics-tcm spi0.0: bad message header f8 5f 00 20
+  synaptics-tcm spi0.0: no identify report after reset
+  synaptics-tcm spi0.0: probe ... failed with error -110
+
+Starting the phone from a full power off, with the phone off for six
+hours, fails the same way, so this is not state left over from a previous
+session.
+
+Google's driver handles this in syna_tcm_v1_detect(): if the first packet
+after the reset is not the identify report, it sends an IDENTIFY command,
+and a RESET command if that fails. The identify record is the payload of
+IDENTIFY's response; only RESET is completed by an identify report. Do
+the same, and hand the payload to tcm_handle_identify() so ts->id and
+max_write_size are real and the existing RUN_APP_FW step still applies if
+the controller is not in application mode.
+
+This controller acknowledges IDENTIFY (status 0x01, no payload) and
+RESET, sends no identify report for either, and RESET does not restart
+it. It is alive and in application mode, so carry on with an empty
+identify record in that case; the part number and build id stay unknown.
+A controller whose identify report was read without its ATTN interrupt
+having fired still fails, as before.
+
+The message CRC setting is detected from the bytes after the first
+payload, which the driver took to be padding when CRCs are off. This
+controller sends the start of the next chunk (0xa5 0x03) there instead,
+so the driver decided CRCs were on and every later command was ignored.
+Treat that as no CRC too.
+
+A controller left running also streams heat map frames (report 0xc3).
+Ask it to stop, as Google's driver does at suspend, and log it if the
+controller refuses.
+
+Occasionally a read starts in the middle of one of those frames and its
+payload is taken for a "continued read" header. The length field of that
+header is payload data, and the driver tried to read about 63 KB for it.
+Drop the read and resync. Log the first one, with the code and length of
+the message before it, and count the rest (dev_dbg), since a touched
+screen does this a few times a second.
+
+Assisted-by: Claude:claude-sonnet-5-5
+Signed-off-by: Roberto Nuzzarello <nuzzarello@gmail.com>
+---
+ drivers/input/touchscreen/synaptics_tcm.c | 108 ++++++++++++++++++++--
+ 1 file changed, 102 insertions(+), 6 deletions(-)
+
+diff --git a/drivers/input/touchscreen/synaptics_tcm.c b/drivers/input/touchscreen/synaptics_tcm.c
+index 1aa29458a..21c41dabc 100644
+--- a/drivers/input/touchscreen/synaptics_tcm.c
++++ b/drivers/input/touchscreen/synaptics_tcm.c
+@@ -60,6 +60,9 @@
+ #define TCM_READ_RETRIES		10
+ 
+ /* Commands */
++#define TCM_CMD_IDENTIFY		0x02
++#define TCM_CMD_RESET			0x04
++#define TCM_CMD_DISABLE_REPORT		0x06
+ #define TCM_CMD_RUN_APP_FW		0x14
+ #define TCM_CMD_GET_APP_INFO		0x20
+ #define TCM_CMD_GET_TOUCH_REPORT_CONFIG	0x25
+@@ -72,6 +75,7 @@
+ /* Report codes */
+ #define TCM_REPORT_IDENTIFY		0x10
+ #define TCM_REPORT_TOUCH		0x11
++#define TCM_REPORT_HEAT_MAP		0xc3
+ 
+ /* Firmware modes in the identify report */
+ #define TCM_MODE_APP_FW			0x01
+@@ -167,6 +171,11 @@ struct tcm_ts {
+ 	struct tcm_object objs[TCM_MAX_OBJECTS];
+ 	bool input_ready;
+ 
++	/* The message read before the current one, for desync reports */
++	u8 last_code;
++	unsigned int last_len;
++	unsigned int desyncs;
++
+ 	/* Message being read; DMA safe. */
+ 	u8 *rx;
+ 	u8 *tx;
+@@ -271,8 +280,16 @@ static int tcm_read_payload(struct tcm_ts *ts, unsigned int len)
+ 	 * once, on the first message with a payload (the identify report).
+ 	 */
+ 	if (!ts->crc_known) {
+-		ts->has_crc = !(ts->rx[xfer_len - 2] == TCM_PADDING &&
+-				ts->rx[xfer_len - 1] == TCM_PADDING);
++		u8 a = ts->rx[xfer_len - 2];
++		u8 b = ts->rx[xfer_len - 1];
++
++		/*
++		 * Without CRCs the device sends padding after the message, or
++		 * starts the next chunk (0xa5 0x03). A CRC that happens to be
++		 * 0xa5 0x03 (1 in 65,536, once per probe) is read as no CRC.
++		 */
++		ts->has_crc = !((a == TCM_PADDING && b == TCM_PADDING) ||
++				(a == TCM_MARKER && b == TCM_STATUS_CONTINUED_READ));
+ 		ts->crc_known = true;
+ 	}
+ 
+@@ -489,6 +506,26 @@ static int tcm_read_message(struct tcm_ts *ts)
+ 
+ 	code = hdr[1];
+ 	len = get_unaligned_le16(&hdr[2]);
++	/*
++	 * A "continued read" header here means this read landed in the middle
++	 * of a message whose payload was not taken (the stream of 0xc3 frames
++	 * does this now and then). Its length field is payload data, so
++	 * reading that many bytes would stall everything: drop it and resync.
++	 */
++	if (code == TCM_STATUS_CONTINUED_READ) {
++		/* A touched screen does this a few times a second */
++		if (!ts->desyncs++)
++			dev_warn(&ts->spi->dev,
++				 "Out-of-sync continued read after message %#04x of %u bytes (more are only counted)\n",
++				 ts->last_code, ts->last_len);
++		else
++			dev_dbg(&ts->spi->dev,
++				"Out-of-sync continued read #%u after message %#04x of %u bytes\n",
++				ts->desyncs, ts->last_code, ts->last_len);
++		goto out_unlock;
++	}
++	ts->last_code = code;
++	ts->last_len = len;
+ 	if (code == TCM_STATUS_IDLE)
+ 		goto out_unlock;
+ 
+@@ -507,6 +544,12 @@ static int tcm_read_message(struct tcm_ts *ts)
+ 		} else if (code == TCM_REPORT_IDENTIFY) {
+ 			dev_dbg(&ts->spi->dev, "identify report\n");
+ 			tcm_handle_identify(ts, ts->rx + 2, len);
++			/* It is the answer to a RESET command */
++			if (ts->cmd == TCM_CMD_RESET) {
++				ts->resp_code = TCM_STATUS_OK;
++				ts->resp_len = 0;
++				complete(&ts->cmd_done);
++			}
+ 		}
+ 		return 0;
+ 	}
+@@ -609,6 +652,8 @@ static int tcm_wait_identify(struct tcm_ts *ts)
+ static int tcm_reset_and_identify(struct tcm_ts *ts)
+ {
+ 	struct device *dev = &ts->spi->dev;
++	u8 report = TCM_REPORT_HEAT_MAP;
++	u8 id[sizeof(ts->id)];
+ 	int error;
+ 
+ 	reinit_completion(&ts->identify_done);
+@@ -623,11 +668,62 @@ static int tcm_reset_and_identify(struct tcm_ts *ts)
+ 		disable_irq(ts->spi->irq);
+ 		tcm_read_message(ts);
+ 		enable_irq(ts->spi->irq);
+-		if (try_wait_for_completion(&ts->identify_done))
++		if (try_wait_for_completion(&ts->identify_done)) {
+ 			dev_err(dev, "identify report read, but ATTN interrupt never fired\n");
+-		else
+-			dev_err(dev, "no identify report after reset\n");
+-		return error;
++			return error;
++		}
++
++		/*
++		 * On some units the reset line does not restart the controller:
++		 * it keeps running its application firmware and streaming
++		 * reports, so no identify report follows. Ask for it, as
++		 * Google's driver does (syna_tcm_v1_detect()).
++		 */
++		dev_warn(dev, "no identify report after reset, sending IDENTIFY\n");
++		reinit_completion(&ts->identify_done);
++		error = tcm_command(ts, TCM_CMD_IDENTIFY, NULL, 0,
++				    id, sizeof(id));
++		if (error > 0) {
++			/* The response carries the identify record */
++			tcm_handle_identify(ts, id, min_t(int, error, sizeof(id)));
++		} else if (error < 0) {
++			dev_warn(dev, "IDENTIFY failed: %d, sending RESET\n", error);
++			reinit_completion(&ts->identify_done);
++			error = tcm_command(ts, TCM_CMD_RESET, NULL, 0, NULL, 0);
++			if (error < 0) {
++				dev_err(dev, "RESET failed: %d\n", error);
++				return error;
++			}
++			error = tcm_wait_identify(ts);
++			if (error) {
++				dev_err(dev, "no identify report after RESET\n");
++				return error;
++			}
++		} else {
++			/*
++			 * The Pixel 7 Pro unit this was found on acknowledges
++			 * both IDENTIFY and RESET without a payload, sends no
++			 * identify report for either, and RESET does not
++			 * restart it. It is alive and in application mode, so
++			 * carry on without the identify record (the part
++			 * number and build id stay unknown).
++			 */
++			dev_warn(dev, "IDENTIFY answered without an identify record, assuming application firmware\n");
++			memset(&ts->id, 0, sizeof(ts->id));
++			ts->id.mode = TCM_MODE_APP_FW;
++		}
++
++		/*
++		 * A controller left running streams heat map frames (report
++		 * 0xc3) at the display rate; this driver does not use them.
++		 * Ask it to stop, as Google's driver does at suspend. Touch
++		 * reports stay on.
++		 */
++		error = tcm_command(ts, TCM_CMD_DISABLE_REPORT, &report, 1,
++				    NULL, 0);
++		if (error < 0)
++			dev_warn(dev, "could not disable report %#04x: %d\n",
++				 report, error);
+ 	}
+ 
+ 	if (ts->id.mode != TCM_MODE_APP_FW) {

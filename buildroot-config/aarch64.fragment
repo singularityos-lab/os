@@ -2,9 +2,10 @@ BR2_aarch64=y
 BR2_cortex_a53=y
 # BR2_LINUX_KERNEL_USE_CUSTOM_CONFIG is not set
 BR2_LINUX_KERNEL_USE_ARCH_DEFAULT_CONFIG=y
-BR2_LINUX_KERNEL_CONFIG_FRAGMENT_FILES="$(BR2_EXTERNAL_SINGULARITY_PATH)/buildroot-config/kernel-aarch64.fragment $(BR2_EXTERNAL_SINGULARITY_PATH)/board/mts/linux-mts.fragment"
+BR2_LINUX_KERNEL_CONFIG_FRAGMENT_FILES="$(BR2_EXTERNAL_SINGULARITY_PATH)/board/linux/arm64-devices.fragment $(BR2_EXTERNAL_SINGULARITY_PATH)/buildroot-config/kernel-aarch64.fragment $(BR2_EXTERNAL_SINGULARITY_PATH)/board/mts/linux-mts.fragment"
+BR2_LINUX_KERNEL_PATCH="$(BR2_EXTERNAL_SINGULARITY_PATH)/board/linux/patches-common $(BR2_EXTERNAL_SINGULARITY_PATH)/board/mts/linux-patches $(BR2_EXTERNAL_SINGULARITY_PATH)/board/linux/patches-arm64"
 BR2_LINUX_KERNEL_DTS_SUPPORT=y
-BR2_LINUX_KERNEL_INTREE_DTS_NAME="nvidia/tegra210-p3450-0000 nvidia/tegra234-p3768-0000+p3767-0005 broadcom/bcm2711-rpi-4-b broadcom/bcm2712-rpi-5-b rockchip/rk3588-rock-5b rockchip/rk3399-pinebook-pro qcom/sc8280xp-lenovo-thinkpad-x13s qcom/qrb2210-arduino-imola"
+BR2_LINUX_KERNEL_INTREE_DTS_NAME="nvidia/tegra210-p3450-0000 nvidia/tegra234-p3768-0000+p3767-0005 broadcom/bcm2711-rpi-4-b broadcom/bcm2712-rpi-5-b rockchip/rk3588-rock-5b rockchip/rk3399-pinebook-pro qcom/sc8280xp-lenovo-thinkpad-x13s qcom/qrb2210-arduino-imola exynos/google/gs201-cheetah"
 # BR2_PACKAGE_MESA3D_GALLIUM_DRIVER_CROCUS is not set
 # BR2_PACKAGE_MESA3D_GALLIUM_DRIVER_IRIS is not set
 # BR2_PACKAGE_MESA3D_VULKAN_DRIVER_INTEL is not set

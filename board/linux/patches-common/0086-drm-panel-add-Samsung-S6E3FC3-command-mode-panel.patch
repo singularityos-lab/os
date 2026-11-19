@@ -1,0 +1,519 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Alejandro Garcia <skipper.pelygro@gmail.com>
+Date: Sat, 31 Oct 2026 21:27:55 -0700
+Subject: [PATCH] drm/panel: add Samsung S6E3FC3 command-mode panel
+
+Add a driver for the Samsung S6E3FC3 DDIC and its P10 1080x2400 AMOLED
+panel, found in the Google Pixel 7 (panther).
+
+The command sequences come from Google's GPL panel driver
+(panel-samsung-s6e3fc3-p10.c), limited to the EVT1 and later panels that
+ship in phones: the cold init table at 60 Hz, TE2, DSC enable with the
+vendor PPS sent as is, MIC off, and display on/off. Local HBM, the
+low-power (AOD) modes and the panel revision reads are left out.
+
+The bootloader powers the panel and leaves it scanning out. When the
+reset line reads released at probe the driver takes the panel over
+without sending anything, holding the supplies and keeping the reset
+line where it is; only brightness and power changes reach the panel.
+Brightness is a backlight device over DCS 0x51 (11 bits, the normal
+range; HBM is left for later), with levels below the vendor driver's
+lowest (4) raised to it, and blanking the backlight turns the display
+off while keeping the panel out of sleep.
+
+The driver follows the Pixel 7 Pro's S6E3HC4 driver in this tree.
+
+Tested on a Pixel 7 from slot B (7.3.0-rc6), with the next patch: the
+driver takes the panel over from the bootloader without changing the
+picture. With the DSIM command path sending, brightness 1023, 400, 2047
+and 4 each changed the screen as expected, blanking the backlight turned
+the display off and unblanking turned it back on with the picture
+intact, and the desktop's brightness slider drove the panel. No DSIM
+errors.
+
+Assisted-by: Claude Opus 5.5
+Signed-off-by: Alejandro Garcia <skipper.pelygro@gmail.com>
+---
+ drivers/gpu/drm/panel/Kconfig                 |  15 +
+ drivers/gpu/drm/panel/Makefile                |   1 +
+ drivers/gpu/drm/panel/panel-samsung-s6e3fc3.c | 433 ++++++++++++++++++
+ 3 files changed, 449 insertions(+)
+ create mode 100644 drivers/gpu/drm/panel/panel-samsung-s6e3fc3.c
+
+diff --git a/drivers/gpu/drm/panel/Kconfig b/drivers/gpu/drm/panel/Kconfig
+index 5d667d014..ffefd2d9f 100644
+--- a/drivers/gpu/drm/panel/Kconfig
++++ b/drivers/gpu/drm/panel/Kconfig
+@@ -1020,6 +1020,21 @@ config DRM_PANEL_SAMSUNG_S6E3FC2X01
+ 
+ 	    Samsung AMS641RW (found in the OnePlus 6T smartphone)
+ 
++config DRM_PANEL_SAMSUNG_S6E3FC3
++	tristate "Samsung S6E3FC3 DSI command mode panel"
++	depends on GPIOLIB
++	depends on OF
++	depends on DRM_MIPI_DSI
++	depends on BACKLIGHT_CLASS_DEVICE
++	select DRM_DISPLAY_HELPER
++	select DRM_DISPLAY_DSC_HELPER
++	help
++	  Say Y or M here if you want to enable support for the Samsung
++	  S6E3FC3 DDIC and its P10 1080x2400 command-mode AMOLED panel,
++	  found in the Google Pixel 7. The driver can take over a panel the
++	  bootloader left running and exposes its brightness as a backlight
++	  device.
++
+ config DRM_PANEL_SAMSUNG_S6E3HA2
+ 	tristate "Samsung S6E3HA2 DSI video mode panel"
+ 	depends on OF
+diff --git a/drivers/gpu/drm/panel/Makefile b/drivers/gpu/drm/panel/Makefile
+index cbf10d7d4..2149785e7 100644
+--- a/drivers/gpu/drm/panel/Makefile
++++ b/drivers/gpu/drm/panel/Makefile
+@@ -98,6 +98,7 @@ obj-$(CONFIG_DRM_PANEL_SAMSUNG_S6D27A1) += panel-samsung-s6d27a1.o
+ obj-$(CONFIG_DRM_PANEL_SAMSUNG_S6D7AA0) += panel-samsung-s6d7aa0.o
+ obj-$(CONFIG_DRM_PANEL_SAMSUNG_S6E3FA7) += panel-samsung-s6e3fa7.o
+ obj-$(CONFIG_DRM_PANEL_SAMSUNG_S6E3FC2X01) += panel-samsung-s6e3fc2x01.o
++obj-$(CONFIG_DRM_PANEL_SAMSUNG_S6E3FC3) += panel-samsung-s6e3fc3.o
+ obj-$(CONFIG_DRM_PANEL_SAMSUNG_S6E3HA2) += panel-samsung-s6e3ha2.o
+ obj-$(CONFIG_DRM_PANEL_SAMSUNG_S6E3HA8) += panel-samsung-s6e3ha8.o
+ obj-$(CONFIG_DRM_PANEL_SAMSUNG_S6E3HC4) += panel-samsung-s6e3hc4.o
+diff --git a/drivers/gpu/drm/panel/panel-samsung-s6e3fc3.c b/drivers/gpu/drm/panel/panel-samsung-s6e3fc3.c
+new file mode 100644
+index 000000000..56d97ec74
+--- /dev/null
++++ b/drivers/gpu/drm/panel/panel-samsung-s6e3fc3.c
+@@ -0,0 +1,433 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * Samsung S6E3FC3 DSI command-mode AMOLED panel, P10 (Google Pixel 7)
++ *
++ * Command sequences from Google's GPL panel driver
++ * (google-modules/display/samsung/panel/panel-samsung-s6e3fc3-p10.c),
++ * restricted to the EVT1 and later panels that ship in phones. Local HBM,
++ * low-power (AOD) modes and the panel revision reads are left out.
++ *
++ * The bootloader powers the panel on and leaves it running. When the
++ * reset line is released at probe, the driver takes the panel over as it
++ * is: it sends nothing until the brightness or the power state changes.
++ */
++
++#include <linux/backlight.h>
++#include <linux/delay.h>
++#include <linux/gpio/consumer.h>
++#include <linux/module.h>
++#include <linux/mod_devicetable.h>
++#include <linux/regulator/consumer.h>
++
++#include <video/mipi_display.h>
++
++#include <drm/display/drm_dsc.h>
++#include <drm/drm_mipi_dsi.h>
++#include <drm/drm_modes.h>
++#include <drm/drm_panel.h>
++#include <drm/drm_probe_helper.h>
++
++/*
++ * Normal range; 2048..4095 are the high brightness mode (HBM) levels. The
++ * vendor driver's lowest level is 4.
++ */
++#define S6E3FC3_MIN_BRIGHTNESS		4
++#define S6E3FC3_MAX_BRIGHTNESS		2047
++#define S6E3FC3_DEFAULT_BRIGHTNESS	1023
++
++#define S6E3FC3_WRCTRLD_BCTRL		0x20
++
++struct s6e3fc3 {
++	struct drm_panel panel;
++	struct mipi_dsi_device *dsi;
++	struct gpio_desc *reset_gpio;
++	struct regulator_bulk_data *supplies;
++	struct drm_dsc_config dsc;
++	bool display_off;
++};
++
++static const struct regulator_bulk_data s6e3fc3_supplies[] = {
++	{ .supply = "vddi" },
++	{ .supply = "vci" },
++};
++
++static const u8 s6e3fc3_p10_pps[sizeof(struct drm_dsc_picture_parameter_set)] = {
++	0x11, 0x00, 0x00, 0x89, 0x30, 0x80, 0x09, 0x60,
++	0x04, 0x38, 0x00, 0x30, 0x02, 0x1c, 0x02, 0x1c,
++	0x02, 0x00, 0x02, 0x0e, 0x00, 0x20, 0x04, 0xa6,
++	0x00, 0x07, 0x00, 0x0c, 0x02, 0x0b, 0x02, 0x1f,
++	0x18, 0x00, 0x10, 0xf0, 0x03, 0x0c, 0x20, 0x00,
++	0x06, 0x0b, 0x0b, 0x33, 0x0e, 0x1c, 0x2a, 0x38,
++	0x46, 0x54, 0x62, 0x69, 0x70, 0x77, 0x79, 0x7b,
++	0x7d, 0x7e, 0x01, 0x02, 0x01, 0x00, 0x09, 0x40,
++	0x09, 0xbe, 0x19, 0xfc, 0x19, 0xfa, 0x19, 0xf8,
++	0x1a, 0x38, 0x1a, 0x78, 0x1a, 0xb6, 0x2a, 0xf6,
++	0x2b, 0x34, 0x2b, 0x74, 0x3b, 0x74, 0x6b, 0xf4,
++};
++
++static inline struct s6e3fc3 *to_s6e3fc3(struct drm_panel *panel)
++{
++	return container_of(panel, struct s6e3fc3, panel);
++}
++
++#define s6e3fc3_unlock_lvl2(ctx) \
++	mipi_dsi_dcs_write_seq_multi(ctx, 0xf0, 0x5a, 0x5a)
++#define s6e3fc3_lock_lvl2(ctx) \
++	mipi_dsi_dcs_write_seq_multi(ctx, 0xf0, 0xa5, 0xa5)
++#define s6e3fc3_freq_update(ctx) \
++	mipi_dsi_dcs_write_seq_multi(ctx, 0xf7, 0x0f)
++
++static void s6e3fc3_reset(struct s6e3fc3 *ctx)
++{
++	gpiod_set_value_cansleep(ctx->reset_gpio, 0);
++	usleep_range(5000, 6000);
++	gpiod_set_value_cansleep(ctx->reset_gpio, 1);
++	usleep_range(5000, 6000);
++	gpiod_set_value_cansleep(ctx->reset_gpio, 0);
++	usleep_range(10000, 11000);
++}
++
++/*
++ * Cold init after reset (Google's s6e3fc3_p10_init_cmds), for 60 Hz in the
++ * HS operating mode, the vendor driver's default.
++ */
++static void s6e3fc3_init(struct mipi_dsi_multi_context *ctx)
++{
++	mipi_dsi_dcs_exit_sleep_mode_multi(ctx);
++	mipi_dsi_msleep(ctx, 120);
++
++	/* TE on, a bare 0x35 as the vendor driver sends it */
++	mipi_dsi_dcs_write_seq_multi(ctx, MIPI_DCS_SET_TEAR_ON);
++	mipi_dsi_dcs_set_column_address_multi(ctx, 0, 1080 - 1);
++	mipi_dsi_dcs_set_page_address_multi(ctx, 0, 2400 - 1);
++
++	s6e3fc3_unlock_lvl2(ctx);
++	/* TE width */
++	mipi_dsi_dcs_write_seq_multi(ctx, 0xb9, 0x01, 0x09, 0x5c, 0x00, 0x0b);
++	/* FQ CON */
++	mipi_dsi_dcs_write_seq_multi(ctx, 0xb0, 0x27, 0xf2);
++	mipi_dsi_dcs_write_seq_multi(ctx, 0xf2, 0x00);
++	/* HW, V-total */
++	mipi_dsi_dcs_write_seq_multi(ctx, 0xb0, 0x0e, 0xf2);
++	mipi_dsi_dcs_write_seq_multi(ctx, 0xf2, 0x04, 0xd4);
++	/* source change */
++	mipi_dsi_dcs_write_seq_multi(ctx, 0xb0, 0x4c, 0xf6);
++	mipi_dsi_dcs_write_seq_multi(ctx, 0xf6, 0x48, 0x21);
++	/* LTPS change */
++	mipi_dsi_dcs_write_seq_multi(ctx, 0xb0, 0x88, 0xcb);
++	mipi_dsi_dcs_write_seq_multi(ctx, 0xcb, 0x2d, 0x22);
++	mipi_dsi_dcs_write_seq_multi(ctx, 0xb0, 0x8e, 0xcb);
++	mipi_dsi_dcs_write_seq_multi(ctx, 0xcb, 0x2d, 0x22);
++	mipi_dsi_dcs_write_seq_multi(ctx, 0xb0, 0xa6, 0xcb);
++	mipi_dsi_dcs_write_seq_multi(ctx, 0xcb, 0x05, 0x18, 0x22, 0x21);
++	mipi_dsi_dcs_write_seq_multi(ctx, 0xb0, 0xbf, 0xcb);
++	mipi_dsi_dcs_write_seq_multi(ctx, 0xcb, 0x09, 0x28);
++	mipi_dsi_dcs_write_seq_multi(ctx, 0xb0, 0xc5, 0xcb);
++	mipi_dsi_dcs_write_seq_multi(ctx, 0xcb, 0x09, 0x28);
++	/* EM off setting */
++	mipi_dsi_dcs_write_seq_multi(ctx, 0xb0, 0xdf, 0x66);
++	mipi_dsi_dcs_write_seq_multi(ctx, 0x66, 0x71);
++	s6e3fc3_freq_update(ctx);
++	s6e3fc3_lock_lvl2(ctx);
++
++	/* 60 Hz (0x60 0x08 is 90 Hz) */
++	s6e3fc3_unlock_lvl2(ctx);
++	mipi_dsi_dcs_write_seq_multi(ctx, 0x60, 0x00);
++	s6e3fc3_freq_update(ctx);
++	s6e3fc3_lock_lvl2(ctx);
++}
++
++/*
++ * TE2 on, with the vendor driver's timings for 60 and 90 Hz and for its
++ * low-power mode (s6e3fc3_p10_send_te2_cmds()). 0xf2 0xcc and 0xf2 0xc4
++ * switch the global parameter offset (0xb0) between 10 and 8 bits.
++ */
++static void s6e3fc3_te2(struct mipi_dsi_multi_context *ctx)
++{
++	s6e3fc3_unlock_lvl2(ctx);
++	mipi_dsi_dcs_write_seq_multi(ctx, 0xb0, 0x28, 0xf2);
++	mipi_dsi_dcs_write_seq_multi(ctx, 0xf2, 0xcc);
++	mipi_dsi_dcs_write_seq_multi(ctx, 0xb0, 0x00, 0x26, 0xf2);
++	mipi_dsi_dcs_write_seq_multi(ctx, 0xf2, 0x03, 0x14);
++	mipi_dsi_dcs_write_seq_multi(ctx, 0xb0, 0x00, 0xaf, 0xcb);
++	mipi_dsi_dcs_write_seq_multi(ctx, 0xcb, 0x00, 0x00, 0x30);
++	mipi_dsi_dcs_write_seq_multi(ctx, 0xb0, 0x01, 0x2f, 0xcb);
++	mipi_dsi_dcs_write_seq_multi(ctx, 0xcb, 0x00, 0x00, 0x30);
++	mipi_dsi_dcs_write_seq_multi(ctx, 0xb0, 0x01, 0xaf, 0xcb);
++	mipi_dsi_dcs_write_seq_multi(ctx, 0xcb, 0x00, 0x00, 0x10);
++	mipi_dsi_dcs_write_seq_multi(ctx, 0xb0, 0x00, 0x28, 0xf2);
++	mipi_dsi_dcs_write_seq_multi(ctx, 0xf2, 0xc4);
++	s6e3fc3_freq_update(ctx);
++	s6e3fc3_lock_lvl2(ctx);
++}
++
++/*
++ * DSC on: compression mode, the vendor PPS (DSI data type 0x0a) verbatim,
++ * MIC off and the panel's DSC decoder on.
++ */
++static void s6e3fc3_dsc(struct mipi_dsi_multi_context *ctx)
++{
++	const struct drm_dsc_picture_parameter_set *pps =
++		(const void *)s6e3fc3_p10_pps;
++
++	mipi_dsi_compression_mode_multi(ctx, true);
++	mipi_dsi_picture_parameter_set_multi(ctx, pps);
++	mipi_dsi_dcs_write_seq_multi(ctx, 0xc2, 0x14);
++	mipi_dsi_dcs_write_seq_multi(ctx, 0x9d, 0x01);
++}
++
++static int s6e3fc3_prepare(struct drm_panel *panel)
++{
++	struct s6e3fc3 *ctx = to_s6e3fc3(panel);
++	struct mipi_dsi_multi_context dsi_ctx = { .dsi = ctx->dsi };
++	int ret;
++
++	ret = regulator_bulk_enable(ARRAY_SIZE(s6e3fc3_supplies), ctx->supplies);
++	if (ret < 0)
++		return ret;
++	usleep_range(5000, 6000);
++
++	s6e3fc3_reset(ctx);
++
++	s6e3fc3_init(&dsi_ctx);
++	s6e3fc3_te2(&dsi_ctx);
++	s6e3fc3_dsc(&dsi_ctx);
++	/* normal brightness control, HBM and dimming off */
++	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, MIPI_DCS_WRITE_CONTROL_DISPLAY,
++				     S6E3FC3_WRCTRLD_BCTRL);
++	if (dsi_ctx.accum_err) {
++		gpiod_set_value_cansleep(ctx->reset_gpio, 1);
++		regulator_bulk_disable(ARRAY_SIZE(s6e3fc3_supplies), ctx->supplies);
++	}
++
++	return dsi_ctx.accum_err;
++}
++
++static int s6e3fc3_enable(struct drm_panel *panel)
++{
++	struct s6e3fc3 *ctx = to_s6e3fc3(panel);
++	struct mipi_dsi_multi_context dsi_ctx = { .dsi = ctx->dsi };
++
++	mipi_dsi_dcs_set_display_on_multi(&dsi_ctx);
++	if (!dsi_ctx.accum_err)
++		ctx->display_off = false;
++
++	return dsi_ctx.accum_err;
++}
++
++static int s6e3fc3_disable(struct drm_panel *panel)
++{
++	struct s6e3fc3 *ctx = to_s6e3fc3(panel);
++	struct mipi_dsi_multi_context dsi_ctx = { .dsi = ctx->dsi };
++
++	mipi_dsi_dcs_set_display_off_multi(&dsi_ctx);
++	if (!dsi_ctx.accum_err)
++		ctx->display_off = true;
++
++	return dsi_ctx.accum_err;
++}
++
++static int s6e3fc3_unprepare(struct drm_panel *panel)
++{
++	struct s6e3fc3 *ctx = to_s6e3fc3(panel);
++	struct mipi_dsi_multi_context dsi_ctx = { .dsi = ctx->dsi };
++
++	/* the vendor off set: display off, then sleep in and 120 ms */
++	mipi_dsi_dcs_enter_sleep_mode_multi(&dsi_ctx);
++	mipi_dsi_msleep(&dsi_ctx, 120);
++
++	gpiod_set_value_cansleep(ctx->reset_gpio, 1);
++	regulator_bulk_disable(ARRAY_SIZE(s6e3fc3_supplies), ctx->supplies);
++
++	return 0;
++}
++
++/* 1080x2400 at 60 Hz, the vendor driver's first mode */
++static const struct drm_display_mode s6e3fc3_p10_mode = {
++	.clock = (1080 + 32 + 12 + 26) * (2400 + 12 + 4 + 26) * 60 / 1000,
++	.hdisplay = 1080,
++	.hsync_start = 1080 + 32,
++	.hsync_end = 1080 + 32 + 12,
++	.htotal = 1080 + 32 + 12 + 26,
++	.vdisplay = 2400,
++	.vsync_start = 2400 + 12,
++	.vsync_end = 2400 + 12 + 4,
++	.vtotal = 2400 + 12 + 4 + 26,
++	.width_mm = 66,
++	.height_mm = 146,
++	.type = DRM_MODE_TYPE_DRIVER | DRM_MODE_TYPE_PREFERRED,
++};
++
++static int s6e3fc3_get_modes(struct drm_panel *panel,
++			     struct drm_connector *connector)
++{
++	return drm_connector_helper_get_modes_fixed(connector, &s6e3fc3_p10_mode);
++}
++
++static const struct drm_panel_funcs s6e3fc3_panel_funcs = {
++	.prepare = s6e3fc3_prepare,
++	.enable = s6e3fc3_enable,
++	.disable = s6e3fc3_disable,
++	.unprepare = s6e3fc3_unprepare,
++	.get_modes = s6e3fc3_get_modes,
++};
++
++/*
++ * Levels below the vendor driver's lowest are raised to it. A blanked
++ * backlight (bl_power) turns the display off, which keeps the panel out of
++ * sleep with its registers intact, and unblanking turns it back on.
++ */
++static int s6e3fc3_bl_update_status(struct backlight_device *bl)
++{
++	struct s6e3fc3 *ctx = bl_get_data(bl);
++	struct mipi_dsi_multi_context dsi_ctx = { .dsi = ctx->dsi };
++	u16 brightness = backlight_get_brightness(bl);
++
++	if (backlight_is_blank(bl)) {
++		if (!ctx->display_off) {
++			mipi_dsi_dcs_set_display_off_multi(&dsi_ctx);
++			if (!dsi_ctx.accum_err)
++				ctx->display_off = true;
++		}
++		return dsi_ctx.accum_err;
++	}
++
++	if (ctx->display_off) {
++		mipi_dsi_dcs_set_display_on_multi(&dsi_ctx);
++		if (dsi_ctx.accum_err)
++			return dsi_ctx.accum_err;
++		ctx->display_off = false;
++	}
++
++	/* DBV, most significant byte first */
++	return mipi_dsi_dcs_set_display_brightness_large(ctx->dsi,
++			max_t(u16, brightness, S6E3FC3_MIN_BRIGHTNESS));
++}
++
++static const struct backlight_ops s6e3fc3_bl_ops = {
++	.update_status = s6e3fc3_bl_update_status,
++};
++
++static int s6e3fc3_probe(struct mipi_dsi_device *dsi)
++{
++	struct device *dev = &dsi->dev;
++	struct backlight_properties props = {
++		.type = BACKLIGHT_RAW,
++		.brightness = S6E3FC3_DEFAULT_BRIGHTNESS,
++		.max_brightness = S6E3FC3_MAX_BRIGHTNESS,
++		.scale = BACKLIGHT_SCALE_NON_LINEAR,
++	};
++	struct backlight_device *bl;
++	struct s6e3fc3 *ctx;
++	bool handover;
++	int ret;
++
++	ctx = devm_drm_panel_alloc(dev, struct s6e3fc3, panel,
++				   &s6e3fc3_panel_funcs,
++				   DRM_MODE_CONNECTOR_DSI);
++	if (IS_ERR(ctx))
++		return PTR_ERR(ctx);
++
++	ret = devm_regulator_bulk_get_const(dev, ARRAY_SIZE(s6e3fc3_supplies),
++					    s6e3fc3_supplies, &ctx->supplies);
++	if (ret < 0)
++		return dev_err_probe(dev, ret, "failed to get regulators\n");
++
++	/*
++	 * Keep the line as the bootloader left it: driving it here would
++	 * reset a running panel and blank the screen.
++	 */
++	ctx->reset_gpio = devm_gpiod_get(dev, "reset", GPIOD_ASIS);
++	if (IS_ERR(ctx->reset_gpio))
++		return dev_err_probe(dev, PTR_ERR(ctx->reset_gpio),
++				     "failed to get reset-gpios\n");
++
++	ret = gpiod_get_value_cansleep(ctx->reset_gpio);
++	if (ret < 0)
++		return dev_err_probe(dev, ret, "failed to read reset-gpios\n");
++	handover = !ret;
++
++	if (handover) {
++		/* Hold the rails the bootloader turned on. */
++		ret = regulator_bulk_enable(ARRAY_SIZE(s6e3fc3_supplies),
++					    ctx->supplies);
++		if (ret < 0)
++			return dev_err_probe(dev, ret, "failed to enable regulators\n");
++		ret = gpiod_direction_output(ctx->reset_gpio, 0);
++	} else {
++		ret = gpiod_direction_output(ctx->reset_gpio, 1);
++	}
++	if (ret < 0)
++		return dev_err_probe(dev, ret, "failed to set up reset-gpios\n");
++
++	ctx->dsi = dsi;
++	mipi_dsi_set_drvdata(dsi, ctx);
++
++	dsi->lanes = 4;
++	dsi->format = MIPI_DSI_FMT_RGB888;
++	dsi->mode_flags = MIPI_DSI_CLOCK_NON_CONTINUOUS;
++
++	/* Two 540x48 slices, 8 bpc, 8 bpp, as in the vendor PPS. */
++	ctx->dsc.dsc_version_major = 1;
++	ctx->dsc.dsc_version_minor = 1;
++	ctx->dsc.slice_height = 48;
++	ctx->dsc.slice_width = 540;
++	ctx->dsc.slice_count = 2;
++	ctx->dsc.bits_per_component = 8;
++	ctx->dsc.bits_per_pixel = 8 << 4;
++	ctx->dsc.block_pred_enable = true;
++	dsi->dsc = &ctx->dsc;
++
++	ctx->panel.prepare_prev_first = true;
++
++	bl = devm_backlight_device_register(dev, dev_name(dev), dev, ctx,
++					    &s6e3fc3_bl_ops, &props);
++	if (IS_ERR(bl))
++		return dev_err_probe(dev, PTR_ERR(bl),
++				     "failed to register backlight\n");
++	ctx->panel.backlight = bl;
++
++	drm_panel_add(&ctx->panel);
++
++	ret = mipi_dsi_attach(dsi);
++	if (ret < 0) {
++		drm_panel_remove(&ctx->panel);
++		return dev_err_probe(dev, ret, "failed to attach to DSI host\n");
++	}
++
++	dev_info(dev, "%s\n", handover ? "taken over from the bootloader" :
++		 "held in reset");
++
++	return 0;
++}
++
++static void s6e3fc3_remove(struct mipi_dsi_device *dsi)
++{
++	struct s6e3fc3 *ctx = mipi_dsi_get_drvdata(dsi);
++	int ret;
++
++	ret = mipi_dsi_detach(dsi);
++	if (ret < 0)
++		dev_err(&dsi->dev, "failed to detach from DSI host: %d\n", ret);
++
++	drm_panel_remove(&ctx->panel);
++}
++
++static const struct of_device_id s6e3fc3_of_match[] = {
++	{ .compatible = "samsung,s6e3fc3-p10" },
++	{ /* sentinel */ }
++};
++MODULE_DEVICE_TABLE(of, s6e3fc3_of_match);
++
++static struct mipi_dsi_driver s6e3fc3_driver = {
++	.probe = s6e3fc3_probe,
++	.remove = s6e3fc3_remove,
++	.driver = {
++		.name = "panel-samsung-s6e3fc3",
++		.of_match_table = s6e3fc3_of_match,
++	},
++};
++module_mipi_dsi_driver(s6e3fc3_driver);
++
++MODULE_DESCRIPTION("DRM driver for the Samsung S6E3FC3 DSI command-mode panel");
++MODULE_LICENSE("GPL");

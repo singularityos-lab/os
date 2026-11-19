@@ -1,0 +1,31 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Tue, 27 Oct 2026 14:58:20 -0647
+Subject: [PATCH] dt-bindings: clock: google,zumapro: Add the PERIC1 USI10
+ clocks
+
+Add ids for CMU_PERIC1's USI10 user mux, divider and gates. USI10 is the
+I2C bus of the Pixel 9a's RT9471, whose boost supplies VBUS to a device
+on the USB-C port.
+
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ include/dt-bindings/clock/google,zumapro.h | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/include/dt-bindings/clock/google,zumapro.h b/include/dt-bindings/clock/google,zumapro.h
+index 2560150f8..e54d7a6f3 100644
+--- a/include/dt-bindings/clock/google,zumapro.h
++++ b/include/dt-bindings/clock/google,zumapro.h
+@@ -223,6 +223,11 @@
+ #define CLK_GOUT_PERIC1_USI9_IPCLK	6
+ #define CLK_GOUT_PERIC1_USI9_PCLK	7
+ #define CLK_GOUT_PERIC1_USI9_RSTNSYNC	8
++#define CLK_MOUT_PERIC1_USI10_USER	9
++#define CLK_DOUT_PERIC1_USI10		10
++#define CLK_GOUT_PERIC1_USI10_IPCLK	11
++#define CLK_GOUT_PERIC1_USI10_PCLK	12
++#define CLK_GOUT_PERIC1_USI10_RSTNSYNC	13
+ 
+ /* CMU_MISC. */
+ #define CLK_MOUT_MISC_NOC_USER	1

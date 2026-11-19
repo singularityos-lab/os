@@ -1,0 +1,89 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?=C3=81ngel=20Ren=C3=A9?=
+ <17342133+angelrenefm@users.noreply.github.com>
+Date: Sat, 14 Nov 2026 19:27:21 +0100
+Subject: [PATCH] media: s5p-mfc: v15 encoder: header with the first frame,
+ bare VP8
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+On MFC v15:
+
+- default V4L2_CID_MPEG_VIDEO_HEADER_MODE to JOINED_WITH_1ST_FRAME.
+  GStreamer expects one CAPTURE buffer per frame: with a separate header
+  buffer it drops the next one, which is the keyframe.
+
+- set bit 12 of E_VP8_OPTION. Without it the firmware wraps VP8 in IVF
+  file and frame headers, and V4L2_PIX_FMT_VP8 is bare frames. Google's
+  driver sets it too. There is then no header to return at sequence
+  start, so on v15 do not return an empty buffer that would read as the
+  end of the stream. Other versions return the header buffer as before.
+
+Assisted-by: LLM
+Signed-off-by: Ángel René <17342133+angelrenefm@users.noreply.github.com>
+---
+ .../platform/samsung/s5p-mfc/s5p_mfc_enc.c    | 22 ++++++++++++++++---
+ .../platform/samsung/s5p-mfc/s5p_mfc_opr_v6.c |  6 +++++
+ 2 files changed, 25 insertions(+), 3 deletions(-)
+
+diff --git a/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_enc.c b/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_enc.c
+index 9b5d8449a..a8fde6456 100644
+--- a/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_enc.c
++++ b/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_enc.c
+@@ -1172,7 +1172,13 @@ static int enc_post_seq_start(struct s5p_mfc_ctx *ctx)
+ 	struct s5p_mfc_enc_params *p = &ctx->enc_params;
+ 	struct s5p_mfc_buf *dst_mb;
+ 
+-	if (p->seq_hdr_mode == V4L2_MPEG_VIDEO_HEADER_MODE_SEPARATE) {
++	/*
++	 * VP8 on v15 has no header (no IVF), so the stream size reads 0 here:
++	 * an empty buffer would look like the end of the stream.
++	 */
++	if (p->seq_hdr_mode == V4L2_MPEG_VIDEO_HEADER_MODE_SEPARATE &&
++	    (!IS_MFCV15(dev) ||
++	     s5p_mfc_hw_call(dev->mfc_ops, get_enc_strm_size, dev))) {
+ 		if (!list_empty(&ctx->dst_queue)) {
+ 			dst_mb = list_entry(ctx->dst_queue.next,
+ 					struct s5p_mfc_buf, list);
+@@ -2782,11 +2788,21 @@ int s5p_mfc_enc_ctrls_setup(struct s5p_mfc_ctx *ctx)
+ 			if ((controls[i].type == V4L2_CTRL_TYPE_MENU) ||
+ 				(controls[i].type ==
+ 					V4L2_CTRL_TYPE_INTEGER_MENU)) {
++				s32 def = controls[i].default_value;
++
++				/*
++				 * On v15 the header comes with the first frame
++				 * by default: GStreamer expects one capture
++				 * buffer per frame and drops the extra one.
++				 */
++				if (controls[i].id ==
++				    V4L2_CID_MPEG_VIDEO_HEADER_MODE &&
++				    IS_MFCV15(ctx->dev))
++					def = V4L2_MPEG_VIDEO_HEADER_MODE_JOINED_WITH_1ST_FRAME;
+ 				ctx->ctrls[i] = v4l2_ctrl_new_std_menu(
+ 					&ctx->ctrl_handler,
+ 					&s5p_mfc_enc_ctrl_ops, controls[i].id,
+-					controls[i].maximum, 0,
+-					controls[i].default_value);
++					controls[i].maximum, 0, def);
+ 			} else {
+ 				ctx->ctrls[i] = v4l2_ctrl_new_std(
+ 					&ctx->ctrl_handler,
+diff --git a/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_opr_v6.c b/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_opr_v6.c
+index 75a372e39..eaad16804 100644
+--- a/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_opr_v6.c
++++ b/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_opr_v6.c
+@@ -1650,6 +1650,12 @@ static int s5p_mfc_set_enc_params_vp8(struct s5p_mfc_ctx *ctx)
+ 	}
+ 	reg |= (val & 0xF) << 3;
+ 	reg |= (p_vp8->num_ref & 0x2);
++	/*
++	 * MFC v15 wraps VP8 in IVF (file and frame headers) unless bit 12 is
++	 * set; V4L2_PIX_FMT_VP8 is bare frames (Google's driver sets it too).
++	 */
++	if (IS_MFCV15(dev))
++		reg |= BIT(12);
+ 	writel(reg, mfc_regs->e_vp8_options);
+ 
+ 	mfc_debug_leave();

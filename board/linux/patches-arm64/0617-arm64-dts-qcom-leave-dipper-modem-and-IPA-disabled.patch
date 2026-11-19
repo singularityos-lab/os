@@ -1,0 +1,36 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: quatrixone <quatrix1@gmail.com>
+Date: Sun, 8 Nov 2026 16:55:00 +0100
+Subject: [PATCH] arm64: dts: qcom: leave dipper modem and IPA disabled
+
+Keep the modem and IPA unavailable until their runtime services and
+NV handling are reviewed on the phone.
+
+Assisted-by: LLM Codex
+Signed-off-by: quatrixone <quatrix1@gmail.com>
+---
+ arch/arm64/boot/dts/qcom/sdm845-xiaomi-dipper-common.dtsi | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/arch/arm64/boot/dts/qcom/sdm845-xiaomi-dipper-common.dtsi b/arch/arm64/boot/dts/qcom/sdm845-xiaomi-dipper-common.dtsi
+index eb4243e7f..d2e6987bc 100644
+--- a/arch/arm64/boot/dts/qcom/sdm845-xiaomi-dipper-common.dtsi
++++ b/arch/arm64/boot/dts/qcom/sdm845-xiaomi-dipper-common.dtsi
+@@ -436,7 +436,7 @@ &ibb {
+ &ipa {
+ 	firmware-name = "qcom/sdm845/Xiaomi/dipper/ipa_fws.mbn";
+ 
+-	status = "okay";
++	status = "disabled";
+ };
+ 
+ &lab {
+@@ -455,7 +455,7 @@ &mss_pil {
+ 	firmware-name = "qcom/sdm845/Xiaomi/dipper/mba.mbn",
+ 			"qcom/sdm845/Xiaomi/dipper/modem.mbn";
+ 
+-	status = "okay";
++	status = "disabled";
+ };
+ 
+ &pmi8998_charger {

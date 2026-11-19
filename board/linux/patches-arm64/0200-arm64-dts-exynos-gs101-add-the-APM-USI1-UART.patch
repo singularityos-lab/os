@@ -1,0 +1,61 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: saiththerobo <the.tom.sharp@gmail.com>
+Date: Thu, 15 Oct 2026 14:33:29 +0100
+Subject: [PATCH] arm64: dts: exynos: gs101: add the APM USI1 UART
+
+The APM block's USI1 UART at 0x175b0000 (SPI 69, USI mode in sysreg_apm
+at +0x4e4, uart16_bus pins, CMU_APM USI1 clocks), as cheetah's gs201
+serial_apm1, from Google's gs101-usi.dtsi. Pixel 6 devices wire
+Bluetooth to it.
+
+Its baud clock comes from mout_apm_func, which the firmware runs from
+mout_apm_funcsrc (FUNC select 1, PLL_ALV/2, so about 197 MHz at the
+UART); with the CMU_APM mux fields fixed, Linux reads that as it is.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Signed-off-by: saiththerobo <the.tom.sharp@gmail.com>
+---
+ arch/arm64/boot/dts/exynos/google/gs101.dtsi | 30 ++++++++++++++++++++
+ 1 file changed, 30 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/gs101.dtsi b/arch/arm64/boot/dts/exynos/google/gs101.dtsi
+index 8f57c2d74..4ac27abd5 100644
+--- a/arch/arm64/boot/dts/exynos/google/gs101.dtsi
++++ b/arch/arm64/boot/dts/exynos/google/gs101.dtsi
+@@ -1863,6 +1863,36 @@ wakeup-interrupt-controller {
+ 			};
+ 		};
+ 
++		/* APM USI1: a UART-only USI, wired to Bluetooth on Pixel 6 devices */
++		usi_apm1: usi@175b00c0 {
++			compatible = "google,gs101-usi", "samsung,exynos850-usi";
++			reg = <0x175b00c0 0x20>;
++			ranges;
++			#address-cells = <1>;
++			#size-cells = <1>;
++			clocks = <&cmu_apm CLK_GOUT_APM_APM_USI1_UART_PCLK>,
++				 <&cmu_apm CLK_GOUT_APM_APM_USI1_UART_IPCLK>;
++			clock-names = "pclk", "ipclk";
++			samsung,sysreg = <&sysreg_apm 0x4e4>;
++			samsung,mode = <USI_MODE_UART>;
++			/* UART Rx needs the IP clock while idle */
++			samsung,clkreq-on;
++			status = "disabled";
++
++			serial_apm1: serial@175b0000 {
++				compatible = "google,gs101-uart";
++				reg = <0x175b0000 0xc0>;
++				clocks = <&cmu_apm CLK_GOUT_APM_APM_USI1_UART_PCLK>,
++					 <&cmu_apm CLK_GOUT_APM_APM_USI1_UART_IPCLK>;
++				clock-names = "uart", "clk_uart_baud0";
++				interrupts = <GIC_SPI 69 IRQ_TYPE_LEVEL_HIGH 0>;
++				pinctrl-0 = <&uart16_bus>;
++				pinctrl-names = "default";
++				samsung,uart-fifosize = <256>;
++				status = "disabled";
++			};
++		};
++
+ 		ap2apm_mailbox: mailbox@17610000 {
+ 			compatible = "google,gs101-mbox";
+ 			reg = <0x17610000 0x1000>;

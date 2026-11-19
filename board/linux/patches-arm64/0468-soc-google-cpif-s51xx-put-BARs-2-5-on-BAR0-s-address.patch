@@ -1,0 +1,100 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Tue, 13 Oct 2026 14:27:56 -0400
+Subject: [PATCH] soc: google: cpif: s51xx: put BARs 2-5 on BAR0's address, as
+ stock does
+
+Stock's probe "disables" BARs 0-5 by rewriting their resources and
+calling pci_assign_resource(), which gives BARs 2-5 one-byte resources
+at the bridge window's start: on the modem all five BARs then decode the
+same 1 MiB at the doorbell's bus address. d1fe3981d kept the PCI core's
+assignment instead, BARs 2-5 in their own windows above BAR0.
+
+The modem's boot stages take the doorbell at BAR0 + 0x60000 either way.
+After INIT_END, with that layout, the modem's main firmware never takes
+an IPC frame, and each doorbell ends in a Completer Abort: one AT query
+set Signaled Target Abort on the modem and Received Target Abort on the
+root port, both clear before (MODEM-PLAN M4.1e). Stock's CP serves IPC
+within seconds of INIT_END.
+
+Release the core's resources for BARs 2-5 and point their registers at
+BAR0's bus address in the probe, before the configuration is saved, and
+again after each restore, as stock's layout. Nothing on the AP maps
+BARs 2-5.
+
+Assisted-by: LLM
+Signed-off-by: Derek Ross <derekross@gmail.com>
+---
+ drivers/soc/google/cpif/s51xx_pcie.c | 45 ++++++++++++++++++++++++++++
+ 1 file changed, 45 insertions(+)
+
+diff --git a/drivers/soc/google/cpif/s51xx_pcie.c b/drivers/soc/google/cpif/s51xx_pcie.c
+index 3588dc7d5..2f0b17e3d 100644
+--- a/drivers/soc/google/cpif/s51xx_pcie.c
++++ b/drivers/soc/google/cpif/s51xx_pcie.c
+@@ -213,6 +213,45 @@ void s51xx_pcie_save_state(struct pci_dev *pdev)
+ 		mif_err("Can't set D3 state!!!!\n");
+ }
+ 
++/*
++ * BARs 2-5 on BAR0's bus address, as stock's probe leaves them: its
++ * resource rewrite gives each of them a one-byte resource at the window
++ * start, so all five BARs decode the same 1 MiB. The modem's boot stages
++ * take the doorbell through BAR0, but once the main firmware has started
++ * its IPC (after INIT_END) a doorbell at BAR0 + 0x60000 with BARs 2-5
++ * elsewhere ends in a Completer Abort (MODEM-PLAN M4.1e): the firmware
++ * expects stock's layout. Nothing on the AP uses BARs 2-5.
++ */
++static void s51xx_pcie_fold_bars(struct pci_dev *pdev, u32 base)
++{
++	int i;
++	u32 val;
++
++	for (i = 2; i <= 5; i++) {
++		pci_read_config_dword(pdev, PCI_BASE_ADDRESS_0 + i * 4, &val);
++		if ((val & PCI_BASE_ADDRESS_MEM_MASK) != base)
++			pci_write_config_dword(pdev, PCI_BASE_ADDRESS_0 + i * 4, base);
++	}
++}
++
++static void s51xx_pcie_release_bars(struct pci_dev *pdev)
++{
++	int i;
++
++	/* the PCI core's windows for BARs 2-5 go; the registers are ours */
++	for (i = 2; i <= 5; i++) {
++		struct resource *res = &pdev->resource[i];
++
++		if (!(res->flags & IORESOURCE_MEM))
++			continue;
++		if (res->parent)
++			pci_release_resource(pdev, i);
++		res->start = 0;
++		res->end = 0;
++		res->flags = 0;
++	}
++}
++
+ void s51xx_pcie_restore_state(struct pci_dev *pdev, bool boot_on)
+ {
+ 	struct s51xx_pcie *s51xx_pcie = pci_get_drvdata(pdev);
+@@ -271,6 +310,7 @@ void s51xx_pcie_restore_state(struct pci_dev *pdev, bool boot_on)
+ 		mif_info("write BAR0 value: %#x\n", s51xx_pcie->dbaddr_changed_base);
+ 		s51xx_pcie_chk_ep_conf(pdev);
+ 	}
++	s51xx_pcie_fold_bars(pdev, s51xx_pcie->dbaddr_changed_base);
+ 
+ 	/* Enable L1.2 after PCIe power on */
+ 	s51xx_pcie_l1ss_ctrl(1, s51xx_pcie->pcie_channel_num);
+@@ -429,6 +469,11 @@ static int s51xx_pcie_probe(struct pci_dev *pdev, const struct pci_device_id *en
+ 		 bar0, (unsigned long long)bar0_bus.start, val,
+ 		 s51xx_pcie->dbaddr_offset, db_addr);
+ 
++	s51xx_pcie_release_bars(pdev);
++	s51xx_pcie_fold_bars(pdev, s51xx_pcie->dbaddr_changed_base);
++	dev_info(dev, "BARs 2-5 on BAR0's bus address %#x, as stock\n",
++		 s51xx_pcie->dbaddr_changed_base);
++
+ 	mif_info("Set Doorbell register address.\n");
+ 	s51xx_pcie->doorbell_addr = devm_ioremap(&pdev->dev,
+ 			s51xx_pcie->dbaddr_base + s51xx_pcie->dbaddr_offset, SZ_4);

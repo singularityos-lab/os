@@ -1,7 +1,7 @@
-From 839f6b73c480afd669fc8ab9ff25c53d13247690 Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Mirko Brombin <9479903+mirkobrombin@users.noreply.github.com>
 Date: Sat, 18 Jul 2026 20:13:53 +0100
-Subject: [PATCH 7/7] mm: harden MTS object identity at lifetime limits
+Subject: [PATCH 07/11] mm: harden MTS object identity at lifetime limits
 
 Reject duplicate provider UUIDs in the kernel registry and retire exhausted generation slots while continuing allocation from remaining capacity.
 
@@ -16,7 +16,7 @@ Signed-off-by: Mirko Brombin <9479903+mirkobrombin@users.noreply.github.com>
  3 files changed, 120 insertions(+), 8 deletions(-)
 
 diff --git a/include/linux/mts.h b/include/linux/mts.h
-index 5b83394..335e437 100644
+index 5b8339456..335e437dc 100644
 --- a/include/linux/mts.h
 +++ b/include/linux/mts.h
 @@ -42,6 +42,7 @@ bool mts_folio_entry(struct page *page, swp_entry_t *entry);
@@ -39,10 +39,10 @@ index 5b83394..335e437 100644
  static inline int mts_entry_read(swp_entry_t entry, struct page *page,
  				 struct mts_object_id *id,
 diff --git a/mm/memory.c b/mm/memory.c
-index d082f15..737bc0f 100644
+index 077745e8e..9088f93a0 100644
 --- a/mm/memory.c
 +++ b/mm/memory.c
-@@ -955,8 +955,25 @@ copy_nonpresent_pte(struct mm_struct *dst_mm, struct mm_struct *src_mm,
+@@ -1021,8 +1021,25 @@ copy_nonpresent_pte(struct mm_struct *dst_mm, struct mm_struct *src_mm,
  	struct page *page;
  
  	if (softleaf_is_mts(entry)) {
@@ -58,8 +58,8 @@ index d082f15..737bc0f 100644
 +			pte = pte_swp_mkexclusive(pte);
 +			if (pte_swp_soft_dirty(orig_pte))
 +				pte = pte_swp_mksoft_dirty(pte);
-+			if (pte_swp_uffd_wp(orig_pte))
-+				pte = pte_swp_mkuffd_wp(pte);
++			if (pte_swp_uffd(orig_pte))
++				pte = pte_swp_mkuffd(pte);
 +		} else if (err) {
  			return -EIO;
 +		} else if (pte_swp_exclusive(orig_pte)) {
@@ -70,7 +70,7 @@ index d082f15..737bc0f 100644
  	} else if (likely(softleaf_is_swap(entry))) {
  		if (swap_dup_entry_direct(entry) < 0)
 diff --git a/mm/mts_tier.c b/mm/mts_tier.c
-index 350b6fc..59d78da 100644
+index b3d13014c..42eea6231 100644
 --- a/mm/mts_tier.c
 +++ b/mm/mts_tier.c
 @@ -184,6 +184,10 @@ static int mts_allocate_object(struct mts_tier *tier,
@@ -97,7 +97,7 @@ index 350b6fc..59d78da 100644
  	object->generation++;
  	object->refs = 1;
  	object->frozen = false;
-@@ -595,6 +593,84 @@ unlock:
+@@ -595,6 +593,84 @@ int mts_entry_dup(swp_entry_t entry)
  }
  EXPORT_SYMBOL_GPL(mts_entry_dup);
  
@@ -212,6 +212,3 @@ index 350b6fc..59d78da 100644
  	mutex_unlock(&mts_registry_lock);
  	if (err)
  		goto free_slot;
--- 
-2.51.1
-

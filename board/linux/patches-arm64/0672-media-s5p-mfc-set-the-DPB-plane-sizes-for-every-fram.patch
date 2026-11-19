@@ -1,0 +1,77 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?=C3=81ngel=20Ren=C3=A9?=
+ <17342133+angelrenefm@users.noreply.github.com>
+Date: Sat, 14 Nov 2026 14:37:31 +0100
+Subject: [PATCH] media: s5p-mfc: set the DPB plane sizes for every frame on
+ MFC v15
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+With dynamic DPB the plane sizes and strides are only written at
+INIT_BUFFERS. Under Chromium's V4L2 decoder the first frame decodes, but
+at the second one those registers read back as 0 and the firmware fails
+it with error 57, INSUFFICIENT_DPB_SIZE (the name in Google's exynos-mfc
+driver). The same stream through GStreamer never shows it.
+
+Write the sizes and strides again before every frame, next to the
+frame's DPB addresses.
+
+Assisted-by: LLM
+Signed-off-by: Ángel René <17342133+angelrenefm@users.noreply.github.com>
+---
+ .../platform/samsung/s5p-mfc/s5p_mfc_opr_v6.c | 27 +++++++++++++++++--
+ 1 file changed, 25 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_opr_v6.c b/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_opr_v6.c
+index 770e3e861..27bc56200 100644
+--- a/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_opr_v6.c
++++ b/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_opr_v6.c
+@@ -603,6 +603,15 @@ static int s5p_mfc_set_dec_stream_buffer_v6(struct s5p_mfc_ctx *ctx,
+ 	return 0;
+ }
+ 
++/* DPB plane sizes */
++static void s5p_mfc_set_dec_dpb_size(struct s5p_mfc_ctx *ctx)
++{
++	const struct s5p_mfc_regs *mfc_regs = ctx->dev->mfc_regs;
++
++	writel(ctx->luma_size, mfc_regs->d_first_plane_dpb_size);
++	writel(ctx->chroma_size, mfc_regs->d_second_plane_dpb_size);
++}
++
+ /* Set decoding frame buffer */
+ static int s5p_mfc_set_dec_frame_buffer_v6(struct s5p_mfc_ctx *ctx)
+ {
+@@ -622,8 +631,7 @@ static int s5p_mfc_set_dec_frame_buffer_v6(struct s5p_mfc_ctx *ctx)
+ 	mfc_debug(2, "Setting display delay to %d\n", ctx->display_delay);
+ 
+ 	writel(ctx->total_dpb_count, mfc_regs->d_num_dpb);
+-	writel(ctx->luma_size, mfc_regs->d_first_plane_dpb_size);
+-	writel(ctx->chroma_size, mfc_regs->d_second_plane_dpb_size);
++	s5p_mfc_set_dec_dpb_size(ctx);
+ 	if (ctx->dst_fmt->fourcc == V4L2_PIX_FMT_YUV420M || ctx->dst_fmt->fourcc ==
+ 			V4L2_PIX_FMT_YVU420M)
+ 		writel(ctx->chroma_size_1, mfc_regs->d_third_plane_dpb_size);
+@@ -1866,6 +1874,21 @@ static void s5p_mfc_set_dynamic_dpb_v15(struct s5p_mfc_ctx *ctx)
+ 	u32 set = 0;
+ 	int i;
+ 
++	/*
++	 * The plane sizes and strides set at INIT_BUFFERS don't always last
++	 * until the next frame (under Chromium they read back as 0 at the
++	 * second one), and the firmware then fails the frame with
++	 * INSUFFICIENT_DPB_SIZE. Set them again for every frame.
++	 */
++	s5p_mfc_set_dec_dpb_size(ctx);
++	writel(ctx->stride[0], mfc_regs->d_first_plane_dpb_stride_size);
++	writel(ctx->stride[1], mfc_regs->d_second_plane_dpb_stride_size);
++	if (ctx->dst_fmt->fourcc == V4L2_PIX_FMT_YUV420M ||
++	    ctx->dst_fmt->fourcc == V4L2_PIX_FMT_YVU420M) {
++		writel(ctx->chroma_size_1, mfc_regs->d_third_plane_dpb_size);
++		writel(ctx->stride[2], mfc_regs->d_third_plane_dpb_stride_size);
++	}
++
+ 	buf = s5p_mfc_search_dynamic_dpb_v15(ctx);
+ 	if (buf) {
+ 		i = buf->b->vb2_buf.index;

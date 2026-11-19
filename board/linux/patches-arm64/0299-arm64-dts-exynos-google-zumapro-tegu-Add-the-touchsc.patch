@@ -1,0 +1,127 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Tue, 27 Oct 2026 10:41:53 -0647
+Subject: [PATCH] arm64: dts: exynos: google: zumapro-tegu: Add the touchscreen
+
+The Pixel 9a's touchscreen is a Synaptics S3908 on SPI20 (HSI0's USI2,
+dedicated pads, native chip select), with its attention line on the
+custom-alive bank gpn0, which raises its own interrupt, and its reset on
+gpp1-1. The S2MPG14 supplies it from LDO25M (VDD) and LDO4M (AVDD).
+
+The USI's default pin state holds the controller in reset while the USI
+probe switches to SPI; the touch driver then releases it.
+
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ .../boot/dts/exynos/google/zumapro-tegu.dts   | 49 ++++++++++++++++++-
+ 1 file changed, 48 insertions(+), 1 deletion(-)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/zumapro-tegu.dts b/arch/arm64/boot/dts/exynos/google/zumapro-tegu.dts
+index b211a1f87..c8e150e52 100644
+--- a/arch/arm64/boot/dts/exynos/google/zumapro-tegu.dts
++++ b/arch/arm64/boot/dts/exynos/google/zumapro-tegu.dts
+@@ -10,6 +10,7 @@
+ 
+ #include <dt-bindings/gpio/gpio.h>
+ #include <dt-bindings/input/linux-event-codes.h>
++#include "../exynos-pinctrl.h"
+ #include "zumapro.dtsi"
+ #include "zumapro-reserved-memory.dtsi"
+ 
+@@ -103,6 +104,10 @@ pmic-1 {
+ 		compatible = "samsung,s2mpg14-pmic";
+ 
+ 		regulators {
++			touch_avdd: ldo4m {
++				regulator-name = "touch-avdd";
++			};
++
+ 			eusb_vdd: ldo8m {
+ 				regulator-name = "eusb-vdd";
+ 			};
+@@ -110,6 +115,10 @@ eusb_vdd: ldo8m {
+ 			eusb_vdda12: ldo9m {
+ 				regulator-name = "eusb-vdda12";
+ 			};
++
++			touch_vdd: ldo25m {
++				regulator-name = "touch-vdd";
++			};
+ 		};
+ 	};
+ };
+@@ -154,7 +163,7 @@ &cmu_top {
+ 	status = "okay";
+ };
+ 
+-/* The keys' banks raise their own interrupts. */
++/* The keys' banks and the touchscreen's raise their own interrupts. */
+ &gpa4 {
+ 	interrupt-controller;
+ 	#interrupt-cells = <2>;
+@@ -173,6 +182,12 @@ &gpa6 {
+ 		     <GIC_SPI 35 IRQ_TYPE_LEVEL_HIGH>;
+ };
+ 
++&gpn0 {
++	interrupt-controller;
++	#interrupt-cells = <2>;
++	interrupts = <GIC_SPI 0 IRQ_TYPE_LEVEL_HIGH>;
++};
++
+ &pinctrl_alive {
+ 	status = "okay";
+ };
+@@ -199,6 +214,12 @@ &pinctrl_hsi2ufs {
+ 
+ &pinctrl_peric0 {
+ 	status = "okay";
++
++	touch_reset_held: touch-reset-held-pins {
++		samsung,pins = "gpp1-1";
++		samsung,pin-function = <EXYNOS_PIN_FUNC_OUTPUT>;
++		samsung,pin-val = <0>;
++	};
+ };
+ 
+ &pinctrl_peric1 {
+@@ -213,6 +234,22 @@ &reboot_mode {
+ 	status = "okay";
+ };
+ 
++/* The touchscreen on USI2's dedicated pads: native CS0, SPI mode 0. */
++&spi20 {
++	status = "okay";
++
++	touchscreen@0 {
++		compatible = "syna,s3908";
++		reg = <0>;
++		interrupt-parent = <&gpn0>;
++		interrupts = <0 IRQ_TYPE_LEVEL_LOW>;
++		reset-gpios = <&gpp1 1 GPIO_ACTIVE_LOW>;
++		vdd-supply = <&touch_vdd>;
++		avdd-supply = <&touch_avdd>;
++		spi-max-frequency = <10000000>;
++	};
++};
++
+ &sysreg_apm {
+ 	status = "okay";
+ };
+@@ -274,6 +311,16 @@ &usbdrd_phy {
+ 	status = "okay";
+ };
+ 
++/*
++ * Hold the touchscreen in reset before the USI's probe switches it to SPI;
++ * the touch driver releases it.
++ */
++&usi2_hsi0 {
++	pinctrl-names = "default";
++	pinctrl-0 = <&touch_reset_held>;
++	status = "okay";
++};
++
+ &watchdog_cl0 {
+ 	status = "okay";
+ };

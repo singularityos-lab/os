@@ -1,0 +1,47 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Thu, 22 Oct 2026 20:28:08 -0700
+Subject: [PATCH] dt-bindings: pinctrl: samsung: Describe Tensor G4 controllers
+
+Describe the G4 pin controller and external interrupt controller.
+Require the peripheral clock as on the existing gs101/gs201 family.
+No board nodes are enabled.
+
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ .../bindings/pinctrl/samsung,pinctrl-wakeup-interrupt.yaml      | 1 +
+ Documentation/devicetree/bindings/pinctrl/samsung,pinctrl.yaml  | 2 ++
+ 2 files changed, 3 insertions(+)
+
+diff --git a/Documentation/devicetree/bindings/pinctrl/samsung,pinctrl-wakeup-interrupt.yaml b/Documentation/devicetree/bindings/pinctrl/samsung,pinctrl-wakeup-interrupt.yaml
+index 56cb0a742..c1dffa256 100644
+--- a/Documentation/devicetree/bindings/pinctrl/samsung,pinctrl-wakeup-interrupt.yaml
++++ b/Documentation/devicetree/bindings/pinctrl/samsung,pinctrl-wakeup-interrupt.yaml
+@@ -30,6 +30,7 @@ properties:
+   compatible:
+     oneOf:
+       - enum:
++          - google,zumapro-wakeup-eint
+           - samsung,s3c64xx-wakeup-eint
+           - samsung,s5pv210-wakeup-eint
+           - samsung,exynos4210-wakeup-eint
+diff --git a/Documentation/devicetree/bindings/pinctrl/samsung,pinctrl.yaml b/Documentation/devicetree/bindings/pinctrl/samsung,pinctrl.yaml
+index 1a9633bef..8ff162a7c 100644
+--- a/Documentation/devicetree/bindings/pinctrl/samsung,pinctrl.yaml
++++ b/Documentation/devicetree/bindings/pinctrl/samsung,pinctrl.yaml
+@@ -39,6 +39,7 @@ properties:
+       - axis,artpec9-pinctrl
+       - google,gs101-pinctrl
+       - google,gs201-pinctrl
++      - google,zumapro-pinctrl
+       - samsung,s3c64xx-pinctrl
+       - samsung,s5pv210-pinctrl
+       - samsung,exynos2200-pinctrl
+@@ -141,6 +142,7 @@ allOf:
+             enum:
+               - google,gs101-pinctrl
+               - google,gs201-pinctrl
++              - google,zumapro-pinctrl
+               - samsung,exynos8890-pinctrl
+     then:
+       required:

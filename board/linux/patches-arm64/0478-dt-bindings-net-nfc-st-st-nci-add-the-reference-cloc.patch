@@ -1,0 +1,33 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Mon, 12 Oct 2026 17:19:54 -0400
+Subject: [PATCH] dt-bindings: net: nfc: st,st-nci: add the reference clock
+
+Some boards feed the controller's reference clock from the SoC instead of
+a crystal. On Google's Pixel 7 phones the ST54J takes it from a PMU clock
+output pad, which must run while the controller is powered up. Allow one
+optional clock.
+
+Assisted-by: LLM
+Signed-off-by: Derek Ross <derekross@gmail.com>
+---
+ Documentation/devicetree/bindings/net/nfc/st,st-nci.yaml | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+diff --git a/Documentation/devicetree/bindings/net/nfc/st,st-nci.yaml b/Documentation/devicetree/bindings/net/nfc/st,st-nci.yaml
+index 061367be5..eb4ee5c91 100644
+--- a/Documentation/devicetree/bindings/net/nfc/st,st-nci.yaml
++++ b/Documentation/devicetree/bindings/net/nfc/st,st-nci.yaml
+@@ -23,6 +23,12 @@ properties:
+   reset-gpios:
+     description: Output GPIO pin used for resetting the controller
+ 
++  clocks:
++    maxItems: 1
++    description:
++      Reference clock, if the controller is not fed by its own crystal. It
++      is enabled while the controller is powered up.
++
+   ese-present:
+     type: boolean
+     description: |

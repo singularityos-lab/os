@@ -1,7 +1,7 @@
-From 2c2d31d0b115e27d85f05c0c914bca3b5295298c Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Mirko Brombin <9479903+mirkobrombin@users.noreply.github.com>
 Date: Sat, 18 Jul 2026 19:57:13 +0100
-Subject: [PATCH 5/5] mm: fault anonymous pages through SWP_MTS objects
+Subject: [PATCH 05/11] mm: fault anonymous pages through SWP_MTS objects
 
 Reserve a native software-leaf type and convert eligible single-mapped base anonymous folios through migration entries before provider I/O. The immediate TLB flush freezes writers before the immutable payload is checksummed and stored.
 
@@ -18,12 +18,12 @@ Signed-off-by: Mirko Brombin <9479903+mirkobrombin@users.noreply.github.com>
  mm/Kconfig              |   2 +-
  mm/memory.c             |  78 ++++++++++-
  mm/mts_tier.c           | 282 ++++++++++++++++++++++++++++++++++++++++
- mm/rmap.c               |  61 +++++++++
+ mm/rmap.c               |  62 +++++++++
  mm/vmscan.c             |  31 +++++
- 8 files changed, 500 insertions(+), 4 deletions(-)
+ 8 files changed, 501 insertions(+), 4 deletions(-)
 
 diff --git a/include/linux/leafops.h b/include/linux/leafops.h
-index 992cd8b..5c6db9f 100644
+index 4c1476ae3..229da7199 100644
 --- a/include/linux/leafops.h
 +++ b/include/linux/leafops.h
 @@ -32,6 +32,8 @@ enum softleaf_type {
@@ -35,7 +35,7 @@ index 992cd8b..5c6db9f 100644
  };
  
  /**
-@@ -172,6 +174,10 @@ static inline enum softleaf_type softleaf_type(softleaf_t entry)
+@@ -192,6 +194,10 @@ static inline enum softleaf_type softleaf_type(softleaf_t entry)
  #endif
  	case SWP_PTE_MARKER:
  		return SOFTLEAF_MARKER;
@@ -46,7 +46,7 @@ index 992cd8b..5c6db9f 100644
  	}
  
  	/* Unknown entry type. */
-@@ -190,6 +196,11 @@ static inline bool softleaf_is_swap(softleaf_t entry)
+@@ -210,6 +216,11 @@ static inline bool softleaf_is_swap(softleaf_t entry)
  	return softleaf_type(entry) == SOFTLEAF_SWAP;
  }
  
@@ -59,7 +59,7 @@ index 992cd8b..5c6db9f 100644
   * softleaf_is_migration_write() - Is this leaf entry a writable migration entry?
   * @entry: Leaf entry.
 diff --git a/include/linux/mts.h b/include/linux/mts.h
-index ec5dc22..c90ab70 100644
+index ec5dc22b9..c90ab70e5 100644
 --- a/include/linux/mts.h
 +++ b/include/linux/mts.h
 @@ -3,9 +3,11 @@
@@ -116,10 +116,10 @@ index ec5dc22..c90ab70 100644
  
  #endif /* _LINUX_MTS_H */
 diff --git a/include/linux/swap.h b/include/linux/swap.h
-index 7a09df6..a728137 100644
+index 5658a1634..8ea6f5d68 100644
 --- a/include/linux/swap.h
 +++ b/include/linux/swap.h
-@@ -61,6 +61,14 @@ static inline int current_is_kswapd(void)
+@@ -56,6 +56,14 @@ static inline int current_is_kswapd(void)
  #define SWP_PTE_MARKER     (MAX_SWAPFILES + SWP_HWPOISON_NUM + \
  			    SWP_MIGRATION_NUM + SWP_DEVICE_NUM)
  
@@ -134,7 +134,7 @@ index 7a09df6..a728137 100644
  /*
   * Unaddressable device memory support. See include/linux/hmm.h and
   * Documentation/mm/hmm.rst. Short description is we need struct pages for
-@@ -113,7 +121,7 @@ static inline int current_is_kswapd(void)
+@@ -108,7 +116,7 @@ static inline int current_is_kswapd(void)
  #define MAX_SWAPFILES \
  	((1 << MAX_SWAPFILES_SHIFT) - SWP_DEVICE_NUM - \
  	SWP_MIGRATION_NUM - SWP_HWPOISON_NUM - \
@@ -144,7 +144,7 @@ index 7a09df6..a728137 100644
  /*
   * Magic header for a swap area. The first part of the union is
 diff --git a/mm/Kconfig b/mm/Kconfig
-index 97658fd..48b4e22 100644
+index 8cb62349f..50e393112 100644
 --- a/mm/Kconfig
 +++ b/mm/Kconfig
 @@ -31,7 +31,7 @@ config MTS_OBSERVE
@@ -157,7 +157,7 @@ index 97658fd..48b4e22 100644
  	help
  	  Register declarative file-backed tiers through /dev/mts and expose the
 diff --git a/mm/memory.c b/mm/memory.c
-index 86a9731..d082f15 100644
+index 77e0a9bf6..077745e8e 100644
 --- a/mm/memory.c
 +++ b/mm/memory.c
 @@ -42,6 +42,7 @@
@@ -186,7 +186,7 @@ index 86a9731..d082f15 100644
  static bool vmf_pte_changed(struct vm_fault *vmf);
  
  /*
-@@ -949,7 +954,11 @@ copy_nonpresent_pte(struct mm_struct *dst_mm, struct mm_struct *src_mm,
+@@ -1015,7 +1020,11 @@ copy_nonpresent_pte(struct mm_struct *dst_mm, struct mm_struct *src_mm,
  	struct folio *folio;
  	struct page *page;
  
@@ -199,7 +199,7 @@ index 86a9731..d082f15 100644
  		if (swap_dup_entry_direct(entry) < 0)
  			return -EIO;
  
-@@ -1759,6 +1768,11 @@ static inline int zap_nonpresent_ptes(struct mmu_gather *tlb,
+@@ -1888,6 +1897,11 @@ static inline int zap_nonpresent_ptes(struct mmu_gather *tlb,
  		rss[mm_counter(folio)]--;
  		folio_remove_rmap_pte(folio, page, vma);
  		folio_put(folio);
@@ -211,7 +211,7 @@ index 86a9731..d082f15 100644
  	} else if (softleaf_is_swap(entry)) {
  		/* Genuine swap entries, hence a private anon pages */
  		if (!should_zap_cows(details))
-@@ -4792,6 +4806,64 @@ static void check_swap_exclusive(struct folio *folio, swp_entry_t entry,
+@@ -4921,6 +4935,64 @@ static void folio_pte_range(const struct folio *folio,
   * When returning, the lock may have been released in the same cases
   * as done by filemap_fault().
   */
@@ -235,7 +235,7 @@ index 86a9731..d082f15 100644
 +		return VM_FAULT_OOM;
 +	memcg = folio_memcg(folio);
 +	if (memcg)
-+		cgroup = cgroup_id(memcg->css.cgroup);
++		cgroup = mem_cgroup_id(memcg);
 +	start_ns = ktime_get_ns();
 +	memset(tier_uuid, 0, sizeof(tier_uuid));
 +	trace_fault_begin(cgroup, vmf->address, swp_offset(entry), 0,
@@ -276,7 +276,7 @@ index 86a9731..d082f15 100644
  vm_fault_t do_swap_page(struct vm_fault *vmf)
  {
  	struct vm_area_struct *vma = vmf->vma;
-@@ -4813,7 +4885,9 @@ vm_fault_t do_swap_page(struct vm_fault *vmf)
+@@ -4943,7 +5015,9 @@ vm_fault_t do_swap_page(struct vm_fault *vmf)
  
  	entry = softleaf_from_pte(vmf->orig_pte);
  	if (unlikely(!softleaf_is_swap(entry))) {
@@ -288,7 +288,7 @@ index 86a9731..d082f15 100644
  					     vmf->address);
  		} else if (softleaf_is_device_exclusive(entry)) {
 diff --git a/mm/mts_tier.c b/mm/mts_tier.c
-index 6c8e93a..9274804 100644
+index 6c8e93ace..189a750a9 100644
 --- a/mm/mts_tier.c
 +++ b/mm/mts_tier.c
 @@ -10,12 +10,15 @@
@@ -341,7 +341,7 @@ index 6c8e93a..9274804 100644
  		goto out_unlock;
  	}
  	object->generation++;
-@@ -195,6 +211,7 @@ found:
+@@ -195,6 +211,7 @@ static int mts_allocate_object(struct mts_tier *tier,
  	id->slot = slot;
  	id->generation = object->generation;
  	*result = object;
@@ -622,7 +622,7 @@ index 6c8e93a..9274804 100644
  {
  	const struct mts_tier_desc_v2 *desc = &request->tier;
 diff --git a/mm/rmap.c b/mm/rmap.c
-index 99e1b3d..486c728 100644
+index 9ffd3e833..dbffa8107 100644
 --- a/mm/rmap.c
 +++ b/mm/rmap.c
 @@ -74,6 +74,7 @@
@@ -633,18 +633,11 @@ index 99e1b3d..486c728 100644
  #include <linux/oom.h>
  
  #include <asm/tlb.h>
-@@ -2226,6 +2227,7 @@ static bool try_to_unmap_one(struct folio *folio, struct vm_area_struct *vma,
- 		} else if (folio_test_anon(folio)) {
- 			swp_entry_t entry = page_swap_entry(subpage);
- 			pte_t swp_pte;
-+
- 			/*
- 			 * Store the swap location in the pte.
- 			 * See handle_pte_fault() ...
-@@ -2728,6 +2730,65 @@ static bool try_to_migrate_one(struct folio *folio, struct vm_area_struct *vma,
+@@ -2789,6 +2790,67 @@ static bool try_to_migrate_one(struct folio *folio, struct vm_area_struct *vma,
  	return ret;
  }
  
++#ifdef CONFIG_MTS_TIER
 +struct mts_install_arg {
 +	bool installed;
 +	bool failed;
@@ -679,8 +672,8 @@ index 99e1b3d..486c728 100644
 +			new_pte = pte_swp_mkexclusive(new_pte);
 +		if (pte_swp_soft_dirty(old_pte))
 +			new_pte = pte_swp_mksoft_dirty(new_pte);
-+		if (pte_swp_uffd_wp(old_pte))
-+			new_pte = pte_swp_mkuffd_wp(new_pte);
++		if (pte_swp_uffd(old_pte))
++			new_pte = pte_swp_mkuffd(new_pte);
 +		set_pte_at(vma->vm_mm, pvmw.address, pvmw.pte, new_pte);
 +		dec_mm_counter(vma->vm_mm, MM_ANONPAGES);
 +		inc_mm_counter(vma->vm_mm, MM_SWAPENTS);
@@ -703,15 +696,16 @@ index 99e1b3d..486c728 100644
 +	return install.installed && !install.failed;
 +}
 +EXPORT_SYMBOL_GPL(mts_install_folio_ptes);
++#endif /* CONFIG_MTS_TIER */
 +
  /**
   * try_to_migrate - try to replace all page table mappings with swap entries
   * @folio: the folio to replace page table entries for
 diff --git a/mm/vmscan.c b/mm/vmscan.c
-index 9b01a42..96b0d96 100644
+index 9b7757f9e..22feddf4c 100644
 --- a/mm/vmscan.c
 +++ b/mm/vmscan.c
-@@ -346,6 +346,8 @@ static inline bool can_reclaim_anon_pages(struct mem_cgroup *memcg,
+@@ -347,6 +347,8 @@ static inline bool can_reclaim_anon_pages(struct mem_cgroup *memcg,
  					  int nid,
  					  struct scan_control *sc)
  {
@@ -720,7 +714,7 @@ index 9b01a42..96b0d96 100644
  	if (memcg == NULL) {
  		/*
  		 * For non-memcg reclaim, is there
-@@ -367,6 +369,31 @@ static inline bool can_reclaim_anon_pages(struct mem_cgroup *memcg,
+@@ -368,6 +370,31 @@ static inline bool can_reclaim_anon_pages(struct mem_cgroup *memcg,
  	return can_demote(nid, sc, memcg);
  }
  
@@ -752,7 +746,7 @@ index 9b01a42..96b0d96 100644
  /*
   * This misses isolated folios which are not accounted for to save counters.
   * As the data only determines if reclaim or compaction continues, it is
-@@ -1267,6 +1294,10 @@ retry:
+@@ -1265,6 +1292,10 @@ static unsigned int shrink_folio_list(struct list_head *folio_list,
  				goto keep_locked;
  			if (folio_maybe_dma_pinned(folio))
  				goto keep_locked;
@@ -763,6 +757,3 @@ index 9b01a42..96b0d96 100644
  			if (folio_test_large(folio)) {
  				/* cannot split folio, skip it */
  				if (folio_expected_ref_count(folio) !=
--- 
-2.51.1
-

@@ -1,0 +1,114 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Tue, 27 Oct 2026 08:31:40 -0647
+Subject: [PATCH] dt-bindings: clock: google,zumapro: Add CMU_PERIC1
+
+CMU_PERIC1 clocks the PERIC1 GPIO bank and USI9, the I2C bus of the
+Pixel 9a's NFC controller and haptics driver. Describe it in the common
+Tensor G4 clock binding with its three inputs: the oscillator and
+CMU_TOP's PERIC1 NoC and IP clocks. Add CMU_TOP's two PERIC1 branches at
+the end of the TOP block and the 8 CMU_PERIC1 identifiers in a new
+block, leaving the existing ones unchanged.
+
+Link: https://android.googlesource.com/kernel/google-modules/soc/gs/+/204078758737776959ecc85c527a00fd2cabb62f/drivers/soc/google/cal-if/zuma/cmucal-node.c
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ .../bindings/clock/google,zumapro-clock.yaml  | 29 +++++++++++++++++++
+ include/dt-bindings/clock/google,zumapro.h    | 16 ++++++++++
+ 2 files changed, 45 insertions(+)
+
+diff --git a/Documentation/devicetree/bindings/clock/google,zumapro-clock.yaml b/Documentation/devicetree/bindings/clock/google,zumapro-clock.yaml
+index baa959e5e..21acd9094 100644
+--- a/Documentation/devicetree/bindings/clock/google,zumapro-clock.yaml
++++ b/Documentation/devicetree/bindings/clock/google,zumapro-clock.yaml
+@@ -19,6 +19,9 @@ description: |
+   PLLs and CMU_TOP's G3D NoC, global and switch clocks.
+   CMU_HSI1 supplies the HSI1 GPIO bank's clock; its ALT input is a
+   board-level fixed clock.
++  CMU_PERIC1 supplies the PERIC1 GPIO bank and USI9 (the I2C bus of the
++  NFC controller and the haptics driver) from CMU_TOP's PERIC1 NoC and IP
++  clocks.
+   The external oscillator supplies the PLL reference and oscillator mux
+   paths.
+   Clock identifiers are defined in dt-bindings/clock/google,zumapro.h.
+@@ -32,6 +35,7 @@ properties:
+       - google,zumapro-cmu-hsi1
+       - google,zumapro-cmu-hsi2
+       - google,zumapro-cmu-peric0
++      - google,zumapro-cmu-peric1
+       - google,zumapro-cmu-misc
+ 
+   reg:
+@@ -153,6 +157,22 @@ allOf:
+             - const: bus
+             - const: ufs
+             - const: pcie
++  - if:
++      properties:
++        compatible:
++          const: google,zumapro-cmu-peric1
++    then:
++      properties:
++        clocks:
++          items:
++            - description: External oscillator reference clock
++            - description: PERIC1 NoC clock from CMU_TOP
++            - description: PERIC1 USI input clock from CMU_TOP
++        clock-names:
++          items:
++            - const: oscclk
++            - const: bus
++            - const: ip
+   - if:
+       properties:
+         compatible:
+@@ -227,6 +247,15 @@ examples:
+         clock-names = "oscclk", "bus", "alt";
+     };
+ 
++    clock-controller@10c00000 {
++        compatible = "google,zumapro-cmu-peric1";
++        reg = <0x10c00000 0x8000>;
++        #clock-cells = <1>;
++        clocks = <&oscclk>, <&cmu_top CLK_DOUT_PERIC1_NOC>,
++                 <&cmu_top CLK_DOUT_PERIC1_IP>;
++        clock-names = "oscclk", "bus", "ip";
++    };
++
+     clock-controller@1ee00000 {
+         compatible = "google,zumapro-cmu-g3d";
+         reg = <0x1ee00000 0x8000>;
+diff --git a/include/dt-bindings/clock/google,zumapro.h b/include/dt-bindings/clock/google,zumapro.h
+index ddc7b70a6..2b62e2dc7 100644
+--- a/include/dt-bindings/clock/google,zumapro.h
++++ b/include/dt-bindings/clock/google,zumapro.h
+@@ -50,6 +50,12 @@
+ #define CLK_MOUT_HSI1_NOC		44
+ #define CLK_GOUT_HSI1_NOC		45
+ #define CLK_DOUT_HSI1_NOC		46
++#define CLK_MOUT_PERIC1_NOC		47
++#define CLK_MOUT_PERIC1_IP		48
++#define CLK_GOUT_PERIC1_NOC		49
++#define CLK_GOUT_PERIC1_IP		50
++#define CLK_DOUT_PERIC1_NOC		51
++#define CLK_DOUT_PERIC1_IP		52
+ 
+ /* CMU_HSI0. */
+ #define CLK_FOUT_HSI0_USB		1
+@@ -137,6 +143,16 @@
+ #define CLK_MOUT_PERIC0_NOC_USER	1
+ #define CLK_GOUT_GPIO_PERIC0	2
+ 
++/* CMU_PERIC1. */
++#define CLK_MOUT_PERIC1_NOC_USER	1
++#define CLK_GOUT_GPIO_PERIC1		2
++#define CLK_GOUT_PERIC1_SYSREG		3
++#define CLK_MOUT_PERIC1_USI9_USER	4
++#define CLK_DOUT_PERIC1_USI9		5
++#define CLK_GOUT_PERIC1_USI9_IPCLK	6
++#define CLK_GOUT_PERIC1_USI9_PCLK	7
++#define CLK_GOUT_PERIC1_USI9_RSTNSYNC	8
++
+ /* CMU_MISC. */
+ #define CLK_MOUT_MISC_NOC_USER	1
+ #define CLK_DOUT_MISC_NOCP	2

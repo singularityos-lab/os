@@ -1,0 +1,43 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Mon, 12 Oct 2026 01:26:54 -0400
+Subject: [PATCH] wifi: brcmfmac: pcie: say why the ring indices fall back to
+ TCM
+
+When the firmware offers DMA'd ring indices (BRCMF_PCIE_SHARED_DMA_INDEX)
+but the index buffer cannot be allocated, brcmfmac quietly uses the
+indices in device memory instead, which hides a DMA setup problem and
+makes every ring update a PCIe read. Log the fallback as an error, and
+log the shared-area flags at PCIe debug level so the firmware's
+capabilities can be read from a debug log.
+
+Assisted-by: LLM
+Signed-off-by: Derek Ross <derekross@gmail.com>
+---
+ drivers/net/wireless/broadcom/brcm80211/brcmfmac/pcie.c | 5 ++++-
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/pcie.c b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/pcie.c
+index c9431c81e..b4f7d9038 100644
+--- a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/pcie.c
++++ b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/pcie.c
+@@ -1473,8 +1473,10 @@ static int brcmf_pcie_init_ringbuffers(struct brcmf_pciedev_info *devinfo)
+ 		devinfo->idxbuf = dma_alloc_coherent(&devinfo->pdev->dev, bufsz,
+ 						     &devinfo->idxbuf_dmahandle,
+ 						     GFP_KERNEL);
+-		if (!devinfo->idxbuf)
++		if (!devinfo->idxbuf) {
++			brcmf_err(bus, "no DMA memory for ring indices, using TCM\n");
+ 			devinfo->dma_idx_sz = 0;
++		}
+ 	}
+ 
+ 	if (devinfo->dma_idx_sz == 0) {
+@@ -1848,6 +1850,7 @@ brcmf_pcie_init_share_ram_info(struct brcmf_pciedev_info *devinfo,
+ 
+ 	shared->flags = brcmf_pcie_read_tcm32(devinfo, sharedram_addr);
+ 	shared->version = (u8)(shared->flags & BRCMF_PCIE_SHARED_VERSION_MASK);
++	brcmf_dbg(PCIE, "shared flags 0x%08x\n", shared->flags);
+ 	brcmf_dbg(PCIE, "PCIe protocol version %d\n", shared->version);
+ 	if ((shared->version > BRCMF_PCIE_MAX_SHARED_VERSION) ||
+ 	    (shared->version < BRCMF_PCIE_MIN_SHARED_VERSION)) {

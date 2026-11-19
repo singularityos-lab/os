@@ -1,0 +1,58 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Mon, 12 Oct 2026 00:35:46 -0400
+Subject: [PATCH] usb: typec: tcpci: let chip drivers follow role changes
+
+Some TCPCs have vendor specific switches for the USB data lines that the
+chip driver has to close once a partner is attached, independently of
+any USB PD exchange: data over D+/D- is part of a plain Type-C
+connection.
+
+Add an optional set_roles() callback to struct tcpci_data, called from
+tcpci_set_roles() after the message header has been written, with the
+same arguments TCPM passes.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ drivers/usb/typec/tcpm/tcpci.c | 3 +++
+ include/linux/usb/tcpci.h      | 6 ++++++
+ 2 files changed, 9 insertions(+)
+
+diff --git a/drivers/usb/typec/tcpm/tcpci.c b/drivers/usb/typec/tcpm/tcpci.c
+index 6717ac914..201853a6d 100644
+--- a/drivers/usb/typec/tcpm/tcpci.c
++++ b/drivers/usb/typec/tcpm/tcpci.c
+@@ -475,6 +475,9 @@ static int tcpci_set_roles(struct tcpc_dev *tcpc, bool attached,
+ 	if (ret < 0)
+ 		return ret;
+ 
++	if (tcpci->data->set_roles)
++		tcpci->data->set_roles(tcpci, tcpci->data, attached, role, data);
++
+ 	return 0;
+ }
+ 
+diff --git a/include/linux/usb/tcpci.h b/include/linux/usb/tcpci.h
+index 9b46a6bc7..332ca13d2 100644
+--- a/include/linux/usb/tcpci.h
++++ b/include/linux/usb/tcpci.h
+@@ -189,6 +189,10 @@ struct tcpci;
+  *		Optional; The USB Communications Capable bit indicates if port
+  *		partner is capable of communication over the USB data lines
+  *		(e.g. D+/- or SS Tx/Rx). Called to notify the status of the bit.
++ * @set_roles:
++ *		Optional; Called after the TCPC has been told the power and data
++ *		roles, e.g. on attach (@attached true), so that chip level
++ *		drivers can set up vendor specific data paths.
+  * @check_contaminant:
+  *		Optional; The callback is invoked when chiplevel drivers indicated
+  *		that the USB port needs to be checked for contaminant presence.
+@@ -226,6 +230,8 @@ struct tcpci_data {
+ 	void (*frs_sourcing_vbus)(struct tcpci *tcpci, struct tcpci_data *data);
+ 	void (*set_partner_usb_comm_capable)(struct tcpci *tcpci, struct tcpci_data *data,
+ 					     bool capable);
++	void (*set_roles)(struct tcpci *tcpci, struct tcpci_data *data, bool attached,
++			  enum typec_role role, enum typec_data_role data_role);
+ 	void (*check_contaminant)(struct tcpci *tcpci, struct tcpci_data *data);
+ 	bool (*attempt_vconn_swap_discovery)(struct tcpci *tcpci, struct tcpci_data *data);
+ };

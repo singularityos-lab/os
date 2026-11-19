@@ -1,0 +1,152 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Lef <me@lefteros.com>
+Date: Sat, 31 Oct 2026 16:45:06 +0200
+Subject: [PATCH] arm64: dts: exynos: google: zuma-husky: describe the MAX77759
+ on hsi2c_11
+
+Add the battery, and the fuel gauge (0x36), PMIC (0x66) and Type-C
+controller (0x25) on hsi2c_11, as on the Pixel 7 Pro. The bus stays
+disabled here and bring-up overlays enable it. No gauge model yet: the
+pack is not known and a wrong model would be written on power-on reset.
+The Type-C controller stays disabled. The charge limits are
+conservative (4.2 V, 0.3 C) until stock's step charging is described.
+
+The MFD driver binds only if PMIC_ID reads 59 (0x3b), and it does on
+the Pixel 8 Pro: PMIC_ID 0x3b, PMIC_REVISION 0x02, OTP_REVISION 0x31
+(i2cget on 0x66). So the chip at 0x66 is a MAX77759, and not the
+MAX77729 that Google's devicetree names on the same interrupt.
+
+Binding the PMIC creates its charger cell, which programs charge limits
+from the battery node, so in the boots for this series a modprobe.d file
+on the phone kept max77759_charger, gpio_max77759, nvmem_max77759 and
+tcpci_maxim from loading, and lsmod shows the charger was not loaded.
+
+Signed-off-by: Lef <me@lefteros.com>
+Assisted-by: LLM
+---
+ .../boot/dts/exynos/google/zuma-husky.dts     | 101 ++++++++++++++++++
+ 1 file changed, 101 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/zuma-husky.dts b/arch/arm64/boot/dts/exynos/google/zuma-husky.dts
+index 441c3a3c2..7a520b985 100644
+--- a/arch/arm64/boot/dts/exynos/google/zuma-husky.dts
++++ b/arch/arm64/boot/dts/exynos/google/zuma-husky.dts
+@@ -7,6 +7,8 @@
+ 
+ #include <dt-bindings/gpio/gpio.h>
+ #include <dt-bindings/input/input.h>
++#include <dt-bindings/interrupt-controller/irq.h>
++#include <dt-bindings/usb/pd.h>
+ #include "zuma.dtsi"
+ 
+ / {
+@@ -122,6 +124,21 @@ button-power {
+ 		};
+ 	};
+ 
++	/*
++	 * The 4950 mAh pack (Google's husky battery data). The charger and
++	 * gauge limits are deliberately conservative: stock charges to 4.48 V
++	 * in steps (4.20/4.30/4.35/4.48 V by temperature), which is not
++	 * described here yet. 0.3 C is 1485 mA.
++	 */
++	battery: battery {
++		compatible = "simple-battery";
++		charge-full-design-microamp-hours = <4950000>;
++		voltage-max-design-microvolt = <4480000>;
++		voltage-min-design-microvolt = <3300000>;
++		constant-charge-voltage-max-microvolt = <4200000>;
++		constant-charge-current-max-microamp = <1485000>;
++	};
++
+ 	reserved-memory {
+ 		#address-cells = <2>;
+ 		#size-cells = <1>;
+@@ -210,3 +227,87 @@ &ufs_0_phy {
+ &usi2_hsi0 {
+ 	status = "okay";
+ };
++
++/*
++ * MAX77759 (charger, Type-C port controller, fuel gauge, PMIC) on USI11 /
++ * hsi2c_11. Like the Pixel 7 Pro's, but the interrupt lines are on gpa7 and
++ * gpa8. The bus and CMU_PERIC1 stay disabled here, and a bring-up overlay
++ * enables them. Binding the PMIC at 0x66 also creates its charger cell,
++ * and the charger driver then programs charge limits from the battery
++ * node, so max77759_charger, gpio_max77759, nvmem_max77759 and tcpci_maxim
++ * have to be kept from loading until each step is tested. The husky device
++ * package does not block them yet (cheetah's omamobile-max77759.conf
++ * does), and has to before an overlay that enables this bus ships.
++ *
++ * The fuel gauge has no battery model yet: the pack (ATL or COS, stock
++ * reads its ID resistor) is not known, and a wrong model would be written
++ * if the gauge reports power-on reset. The Type-C controller stays disabled,
++ * as on the Pixel 7 Pro: USB is the only way into the phone.
++ */
++&hsi2c_11 {
++	clock-frequency = <400000>;
++
++	usb-typec@25 {
++		compatible = "maxim,max77759-tcpci", "maxim,max33359";
++		reg = <0x25>;
++		interrupts-extended = <&gpa8 3 IRQ_TYPE_LEVEL_LOW>;
++		pinctrl-0 = <&typec_int>;
++		pinctrl-names = "default";
++		status = "disabled";
++
++		/*
++		 * Sink only: VBUS for host mode comes from an external boost
++		 * (stock: max77759,ext-otg-only, MAX77759 GPIO5 "bst-on" and
++		 * the TCPC's EXTBST_CTRL), which has no driver yet. MAX77759
++		 * GPIO6 is the VBUS input switch (stock in-switch-gpio): leave
++		 * it alone.
++		 */
++		connector {
++			compatible = "usb-c-connector";
++			label = "USB-C";
++			data-role = "dual";
++			power-role = "sink";
++			self-powered;
++			op-sink-microwatt = <2600000>;
++			sink-pdos = <PDO_FIXED(5000, 3000,
++					       (PDO_FIXED_DATA_SWAP
++						| PDO_FIXED_USB_COMM
++						| PDO_FIXED_HIGHER_CAP
++						| PDO_FIXED_DUAL_ROLE))
++				     PDO_FIXED(9000, 2200, 0)
++				     PDO_PPS_APDO(5000, 11000, 3000)>;
++			pd-disable;
++			typec-power-opmode = "default";
++		};
++	};
++
++	fuel-gauge@36 {
++		compatible = "maxim,max77759-fg";
++		reg = <0x36>;
++		interrupts-extended = <&gpa7 7 IRQ_TYPE_LEVEL_LOW>;
++		pinctrl-0 = <&if_pmic_fg_int>;
++		pinctrl-names = "default";
++		shunt-resistor-micro-ohms = <5000>;
++		monitored-battery = <&battery>;
++	};
++
++	pmic@66 {
++		compatible = "maxim,max77759";
++		reg = <0x66>;
++		interrupts-extended = <&gpa8 0 IRQ_TYPE_LEVEL_LOW>;
++		pinctrl-0 = <&if_pmic_int>;
++		pinctrl-names = "default";
++		interrupt-controller;
++		#interrupt-cells = <2>;
++		/* for the charger cell */
++		monitored-battery = <&battery>;
++
++		gpio {
++			compatible = "maxim,max77759-gpio";
++			gpio-controller;
++			#gpio-cells = <2>;
++			interrupt-controller;
++			#interrupt-cells = <2>;
++		};
++	};
++};

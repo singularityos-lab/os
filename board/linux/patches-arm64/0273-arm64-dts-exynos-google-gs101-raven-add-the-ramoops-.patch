@@ -1,0 +1,52 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: saiththerobo <the.tom.sharp@gmail.com>
+Date: Tue, 27 Oct 2026 12:11:28 +0000
+Subject: [PATCH] arm64: dts: exynos: google: gs101-raven: add the ramoops
+ region
+
+Raven's kernel has CONFIG_PSTORE_RAM, but its device tree has no
+ramoops region, so a panic or a watchdog reset leaves nothing in
+/sys/fs/pstore: an unexplained reset on raven could not be traced.
+
+Describe the region Google's gs101 kernel uses (gs101-rmem.dtsi), with
+its console and pmsg sizes, as gs201-cheetah does. On raven,
+0xfd3ff000-0xfd7fefff is System RAM between the bootloader's
+debug-kinfo region below and its log region at 0xfd800000 above, and
+no reserved-memory node in the bootloader's tree overlaps it.
+
+Tested on raven (as an overlay on 7.3.0-rc6, gb3d6253b0d61): ramoops
+binds at 0xfd3ff000 with 2 MiB console and 2 MiB pmsg. A pmsg record
+survived a PSCI warm reset (reboot mode warm, SYSTEM_RESET2) and was
+gone after the default cold one. The console zone comes back holding
+the bootloader's own log, which it writes there at every boot,
+including the reset status (RST_STAT) and reboot reason it read, so the
+cause of the last reset is recorded either way.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Signed-off-by: saiththerobo <the.tom.sharp@gmail.com>
+---
+ arch/arm64/boot/dts/exynos/google/gs101-raven.dts | 14 ++++++++++++++
+ 1 file changed, 14 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/gs101-raven.dts b/arch/arm64/boot/dts/exynos/google/gs101-raven.dts
+index 6a635c30b..7d1de1105 100644
+--- a/arch/arm64/boot/dts/exynos/google/gs101-raven.dts
++++ b/arch/arm64/boot/dts/exynos/google/gs101-raven.dts
+@@ -263,3 +263,17 @@ &little_crit {
+ &gpu_crit {
+ 	temperature = <115000>;
+ };
++
++&reserved_memory {
++	/*
++	 * Same region and layout as Google's gs101 kernel, so a log written by
++	 * this kernel survives a warm reset and can be read from
++	 * /sys/fs/pstore on the next boot.
++	 */
++	ramoops@fd3ff000 {
++		compatible = "ramoops";
++		reg = <0x0 0xfd3ff000 0x400000>;
++		console-size = <0x200000>;
++		pmsg-size = <0x200000>;
++	};
++};

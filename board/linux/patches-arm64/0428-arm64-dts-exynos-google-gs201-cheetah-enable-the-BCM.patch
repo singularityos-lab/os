@@ -1,0 +1,177 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Sun, 11 Oct 2026 22:39:18 -0400
+Subject: [PATCH] arm64: dts: exynos: google: gs201-cheetah: enable the BCM4389
+ Wi-Fi
+
+Describe the Wi-Fi side of the BCM4389 on pcie_1 and enable it:
+WL_REG_ON (gph2-4) as the root port's supply with Google's 200 ms
+turn-on delay, so the PCI pwrctrl core powers the chip around link
+training; the wifi@0,0 node with its board type; the host-wake
+(gpa6-1) and dev-wake pins; and a 16 MiB restricted DMA pool that every
+buffer the kernel hands the chip comes from. The HSI2 pin controller,
+which the SoC dtsi leaves disabled, is enabled for these pins.
+
+The Wi-Fi node has no interrupt of its own: for a PCI device with a DT
+node, of_irq_parse_pci() takes the node's interrupt first, so a
+host-wake EINT there replaced the controller's INTA, and brcmfmac,
+whose PCIe bus does not use host-wake, could not clear it ("irq 97:
+nobody cared") while the doorbell interrupts on INTA went nowhere.
+
+The pool sits at 0x80000000-0xffffffff. Without a range the kernel
+places it at the top of RAM, 0xaff000000, where the BCM4389's DMA reads
+work but its writes to host memory are never seen, so it cannot return
+a ring index or a completion. Google's kernel never lets the chip
+address memory above 4 GiB: its HSI2 PCIe SysMMU hands out 32-bit
+IOVAs.
+
+The pool is not a firewall against the chip's firmware: the HSI2 System
+MMU (and S2MPU) select by VID, and the PCIe and UFS masters both arrive
+on VID 0, so the SysMMU node stays disabled.
+
+Assisted-by: LLM
+Signed-off-by: Derek Ross <derekross@gmail.com>
+---
+ .../boot/dts/exynos/google/gs201-cheetah.dts  | 102 ++++++++++++++++++
+ 1 file changed, 102 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts b/arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts
+index 25be33dde..70bd76790 100644
+--- a/arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts
++++ b/arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts
+@@ -114,11 +114,45 @@ ufs_0_fixed_vcc_reg: regulator-ufs-vcc {
+ 		regulator-boot-on;
+ 	};
+ 
++	/*
++	 * WL_REG_ON of the BCM4389. Google raises it and waits 200 ms before
++	 * training the link (WIFI_TURNON_DELAY in bcmdhd). Modelled as the
++	 * root port's supply so the PCI pwrctrl core switches it around link
++	 * training. With pcie_1 disabled nothing enables it, so the chip
++	 * stays off.
++	 */
++	wlan_pwr: regulator-wlan {
++		compatible = "regulator-fixed";
++		regulator-name = "wlan-reg-on";
++		regulator-min-microvolt = <3300000>;
++		regulator-max-microvolt = <3300000>;
++		gpio = <&gph2 4 GPIO_ACTIVE_HIGH>;
++		enable-active-high;
++		startup-delay-us = <200000>;
++		pinctrl-0 = <&wlan_reg_on>;
++		pinctrl-names = "default";
++	};
++
+ 	reserved-memory {
+ 		#address-cells = <2>;
+ 		#size-cells = <1>;
+ 		ranges;
+ 
++		/*
++		 * All of the Wi-Fi chip's DMA buffers come from this pool. It
++		 * keeps driver bugs and stray pointers away from the rest of
++		 * RAM; it does not stop the chip's own firmware from reaching
++		 * other memory (the HSI2 SysMMU and S2MPU see the PCIe and UFS
++		 * masters on the same VID, so neither can confine it alone).
++		 */
++		wifi_dma_pool: wifi-dma-pool {
++			compatible = "restricted-dma-pool";
++			size = <0x1000000>;
++			alignment = <0x0 0x200000>;
++			/* the chip's writes above 4 GiB are not seen */
++			alloc-ranges = <0x0 0x80000000 0x80000000>;
++		};
++
+ 		/*
+ 		 * Camera capture buffers: the CSIS WDMA takes 32-bit addresses
+ 		 * and its SysMMU is left in bypass, so frames go to contiguous
+@@ -731,6 +765,36 @@ typec_int: typec-int-pins {
+ 	};
+ };
+ 
++/*
++ * Wi-Fi: BCM4389 on PCIe GEN4A_1, one lane at Gen2 as on stock. The chip's
++ * DMA buffers come from wifi_dma_pool. The chip's 0.85 V and 1.8 V PCIe
++ * rails (S2MPG13 LDO3 and LDO18) are always on.
++ */
++&pcie_1 {
++	status = "okay";
++	pinctrl-0 = <&pcie1_clkreq>, <&pcie1_perst>, <&wlan_dev_wake>,
++		    <&wlan_host_wake>;
++	pinctrl-names = "default";
++
++	pcie@0,0 {
++		compatible = "pciclass,0604";
++		device_type = "pci";
++		reg = <0x0 0x0 0x0 0x0 0x0>;
++		bus-range = <0x01 0xff>;
++		#address-cells = <3>;
++		#size-cells = <2>;
++		ranges;
++		vpcie3v3-supply = <&wlan_pwr>;
++
++		wifi@0,0 {
++			compatible = "pci14e4,4441";
++			reg = <0x10000 0x0 0x0 0x0 0x0>;
++			brcm,board-type = "google,gs201-cheetah";
++			memory-region = <&wifi_dma_pool>;
++		};
++	};
++};
++
+ /*
+  * Bluetooth: the BCM4389 BT core on the APM USI1 UART (ttySAC18 in
+  * Google's kernel). Tested on the phone (BLUETOOTH-PLAN.md BT1-BT3): the
+@@ -779,7 +843,23 @@ bt_dev_wake: bt-dev-wake-pins {
+ 	};
+ };
+ 
++&pcie_1_phy {
++	status = "okay";
++};
++
++/*
++ * The window for the PCIe System MMU. The node stays disabled: the PCIe and
++ * UFS masters share its VID 0, so it cannot confine the Wi-Fi chip without
++ * also confining storage.
++ */
+ &pinctrl_far_alive {
++	wlan_host_wake: wlan-host-wake-pins {
++		samsung,pins = "gpa6-1";
++		samsung,pin-function = <GS101_PIN_FUNC_EINT>;
++		samsung,pin-pud = <GS101_PIN_PULL_DOWN>;
++		samsung,pin-drv = <GS101_PIN_DRV_2_5_MA>;
++	};
++
+ 	bt_host_wake: bt-host-wake-pins {
+ 		samsung,pins = "gpa6-6";
+ 		samsung,pin-function = <GS101_PIN_FUNC_EINT>;
+@@ -788,6 +868,28 @@ bt_host_wake: bt-host-wake-pins {
+ 	};
+ };
+ 
++&pinctrl_hsi2 {
++	status = "okay";
++
++	wlan_reg_on: wlan-reg-on-pins {
++		samsung,pins = "gph2-4";
++		samsung,pin-function = <GS101_PIN_FUNC_OUTPUT>;
++		samsung,pin-pud = <GS101_PIN_PULL_NONE>;
++		samsung,pin-drv = <GS101_PIN_DRV_2_5_MA>;
++		samsung,pin-con-pdn = <GS101_PIN_PDN_PREV>;
++		samsung,pin-pud-pdn = <GS101_PIN_PULL_NONE>;
++	};
++
++	wlan_dev_wake: wlan-dev-wake-pins {
++		samsung,pins = "gph2-5";
++		samsung,pin-function = <GS101_PIN_FUNC_INPUT>;
++		samsung,pin-pud = <GS101_PIN_PULL_DOWN>;
++		samsung,pin-drv = <GS101_PIN_DRV_2_5_MA>;
++		samsung,pin-con-pdn = <GS101_PIN_PDN_PREV>;
++		samsung,pin-pud-pdn = <GS101_PIN_PULL_DOWN>;
++	};
++};
++
+ /*
+  * Camera power (CAMERA-PLAN.md 1.2), from Google's GPL pantah camera PMIC
+  * device tree: two fixed supplies switched by S2MPG13 GPIOs feed the

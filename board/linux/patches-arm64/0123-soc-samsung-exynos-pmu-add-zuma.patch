@@ -1,0 +1,65 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Brett-Michael Green <brett@bmgvisualtech.com>
+Date: Thu, 22 Oct 2026 12:43:01 -0400
+Subject: [PATCH] soc: samsung: exynos-pmu: add zuma
+
+Give zuma the EL3 (SMC) regmap gs101 uses; stock zuma writes its PMU
+through the same call (SMC_CMD_PRIV_REG, 0x82000504) with the same
+read-modify-write option. Leave out gs101's access tables and its CPU
+hotplug and idle hooks, which encode gs101's register map and CPU
+layout: for now the regmap only serves PHY isolation.
+
+Assisted-by: LLM
+Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
+---
+ drivers/soc/samsung/exynos-pmu.c | 3 +++
+ drivers/soc/samsung/exynos-pmu.h | 1 +
+ drivers/soc/samsung/gs101-pmu.c  | 9 +++++++++
+ 3 files changed, 13 insertions(+)
+
+diff --git a/drivers/soc/samsung/exynos-pmu.c b/drivers/soc/samsung/exynos-pmu.c
+index 27e9ae20c..85056d540 100644
+--- a/drivers/soc/samsung/exynos-pmu.c
++++ b/drivers/soc/samsung/exynos-pmu.c
+@@ -129,6 +129,9 @@ static const struct of_device_id exynos_pmu_of_device_ids[] = {
+ 	}, {
+ 		.compatible = "google,gs201-pmu",
+ 		.data = &gs101_pmu_data,
++	}, {
++		.compatible = "google,zuma-pmu",
++		.data = &zuma_pmu_data,
+ 	}, {
+ 		.compatible = "samsung,exynos3250-pmu",
+ 		.data = exynos_pmu_data_arm_ptr(exynos3250_pmu_data),
+diff --git a/drivers/soc/samsung/exynos-pmu.h b/drivers/soc/samsung/exynos-pmu.h
+index fbe381e2a..4afaded8e 100644
+--- a/drivers/soc/samsung/exynos-pmu.h
++++ b/drivers/soc/samsung/exynos-pmu.h
+@@ -71,6 +71,7 @@ extern const struct exynos_pmu_data exynos5250_pmu_data;
+ extern const struct exynos_pmu_data exynos5420_pmu_data;
+ #endif
+ extern const struct exynos_pmu_data gs101_pmu_data;
++extern const struct exynos_pmu_data zuma_pmu_data;
+ 
+ extern void pmu_raw_writel(u32 val, u32 offset);
+ extern u32 pmu_raw_readl(u32 offset);
+diff --git a/drivers/soc/samsung/gs101-pmu.c b/drivers/soc/samsung/gs101-pmu.c
+index 17dadc1b9..fbc7821a8 100644
+--- a/drivers/soc/samsung/gs101-pmu.c
++++ b/drivers/soc/samsung/gs101-pmu.c
+@@ -329,6 +329,15 @@ const struct exynos_pmu_data gs101_pmu_data = {
+ 	.wr_table = &gs101_pmu_wr_table,
+ };
+ 
++/*
++ * zuma's PMU is written through the same EL3 call, but its register map and
++ * CPU layout differ from gs101's, so no access tables and no CPU hotplug
++ * hooks yet: only the regmap, for its PHY and power-domain consumers.
++ */
++const struct exynos_pmu_data zuma_pmu_data = {
++	.pmu_secure = true,
++};
++
+ /*
+  * Tensor SoCs are configured so that PMU_ALIVE registers can only be written
+  * from EL3, but are still read accessible. As Linux needs to write some of

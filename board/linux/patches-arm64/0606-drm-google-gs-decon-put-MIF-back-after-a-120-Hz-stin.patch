@@ -1,0 +1,63 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: saiththerobo <the.tom.sharp@gmail.com>
+Date: Thu, 15 Oct 2026 07:31:26 +0100
+Subject: [PATCH] drm: google: gs-decon: put MIF back after a 120 Hz stint
+
+Dropping the 120 Hz floor left MIF at 1352 MHz, screen off included,
+since nothing else votes on it. Remember the rate at probe and set it
+back when the floor goes (the CRTC disable drops to 60 Hz first).
+
+On the Pixel 7 Pro MIF reads 2028 MHz at probe, above the 1352 MHz floor,
+and nothing else votes on it, so this costs one ACPM read when leaving
+120 Hz and writes nothing there.
+
+Assisted-by: Claude Opus 5.5
+Signed-off-by: saiththerobo <the.tom.sharp@gmail.com>
+---
+ drivers/gpu/drm/google/gs-decon.c | 19 +++++++++++++++++--
+ 1 file changed, 17 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/gpu/drm/google/gs-decon.c b/drivers/gpu/drm/google/gs-decon.c
+index 1df22cdc7..6f1c8c8a0 100644
+--- a/drivers/gpu/drm/google/gs-decon.c
++++ b/drivers/gpu/drm/google/gs-decon.c
+@@ -344,6 +344,8 @@ struct gs_decon {
+ 
+ 	/* optional ACPM DVFS domains, floors at 120 Hz */
+ 	struct clk *mif;
++	/* MIF before any 120 Hz floor, put back when the floor goes */
++	unsigned long mif_rest;
+ 	struct clk *disp;
+ 
+ 	/* the link and panel, for rate switching; NULL: 60 Hz only */
+@@ -719,6 +721,17 @@ static void gs_decon_set_floors(struct gs_decon *dc, unsigned int hz)
+ 	if (ret)
+ 		dev_warn(dc->dev, "DISP floor for %u Hz: %d\n", hz, ret);
+ 
++	/*
++	 * Nothing else votes on MIF yet, so without this it would stay at the
++	 * 120 Hz floor after every 120 Hz stint, screen off included.
++	 */
++	if (!high && dc->mif_rest && clk_get_rate(dc->mif) > dc->mif_rest) {
++		ret = clk_set_rate(dc->mif, dc->mif_rest);
++		if (ret)
++			dev_warn(dc->dev, "MIF back to %lu Hz: %d\n",
++				 dc->mif_rest, ret);
++	}
++
+ 	if (high)
+ 		dev_dbg(dc->dev, "MIF %lu Hz, DISP %lu Hz\n",
+ 			clk_get_rate(dc->mif), clk_get_rate(dc->disp));
+@@ -1481,8 +1494,10 @@ static int gs_decon_probe(struct platform_device *pdev)
+ 	dc->disp = devm_clk_get_optional(dev, "disp");
+ 	if (IS_ERR(dc->disp))
+ 		return dev_err_probe(dev, PTR_ERR(dc->disp), "disp clock\n");
+-	if (dc->mif)
+-		dev_info(dev, "MIF at %lu Hz\n", clk_get_rate(dc->mif));
++	if (dc->mif) {
++		dc->mif_rest = clk_get_rate(dc->mif);
++		dev_info(dev, "MIF at %lu Hz\n", dc->mif_rest);
++	}
+ 	if (dc->disp)
+ 		dev_info(dev, "DISP at %lu Hz\n", clk_get_rate(dc->disp));
+ 

@@ -1,0 +1,42 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Lef <me@lefteros.com>
+Date: Tue, 10 Nov 2026 19:00:07 +0200
+Subject: [PATCH] dt-bindings: mfd: samsung,s2mpg15-pmic: the sub-PMIC is on
+ Tensor G3 and G4
+
+The Pixel 8 Pro (Tensor G3) has an S2MPG15 sub-PMIC too, with the same
+three GNSS LDOs, as its zuma-husky node shows. Say G3 and G4 in the
+descriptions of the PMIC and of its regulators. No property changes.
+
+Signed-off-by: Lef <me@lefteros.com>
+---
+ Documentation/devicetree/bindings/mfd/samsung,s2mpg15-pmic.yaml | 2 +-
+ .../bindings/regulator/samsung,s2mpg15-regulator.yaml           | 2 +-
+ 2 files changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/Documentation/devicetree/bindings/mfd/samsung,s2mpg15-pmic.yaml b/Documentation/devicetree/bindings/mfd/samsung,s2mpg15-pmic.yaml
+index 90d7e8442..0d6ba7675 100644
+--- a/Documentation/devicetree/bindings/mfd/samsung,s2mpg15-pmic.yaml
++++ b/Documentation/devicetree/bindings/mfd/samsung,s2mpg15-pmic.yaml
+@@ -10,7 +10,7 @@ maintainers:
+   - W4HO <87742609+W4HO-ham@users.noreply.github.com>
+ 
+ description: |
+-  S2MPG15 is the sub PMIC paired with Google's Tensor G4 and is reached
++  S2MPG15 is the sub PMIC paired with Google's Tensor G3 and G4 and is reached
+   through ACPM. Its LDOs supply the AoC sensors, the GNSS receiver, the
+   camera sensors and the fingerprint sensor.
+   Interrupt, meter, GPIO and RTC functions are not described here.
+diff --git a/Documentation/devicetree/bindings/regulator/samsung,s2mpg15-regulator.yaml b/Documentation/devicetree/bindings/regulator/samsung,s2mpg15-regulator.yaml
+index 413415753..b2afeff2d 100644
+--- a/Documentation/devicetree/bindings/regulator/samsung,s2mpg15-regulator.yaml
++++ b/Documentation/devicetree/bindings/regulator/samsung,s2mpg15-regulator.yaml
+@@ -10,7 +10,7 @@ maintainers:
+   - W4HO <87742609+W4HO-ham@users.noreply.github.com>
+ 
+ description: |
+-  The sub-PMIC paired with Google's Tensor G4. LDO5S and LDO7S supply the
++  The sub-PMIC paired with Google's Tensor G3 and G4. LDO5S and LDO7S supply the
+   AoC sensors, LDO9S, LDO10S and LDO11S the GNSS receiver's core, RF front
+   end and auxiliary supply, LDO12S the camera sensors' 1.8 V and LDO15S the
+   fingerprint sensor's 3.3 V. Enable control and voltage readback are

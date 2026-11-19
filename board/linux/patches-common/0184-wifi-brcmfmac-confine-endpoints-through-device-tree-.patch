@@ -1,0 +1,351 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Chris Gray <chrisgray70@gmail.com>
+Date: Wed, 11 Nov 2026 12:20:03 -0600
+Subject: [PATCH] wifi: brcmfmac: confine endpoints through device-tree policy
+
+Require a matching, non-expanding restricted DMA attachment before
+bus mastering when the endpoint requests it. Derive the allowed pool
+extent from reserved memory instead of a Bluejay machine check or fixed
+address. Preserve the original mastering order for other endpoints.
+
+Cache the endpoint packet limit once during PCI probe and pass it to
+msgbuf. Count oversized TX frames in msgbuf_stats before dropping them.
+Read the provisioned ASCII MAC only when the endpoint requests it.
+Keep the chip-only diagnostic in the private bring-up branch.
+
+Assisted-by: LLM
+Signed-off-by: Chris Gray <chrisgray70@gmail.com>
+---
+ .../broadcom/brcm80211/brcmfmac/bus.h         |  2 +
+ .../broadcom/brcm80211/brcmfmac/msgbuf.c      | 29 ++++++-
+ .../wireless/broadcom/brcm80211/brcmfmac/of.c | 27 +++++++
+ .../broadcom/brcm80211/brcmfmac/pcie.c        | 75 ++++++++++++++++++-
+ 4 files changed, 127 insertions(+), 6 deletions(-)
+
+diff --git a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/bus.h b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/bus.h
+index 0ced0b8c2..8ed8aa893 100644
+--- a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/bus.h
++++ b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/bus.h
+@@ -119,6 +119,7 @@ struct brcmf_bus_ops {
+  *
+  * @commonrings: commonrings which are always there.
+  * @flowrings: commonrings which are dynamically created and destroyed for data.
++ * @max_dma_buffer_size: maximum packet DMA mapping, U32_MAX if unrestricted.
+  * @rx_dataoffset: if set then all rx data has this offset.
+  * @max_rxbufpost: maximum number of buffers to post for rx.
+  * @max_flowrings: maximum number of tx flow rings supported.
+@@ -128,6 +129,7 @@ struct brcmf_bus_ops {
+ struct brcmf_bus_msgbuf {
+ 	struct brcmf_commonring *commonrings[BRCMF_NROF_COMMON_MSGRINGS];
+ 	struct brcmf_commonring **flowrings;
++	u32 max_dma_buffer_size;
+ 	u32 rx_dataoffset;
+ 	u32 max_rxbufpost;
+ 	u16 max_flowrings;
+diff --git a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/msgbuf.c b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/msgbuf.c
+index 9f152e71e..9a89884d1 100644
+--- a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/msgbuf.c
++++ b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/msgbuf.c
+@@ -270,6 +270,8 @@ struct brcmf_msgbuf {
+ 
+ 	u16 rx_dataoffset;
+ 	u32 max_rxbufpost;
++	u32 max_dma_buffer_size;
++	atomic_t tx_oversize_dropped;
+ 	u16 rx_metadata_offset;
+ 	u32 rxbufpost;
+ 
+@@ -363,14 +365,20 @@ brcmf_msgbuf_init_pktids(u32 nr_array_entries,
+ 
+ 
+ static int
+-brcmf_msgbuf_alloc_pktid(struct device *dev,
++brcmf_msgbuf_alloc_pktid(struct brcmf_msgbuf *msgbuf,
+ 			 struct brcmf_msgbuf_pktids *pktids,
+ 			 struct sk_buff *skb, u16 data_offset,
+ 			 dma_addr_t *physaddr, u32 *idx, bool ctrl)
+ {
++	struct device *dev = msgbuf->drvr->bus_if->dev;
+ 	struct brcmf_msgbuf_pktid *array;
+ 	u32 first, end, count;
+ 
++	if (msgbuf->max_dma_buffer_size != U32_MAX &&
++	    (data_offset > skb->len ||
++	     skb->len - data_offset > msgbuf->max_dma_buffer_size))
++		return -E2BIG;
++
+ 	array = pktids->array;
+ 
+ 	*physaddr = dma_map_single(dev, skb->data + data_offset,
+@@ -849,6 +857,7 @@ static void brcmf_msgbuf_txflow(struct brcmf_msgbuf *msgbuf, u16 flowid)
+ 	u64 address;
+ 	u8 ethhdr[ETH_HLEN];
+ 	bool sfh;
++	u32 max_dma_size = msgbuf->max_dma_buffer_size;
+ 
+ 	commonring = msgbuf->flowrings[flowid];
+ 	if (!brcmf_commonring_write_available(commonring))
+@@ -864,11 +873,19 @@ static void brcmf_msgbuf_txflow(struct brcmf_msgbuf *msgbuf, u16 flowid)
+ 				 brcmf_flowring_qlen(flow, flowid));
+ 			break;
+ 		}
++		if (max_dma_size != U32_MAX &&
++		    (max_dma_size < BRCMF_MSGBUF_SFH_LLC_LEN ||
++		     skb->len > max_dma_size - BRCMF_MSGBUF_SFH_LLC_LEN)) {
++			atomic_inc(&msgbuf->tx_oversize_dropped);
++			brcmf_txfinalize(brcmf_get_ifp(drvr,
++				brcmf_flowring_ifidx_get(flow, flowid)), skb, false);
++			continue;
++		}
+ 		skb_orphan(skb);
+ 		memcpy(ethhdr, skb->data, ETH_HLEN);
+ 		sfh = brcmf_msgbuf_sfh_llc(msgbuf) &&
+ 		      !brcmf_msgbuf_sfh_llc_insert(skb);
+-		if (brcmf_msgbuf_alloc_pktid(msgbuf->drvr->bus_if->dev,
++		if (brcmf_msgbuf_alloc_pktid(msgbuf,
+ 					     msgbuf->tx_pktids, skb,
+ 					     sfh ? 0 : ETH_HLEN,
+ 					     &physaddr, &pktid, false)) {
+@@ -1106,7 +1123,7 @@ static u32 brcmf_msgbuf_rxbuf_data_post(struct brcmf_msgbuf *msgbuf, u32 count)
+ 		}
+ 
+ 		pktlen = skb->len;
+-		if (brcmf_msgbuf_alloc_pktid(msgbuf->drvr->bus_if->dev,
++		if (brcmf_msgbuf_alloc_pktid(msgbuf,
+ 					     msgbuf->rx_pktids, skb, 0,
+ 					     &physaddr, &pktid, false)) {
+ 			dev_kfree_skb_any(skb);
+@@ -1218,7 +1235,7 @@ brcmf_msgbuf_rxbuf_ctrl_post(struct brcmf_msgbuf *msgbuf, bool event_buf,
+ 		}
+ 
+ 		pktlen = skb->len;
+-		if (brcmf_msgbuf_alloc_pktid(msgbuf->drvr->bus_if->dev,
++		if (brcmf_msgbuf_alloc_pktid(msgbuf,
+ 					     msgbuf->rx_pktids, skb, 0,
+ 					     &physaddr, &pktid, true)) {
+ 			dev_kfree_skb_any(skb);
+@@ -1751,6 +1768,8 @@ static int brcmf_msgbuf_stats_read(struct seq_file *seq, void *data)
+ 	struct brcmf_flowring_ring *ring;
+ 	struct brcmf_flowring_hash *hash;
+ 
++	seq_printf(seq, "tx_oversize_dropped: %d\n",
++		   atomic_read(&msgbuf->tx_oversize_dropped));
+ 	commonring = msgbuf->commonrings[BRCMF_H2D_MSGRING_CONTROL_SUBMIT];
+ 	seq_printf(seq, "h2d_ctl_submit: rp %4u, wp %4u, depth %4u\n",
+ 		   commonring->r_ptr, commonring->w_ptr, commonring->depth);
+@@ -1835,6 +1854,8 @@ int brcmf_proto_msgbuf_attach(struct brcmf_pub *drvr)
+ 		goto fail;
+ 
+ 	msgbuf->drvr = drvr;
++	msgbuf->max_dma_buffer_size = if_msgbuf->max_dma_buffer_size;
++	atomic_set(&msgbuf->tx_oversize_dropped, 0);
+ 	msgbuf->ioctbuf = dma_alloc_coherent(drvr->bus_if->dev,
+ 					     BRCMF_TX_IOCTL_MAX_MSG_SIZE,
+ 					     &msgbuf->ioctbuf_handle,
+diff --git a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/of.c b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/of.c
+index 03efae36a..8e0510244 100644
+--- a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/of.c
++++ b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/of.c
+@@ -7,6 +7,8 @@
+ #include <linux/of_irq.h>
+ #include <linux/of_net.h>
+ #include <linux/clk.h>
++#include <linux/etherdevice.h>
++#include <linux/hex.h>
+ 
+ #include <defs.h>
+ #include "debug.h"
+@@ -66,6 +68,27 @@ static int brcmf_of_get_country_codes(struct device *dev,
+ 	return 0;
+ }
+ 
++/* Some bootloaders provide ASCII, while of_get_mac_address() expects bytes. */
++static int brcmf_of_chosen_mac(struct device *dev, u8 *mac)
++{
++	struct device_node *config;
++	const char *value;
++	int len, ret = -EINVAL;
++
++	config = of_find_node_by_path("/chosen/config");
++	if (!config)
++		return -ENODEV;
++	value = of_get_property(config, "wlan_mac1", &len);
++	if (value && len == 18 && !value[17] && mac_pton(value, mac))
++		ret = 0;
++	else if (value && len == 13 && !value[12])
++		ret = hex2bin(mac, value, ETH_ALEN);
++	of_node_put(config);
++	if (ret || !is_valid_ether_addr(mac) || is_local_ether_addr(mac))
++		return dev_err_probe(dev, -EINVAL, "invalid provisioned WLAN MAC\n");
++	return 0;
++}
++
+ int brcmf_of_probe(struct device *dev, enum brcmf_bus_type bus_type,
+ 		   struct brcmf_mp_device *settings)
+ {
+@@ -128,6 +151,10 @@ int brcmf_of_probe(struct device *dev, enum brcmf_bus_type bus_type,
+ 	if (err)
+ 		brcmf_err("failed to get OF country code map (err=%d)\n", err);
+ 
++	if (bus_type == BRCMF_BUSTYPE_PCIE &&
++	    of_property_read_bool(np, "brcm,mac-address-from-chosen"))
++		return brcmf_of_chosen_mac(dev, settings->mac);
++
+ 	err = of_get_mac_address(np, settings->mac);
+ 	if (err == -EPROBE_DEFER)
+ 		return err;
+diff --git a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/pcie.c b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/pcie.c
+index f53ded28b..c660797ce 100644
+--- a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/pcie.c
++++ b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/pcie.c
+@@ -10,6 +10,7 @@
+ #include <linux/vmalloc.h>
+ #include <linux/delay.h>
+ #include <linux/dma-mapping.h>
++#include <linux/dma-map-ops.h>
+ #include <linux/interrupt.h>
+ #include <linux/bcma/bcma.h>
+ #include <linux/sched.h>
+@@ -18,6 +19,9 @@
+ #include <linux/io.h>
+ #include <linux/iopoll.h>
+ #include <linux/random.h>
++#include <linux/of.h>
++#include <linux/of_reserved_mem.h>
++#include <linux/swiotlb.h>
+ #include <linux/unaligned.h>
+ 
+ #include <soc.h>
+@@ -379,6 +383,7 @@ struct brcmf_otp_params {
+ };
+ 
+ struct brcmf_pciedev_info {
++	bool restricted_dma;
+ 	enum brcmf_pcie_state state;
+ 	bool in_irq;
+ 	struct pci_dev *pdev;
+@@ -1802,6 +1807,16 @@ static int brcmf_pcie_init_ringbuffers(struct brcmf_pciedev_info *devinfo)
+ 				BRCMF_NROF_H2D_COMMON_MSGRINGS;
+ 		max_completionrings = BRCMF_NROF_D2H_COMMON_MSGRINGS;
+ 	}
++	if (devinfo->restricted_dma &&
++	    (max_submissionrings < BRCMF_NROF_H2D_COMMON_MSGRINGS ||
++	    max_submissionrings < max_flowrings + BRCMF_NROF_H2D_COMMON_MSGRINGS ||
++	    max_submissionrings > 1024 ||
++	    max_completionrings < BRCMF_NROF_D2H_COMMON_MSGRINGS ||
++	    max_completionrings > 64)) {
++		brcmf_err(bus, "invalid ring index counts: %u/%u/%u\n",
++			  max_flowrings, max_submissionrings, max_completionrings);
++		return -EIO;
++	}
+ 	if (max_flowrings > 512) {
+ 		brcmf_err(bus, "invalid max_flowrings(%d)\n", max_flowrings);
+ 		return -EIO;
+@@ -2528,28 +2543,75 @@ static int brcmf_pcie_download_fw_nvram(struct brcmf_pciedev_info *devinfo,
+ }
+ 
+ 
++static int brcmf_pcie_restricted_dma_guard(struct device *dev)
++{
++#if IS_ENABLED(CONFIG_DMA_RESTRICTED_POOL)
++	struct device_node *np;
++	struct reserved_mem *rmem;
++	struct io_tlb_mem *mem = dev->dma_io_tlb_mem;
++	bool valid;
++
++	if (!of_device_is_compatible(dev->of_node, "brcm,bcm4329-fmac"))
++		return -ENODEV;
++	np = of_parse_phandle(dev->of_node, "memory-region", 0);
++	if (!np)
++		return -ENODEV;
++	rmem = of_reserved_mem_lookup(np);
++	valid = of_device_is_available(np) &&
++		of_device_is_compatible(np, "restricted-dma-pool") &&
++		!get_dma_ops(dev) && !dev->dma_range_map &&
++		!dma_get_min_align_mask(dev) &&
++		rmem && rmem->size && rmem->base <= DMA_BIT_MASK(32) &&
++		rmem->size - 1 <= DMA_BIT_MASK(32) - rmem->base &&
++		mem && rmem->priv == mem && mem->for_alloc && mem->force_bounce &&
++		mem->defpool.start == rmem->base &&
++		mem->defpool.end == rmem->base + rmem->size;
++	of_node_put(np);
++#ifdef CONFIG_SWIOTLB_DYNAMIC
++	valid = valid && mem && !mem->can_grow;
++#endif
++	if (!valid)
++		return -EINVAL;
++	dev_info(dev, "restricted DMA attachment verified below 4 GiB\n");
++	return 0;
++#else
++	return -EOPNOTSUPP;
++#endif
++}
++
+ static int brcmf_pcie_get_resource(struct brcmf_pciedev_info *devinfo)
+ {
+ 	struct pci_dev *pdev = devinfo->pdev;
+ 	struct brcmf_bus *bus = dev_get_drvdata(&pdev->dev);
+ 	int err;
++	u64 mask = DMA_BIT_MASK(64);
++	bool restricted_dma = devinfo->restricted_dma;
+ 	phys_addr_t  bar0_addr, bar1_addr;
+ 	ulong bar1_size;
+ 
++	if (restricted_dma) {
++		mask = DMA_BIT_MASK(32);
++		err = brcmf_pcie_restricted_dma_guard(&pdev->dev);
++		if (err)
++			return dev_err_probe(&pdev->dev, err,
++					     "refusing unconfined restricted DMA\n");
++	}
++
+ 	err = pci_enable_device(pdev);
+ 	if (err) {
+ 		brcmf_err(bus, "pci_enable_device failed err=%d\n", err);
+ 		return err;
+ 	}
+ 
+-	pci_set_master(pdev);
++	if (!restricted_dma)
++		pci_set_master(pdev);
+ 
+ 	/* The dongle takes 64-bit host addresses in every ring and buffer
+ 	 * descriptor. Without this the PCI default 32-bit mask applies, and
+ 	 * every allocation from a restricted DMA pool placed above 4 GiB
+ 	 * fails.
+ 	 */
+-	err = dma_set_mask_and_coherent(&pdev->dev, DMA_BIT_MASK(64));
++	err = dma_set_mask_and_coherent(&pdev->dev, mask);
+ 	if (err) {
+ 		err = dma_set_mask_and_coherent(&pdev->dev, DMA_BIT_MASK(32));
+ 		if (err) {
+@@ -2558,6 +2620,9 @@ static int brcmf_pcie_get_resource(struct brcmf_pciedev_info *devinfo)
+ 		}
+ 	}
+ 
++	if (restricted_dma)
++		pci_set_master(pdev);
++
+ 	/* Bar-0 mapped address */
+ 	bar0_addr = pci_resource_start(pdev, 0);
+ 	/* Bar-1 mapped address */
+@@ -3264,6 +3329,8 @@ brcmf_pcie_probe(struct pci_dev *pdev, const struct pci_device_id *id)
+ 		return ret;
+ 
+ 	devinfo->pdev = pdev;
++	devinfo->restricted_dma =
++		of_property_read_bool(pdev->dev.of_node, "brcm,requires-restricted-dma");
+ 	spin_lock_init(&devinfo->tcm_lock);
+ 	mutex_init(&devinfo->rx_lock);
+ 	INIT_DELAYED_WORK(&devinfo->poll_work, brcmf_pcie_poll_worker);
+@@ -3315,6 +3382,10 @@ brcmf_pcie_probe(struct pci_dev *pdev, const struct pci_device_id *id)
+ 		goto fail;
+ 	}
+ 
++	bus->msgbuf->max_dma_buffer_size = U32_MAX;
++	of_property_read_u32(pdev->dev.of_node, "brcm,max-dma-buffer-size",
++			     &bus->msgbuf->max_dma_buffer_size);
++
+ 	/* hook it all together. */
+ 	pcie_bus_dev->devinfo = devinfo;
+ 	pcie_bus_dev->bus = bus;

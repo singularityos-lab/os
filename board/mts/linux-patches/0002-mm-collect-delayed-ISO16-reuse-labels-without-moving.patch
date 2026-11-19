@@ -1,7 +1,7 @@
-From 8a56670ee02cf655dc2ad1f8e9a62503e2c39539 Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Mirko Brombin <9479903+mirkobrombin@users.noreply.github.com>
 Date: Sat, 18 Jul 2026 17:26:31 +0100
-Subject: [PATCH 2/2] mm: collect delayed ISO16 reuse labels without moving
+Subject: [PATCH 02/11] mm: collect delayed ISO16 reuse labels without moving
  pages
 
 Add the MTS M0 observe-mode collector behind CONFIG_MTS_OBSERVE. An
@@ -33,10 +33,10 @@ Signed-off-by: Mirko Brombin <9479903+mirkobrombin@users.noreply.github.com>
  create mode 100644 mm/mts.c
 
 diff --git a/Documentation/admin-guide/kernel-parameters.txt b/Documentation/admin-guide/kernel-parameters.txt
-index 97007f4..ed09bcc 100644
+index 4e64219c8..05cc5f3a1 100644
 --- a/Documentation/admin-guide/kernel-parameters.txt
 +++ b/Documentation/admin-guide/kernel-parameters.txt
-@@ -4242,6 +4242,15 @@ Kernel parameters
+@@ -4298,6 +4298,15 @@ Kernel parameters
  			Used for mtrr cleanup. It is spare mtrr entries number.
  			Set to 2 or more if your graphical card needs more.
  
@@ -54,7 +54,7 @@ index 97007f4..ed09bcc 100644
  			at a time.
 diff --git a/include/linux/mts.h b/include/linux/mts.h
 new file mode 100644
-index 0000000..569953c
+index 000000000..569953c1b
 --- /dev/null
 +++ b/include/linux/mts.h
 @@ -0,0 +1,21 @@
@@ -81,7 +81,7 @@ index 0000000..569953c
 +#endif /* _LINUX_MTS_H */
 diff --git a/include/trace/events/mts.h b/include/trace/events/mts.h
 new file mode 100644
-index 0000000..bc95234
+index 000000000..bc9523423
 --- /dev/null
 +++ b/include/trace/events/mts.h
 @@ -0,0 +1,49 @@
@@ -135,7 +135,7 @@ index 0000000..bc95234
 +
 +#include <trace/define_trace.h>
 diff --git a/mm/Kconfig b/mm/Kconfig
-index e8bf1e9..47e993a 100644
+index 604c58199..3a38e8553 100644
 --- a/mm/Kconfig
 +++ b/mm/Kconfig
 @@ -19,6 +19,16 @@ menuconfig SWAP
@@ -156,7 +156,7 @@ index e8bf1e9..47e993a 100644
  	bool "Compressed cache for swap pages"
  	depends on SWAP
 diff --git a/mm/Makefile b/mm/Makefile
-index 8ad2ab0..dda833d 100644
+index e7245cb88..9575f76a7 100644
 --- a/mm/Makefile
 +++ b/mm/Makefile
 @@ -77,6 +77,7 @@ endif
@@ -169,7 +169,7 @@ index 8ad2ab0..dda833d 100644
  ifdef CONFIG_CMA
 diff --git a/mm/mts.c b/mm/mts.c
 new file mode 100644
-index 0000000..b4e1bdf
+index 000000000..b4e1bdffe
 --- /dev/null
 +++ b/mm/mts.c
 @@ -0,0 +1,316 @@
@@ -490,7 +490,7 @@ index 0000000..b4e1bdf
 +}
 +__setup("mts.sample_shift=", mts_sample_shift_setup);
 diff --git a/mm/page_ext.c b/mm/page_ext.c
-index e2e92bd..4aae3c4 100644
+index b679a8c1f..89e13dc66 100644
 --- a/mm/page_ext.c
 +++ b/mm/page_ext.c
 @@ -12,6 +12,7 @@
@@ -512,7 +512,7 @@ index e2e92bd..4aae3c4 100644
  	&page_owner_ops,
  #endif
 diff --git a/mm/vmscan.c b/mm/vmscan.c
-index bd1b1aa..9b01a42 100644
+index 88fd31d13..9b7757f9e 100644
 --- a/mm/vmscan.c
 +++ b/mm/vmscan.c
 @@ -14,6 +14,7 @@
@@ -523,16 +523,16 @@ index bd1b1aa..9b01a42 100644
  #include <linux/module.h>
  #include <linux/gfp.h>
  #include <linux/kernel_stat.h>
-@@ -868,6 +869,8 @@ static enum folio_references folio_check_references(struct folio *folio,
+@@ -872,6 +873,8 @@ static enum folio_references folio_check_references(struct folio *folio,
  
  	referenced_ptes = folio_referenced(folio, 1, sc->target_mem_cgroup,
- 					   &vm_flags);
+ 					   &vma_flags);
 +	if (referenced_ptes >= 0)
 +		mts_observe_consider(folio, referenced_ptes > 0);
  
  	/*
  	 * The supposedly reclaimable folio was found to be in a VM_LOCKED vma.
-@@ -3443,6 +3446,7 @@ static void walk_update_folio(struct lru_gen_mm_walk *walk, struct folio *folio,
+@@ -3520,6 +3523,7 @@ static void walk_update_folio(struct lru_gen_mm_walk *walk, struct vm_area_struc
  
  	if (!folio)
  		return;
@@ -540,6 +540,3 @@ index bd1b1aa..9b01a42 100644
  
  	if (dirty && !folio_test_dirty(folio) &&
  	    !(folio_test_anon(folio) && folio_test_swapbacked(folio) &&
--- 
-2.51.1
-

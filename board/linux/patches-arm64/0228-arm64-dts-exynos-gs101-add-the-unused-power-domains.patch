@@ -1,0 +1,150 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: saiththerobo <the.tom.sharp@gmail.com>
+Date: Mon, 26 Oct 2026 08:19:38 +0000
+Subject: [PATCH] arm64: dts: exynos: gs101: add the unused power domains
+
+The bootloader leaves all of gs101's power domains on. Describe the ones
+nothing in Linux uses yet (TPU, BO, MFC, G2D and the camera pipeline,
+with IPP under PDP and DNS under ITP) as google,gs101-pd children of the
+PMU, disabled, so that a board can let genpd power them off at boot.
+Offsets from Google's gs101-pm-domains.dtsi.
+
+None has a samsung,dtzpc phandle yet. The D_TZPC binding needs the
+block's D_TZPC clock, and none of these blocks has a CMU driver, so
+there is nothing to point at. Without the DTZPC call a domain powered
+back on would come up with its TrustZone configuration reset; nothing
+can power these back on until the block gets a driver and a CMU, and
+that is where its D_TZPC belongs. The AoC's domain is left out: the AoC
+is running, and its own driver will own it.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Signed-off-by: saiththerobo <the.tom.sharp@gmail.com>
+---
+ arch/arm64/boot/dts/exynos/google/gs101.dtsi | 114 +++++++++++++++++++
+ 1 file changed, 114 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/gs101.dtsi b/arch/arm64/boot/dts/exynos/google/gs101.dtsi
+index e9f3c1adc..9cfb4de7a 100644
+--- a/arch/arm64/boot/dts/exynos/google/gs101.dtsi
++++ b/arch/arm64/boot/dts/exynos/google/gs101.dtsi
+@@ -1833,6 +1833,120 @@ reboot-mode {
+ 				mode-shutdown-thermal = <0x51>;
+ 				mode-shutdown-thermal-battery = <0x51>;
+ 			};
++
++			/*
++			 * Power domains nothing in Linux uses yet, from Google's
++			 * gs101-pm-domains.dtsi, so that genpd can power them off
++			 * (the bootloader leaves them all on). No samsung,dtzpc:
++			 * these blocks have no CMU driver, so their D_TZPC can't be
++			 * described; the block's driver adds it with its CMU,
++			 * before anything powers the domain back on.
++			 */
++			pd_g2d: power-domain@2300 {
++				compatible = "google,gs101-pd";
++				reg = <0x2300 0x80>;
++				#power-domain-cells = <0>;
++				label = "g2d";
++				status = "disabled";
++			};
++
++			pd_mfc: power-domain@2380 {
++				compatible = "google,gs101-pd";
++				reg = <0x2380 0x80>;
++				#power-domain-cells = <0>;
++				label = "mfc";
++				status = "disabled";
++			};
++
++			pd_csis: power-domain@2400 {
++				compatible = "google,gs101-pd";
++				reg = <0x2400 0x80>;
++				#power-domain-cells = <0>;
++				label = "csis";
++				status = "disabled";
++			};
++
++			pd_pdp: power-domain@2480 {
++				compatible = "google,gs101-pd";
++				reg = <0x2480 0x80>;
++				#power-domain-cells = <0>;
++				label = "pdp";
++				status = "disabled";
++			};
++
++			pd_dns: power-domain@2500 {
++				compatible = "google,gs101-pd";
++				reg = <0x2500 0x80>;
++				#power-domain-cells = <0>;
++				label = "dns";
++				power-domains = <&pd_itp>;
++				status = "disabled";
++			};
++
++			pd_g3aa: power-domain@2580 {
++				compatible = "google,gs101-pd";
++				reg = <0x2580 0x80>;
++				#power-domain-cells = <0>;
++				label = "g3aa";
++				status = "disabled";
++			};
++
++			pd_ipp: power-domain@2600 {
++				compatible = "google,gs101-pd";
++				reg = <0x2600 0x80>;
++				#power-domain-cells = <0>;
++				label = "ipp";
++				power-domains = <&pd_pdp>;
++				status = "disabled";
++			};
++
++			pd_itp: power-domain@2680 {
++				compatible = "google,gs101-pd";
++				reg = <0x2680 0x80>;
++				#power-domain-cells = <0>;
++				label = "itp";
++				status = "disabled";
++			};
++
++			pd_mcsc: power-domain@2700 {
++				compatible = "google,gs101-pd";
++				reg = <0x2700 0x80>;
++				#power-domain-cells = <0>;
++				label = "mcsc";
++				status = "disabled";
++			};
++
++			pd_gdc: power-domain@2780 {
++				compatible = "google,gs101-pd";
++				reg = <0x2780 0x80>;
++				#power-domain-cells = <0>;
++				label = "gdc";
++				status = "disabled";
++			};
++
++			pd_tnr: power-domain@2800 {
++				compatible = "google,gs101-pd";
++				reg = <0x2800 0x80>;
++				#power-domain-cells = <0>;
++				label = "tnr";
++				status = "disabled";
++			};
++
++			pd_bo: power-domain@2880 {
++				compatible = "google,gs101-pd";
++				reg = <0x2880 0x80>;
++				#power-domain-cells = <0>;
++				label = "bo";
++				status = "disabled";
++			};
++
++			pd_tpu: power-domain@2900 {
++				compatible = "google,gs101-pd";
++				reg = <0x2900 0x80>;
++				#power-domain-cells = <0>;
++				label = "tpu";
++				status = "disabled";
++			};
+ 		};
+ 
+ 		pmu_intr_gen: syscon@17470000 {

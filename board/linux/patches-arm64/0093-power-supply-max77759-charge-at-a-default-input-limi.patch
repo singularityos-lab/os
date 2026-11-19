@@ -1,0 +1,166 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Mon, 12 Oct 2026 00:35:33 -0400
+Subject: [PATCH] power: supply: max77759: charge at a default input limit
+ without a source report
+
+The charger turns charging off at probe and turns it back on only when a
+"tcpm-source" power supply reports an online source with a non-zero
+current limit. That leaves two cases where a plugged-in phone does not
+charge:
+
+ - there is no Type-C port controller driver (yet), so nothing ever
+   reports a source;
+ - the source advertises Type-C default power (plain USB ports and
+   USB-A to C cables): TCPM reports it online with a current limit of 0,
+   as TCPCI cannot measure BC1.2/USB default current.
+
+Add a default_ilim_ua module parameter. When set, the charger starts
+charging at that input current limit at probe, uses it for an online
+source without a current limit, and leaves charging on when it is
+unbound. It is capped at 900 mA, the USB 3.x default power, which any
+port has to supply. The default (0) keeps the current behaviour.
+
+Also log the mode, float voltage, fast charge current and input limit
+found at probe and those programmed, so the result of the bootloader's
+and the driver's settings can be checked.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ drivers/power/supply/max77759_charger.c | 90 ++++++++++++++++++++++++-
+ 1 file changed, 89 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/power/supply/max77759_charger.c b/drivers/power/supply/max77759_charger.c
+index 5fb2bffa0..8e6d6e252 100644
+--- a/drivers/power/supply/max77759_charger.c
++++ b/drivers/power/supply/max77759_charger.c
+@@ -30,6 +30,14 @@
+ #define MAX_NUM_RETRIES				3
+ #define PSY_WORK_RETRY_DELAY_MS			10
+ 
++/* USB 3.x default power, the most a port must supply without a Type-C advertisement */
++#define CHG_DEFAULT_ILIM_MAX_UA			900000
++
++static unsigned int default_ilim_ua;
++module_param(default_ilim_ua, uint, 0444);
++MODULE_PARM_DESC(default_ilim_ua,
++		 "Input current limit in uA for a source that advertises no current: used from probe until a tcpm-source reports, and for Type-C default power. 0 (default) keeps charging off in both cases. At most 900000.");
++
+ #define FOREACH_IRQ(S)			\
+ 	S(AICL),			\
+ 	S(CHGIN),			\
+@@ -617,6 +625,13 @@ static void psy_work_item(struct work_struct *work)
+ 		goto err;
+ 	}
+ 
++	/*
++	 * A source with Type-C default power (or a TCPC that cannot tell)
++	 * reports no current limit; charge at the configured default then.
++	 */
++	if (online.intval && !current_limit.intval)
++		current_limit.intval = default_ilim_ua;
++
+ 	if (online.intval && current_limit.intval) {
+ 		ret = set_input_current_limit(chg, current_limit.intval);
+ 		if (ret) {
+@@ -681,6 +696,52 @@ static void max_tcpci_unregister_psy_notifier(void *nb)
+ 	power_supply_unreg_notifier(nb);
+ }
+ 
++/*
++ * Without a Type-C port controller nothing ever reports a source, so start
++ * charging at the default input current limit right away, as the
++ * bootloader left it (CHG_BUCK_ON).
++ */
++static int max77759_charger_start_default(struct max77759_charger *chg)
++{
++	int ret;
++
++	ret = set_input_current_limit(chg, default_ilim_ua);
++	if (ret)
++		return ret;
++
++	return charger_set_mode(chg, MAX77759_CHGR_MODE_CHG_BUCK_ON);
++}
++
++/* On unbind, leave charging on instead of in whatever state we had. */
++static void max77759_charger_leave_charging(void *data)
++{
++	struct max77759_charger *chg = data;
++
++	scoped_guard(mutex, &chg->lock) {
++		if (chg->mode == MAX77759_CHGR_MODE_OTG_BOOST_ON ||
++		    chg->mode == MAX77759_CHGR_MODE_CHG_BUCK_ON)
++			return;
++	}
++
++	charger_set_mode(chg, MAX77759_CHGR_MODE_OFF);
++	charger_set_mode(chg, MAX77759_CHGR_MODE_CHG_BUCK_ON);
++}
++
++static void max77759_charger_log_state(struct max77759_charger *chg,
++				       const char *when)
++{
++	int fv = get_float_voltage(chg);
++	int cc = get_fast_charge_current(chg);
++	int ilim = get_input_current_limit(chg);
++	u32 cnfg_00 = 0;
++
++	regmap_read(chg->regmap, MAX77759_CHGR_REG_CHG_CNFG_00, &cnfg_00);
++	dev_info(chg->dev,
++		 "%s: mode %#lx, float voltage %d mV, fast charge %d uA, input limit %d uA\n",
++		 when, FIELD_GET(MAX77759_CHGR_REG_CHG_CNFG_00_MODE, cnfg_00),
++		 fv, cc, ilim);
++}
++
+ static int max77759_charger_probe(struct platform_device *pdev)
+ {
+ 	struct regulator_config chgin_otg_reg_cfg = { };
+@@ -717,11 +778,32 @@ static int max77759_charger_probe(struct platform_device *pdev)
+ 		return dev_err_probe(dev, PTR_ERR(chg->psy),
+ 				     "Failed to register psy\n");
+ 
++	if (default_ilim_ua > CHG_DEFAULT_ILIM_MAX_UA) {
++		dev_warn(dev, "default_ilim_ua %u too high, using %u\n",
++			 default_ilim_ua, CHG_DEFAULT_ILIM_MAX_UA);
++		default_ilim_ua = CHG_DEFAULT_ILIM_MAX_UA;
++	}
++
++	max77759_charger_log_state(chg, "found");
++
+ 	ret = max77759_charger_init(chg);
+ 	if (ret)
+ 		return dev_err_probe(dev, ret,
+ 				     "Failed to initialize max77759 charger\n");
+ 
++	if (default_ilim_ua) {
++		ret = devm_add_action_or_reset(dev,
++					       max77759_charger_leave_charging,
++					       chg);
++		if (ret)
++			return ret;
++
++		ret = max77759_charger_start_default(chg);
++		if (ret)
++			return dev_err_probe(dev, ret,
++					     "Failed to start charging\n");
++	}
++
+ 	chgin_otg_reg_cfg.dev = dev;
+ 	chgin_otg_reg_cfg.driver_data = chg;
+ 	chgin_otg_reg_cfg.of_node = dev_of_node(dev);
+@@ -747,7 +829,13 @@ static int max77759_charger_probe(struct platform_device *pdev)
+ 		return dev_err_probe(dev, ret,
+ 				     "Failed to add devm action to unregister psy notifier\n");
+ 
+-	return max77759_init_irqhandler(chg);
++	ret = max77759_init_irqhandler(chg);
++	if (ret)
++		return ret;
++
++	max77759_charger_log_state(chg, "probed");
++
++	return 0;
+ }
+ 
+ static const struct platform_device_id max77759_charger_id[] = {

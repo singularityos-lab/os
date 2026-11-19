@@ -1,0 +1,36 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Brett-Michael Green <brett@bmgvisualtech.com>
+Date: Sat, 31 Oct 2026 12:45:00 -0400
+Subject: [PATCH] drm/panthor: Add Tensor G3 cache hash configuration
+
+The Tensor G3 (zuma) integrates the same Mali-G715 as the Tensor G4,
+with the same ASN hash values: the Pixel 8 Pro's stock device tree has
+l2-hash-values = <0x36db6d 0x5b6db6 0x00>, from Google's zuma-gpu.dtsi,
+the source zumapro's match already cites. On zumapro, CSF startup fails
+with a GPU bus fault without them.
+
+Match google,zuma-mali with zumapro's SoC data.
+
+Link: https://android.googlesource.com/kernel/devices/google/zuma/+/42395e8adcb880aa336f0da6bb2a19ed53929c40/dts/zuma-gpu.dtsi
+Assisted-by: LLM
+Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
+---
+ drivers/gpu/drm/panthor/panthor_drv.c | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/drivers/gpu/drm/panthor/panthor_drv.c b/drivers/gpu/drm/panthor/panthor_drv.c
+index 7641dd006..09676fa7c 100644
+--- a/drivers/gpu/drm/panthor/panthor_drv.c
++++ b/drivers/gpu/drm/panthor/panthor_drv.c
+@@ -1887,6 +1887,11 @@ static const struct panthor_soc_data soc_data_mediatek_mt8196 = {
+ };
+ 
+ static const struct of_device_id dt_match[] = {
++	{
++		/* zuma's l2-hash-values are zumapro's. */
++		.compatible = "google,zuma-mali",
++		.data = &soc_data_google_zumapro,
++	},
+ 	{
+ 		.compatible = "google,zumapro-mali",
+ 		.data = &soc_data_google_zumapro,

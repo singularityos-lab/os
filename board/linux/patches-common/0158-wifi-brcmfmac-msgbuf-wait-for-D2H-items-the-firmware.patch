@@ -1,0 +1,184 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Brett-Michael Green <brett@bmgvisualtech.com>
+Date: Sat, 31 Oct 2026 11:45:09 -0400
+Subject: [PATCH] wifi: brcmfmac: msgbuf: wait for D2H items the firmware has
+ finished
+
+With DMA'd ring indices the firmware can publish a completion's index
+before the item itself has reached host memory. Firmware that asks for
+D2H sync (PCIE_SHARED_D2H_SYNC_SEQNUM or _XORCSUM; the BCM4398's asks
+for XORCSUM) stamps each item with a sequence number in its epoch byte
+and, in XORCSUM mode, makes the XOR of the item's words zero.
+
+Wait for both before handling an item, as Broadcom's driver does
+(dhd_prot_d2h_sync_seqnum() and dhd_prot_d2h_sync_xorcsum()), with the
+same stepped retries, and skip an item that never completes, as there.
+
+Assisted-by: LLM
+Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
+---
+ .../broadcom/brcm80211/brcmfmac/bus.h         |  1 +
+ .../broadcom/brcm80211/brcmfmac/msgbuf.c      | 78 ++++++++++++++++---
+ .../broadcom/brcm80211/brcmfmac/pcie.c        |  5 ++
+ 3 files changed, 73 insertions(+), 11 deletions(-)
+
+diff --git a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/bus.h b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/bus.h
+index f41d87dd5..0ced0b8c2 100644
+--- a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/bus.h
++++ b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/bus.h
+@@ -133,6 +133,7 @@ struct brcmf_bus_msgbuf {
+ 	u16 max_flowrings;
+ 	u16 max_submissionrings;
+ 	u16 max_completionrings;
++	u32 d2h_sync;
+ };
+ 
+ 
+diff --git a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/msgbuf.c b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/msgbuf.c
+index a9523aa52..b57e6d279 100644
+--- a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/msgbuf.c
++++ b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/msgbuf.c
+@@ -290,6 +290,9 @@ struct brcmf_msgbuf {
+ 	u16 ioctl_seq_no;
+ 	u32 reqid;
+ 	u32 h2d_seqnum[BRCMF_NROF_H2D_COMMON_MSGRINGS];
++	/* D2H sync (bcmdhd dhd_prot_d2h_sync_*()): mode, and next epochs */
++	u32 d2h_sync;
++	u32 d2h_seqnum[BRCMF_NROF_COMMON_MSGRINGS];
+ 	wait_queue_head_t ioctl_resp_wait;
+ 	bool ctl_completed;
+ 
+@@ -1521,9 +1524,55 @@ static void brcmf_msgbuf_process_msgtype(struct brcmf_msgbuf *msgbuf, void *buf)
+ }
+ 
+ 
+-static void brcmf_msgbuf_process_rx(struct brcmf_msgbuf *msgbuf,
+-				    struct brcmf_commonring *commonring)
++#define BRCMF_MSGBUF_D2H_EPOCH_MODULO		253
++#define BRCMF_MSGBUF_D2H_EPOCH_INIT		254
++#define BRCMF_MSGBUF_D2H_SYNC_SEQNUM		0x20000
++#define BRCMF_MSGBUF_D2H_SYNC_XORCSUM		0x40000
++#define BRCMF_MSGBUF_D2H_SYNC_TRIES		512
++#define BRCMF_MSGBUF_D2H_SYNC_STEPS		5
++
++/*
++ * With DMA'd ring indices the firmware can publish a completion's index
++ * before the item itself has landed in host memory. Firmware that asks for
++ * D2H sync stamps each item with a sequence number (its epoch) and, in
++ * XORCSUM mode, a checksum making the XOR of the item's words zero; the
++ * host waits for both before reading the item, as Broadcom's driver does
++ * (dhd_prot_d2h_sync_seqnum() and dhd_prot_d2h_sync_xorcsum()). An item
++ * that never completes is skipped, as there.
++ */
++static bool brcmf_msgbuf_d2h_sync(struct brcmf_msgbuf *msgbuf, u32 ringid,
++				  void *item, u16 len)
++{
++	u8 want = msgbuf->d2h_seqnum[ringid] % BRCMF_MSGBUF_D2H_EPOCH_MODULO;
++	struct msgbuf_common_hdr *hdr = item;
++	u32 step, tries, csum, i;
++
++	for (step = 1; step <= BRCMF_MSGBUF_D2H_SYNC_STEPS; step++) {
++		for (tries = 0; tries < BRCMF_MSGBUF_D2H_SYNC_TRIES; tries++) {
++			if (READ_ONCE(hdr->rsvd0) == want) {
++				csum = 0;
++				if (msgbuf->d2h_sync & BRCMF_MSGBUF_D2H_SYNC_XORCSUM)
++					for (i = 0; i < len / 4; i++)
++						csum ^= READ_ONCE(((u32 *)item)[i]);
++				if (!csum) {
++					msgbuf->d2h_seqnum[ringid]++;
++					dma_rmb();
++					return true;
++				}
++			}
++			udelay(step);
++		}
++	}
++
++	brcmf_err("D2H ring %u: item never completed (epoch %u, want %u)\n",
++		  ringid, READ_ONCE(hdr->rsvd0), want);
++	msgbuf->d2h_seqnum[ringid]++;
++	return false;
++}
++
++static void brcmf_msgbuf_process_rx(struct brcmf_msgbuf *msgbuf, u32 ringid)
+ {
++	struct brcmf_commonring *commonring = msgbuf->commonrings[ringid];
+ 	void *buf;
+ 	u16 count;
+ 	u16 processed;
+@@ -1535,8 +1584,11 @@ static void brcmf_msgbuf_process_rx(struct brcmf_msgbuf *msgbuf,
+ 
+ 	processed = 0;
+ 	while (count) {
+-		brcmf_msgbuf_process_msgtype(msgbuf,
+-					     buf + msgbuf->rx_dataoffset);
++		if (!msgbuf->d2h_sync ||
++		    brcmf_msgbuf_d2h_sync(msgbuf, ringid, buf,
++					  brcmf_commonring_len_item(commonring)))
++			brcmf_msgbuf_process_msgtype(msgbuf,
++						     buf + msgbuf->rx_dataoffset);
+ 		buf += brcmf_commonring_len_item(commonring);
+ 		processed++;
+ 		if (processed == BRCMF_MSGBUF_UPDATE_RX_PTR_THRS) {
+@@ -1592,7 +1644,6 @@ int brcmf_proto_msgbuf_rx_trigger(struct device *dev)
+ 	struct brcmf_pub *drvr = bus_if->drvr;
+ 	struct brcmf_msgbuf *msgbuf;
+ 	struct brcmf_commonring *commonring;
+-	void *buf;
+ 	u32 flowid;
+ 	int qlen;
+ 
+@@ -1600,12 +1651,9 @@ int brcmf_proto_msgbuf_rx_trigger(struct device *dev)
+ 		return -ENODEV;
+ 	msgbuf = (struct brcmf_msgbuf *)drvr->proto->pd;
+ 
+-	buf = msgbuf->commonrings[BRCMF_D2H_MSGRING_RX_COMPLETE];
+-	brcmf_msgbuf_process_rx(msgbuf, buf);
+-	buf = msgbuf->commonrings[BRCMF_D2H_MSGRING_TX_COMPLETE];
+-	brcmf_msgbuf_process_rx(msgbuf, buf);
+-	buf = msgbuf->commonrings[BRCMF_D2H_MSGRING_CONTROL_COMPLETE];
+-	brcmf_msgbuf_process_rx(msgbuf, buf);
++	brcmf_msgbuf_process_rx(msgbuf, BRCMF_D2H_MSGRING_RX_COMPLETE);
++	brcmf_msgbuf_process_rx(msgbuf, BRCMF_D2H_MSGRING_TX_COMPLETE);
++	brcmf_msgbuf_process_rx(msgbuf, BRCMF_D2H_MSGRING_CONTROL_COMPLETE);
+ 
+ 	for_each_set_bit(flowid, msgbuf->txstatus_done_map,
+ 			 msgbuf->max_flowrings) {
+@@ -1825,6 +1873,14 @@ int brcmf_proto_msgbuf_attach(struct brcmf_pub *drvr)
+ 		goto fail;
+ 
+ 	msgbuf->rx_dataoffset = if_msgbuf->rx_dataoffset;
++	msgbuf->d2h_sync = if_msgbuf->d2h_sync;
++	msgbuf->d2h_seqnum[BRCMF_D2H_MSGRING_CONTROL_COMPLETE] =
++		BRCMF_MSGBUF_D2H_EPOCH_INIT;
++	msgbuf->d2h_seqnum[BRCMF_D2H_MSGRING_TX_COMPLETE] =
++		BRCMF_MSGBUF_D2H_EPOCH_INIT;
++	msgbuf->d2h_seqnum[BRCMF_D2H_MSGRING_RX_COMPLETE] =
++		BRCMF_MSGBUF_D2H_EPOCH_INIT;
++	brcmf_dbg(MSGBUF, "D2H sync mode 0x%x\n", msgbuf->d2h_sync);
+ 
+ 	msgbuf->max_ioctlrespbuf = BRCMF_MSGBUF_MAX_IOCTLRESPBUF_POST;
+ 	msgbuf->max_eventbuf = BRCMF_MSGBUF_MAX_EVENTBUF_POST;
+diff --git a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/pcie.c b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/pcie.c
+index 4ca80e15e..c11f6272f 100644
+--- a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/pcie.c
++++ b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/pcie.c
+@@ -247,6 +247,8 @@ static const struct brcmf_firmware_mapping brcmf_pcie_fwnames[] = {
+ #define BRCMF_PCIE_MAX_SHARED_VERSION		BRCMF_PCIE_SHARED_VERSION_9
+ #define BRCMF_PCIE_SHARED_VERSION_MASK		0x00FF
+ #define BRCMF_PCIE_SHARED_DMA_INDEX		0x10000
++#define BRCMF_PCIE_SHARED_D2H_SYNC_SEQNUM	0x20000
++#define BRCMF_PCIE_SHARED_D2H_SYNC_XORCSUM	0x40000
+ #define BRCMF_PCIE_SHARED_DMA_2B_IDX		0x100000
+ #define BRCMF_PCIE_SHARED_USE_MAILBOX		0x2000000
+ #define BRCMF_PCIE_SHARED_HOSTRDY_DB1		0x10000000
+@@ -2876,6 +2878,9 @@ static void brcmf_pcie_setup(struct device *dev, int ret,
+ 
+ 	bus->msgbuf->rx_dataoffset = devinfo->shared.rx_dataoffset;
+ 	bus->msgbuf->max_rxbufpost = devinfo->shared.max_rxbufpost;
++	bus->msgbuf->d2h_sync = devinfo->shared.flags &
++				(BRCMF_PCIE_SHARED_D2H_SYNC_SEQNUM |
++				 BRCMF_PCIE_SHARED_D2H_SYNC_XORCSUM);
+ 	bus->msgbuf->max_flowrings = devinfo->shared.max_flowrings;
+ 
+ 	init_waitqueue_head(&devinfo->mbdata_resp_wait);

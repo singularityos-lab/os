@@ -1,0 +1,127 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Wed, 14 Oct 2026 21:05:04 -0400
+Subject: [PATCH] arm64: dts: exynos: google: gs201-cheetah: describe the PMICs
+
+Add the S2MPG12 main PMIC and the S2MPG13 sub-PMIC under ACPM.
+
+The S2MPG12 is described for its RTC. It has no interrupt line of its
+own: its events arrive in-band and the VGPIO2AP registers raise them as
+GIC SPI 72, level high, as on the stock phone.
+
+The S2MPG13 is described for its LDOs and its GPIO block. Only rails
+with a consumer are listed: the GNSS core, RF and aux rails (L9S-L11S),
+the fingerprint sensor's analog supply (L15S) and the camera I/O rail
+(L12S), with the stock voltages or ranges, so nothing sets a voltage at
+probe. Its GPIOs 0, 1 and 3 wake the camera PMIC and enable the camera
+supplies. The rest of the rails have no constraints and stay as the
+bootloader set them.
+
+Both stay disabled until they are proven on the phone.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ .../boot/dts/exynos/google/gs201-cheetah.dts  | 90 +++++++++++++++++++
+ 1 file changed, 90 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts b/arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts
+index 79c11f8ae..fcb5f455c 100644
+--- a/arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts
++++ b/arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts
+@@ -123,6 +123,96 @@ cont_splash_mem: splash@fac00000 {
+ 	};
+ };
+ 
++&acpm_ipc {
++	/*
++	 * Main PMIC, for its RTC (the wake-up timer for suspend tests). The
++	 * driver only reads and writes the RTC and the interrupt masks; the
++	 * rails stay as the bootloader set them. Disabled until proven on
++	 * the phone (SUSPEND-PLAN.md).
++	 */
++	pmic-1 {
++		compatible = "samsung,s2mpg12-pmic";
++		interrupts = <GIC_SPI 72 IRQ_TYPE_LEVEL_HIGH>;
++		google,vgpio2ap-sysreg = <&sysreg_vgpio2ap>;
++		wakeup-source;
++		status = "disabled";
++	};
++
++	/*
++	 * Sub PMIC, for its LDOs (GNSS first). Only the LDO control
++	 * registers are writable through it, and only rails described
++	 * below can be switched; the rest have no constraints and are left
++	 * as the bootloader set them. No interrupt yet (gpa0-1 on stock).
++	 * Disabled until proven on the phone (GNSS-PLAN.md, G1).
++	 */
++	pmic-2 {
++		compatible = "samsung,s2mpg13-pmic";
++		status = "disabled";
++
++		/*
++		 * GPIO0 wakes the camera PMIC (SLG51002 chip select), GPIO1
++		 * enables PP3200_BB_CAM and GPIO3 PP1300_CAM; the others are
++		 * unused on cheetah. Nothing here switches a pin: only the
++		 * camera nodes below, disabled until camera-pwr-test, do.
++		 */
++		pmic_2_gpio: gpio {
++			compatible = "samsung,s2mpg13-gpio";
++			gpio-controller;
++			#gpio-cells = <2>;
++		};
++
++		regulators {
++			/*
++			 * GNSS: L9S_GNSS_CORE, L10S_GNSS_RF, L11S_GNSS_AUX.
++			 * The ranges are stock's, so nothing sets a voltage
++			 * at probe; they are switched by the GNSS driver.
++			 */
++			ldo9s: ldo9s {
++				regulator-name = "vdd_gnss_core";
++				regulator-min-microvolt = <725000>;
++				regulator-max-microvolt = <1300000>;
++			};
++
++			ldo10s: ldo10s {
++				regulator-name = "vdd_gnss_rf";
++				regulator-min-microvolt = <1600000>;
++				regulator-max-microvolt = <1950000>;
++			};
++
++			ldo11s: ldo11s {
++				regulator-name = "vdd_gnss_aux";
++				regulator-min-microvolt = <1600000>;
++				regulator-max-microvolt = <1950000>;
++			};
++
++			/*
++			 * Fingerprint: L15S_UDFPS_AVDD, the sensor's analog
++			 * supply, with stock's range. Off at hand-off (stock
++			 * keeps it on only through regulator-always-on);
++			 * switched by the goodix-fp driver.
++			 */
++			ldo15s: ldo15s {
++				regulator-name = "vdd_udfps";
++				regulator-min-microvolt = <2500000>;
++				regulator-max-microvolt = <3300000>;
++			};
++
++			/*
++			 * L12S_CAMIO: the 1.8 V I/O supply of every camera
++			 * sensor, EEPROM, actuator and the laser AF. Stock
++			 * voltage. Disabled (so not described, and never
++			 * switched) until camera-pwr-test.
++			 */
++			ldo12s: ldo12s {
++				regulator-name = "vddio_cam";
++				regulator-min-microvolt = <1800000>;
++				regulator-max-microvolt = <1800000>;
++				status = "disabled";
++			};
++		};
++	};
++};
++
+ &dsi0 {
+ 	/*
+ 	 * The bootloader leaves DECON0 -> DSIM0 -> panel running in command

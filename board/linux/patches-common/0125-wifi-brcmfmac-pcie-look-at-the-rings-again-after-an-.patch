@@ -1,0 +1,44 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Mon, 12 Oct 2026 02:50:26 -0400
+Subject: [PATCH] wifi: brcmfmac: pcie: look at the rings again after an INTx
+ on the BCM4389
+
+With legacy INTx and ring indices that the dongle DMAs into host
+memory, the doorbell interrupt can arrive before the index update it
+announces has landed. Broadcom's driver handles that by running its
+interrupt work again shortly after (dhd_pcie.c
+dhd_bus_handle_intx_ahead_dma_indices()); brcmfmac reads the indices
+once, may see nothing new, and then waits for a doorbell that does not
+come. For the BCM4389 with DMA'd indices, process the rings a second
+time about a millisecond later.
+
+Assisted-by: LLM
+Signed-off-by: Derek Ross <derekross@gmail.com>
+---
+ .../net/wireless/broadcom/brcm80211/brcmfmac/pcie.c  | 12 ++++++++++++
+ 1 file changed, 12 insertions(+)
+
+diff --git a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/pcie.c b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/pcie.c
+index bb45ab252..568083b02 100644
+--- a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/pcie.c
++++ b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/pcie.c
+@@ -1198,6 +1198,18 @@ static irqreturn_t brcmf_pcie_isr_thread(int irq, void *arg)
+ 			if (devinfo->state == BRCMFMAC_PCIE_STATE_UP)
+ 				brcmf_proto_msgbuf_rx_trigger(
+ 							&devinfo->pdev->dev);
++			/* With INTx and DMA'd indices the interrupt can
++			 * overtake the index update it announces; Broadcom's
++			 * driver looks again later
++			 * (dhd_bus_handle_intx_ahead_dma_indices()).
++			 */
++			if (devinfo->dma_idx_sz &&
++			    devinfo->pdev->device == BRCM_PCIE_4389_DEVICE_ID &&
++			    devinfo->state == BRCMFMAC_PCIE_STATE_UP) {
++				usleep_range(500, 1000);
++				brcmf_proto_msgbuf_rx_trigger(
++							&devinfo->pdev->dev);
++			}
+ 		}
+ 	}
+ 	brcmf_pcie_bus_console_read(devinfo, false);

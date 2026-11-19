@@ -1,0 +1,89 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Sat, 31 Oct 2026 23:02:55 -0400
+Subject: [PATCH] arm64: dts: exynos: google: gs201: throttle the GPU on
+ gpu-thermal
+
+Panthor already registers its devfreq as a cooling device, but the GPU
+node has no #cooling-cells, so gpu-thermal can only shut the system down
+at its critical trip.
+
+Give the GPU #cooling-cells and two passive trips, as the CPU zones have:
+at 75 C the levels above 572 MHz go at once (state 3) and step_wise
+continues from there; at 85 C the GPU drops to 302 MHz (state 8). 572 MHz
+is the level stock's battery current limiter allows the GPU on a battery
+voltage droop, and 302 MHz needs well under half of 572 MHz's dynamic
+power at the G3D voltages of the ECT. Poll as the CPU zones do. Stock
+throttles the GPU from 100 C.
+
+Signed-off-by: Derek Ross <derekross@gmail.com>
+---
+ arch/arm64/boot/dts/exynos/google/gs201.dtsi | 38 ++++++++++++++++++--
+ 1 file changed, 36 insertions(+), 2 deletions(-)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/gs201.dtsi b/arch/arm64/boot/dts/exynos/google/gs201.dtsi
+index ce2fefa62..5fb030196 100644
+--- a/arch/arm64/boot/dts/exynos/google/gs201.dtsi
++++ b/arch/arm64/boot/dts/exynos/google/gs201.dtsi
+@@ -602,18 +602,51 @@ map1 {
+ 			};
+ 		};
+ 
++		/*
++		 * The GPU throttles like a CPU cluster: at 75 C it leaves the
++		 * levels above 572 MHz at once (state 3; 572 MHz is what stock's
++		 * BCL allows on a battery voltage droop, vdroop2 and smpl_gm in
++		 * Google's gs201-cloudripper-bcl.dtsi), then steps down; at
++		 * 85 C it drops to 302 MHz (state 8), well under half the
++		 * dynamic power of 572 MHz at the ECT's G3D voltages. Stock
++		 * throttles the GPU from 100 C.
++		 */
+ 		gpu-thermal {
+-			polling-delay-passive = <250>;
+-			polling-delay = <1000>;
++			polling-delay-passive = <100>;
++			polling-delay = <250>;
+ 			thermal-sensors = <&acpm_tmu 3>;
+ 
+ 			trips {
++				gpu_hot: gpu-hot {
++					temperature = <75000>;
++					hysteresis = <5000>;
++					type = "passive";
++				};
++
++				gpu_hotter: gpu-hotter {
++					temperature = <85000>;
++					hysteresis = <5000>;
++					type = "passive";
++				};
++
+ 				gpu_crit: gpu-crit {
+ 					temperature = <110000>;
+ 					hysteresis = <0>;
+ 					type = "critical";
+ 				};
+ 			};
++
++			cooling-maps {
++				map0 {
++					trip = <&gpu_hot>;
++					cooling-device = <&gpu 3 THERMAL_NO_LIMIT>;
++				};
++
++				map1 {
++					trip = <&gpu_hotter>;
++					cooling-device = <&gpu 8 THERMAL_NO_LIMIT>;
++				};
++			};
+ 		};
+ 
+ 		isp-thermal {
+@@ -1947,6 +1980,7 @@ gpu: gpu@28000000 {
+ 			clocks = <&acpm_ipc GS201_CLK_ACPM_GPU>;
+ 			clock-names = "core";
+ 			operating-points-v2 = <&gpu_opp_table>;
++			#cooling-cells = <2>;
+ 			status = "disabled";
+ 		};
+ 	};

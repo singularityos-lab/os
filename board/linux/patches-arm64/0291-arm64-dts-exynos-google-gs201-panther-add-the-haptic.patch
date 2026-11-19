@@ -1,0 +1,105 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Alejandro Garcia <skipper.pelygro@gmail.com>
+Date: Wed, 28 Oct 2026 14:02:55 -0700
+Subject: [PATCH] arm64: dts: exynos: google: gs201-panther: add the haptics
+
+Describe the CS40L26A haptics driver at 0x43 on USI8 I2C, as on the
+Pixel 7 Pro: the same bus (gpp16-0/1 at 400 kHz), interrupt (gpa8-1)
+and reset (gpp24-3) as the Pixel 7 Pro, and the same stock boost and
+actuator values (peak current 2.5 A, boost 11 V, f0 145 Hz, ReDC
+13 ohm), all read from the Pixel 7's live device tree. Enable the
+PERIC0 pin controller, USI8 and its I2C bus with it.
+
+The driver loads its RAM firmware (cs40l26.wmfw) and, if present, the
+wavetable (cs40l26.bin), from the phone's own vendor files; without the
+firmware it does not probe.
+
+Tested on a Pixel 7 from slot B (7.3.0-rc6), with the GPU enabled as
+well: cs40l26-vibra probes the CS40L26 (ID 0x40a260, revision A1), loads
+cs40l26.wmfw (v7.2.91) and cs40l26.bin, and registers cs40l26_vibra;
+FF_RUMBLE effects of 100-500 ms at 25-80 % play through tools/ff-rumble
+and are felt, with no errors from the driver.
+
+Assisted-by: Claude Opus 5.5
+Signed-off-by: Alejandro Garcia <skipper.pelygro@gmail.com>
+---
+ .../boot/dts/exynos/google/gs201-panther.dts  | 57 ++++++++++++++++++-
+ 1 file changed, 55 insertions(+), 2 deletions(-)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/gs201-panther.dts b/arch/arm64/boot/dts/exynos/google/gs201-panther.dts
+index 36dd97b49..fa2d96a76 100644
+--- a/arch/arm64/boot/dts/exynos/google/gs201-panther.dts
++++ b/arch/arm64/boot/dts/exynos/google/gs201-panther.dts
+@@ -4,13 +4,14 @@
+  *
+  * USB (NCM + ACM), the cluster watchdogs from gs201.dtsi, a
+  * simple-framebuffer on the buffer ABL leaves DPP0 scanning out, UFS, the
+- * three keys, the touch rails on the main PMIC, and the GPU. The panel
+- * driver and touch stay disabled.
++ * three keys, the touch rails on the main PMIC, the GPU and the haptics.
++ * The panel driver and touch stay disabled.
+  */
+ 
+ /dts-v1/;
+ 
+ #include <dt-bindings/input/input.h>
++#include <dt-bindings/soc/samsung,exynos-usi.h>
+ #include "gs201.dtsi"
+ 
+ / {
+@@ -170,3 +171,55 @@ &ufs_0 {
+ &ufs_0_phy {
+ 	status = "okay";
+ };
++
++/*
++ * Haptics: Cirrus Logic CS40L26A at 0x43 on PERIC0 USI8 (Google's I2C bus
++ * 8), INTb on gpa8-1, RESET on gpp24-3, as on the Pixel 7 Pro. Boost and
++ * actuator values are the stock ones, the same as the Pixel 7 Pro's
++ * (bst-ipk 2.5 A, bst-ctl 11 V, f0 145 Hz, ReDC 13 ohm in the live tree).
++ * The bus pins are on PERIC0 (gpp16-0/1).
++ */
++&pinctrl_far_alive {
++	hapt_amp_irq: hapt-amp-irq-pins {
++		samsung,pins = "gpa8-1";
++		samsung,pin-function = <GS101_PIN_FUNC_EINT>;
++		samsung,pin-pud = <GS101_PIN_PULL_NONE>;
++		samsung,pin-drv = <GS101_PIN_DRV_2_5_MA>;
++	};
++};
++
++&pinctrl_peric0 {
++	status = "okay";
++};
++
++&pinctrl_peric1 {
++	hapt_amp_rst: hapt-amp-rst-pins {
++		samsung,pins = "gpp24-3";
++		samsung,pin-function = <GS101_PIN_FUNC_OUTPUT>;
++		samsung,pin-pud = <GS101_PIN_PULL_NONE>;
++		samsung,pin-drv = <GS101_PIN_DRV_2_5_MA>;
++	};
++};
++
++&usi8 {
++	samsung,mode = <USI_MODE_I2C>;
++	status = "okay";
++};
++
++&hsi2c_8 {
++	clock-frequency = <400000>;
++	status = "okay";
++
++	haptics: haptic-driver@43 {
++		compatible = "cirrus,cs40l26a";
++		reg = <0x43>;
++		interrupts-extended = <&gpa8 1 IRQ_TYPE_LEVEL_LOW>;
++		reset-gpios = <&gpp24 3 GPIO_ACTIVE_LOW>;
++		pinctrl-0 = <&hapt_amp_irq &hapt_amp_rst>;
++		pinctrl-names = "default";
++		cirrus,boost-peak-microamp = <2500000>;
++		cirrus,boost-ctl-microvolt = <11000000>;
++		cirrus,lra-f0-hz = <145>;
++		cirrus,lra-redc-micro-ohms = <13000000>;
++	};
++};

@@ -1,0 +1,70 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Mon, 12 Oct 2026 00:38:44 -0400
+Subject: [PATCH] dt-bindings: phy: samsung,usb3-drd-phy: add Google gs201
+
+The gs201 USB 3.1 DRD PHY is the gs101 one, with the same register
+blocks and clocks. Unlike gs101, the Type-C orientation switch and its
+graph port are optional, so a board can describe its connector before
+a Type-C port controller driver takes it over, and the supplies are
+not required while gs201 has no PMIC regulator driver.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ .../bindings/phy/samsung,usb3-drd-phy.yaml    | 36 +++++++++++++++++++
+ 1 file changed, 36 insertions(+)
+
+diff --git a/Documentation/devicetree/bindings/phy/samsung,usb3-drd-phy.yaml b/Documentation/devicetree/bindings/phy/samsung,usb3-drd-phy.yaml
+index a1b3d9e6a..1083ebbc3 100644
+--- a/Documentation/devicetree/bindings/phy/samsung,usb3-drd-phy.yaml
++++ b/Documentation/devicetree/bindings/phy/samsung,usb3-drd-phy.yaml
+@@ -26,6 +26,7 @@ properties:
+   compatible:
+     enum:
+       - google,gs101-usb31drd-phy
++      - google,gs201-usb31drd-phy
+       - samsung,exynos2200-usb32drd-phy
+       - samsung,exynos5250-usbdrd-phy
+       - samsung,exynos5420-usbdrd-phy
+@@ -178,6 +179,41 @@ allOf:
+         - vdda-usbdp-supply
+         - vddh-usbdp-supply
+ 
++  - if:
++      properties:
++        compatible:
++          contains:
++            const: google,gs201-usb31drd-phy
++    then:
++      allOf:
++        - $ref: /schemas/usb/usb-switch.yaml#
++
++      properties:
++        clocks:
++          items:
++            - description: Gate of main PHY clock
++            - description: Gate of PHY reference clock
++            - description: Gate of control interface AXI clock
++            - description: Gate of control interface APB clock
++            - description: Gate of SCL APB clock
++
++        clock-names:
++          items:
++            - const: phy
++            - const: ref
++            - const: ctrl_aclk
++            - const: ctrl_pclk
++            - const: scl_pclk
++
++        reg:
++          minItems: 3
++
++        reg-names:
++          minItems: 3
++
++      required:
++        - reg-names
++
+   - if:
+       properties:
+         compatible:

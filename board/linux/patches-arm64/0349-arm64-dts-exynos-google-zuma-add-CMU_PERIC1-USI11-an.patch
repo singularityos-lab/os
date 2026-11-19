@@ -1,0 +1,137 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Lef <me@lefteros.com>
+Date: Sat, 31 Oct 2026 16:39:51 +0200
+Subject: [PATCH] arm64: dts: exynos: google: zuma: add CMU_PERIC1, USI11 and
+ hsi2c_11
+
+All disabled. USI11 is at 0x10cb00c0 with its SW_CONF at offset 0xc of
+the PERIC1 sysreg, and the bus is hsi2c_11 at 0x10cb0000 on GIC SPI 659,
+as in Google's device tree. Add its pins (gpp21-0/1, the board's pair)
+and the MAX77759 interrupt pins on the ALIVE banks gpa7 and gpa8.
+
+The bus pins get a pull-up. Stock's board file sets no pull (pud 0) on
+hsi2c11_bus, but its Type-C file, applied after it, sets pud 3, which is
+the final value.
+
+Signed-off-by: Lef <me@lefteros.com>
+Assisted-by: LLM
+---
+ .../boot/dts/exynos/google/zuma-pinctrl.dtsi  | 34 ++++++++++++
+ arch/arm64/boot/dts/exynos/google/zuma.dtsi   | 52 +++++++++++++++++++
+ 2 files changed, 86 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/zuma-pinctrl.dtsi b/arch/arm64/boot/dts/exynos/google/zuma-pinctrl.dtsi
+index a88e0eaa2..dd84a0f1d 100644
+--- a/arch/arm64/boot/dts/exynos/google/zuma-pinctrl.dtsi
++++ b/arch/arm64/boot/dts/exynos/google/zuma-pinctrl.dtsi
+@@ -158,6 +158,28 @@ key_volup: key-volup-pins {
+ 		samsung,pin-pud = <GS101_PIN_PULL_NONE>;
+ 		samsung,pin-drv = <GS101_PIN_DRV_2_5_MA>;
+ 	};
++
++	/* MAX77759 interrupt lines, active low with pull-ups (stock: pud 3). */
++	if_pmic_int: if-pmic-int-pins {
++		samsung,pins = "gpa8-0";
++		samsung,pin-function = <GS101_PIN_FUNC_EINT>;
++		samsung,pin-pud = <GS101_PIN_PULL_UP>;
++		samsung,pin-drv = <GS101_PIN_DRV_2_5_MA>;
++	};
++
++	if_pmic_fg_int: if-pmic-fg-int-pins {
++		samsung,pins = "gpa7-7";
++		samsung,pin-function = <GS101_PIN_FUNC_EINT>;
++		samsung,pin-pud = <GS101_PIN_PULL_UP>;
++		samsung,pin-drv = <GS101_PIN_DRV_2_5_MA>;
++	};
++
++	typec_int: typec-int-pins {
++		samsung,pins = "gpa8-3";
++		samsung,pin-function = <GS101_PIN_FUNC_EINT>;
++		samsung,pin-pud = <GS101_PIN_PULL_UP>;
++		samsung,pin-drv = <GS101_PIN_DRV_2_5_MA>;
++	};
+ };
+ 
+ &pinctrl_custom_alive {
+@@ -436,6 +458,18 @@ ts_reset: ts-reset-pins {
+ 		samsung,pin-pud = <GS101_PIN_PULL_NONE>;
+ 		samsung,pin-drv = <GS101_PIN_DRV_2_5_MA>;
+ 	};
++
++	/*
++	 * USI11, the battery bus: stock's board file moves it to gpp21-0/1 and
++	 * sets no pull, then zuma-typec.dtsi, applied after it, sets the
++	 * pull-up (pud 3), which is what the pins end up with.
++	 */
++	hsi2c11_bus: hsi2c11-bus-pins {
++		samsung,pins = "gpp21-0", "gpp21-1";
++		samsung,pin-function = <GS101_PIN_FUNC_2>;
++		samsung,pin-pud = <GS101_PIN_PULL_UP>;
++		samsung,pin-drv = <GS101_PIN_DRV_2_5_MA>;
++	};
+ };
+ 
+ &pinctrl_hsi2ufs {
+diff --git a/arch/arm64/boot/dts/exynos/google/zuma.dtsi b/arch/arm64/boot/dts/exynos/google/zuma.dtsi
+index 2e76d0332..05f407446 100644
+--- a/arch/arm64/boot/dts/exynos/google/zuma.dtsi
++++ b/arch/arm64/boot/dts/exynos/google/zuma.dtsi
+@@ -355,6 +355,58 @@ pinctrl_peric1: pinctrl@10c40000 {
+ 			interrupts = <GIC_SPI 649 IRQ_TYPE_LEVEL_HIGH>;
+ 		};
+ 
++		/*
++		 * CMU_PERIC1 and USI11, the I2C bus of the MAX77759 gauge,
++		 * charger and Type-C controller. Firmware leaves them running;
++		 * board files enable them.
++		 */
++		cmu_peric1: clock-controller@10c00000 {
++			compatible = "google,zuma-cmu-peric1";
++			reg = <0x10c00000 0x8000>;
++			#clock-cells = <1>;
++			clocks = <&oscclk>, <&cmu_top CLK_DOUT_PERIC1_NOC>,
++				 <&cmu_top CLK_DOUT_PERIC1_IP>;
++			clock-names = "oscclk", "bus", "ip";
++			status = "disabled";
++		};
++
++		sysreg_peric1: syscon@10c21000 {
++			compatible = "google,zuma-peric1-sysreg", "syscon";
++			reg = <0x10c21000 0x1000>;
++			clocks = <&cmu_peric1 CLK_GOUT_PERIC1_SYSREG>;
++			status = "disabled";
++		};
++
++		usi11: usi@10cb00c0 {
++			compatible = "google,zuma-usi", "samsung,exynos850-usi";
++			reg = <0x10cb00c0 0x20>;
++			clocks = <&cmu_peric1 CLK_GOUT_PERIC1_USI11_PCLK>,
++				 <&cmu_peric1 CLK_GOUT_PERIC1_USI11_IPCLK>;
++			clock-names = "pclk", "ipclk";
++			samsung,sysreg = <&sysreg_peric1 0xc>;
++			samsung,mode = <USI_MODE_I2C>;
++			#address-cells = <1>;
++			#size-cells = <1>;
++			ranges;
++			status = "disabled";
++
++			hsi2c_11: i2c@10cb0000 {
++				compatible = "google,zuma-hsi2c",
++					     "samsung,exynosautov9-hsi2c";
++				/* USI control starts at 0xc0; do not claim it twice. */
++				reg = <0x10cb0000 0xc0>;
++				interrupts = <GIC_SPI 659 IRQ_TYPE_LEVEL_HIGH>;
++				clocks = <&cmu_peric1 CLK_GOUT_PERIC1_USI11_IPCLK>,
++					 <&cmu_peric1 CLK_GOUT_PERIC1_USI11_PCLK>;
++				clock-names = "hsi2c", "hsi2c_pclk";
++				pinctrl-0 = <&hsi2c11_bus>;
++				pinctrl-names = "default";
++				#address-cells = <1>;
++				#size-cells = <0>;
++				status = "disabled";
++			};
++		};
++
+ 		cmu_hsi0: clock-controller@11000000 {
+ 			compatible = "google,zuma-cmu-hsi0";
+ 			reg = <0x11000000 0x8000>;

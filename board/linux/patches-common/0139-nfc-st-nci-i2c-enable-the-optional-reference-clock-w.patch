@@ -1,0 +1,112 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Mon, 12 Oct 2026 17:19:54 -0400
+Subject: [PATCH] nfc: st-nci: i2c: enable the optional reference clock while
+ powered
+
+Run the optional reference clock from before the controller is taken out
+of reset until it is powered down, as Google's st21nfc driver does with
+the PMU clock pad on Pixel phones. ndlc_close() toggles the reset again
+before powering down, so track whether the clock is on. The interrupt
+thread disables the interrupt when the controller is not powered; leave
+the clock alone there, since ndlc_open() may be powering it up. Propagate
+the phy's enable error from ndlc_open().
+
+Assisted-by: LLM
+Signed-off-by: Derek Ross <derekross@gmail.com>
+---
+ drivers/nfc/st-nci/i2c.c  | 27 ++++++++++++++++++++++++++-
+ drivers/nfc/st-nci/ndlc.c |  6 +++++-
+ 2 files changed, 31 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/nfc/st-nci/i2c.c b/drivers/nfc/st-nci/i2c.c
+index 152c20b6b..413c86f44 100644
+--- a/drivers/nfc/st-nci/i2c.c
++++ b/drivers/nfc/st-nci/i2c.c
+@@ -7,6 +7,7 @@
+ #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
+ 
+ #include <linux/module.h>
++#include <linux/clk.h>
+ #include <linux/i2c.h>
+ #include <linux/gpio/consumer.h>
+ #include <linux/acpi.h>
+@@ -36,6 +37,8 @@ struct st_nci_i2c_phy {
+ 	bool irq_active;
+ 
+ 	struct gpio_desc *gpiod_reset;
++	struct clk *clk;
++	bool clk_on;
+ 
+ 	struct st_nci_se_status se_status;
+ };
+@@ -43,6 +46,15 @@ struct st_nci_i2c_phy {
+ static int st_nci_i2c_enable(void *phy_id)
+ {
+ 	struct st_nci_i2c_phy *phy = phy_id;
++	int r;
++
++	/* The reference clock must run before the controller leaves reset. */
++	if (!phy->clk_on) {
++		r = clk_prepare_enable(phy->clk);
++		if (r)
++			return r;
++		phy->clk_on = true;
++	}
+ 
+ 	gpiod_set_value(phy->gpiod_reset, 0);
+ 	usleep_range(10000, 15000);
+@@ -63,6 +75,11 @@ static void st_nci_i2c_disable(void *phy_id)
+ 
+ 	disable_irq_nosync(phy->i2c_dev->irq);
+ 	phy->irq_active = false;
++
++	if (phy->clk_on) {
++		clk_disable_unprepare(phy->clk);
++		phy->clk_on = false;
++	}
+ }
+ 
+ /*
+@@ -169,7 +186,9 @@ static irqreturn_t st_nci_irq_thread_fn(int irq, void *phy_id)
+ 		return IRQ_HANDLED;
+ 
+ 	if (!phy->ndlc->powered) {
+-		st_nci_i2c_disable(phy);
++		/* Leave the clock alone: ndlc_open() may be about to power up. */
++		disable_irq_nosync(phy->i2c_dev->irq);
++		phy->irq_active = false;
+ 		return IRQ_HANDLED;
+ 	}
+ 
+@@ -225,6 +244,12 @@ static int st_nci_i2c_probe(struct i2c_client *client)
+ 		return -ENODEV;
+ 	}
+ 
++	/* Optional reference clock, needed only while the controller runs. */
++	phy->clk = devm_clk_get_optional(dev, NULL);
++	if (IS_ERR(phy->clk))
++		return dev_err_probe(dev, PTR_ERR(phy->clk),
++				     "Unable to get reference clock\n");
++
+ 	phy->se_status.is_ese_present =
+ 				device_property_read_bool(dev, "ese-present");
+ 	phy->se_status.is_uicc_present =
+diff --git a/drivers/nfc/st-nci/ndlc.c b/drivers/nfc/st-nci/ndlc.c
+index be4808859..3ddbb5242 100644
+--- a/drivers/nfc/st-nci/ndlc.c
++++ b/drivers/nfc/st-nci/ndlc.c
+@@ -45,8 +45,12 @@ do {                                                             \
+ 
+ int ndlc_open(struct llt_ndlc *ndlc)
+ {
++	int r;
++
+ 	/* toggle reset pin */
+-	ndlc->ops->enable(ndlc->phy_id);
++	r = ndlc->ops->enable(ndlc->phy_id);
++	if (r)
++		return r;
+ 	ndlc->powered = 1;
+ 	return 0;
+ }

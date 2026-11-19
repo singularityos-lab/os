@@ -1,0 +1,127 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: saiththerobo <the.tom.sharp@gmail.com>
+Date: Tue, 27 Oct 2026 16:51:26 +0000
+Subject: [PATCH] Input: s6sy761 - recover the controller as probe brings it up
+
+On raven a run of failed event reads made the driver reset the touch
+controller with its rails off for only 50 ms and then sense again,
+without probe's bring-up. One boot logged 113 failed reads and 29 resets
+in its first six minutes, with taps lost and doubled, where a fresh
+probe of the same driver (a module reload) gave one failed read and no
+reset in the next minutes. A 100 ms power cycle had also been too short
+for probe once after a warm reset.
+
+So the recovery now leaves the rails off longer on each try (100, 500,
+1500 ms) and runs hw_init() as probe does (power-on, device ID, panel
+info, firmware integrity) before sensing again, and probe's own retry
+uses the same lengthening off times. A reply that carries the right
+sync code but an earlier request's register, seen on raven (an event
+read's reply to a status read), is read once more, so it can't put the
+later replies a command behind.
+
+Tested on raven as a module (7.3.0-rc6, g64b532aaf7e8): no failed read
+and no reset in the first minutes of use; not yet seen across a
+recovery.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Signed-off-by: saiththerobo <the.tom.sharp@gmail.com>
+---
+ drivers/input/touchscreen/s6sy761.c | 46 ++++++++++++++++++++++-------
+ 1 file changed, 36 insertions(+), 10 deletions(-)
+
+diff --git a/drivers/input/touchscreen/s6sy761.c b/drivers/input/touchscreen/s6sy761.c
+index e7ba5bf25..7caae88c2 100644
+--- a/drivers/input/touchscreen/s6sy761.c
++++ b/drivers/input/touchscreen/s6sy761.c
+@@ -295,6 +295,18 @@ static int s6sy761_spi_read_once(struct s6sy761_data *sdata, u8 reg, u8 *buf,
+ 			return ret;
+ 	}
+ 
++	/*
++	 * A reply to an earlier request still queued (the right sync code, the
++	 * wrong register): read once more, so it can't put every later reply
++	 * one command behind.
++	 */
++	if (rx[0] == S6SY761_SPI_SYNC && rx[S6SY761_SPI_HDR] != reg) {
++		fsleep(delay);
++		ret = spi_read(sdata->spi, rx, ALIGN(rlen + 1, 4));
++		if (ret)
++			return ret;
++	}
++
+ 	if (rx[0] != S6SY761_SPI_SYNC || rx[S6SY761_SPI_HDR] != reg ||
+ 	    rx[rlen] != s6sy761_spi_sum(rx, rlen)) {
+ 		dev_dbg(sdata->dev, "bad SPI reply to %#x: %*ph\n", reg, 16, rx);
+@@ -444,6 +456,9 @@ static void s6sy761_handle_events(struct s6sy761_data *sdata, u8 n_events)
+ #define S6SY761_MAX_READ_ERRORS		5
+ #define S6SY761_MAX_RECOVER_TRIES	5
+ 
++/* rails off for a power cycle: longer on each try */
++static const unsigned int s6sy761_off_ms[] = { 100, 500, 1500 };
++
+ static void s6sy761_read_failed(struct s6sy761_data *sdata)
+ {
+ 	dev_err_ratelimited(sdata->dev, "failed to read events\n");
+@@ -694,6 +709,7 @@ static void s6sy761_recover(struct work_struct *work)
+ 	struct s6sy761_data *sdata = container_of(to_delayed_work(work),
+ 						  struct s6sy761_data,
+ 						  recover_work);
++	unsigned int max_x, max_y;
+ 	int ret;
+ 
+ 	/*
+@@ -712,9 +728,16 @@ static void s6sy761_recover(struct work_struct *work)
+ 	if (sdata->reset)
+ 		gpiod_set_value_cansleep(sdata->reset, 1);
+ 	s6sy761_rails_off(sdata);
+-	msleep(50);
++	/*
++	 * Off long enough for a real power cycle, longer on each try: 50 ms
++	 * could leave the controller half-reset, failing again sooner. Then the
++	 * same bring-up as probe, so a recovered controller is set up as a
++	 * freshly probed one.
++	 */
++	msleep(s6sy761_off_ms[min_t(unsigned int, sdata->recover_tries,
++				    ARRAY_SIZE(s6sy761_off_ms) - 1)]);
+ 
+-	ret = s6sy761_power_on(sdata);
++	ret = s6sy761_hw_init(sdata, &max_x, &max_y);
+ 	if (!ret && input_device_enabled(sdata->input))
+ 		ret = s6sy761_sense_on(sdata);
+ 	if (ret)
+@@ -760,7 +783,7 @@ static int s6sy761_probe_common(struct s6sy761_data *sdata)
+ {
+ 	struct device *dev = sdata->dev;
+ 	unsigned int max_x, max_y;
+-	int err;
++	int err, i;
+ 
+ 	dev_set_drvdata(dev, sdata);
+ 
+@@ -782,16 +805,19 @@ static int s6sy761_probe_common(struct s6sy761_data *sdata)
+ 		return err;
+ 
+ 	err = s6sy761_hw_init(sdata, &max_x, &max_y);
+-	if (err && sdata->bus->bustype == BUS_SPI) {
+-		/*
+-		 * At boot the rails can still be on from the bootloader and the
+-		 * controller not answer; a real power cycle brings it up.
+-		 */
+-		dev_info(dev, "no answer (%d), power cycling\n", err);
++	/*
++	 * At boot the rails can still be on from the bootloader and the
++	 * controller not answer; a real power cycle brings it up. After a warm
++	 * reset 100 ms off wasn't always enough, so lengthen it on each try.
++	 */
++	for (i = 0; err && sdata->bus->bustype == BUS_SPI &&
++	     i < ARRAY_SIZE(s6sy761_off_ms); i++) {
++		dev_info(dev, "no answer (%d), power cycling (%u ms off)\n",
++			 err, s6sy761_off_ms[i]);
+ 		s6sy761_rails_off(sdata);
+ 		if (sdata->reset)
+ 			gpiod_set_value_cansleep(sdata->reset, 1);
+-		msleep(100);
++		msleep(s6sy761_off_ms[i]);
+ 		err = s6sy761_hw_init(sdata, &max_x, &max_y);
+ 	}
+ 	if (err)

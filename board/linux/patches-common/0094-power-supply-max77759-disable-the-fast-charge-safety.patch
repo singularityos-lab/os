@@ -1,0 +1,57 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Thu, 29 Oct 2026 14:08:43 -0400
+Subject: [PATCH] power: supply: max77759: disable the fast-charge safety timer
+
+The driver leaves CHG_CNFG_01's FCHGTIME at the value it finds, so the
+charger's fast-charge safety timer stays armed. With the input limited
+to 500 mA a charge from empty takes longer than that timer: on a Pixel 7
+Pro charging from 0 % on a laptop port, the charger stopped after about
+12 hours at 92 %, reading offline and "Not charging" with the cable in
+and USB still working, until a reboot started it again.
+
+Google's max77759_charger.c clears FCHGTIME at probe ("disable fast
+charge safety timer"), leaving charge termination to the charger's own
+done detection and the battery's temperature limits. Do the same in
+init, inside the window where the protected registers are unlocked.
+
+Assisted-by: LLM
+Signed-off-by: Derek Ross <derekross@gmail.com>
+---
+ drivers/power/supply/max77759_charger.c | 10 ++++++++++
+ include/linux/mfd/max77759.h            |  1 +
+ 2 files changed, 11 insertions(+)
+
+diff --git a/drivers/power/supply/max77759_charger.c b/drivers/power/supply/max77759_charger.c
+index 572279b06..7764ac15d 100644
+--- a/drivers/power/supply/max77759_charger.c
++++ b/drivers/power/supply/max77759_charger.c
+@@ -654,6 +654,16 @@ static int max77759_charger_init(struct max77759_charger *chg)
+ 	if (ret)
+ 		goto relock;
+ 
++	/*
++	 * Disable the fast-charge safety timer. At a low input limit a full
++	 * charge outlasts it, and the charger then stops in a timer fault
++	 * with the cable still in, until it is replugged or reset.
++	 */
++	ret = regmap_update_bits(chg->regmap, MAX77759_CHGR_REG_CHG_CNFG_01,
++				 MAX77759_CHGR_REG_CHG_CNFG_01_FCHGTIME, 0);
++	if (ret)
++		goto relock;
++
+ 	return unlock_prot_regs(chg, false);
+ 
+ relock:
+diff --git a/include/linux/mfd/max77759.h b/include/linux/mfd/max77759.h
+index 10f400e97..4c04a600a 100644
+--- a/include/linux/mfd/max77759.h
++++ b/include/linux/mfd/max77759.h
+@@ -91,6 +91,7 @@
+ #define MAX77759_CHGR_REG_CHG_CNFG_00                  0xb9
+ #define   MAX77759_CHGR_REG_CHG_CNFG_00_MODE           GENMASK(3, 0)
+ #define MAX77759_CHGR_REG_CHG_CNFG_01                  0xba
++#define   MAX77759_CHGR_REG_CHG_CNFG_01_FCHGTIME       GENMASK(2, 0)
+ #define MAX77759_CHGR_REG_CHG_CNFG_02                  0xbb
+ #define   MAX77759_CHGR_REG_CHG_CNFG_02_CHGCC          GENMASK(5, 0)
+ #define MAX77759_CHGR_REG_CHG_CNFG_03                  0xbc

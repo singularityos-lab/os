@@ -1,0 +1,1179 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Mon, 12 Oct 2026 18:57:51 -0400
+Subject: [PATCH] soc: google: cpif: port the S5300 boot, IPC and RFS path to
+ Linux 7.3
+
+Build the imported parts of Google's modem interface driver as two
+modules, cpif.ko and shm_ipc.ko, for the S5300 on gs201, with the link
+calls going to pcie-gs201-cp:
+
+- Kconfig and Makefile with Google's option names, which the sources
+  test: EXYNOS_MODEM_IF, SEC_MODEM_S5100 (selects LINK_DEVICE_PCIE),
+  SHM_IPC, and CPIF_AP_SUSPEND_DURING_VOICE_CALL, which stock builds and
+  without which the S5100 control code does not compile. Nothing else:
+  the packet processor, DIT, the PCIe IOMMU, S2MPU, BTL, the throughput
+  monitor and the thermal zones stay out, so data goes through the
+  legacy buffers only.
+- pcie-gs201-compat.c: the exynos_pcie_*() calls of Google's root
+  complex driver, on gs201_pcie_cp_*(). The link-down and completion
+  timeout events are passed to CPIF's callback with Google's event
+  codes; BTL's outbound window and the packet processor's exclusive MSI
+  vectors fail with -EOPNOTSUPP.
+- GPIOs: of_gpio.h is gone. The modem's lines are GPIO descriptors,
+  looked up as "<name>-gpios" in the modem node with the names the link
+  driver's "modem" child uses, and driven at raw levels as Google's GPIO
+  numbers were; outputs still start low.
+- The modem's reserved regions are no-map here (stock's are in the
+  linear map), so shm_ipc maps them with memremap(), write-back for the
+  cached ones (the link is I/O coherent) and write-combine for the rest,
+  instead of phys_to_virt() and vmap() of their pages, and never hands
+  them back to the page allocator. The callers that used phys_to_virt()
+  on a region use the region's mapping.
+- Stock panics the AP when the driver or the shared-memory probe fails,
+  when the offsets in shared memory look damaged, when a link is
+  missing, and when the modem's userspace asks for it; all of these now
+  return an error or log.
+- PCI: match the S5300 (144d:a5a5) only. Stock matches every Samsung
+  function, which here includes the link's root port.
+- API drift: class_create(), strscpy(), timer_container_of(),
+  timer_delete(), hrtimer_setup(), and alloc_netdev_dummy() for the NAPI
+  device; the logbuffer calls go to pr_debug(); remove() returns void;
+  a broken stub in modem_notifier.h; the W=1 prototype warnings.
+
+Assisted-by: LLM
+Signed-off-by: Derek Ross <derekross@gmail.com>
+---
+ drivers/soc/google/Kconfig                    |   2 +
+ drivers/soc/google/Makefile                   |   1 +
+ drivers/soc/google/cpif/Kconfig               |  47 +++++
+ drivers/soc/google/cpif/Makefile              |  20 +++
+ drivers/soc/google/cpif/bootdump_io_device.c  |   6 +-
+ drivers/soc/google/cpif/cpif-compat.h         |  29 +++
+ .../gs-include/soc/google/modem_notifier.h    |   2 +-
+ drivers/soc/google/cpif/link_device.c         |  53 +++---
+ drivers/soc/google/cpif/link_device_memory.h  |   2 +-
+ .../google/cpif/link_device_memory_legacy.c   |   4 +-
+ drivers/soc/google/cpif/modem_ctrl.c          |   2 +-
+ drivers/soc/google/cpif/modem_ctrl_s5100.c    |  62 ++++---
+ drivers/soc/google/cpif/modem_dump.c          |  11 +-
+ drivers/soc/google/cpif/modem_main.c          |   7 +-
+ drivers/soc/google/cpif/modem_prj.h           |   2 +-
+ drivers/soc/google/cpif/modem_toe_device.c    |   2 +-
+ drivers/soc/google/cpif/modem_utils.c         |  15 +-
+ drivers/soc/google/cpif/modem_v1.h            |   2 +-
+ drivers/soc/google/cpif/modem_variation.h     |   6 +-
+ drivers/soc/google/cpif/pcie-gs201-compat.c   | 166 ++++++++++++++++++
+ drivers/soc/google/cpif/s51xx_pcie.c          |   9 +-
+ drivers/soc/google/cpif/shm_ipc.c             |  77 ++++----
+ 22 files changed, 395 insertions(+), 132 deletions(-)
+ create mode 100644 drivers/soc/google/cpif/Kconfig
+ create mode 100644 drivers/soc/google/cpif/Makefile
+ create mode 100644 drivers/soc/google/cpif/cpif-compat.h
+ create mode 100644 drivers/soc/google/cpif/pcie-gs201-compat.c
+
+diff --git a/drivers/soc/google/Kconfig b/drivers/soc/google/Kconfig
+index 929972511..b439dbc93 100644
+--- a/drivers/soc/google/Kconfig
++++ b/drivers/soc/google/Kconfig
+@@ -84,6 +84,8 @@ config GS201_AOC_ALSA
+ 	  the speaker amplifiers on TDM 0. The card enforces the speaker
+ 	  limits in device/cheetah/AUDIO-PLAN.md.
+ 
++source "drivers/soc/google/cpif/Kconfig"
++
+ endmenu
+ 
+ endif
+diff --git a/drivers/soc/google/Makefile b/drivers/soc/google/Makefile
+index 7967fb3a7..4fda468f3 100644
+--- a/drivers/soc/google/Makefile
++++ b/drivers/soc/google/Makefile
+@@ -4,3 +4,4 @@ obj-$(CONFIG_GS201_AOC_SYSMMU)	+= gs201-aoc-sysmmu.o
+ obj-$(CONFIG_GS201_AOC_BOOT)	+= gs201-aoc-boot.o
+ obj-$(CONFIG_GS201_AOC_RAILS)	+= gs201-aoc-rails.o
+ obj-y				+= aoc/
++obj-y				+= cpif/
+diff --git a/drivers/soc/google/cpif/Kconfig b/drivers/soc/google/cpif/Kconfig
+new file mode 100644
+index 000000000..1165b09ca
+--- /dev/null
++++ b/drivers/soc/google/cpif/Kconfig
+@@ -0,0 +1,47 @@
++# SPDX-License-Identifier: GPL-2.0-only
++#
++# Google's modem interface driver (CPIF) for the Samsung S5300 on gs201,
++# ported. The symbol names are Google's, because the sources test them.
++
++menuconfig EXYNOS_MODEM_IF
++	tristate "Samsung S5300 modem interface (Google's CPIF, bring-up)"
++	depends on PCIE_GS201_CP && NET && INET && OF
++	help
++	  Google's modem interface driver, ported: boots the Samsung S5300
++	  modem of Pixel 7 phones over PCIe, then carries its IPC, RFS and
++	  packet channels in shared memory as character and network devices
++	  (/dev/umts_boot0, /dev/umts_ipc0, /dev/umts_rfs0, rmnet*).
++
++	  For bring-up: the packet processor, DIT, the PCIe IOMMU and S2MPU,
++	  BTL, the throughput monitor and the thermal zones are not built.
++
++if EXYNOS_MODEM_IF
++
++config SEC_MODEM_S5100
++	bool "S5100-family modem over PCIe (S5300)"
++	default y
++	select LINK_DEVICE_PCIE
++	help
++	  The modem control (power, reset, boot, crash dump) for Samsung's
++	  S5100 family, which includes the S5300 of gs201 phones.
++
++config LINK_DEVICE_PCIE
++	bool
++
++config CPIF_AP_SUSPEND_DURING_VOICE_CALL
++	bool
++	default y
++	help
++	  The modem control code stock builds (pantah_defconfig): the AP may
++	  suspend while a call's audio runs over the AoC, as notified by the
++	  voice call events. Without it the S5100 control code does not build.
++
++config SHM_IPC
++	tristate "Shared-memory regions for the modem"
++	default EXYNOS_MODEM_IF
++	help
++	  Maps the modem's reserved-memory regions (IPC, MSI, packet
++	  buffers) for the modem interface driver, from a
++	  "samsung,exynos-cp-shmem" device tree node.
++
++endif
+diff --git a/drivers/soc/google/cpif/Makefile b/drivers/soc/google/cpif/Makefile
+new file mode 100644
+index 000000000..ad28d229e
+--- /dev/null
++++ b/drivers/soc/google/cpif/Makefile
+@@ -0,0 +1,20 @@
++# SPDX-License-Identifier: GPL-2.0
++#
++# Google's CPIF for the S5300 on gs201 (google-modules/radio/samsung/s5300),
++# stage 1: boot, IPC and RFS over the PCIe link, legacy buffers only.
++
++ccflags-y += -I$(src) -I$(src)/gs-include
++ccflags-y += -DCPIF_WAKEPKT_SET_MARK=0x80000000
++ccflags-y += -DCONFIG_OPTION_REGION=\"\"
++
++obj-$(CONFIG_SHM_IPC) += shm_ipc.o
++
++obj-$(CONFIG_EXYNOS_MODEM_IF) += cpif.o
++cpif-y += modem_main.o modem_variation.o
++cpif-y += modem_io_device.o net_io_device.o bootdump_io_device.o ipc_io_device.o modem_toe_device.o
++cpif-y += modem_utils.o modem_dump.o
++cpif-y += link_device.o link_device_memory_flow_control.o
++cpif-y += link_device_memory_debug.o
++cpif-y += link_device_memory_snapshot.o link_device_memory_legacy.o
++cpif-$(CONFIG_LINK_DEVICE_PCIE) += s51xx_pcie.o pcie-gs201-compat.o
++cpif-$(CONFIG_SEC_MODEM_S5100) += modem_ctrl_s5100.o modem_ctrl.o
+diff --git a/drivers/soc/google/cpif/bootdump_io_device.c b/drivers/soc/google/cpif/bootdump_io_device.c
+index 1e5e0f99b..c80f059f3 100644
+--- a/drivers/soc/google/cpif/bootdump_io_device.c
++++ b/drivers/soc/google/cpif/bootdump_io_device.c
+@@ -386,8 +386,8 @@ static long bootdump_ioctl(struct file *filp, unsigned int cmd, unsigned long ar
+ 				strlen(CP_CRASH_TAG)), user_buff,
+ 				CP_CRASH_INFO_SIZE - strlen(CP_CRASH_TAG)))
+ 				return -EFAULT;
+-		mif_info("Crash Reason: %s\n", buff);
+-		panic("%s", buff);
++		/* Stock panics the AP here; a modem crash must not take it down. */
++		mif_err("Crash Reason: %s (no kernel panic on this kernel)\n", buff);
+ 		return 0;
+ 	}
+ 
+@@ -408,7 +408,7 @@ static long bootdump_ioctl(struct file *filp, unsigned int cmd, unsigned long ar
+ 	case IOCTL_GET_CPIF_VERSION:
+ 		mif_info("%s: IOCTL_GET_CPIF_VERSION\n", iod->name);
+ 
+-		strncpy(version.string, get_cpif_driver_version(), sizeof(version.string) - 1);
++		strscpy(version.string, get_cpif_driver_version(), sizeof(version.string) - 1);
+ 		ret = copy_to_user((void __user *)arg, &version, sizeof(version));
+ 		if (ret) {
+ 			mif_err("copy_to_user() error:%d\n", ret);
+diff --git a/drivers/soc/google/cpif/cpif-compat.h b/drivers/soc/google/cpif/cpif-compat.h
+new file mode 100644
+index 000000000..9a132fc78
+--- /dev/null
++++ b/drivers/soc/google/cpif/cpif-compat.h
+@@ -0,0 +1,29 @@
++/* SPDX-License-Identifier: GPL-2.0-only */
++/*
++ * Stand-ins for the vendor kernel interfaces Google's CPIF uses, on a
++ * mainline kernel without them.
++ *
++ *  - misc/logbuffer: Google's per-driver ring log has no consumer here;
++ *    the messages CPIF puts in it go to the kernel log at debug level.
++ */
++#ifndef __CPIF_COMPAT_H
++#define __CPIF_COMPAT_H
++
++#include <linux/err.h>
++#include <linux/printk.h>
++
++/* misc/logbuffer.h */
++struct logbuffer;
++
++static inline struct logbuffer *logbuffer_register(const char *name)
++{
++	return ERR_PTR(-ENODEV);
++}
++
++#define logbuffer_log(log, fmt, ...)				\
++	do {								\
++		(void)(log);						\
++		pr_debug("cpif: " fmt "\n", ##__VA_ARGS__);		\
++	} while (0)
++
++#endif /* __CPIF_COMPAT_H */
+diff --git a/drivers/soc/google/cpif/gs-include/soc/google/modem_notifier.h b/drivers/soc/google/cpif/gs-include/soc/google/modem_notifier.h
+index d51906d62..795930eb8 100644
+--- a/drivers/soc/google/cpif/gs-include/soc/google/modem_notifier.h
++++ b/drivers/soc/google/cpif/gs-include/soc/google/modem_notifier.h
+@@ -42,7 +42,7 @@ extern void modem_voice_call_notify_event(enum modem_voice_call_event evt, void
+ #else
+ 
+ static inline int modem_force_crash_exit_ext(const char *buf) { return 0; }
+-static inline int void register_modem_force_crash_handler(struct notifier_block *nb) {}
++static inline int register_modem_force_crash_handler(struct notifier_block *nb) { return 0; }
+ static inline void unregister_modem_force_crash_handler(struct notifier_block *nb) {}
+ 
+ static inline int register_modem_event_notifier(struct notifier_block *nb)
+diff --git a/drivers/soc/google/cpif/link_device.c b/drivers/soc/google/cpif/link_device.c
+index 3a4445849..5a0280825 100644
+--- a/drivers/soc/google/cpif/link_device.c
++++ b/drivers/soc/google/cpif/link_device.c
+@@ -23,15 +23,14 @@
+ #endif
+ #include <linux/shm_ipc.h>
+ #include "mcu_ipc.h"
+-#include <soc/google/cal-if.h>
+ #include <soc/google/modem_notifier.h>
+-#include <linux/soc/samsung/exynos-smc.h>
+ #include <trace/events/napi.h>
+ #include "modem_prj.h"
+ #include "modem_utils.h"
+ #include "link_device.h"
+ #include "modem_dump.h"
+ #include "modem_ctrl.h"
++#include "modem_variation.h"
+ #if IS_ENABLED(CONFIG_LINK_DEVICE_PCIE)
+ #include "s51xx_pcie.h"
+ #endif
+@@ -153,7 +152,7 @@ static void shmem_handle_cp_crash(struct mem_link_device *mld,
+ 
+ static void handle_no_cp_crash_ack(struct timer_list *t)
+ {
+-	struct mem_link_device *mld = from_timer(mld, t, crash_ack_timer);
++	struct mem_link_device *mld = timer_container_of(mld, t, crash_ack_timer);
+ 	struct link_device *ld = &mld->link_dev;
+ 	struct modem_ctl *mc = ld->mc;
+ 
+@@ -230,7 +229,7 @@ static void link_trigger_cp_crash(struct mem_link_device *mld, u32 crash_type,
+ 	}
+ 
+ 	if (!reason_done && reason && reason[0] != '\0') {
+-		strlcpy(ld->crash_reason.string, reason, CP_CRASH_INFO_SIZE);
++		strscpy(ld->crash_reason.string, reason, CP_CRASH_INFO_SIZE);
+ 		reason_done = true;
+ 	}
+ 
+@@ -678,7 +677,7 @@ static void cmd_crash_exit_handler(struct mem_link_device *mld)
+ 	spin_unlock_irqrestore(&mld->state_lock, flags);
+ 
+ 	if (timer_pending(&mld->crash_ack_timer))
+-		del_timer(&mld->crash_ack_timer);
++		timer_delete(&mld->crash_ack_timer);
+ 
+ 	if (atomic_read(&mld->forced_cp_crash))
+ 		mif_err("%s<-%s: CP_CRASH_ACK\n", ld->name, mc->name);
+@@ -2194,7 +2193,7 @@ static int link_read_gnss_image(struct link_device *ld,
+ 	return 0;
+ }
+ 
+-int shm_get_security_param2(u32 cp_num, unsigned long mode, u32 bl_size,
++static int shm_get_security_param2(u32 cp_num, unsigned long mode, u32 bl_size,
+ 		unsigned long *param)
+ {
+ 	int ret = 0;
+@@ -2218,7 +2217,7 @@ int shm_get_security_param2(u32 cp_num, unsigned long mode, u32 bl_size,
+ 	return ret;
+ }
+ 
+-int shm_get_security_param3(u32 cp_num, unsigned long mode, u32 main_size,
++static int shm_get_security_param3(u32 cp_num, unsigned long mode, u32 main_size,
+ 		unsigned long *param)
+ {
+ 	int ret = 0;
+@@ -2289,7 +2288,7 @@ static int shmem_security_request(struct link_device *ld, struct io_device *iod,
+ 	mutex_lock(&mld->vmap_lock);
+ 	if (mld->boot_base != NULL) {
+ 		/* boot_base is in no use at this point */
+-		vunmap(mld->boot_base);
++		memunmap((void *)mld->boot_base);
+ 		mld->boot_base = NULL;
+ 	}
+ 	mutex_unlock(&mld->vmap_lock);
+@@ -2546,7 +2545,7 @@ static void sync_net_dev(struct link_device *ld)
+ 	struct mem_link_device *mld = to_mem_link_device(ld);
+ 
+ 	napi_synchronize(&mld->mld_napi);
+-	mif_info("%s\n", netdev_name(&mld->dummy_net));
++	mif_info("%s\n", netdev_name(mld->dummy_net));
+ }
+ 
+ static int link_start_normal_boot(struct link_device *ld, struct io_device *iod)
+@@ -2625,7 +2624,7 @@ static void shmem_close_tx(struct link_device *ld)
+ 	spin_unlock_irqrestore(&mld->state_lock, flags);
+ 
+ 	if (timer_pending(&mld->crash_ack_timer))
+-		del_timer(&mld->crash_ack_timer);
++		timer_delete(&mld->crash_ack_timer);
+ 
+ 	stop_net_ifaces(ld, 0);
+ 	purge_txq(mld);
+@@ -2787,7 +2786,7 @@ static int shmem_ioctl(struct link_device *ld, struct io_device *iod,
+ 			return -EINVAL;
+ 		}
+ 
+-		strncpy(str, base + SHMEM_BOOTLOG_OFFSET, size);
++		strscpy(str, base + SHMEM_BOOTLOG_OFFSET, size);
+ 		mif_info("CP boot log[%d] : %s\n", size, str);
+ 		break;
+ 	}
+@@ -3282,7 +3281,7 @@ static ssize_t rx_napi_list_show(struct device *dev,
+ 	ssize_t count = 0;
+ 
+ 	modem = (struct modem_data *)dev->platform_data;
+-	netdev = &modem->mld->dummy_net;
++	netdev = modem->mld->dummy_net;
+ 
+ 	count += scnprintf(&buf[count], PAGE_SIZE - count, "[%s's napi_list]\n",
+ 		netdev_name(netdev));
+@@ -3342,7 +3341,7 @@ static ssize_t rx_poll_count_show(struct device *dev,
+ 	mld = modem->mld;
+ 
+ 	return sysfs_emit(buf, "%s: %d\n",
+-			netdev_name(&mld->dummy_net), mld->rx_poll_count);
++			netdev_name(mld->dummy_net), mld->rx_poll_count);
+ }
+ 
+ static ssize_t rx_poll_count_store(struct device *dev,
+@@ -3868,13 +3867,10 @@ static int init_shmem_maps(u32 link_type, struct modem_data *modem,
+ 	}
+ 
+ 	if (ld->sbd_ipc) {
+-		hrtimer_init(&mld->sbd_tx_timer,
+-				CLOCK_MONOTONIC, HRTIMER_MODE_REL);
+-		mld->sbd_tx_timer.function = sbd_tx_timer_func;
+-
+-		hrtimer_init(&mld->sbd_print_timer,
+-				CLOCK_MONOTONIC, HRTIMER_MODE_REL);
+-		mld->sbd_print_timer.function = sbd_print;
++		hrtimer_setup(&mld->sbd_tx_timer, sbd_tx_timer_func,
++			      CLOCK_MONOTONIC, HRTIMER_MODE_REL);
++		hrtimer_setup(&mld->sbd_print_timer, sbd_print,
++			      CLOCK_MONOTONIC, HRTIMER_MODE_REL);
+ 
+ 		err = create_sbd_link_device(ld,
+ 				&mld->sbd_link_dev, mld->base, mld->size);
+@@ -4165,8 +4161,12 @@ struct link_device *create_link_device(struct platform_device *pdev, u32 link_ty
+ 	if (err)
+ 		goto error;
+ 
+-	init_dummy_netdev(&mld->dummy_net);
+-	netif_napi_add(&mld->dummy_net, &mld->mld_napi, mld_rx_int_poll);
++	mld->dummy_net = alloc_netdev_dummy(0);
++	if (!mld->dummy_net) {
++		err = -ENOMEM;
++		goto error;
++	}
++	netif_napi_add(mld->dummy_net, &mld->mld_napi, mld_rx_int_poll);
+ 	napi_enable(&mld->mld_napi);
+ 
+ 	INIT_LIST_HEAD(&ld->list);
+@@ -4200,8 +4200,7 @@ struct link_device *create_link_device(struct platform_device *pdev, u32 link_ty
+ 	msb_queue_head_init(&mld->msb_rxq);
+ 	msb_queue_head_init(&mld->msb_log);
+ 
+-	hrtimer_init(&mld->tx_timer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
+-	mld->tx_timer.function = tx_timer_func;
++	hrtimer_setup(&mld->tx_timer, tx_timer_func, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
+ 
+ 	INIT_WORK(&mld->page_reclaim_work, bootdump_oom_handler_work);
+ 
+@@ -4327,8 +4326,8 @@ struct link_device *create_link_device(struct platform_device *pdev, u32 link_ty
+ 		mif_err("pktproc_create_ul() error %d\n", err);
+ 		goto error;
+ 	}
+-	hrtimer_init(&mld->pktproc_tx_timer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
+-	mld->pktproc_tx_timer.function = pktproc_tx_timer_func;
++	hrtimer_setup(&mld->pktproc_tx_timer, pktproc_tx_timer_func, CLOCK_MONOTONIC,
++		      HRTIMER_MODE_REL);
+ #endif
+ 
+ #if IS_ENABLED(CONFIG_CPIF_TP_MONITOR)
+@@ -4360,6 +4359,8 @@ struct link_device *create_link_device(struct platform_device *pdev, u32 link_ty
+ 	return ld;
+ 
+ error:
++	if (mld->dummy_net)
++		free_netdev(mld->dummy_net);
+ 	kfree(mld);
+ 	mif_err("xxx\n");
+ 	return NULL;
+diff --git a/drivers/soc/google/cpif/link_device_memory.h b/drivers/soc/google/cpif/link_device_memory.h
+index cf68e35e3..35244beae 100644
+--- a/drivers/soc/google/cpif/link_device_memory.h
++++ b/drivers/soc/google/cpif/link_device_memory.h
+@@ -312,7 +312,7 @@ struct mem_link_device {
+ 	struct mutex vmap_lock;
+ 	enum link_state state;
+ 
+-	struct net_device dummy_net;
++	struct net_device *dummy_net;
+ 	struct napi_struct mld_napi;
+ 	unsigned int rx_int_enable;
+ 	unsigned int rx_int_count;
+diff --git a/drivers/soc/google/cpif/link_device_memory_legacy.c b/drivers/soc/google/cpif/link_device_memory_legacy.c
+index ad9501fc3..e112ead68 100644
+--- a/drivers/soc/google/cpif/link_device_memory_legacy.c
++++ b/drivers/soc/google/cpif/link_device_memory_legacy.c
+@@ -194,8 +194,8 @@ int create_legacy_link_device(struct mem_link_device *mld)
+ 	dev->rxq.tail = (void __iomem *)(mld->base + modem->legacy_raw_head_tail_offset + 12);
+ 	if (modem->legacy_raw_rx_buffer_cached)
+ 		dev->rxq.buff =
+-			phys_to_virt(cp_shmem_get_base(bl->ld->mdm_data->cp_num, SHMEM_IPC) +
+-			modem->legacy_raw_buffer_offset + modem->legacy_raw_txq_size);
++			cp_shmem_get_region(bl->ld->mdm_data->cp_num, SHMEM_IPC) +
++			modem->legacy_raw_buffer_offset + modem->legacy_raw_txq_size;
+ 	else
+ 		dev->rxq.buff = (void __iomem *)(mld->base + modem->legacy_raw_buffer_offset +
+ 			modem->legacy_raw_txq_size);
+diff --git a/drivers/soc/google/cpif/modem_ctrl.c b/drivers/soc/google/cpif/modem_ctrl.c
+index 819022fb9..8afc9e0a2 100644
+--- a/drivers/soc/google/cpif/modem_ctrl.c
++++ b/drivers/soc/google/cpif/modem_ctrl.c
+@@ -6,6 +6,7 @@
+ 
+ #include "modem_prj.h"
+ #include "modem_utils.h"
++#include "modem_ctrl.h"
+ 
+ void modem_ctrl_set_kerneltime(struct modem_ctl *mc)
+ {
+@@ -86,7 +87,6 @@ int modem_ctrl_check_offset_data(struct modem_ctl *mc)
+ 
+ data_error:
+ 	mif_err("offset data is damaged\n");
+-	panic("CPIF shmem offset data is damaged\n");
+ 	return -EFAULT;
+ }
+ 
+diff --git a/drivers/soc/google/cpif/modem_ctrl_s5100.c b/drivers/soc/google/cpif/modem_ctrl_s5100.c
+index e87de52cd..888a679f9 100644
+--- a/drivers/soc/google/cpif/modem_ctrl_s5100.c
++++ b/drivers/soc/google/cpif/modem_ctrl_s5100.c
+@@ -14,11 +14,10 @@
+ #include <linux/fs.h>
+ #include <linux/file.h>
+ #include <linux/of.h>
+-#include <linux/of_gpio.h>
++#include <linux/gpio/consumer.h>
+ #include <linux/clk.h>
+ #include <linux/pci.h>
+ #include <linux/regulator/consumer.h>
+-#include <soc/google/acpm_mfd.h>
+ #include <soc/google/modem_notifier.h>
+ #include <linux/reboot.h>
+ #include <linux/suspend.h>
+@@ -38,6 +37,7 @@
+ #include "link_device.h"
+ #include "link_device_memory.h"
+ #include "s51xx_pcie.h"
++#include "modem_variation.h"
+ 
+ #if IS_ENABLED(CONFIG_EXYNOS_BUSMONITOR)
+ #include <linux/exynos-busmon.h>
+@@ -394,7 +394,7 @@ static irqreturn_t cp_active_handler(int irq, void *data)
+ 				cp_state_str(mc->phone_state), cp_active);
+ 
+ 	if (timer_pending(&mld->crash_ack_timer))
+-		del_timer(&mld->crash_ack_timer);
++		timer_delete(&mld->crash_ack_timer);
+ 
+ 	mif_stop_logging();
+ 
+@@ -1202,7 +1202,7 @@ static int silent_reset_cp(struct modem_ctl *mc)
+ 
+ 	/* 2cp dump WA */
+ 	if (timer_pending(&mld->crash_ack_timer))
+-		del_timer(&mld->crash_ack_timer);
++		timer_delete(&mld->crash_ack_timer);
+ 	atomic_set(&mld->forced_cp_crash, 0);
+ 
+ 	mif_info("Set link mode to LINK_MODE_BOOT.\n");
+@@ -1345,7 +1345,7 @@ static int start_normal_boot(struct modem_ctl *mc)
+ 
+ 	/* 2cp dump WA */
+ 	if (timer_pending(&mld->crash_ack_timer))
+-		del_timer(&mld->crash_ack_timer);
++		timer_delete(&mld->crash_ack_timer);
+ 	atomic_set(&mld->forced_cp_crash, 0);
+ 
+ 	mif_info("Set link mode to LINK_MODE_BOOT.\n");
+@@ -1563,7 +1563,7 @@ static int s5100_force_crash_exit_ext_reason(const char *buf)
+ 	struct link_device *ld = get_current_link(g_mc->bootd);
+ 
+ 	if (strlen(buf) > 0)
+-		strncpy(ld->crash_reason.string, buf, CP_CRASH_INFO_SIZE);
++		strscpy(ld->crash_reason.string, buf, CP_CRASH_INFO_SIZE);
+ 
+ 	return s5100_force_crash_exit_ext(CRASH_REASON_MIF_FORCED);
+ }
+@@ -1576,7 +1576,7 @@ static int s5100_force_crash_notifier(struct notifier_block *nb,
+ 	return s5100_force_crash_exit_ext_reason(buf);
+ }
+ 
+-int s5100_send_panic_noti_ext(void)
++static int s5100_send_panic_noti_ext(void)
+ {
+ 	struct modem_data *modem;
+ 
+@@ -2074,19 +2074,19 @@ static int s5100_get_pdata(struct modem_ctl *mc, struct modem_data *pdata)
+ 	mc->cp_gpio[CP_GPIO_CP2AP_CP_ACTIVE].label = "CP2AP_CP_ACTIVE";
+ 
+ 	/* node name */
+-	mc->cp_gpio[CP_GPIO_AP2CP_CP_PWR].node_name = "gpio_ap2cp_cp_pwr_on";
+-	mc->cp_gpio[CP_GPIO_AP2CP_NRESET].node_name = "gpio_ap2cp_nreset_n";
+-	mc->cp_gpio[CP_GPIO_AP2CP_WAKEUP].node_name = "gpio_ap2cp_wake_up";
+-	mc->cp_gpio[CP_GPIO_AP2CP_DUMP_NOTI].node_name = "gpio_ap2cp_dump_noti";
+-	mc->cp_gpio[CP_GPIO_AP2CP_AP_ACTIVE].node_name = "gpio_ap2cp_pda_active";
++	mc->cp_gpio[CP_GPIO_AP2CP_CP_PWR].node_name = "ap2cp-cp-pwr-on";
++	mc->cp_gpio[CP_GPIO_AP2CP_NRESET].node_name = "ap2cp-nreset";
++	mc->cp_gpio[CP_GPIO_AP2CP_WAKEUP].node_name = "ap2cp-wakeup";
++	mc->cp_gpio[CP_GPIO_AP2CP_DUMP_NOTI].node_name = "ap2cp-dump-noti";
++	mc->cp_gpio[CP_GPIO_AP2CP_AP_ACTIVE].node_name = "ap2cp-pda-active";
+ #if !IS_ENABLED(CONFIG_CP_WRESET_WA)
+-	mc->cp_gpio[CP_GPIO_AP2CP_CP_WRST_N].node_name = "gpio_ap2cp_cp_wrst_n";
+-	mc->cp_gpio[CP_GPIO_CP2AP_CP_WRST_N].node_name = "gpio_cp2ap_cp_wrst_n";
+-	mc->cp_gpio[CP_GPIO_AP2CP_PM_WRST_N].node_name = "gpio_ap2cp_pm_wrst_n";
++	mc->cp_gpio[CP_GPIO_AP2CP_CP_WRST_N].node_name = "ap2cp-cp-wrst";
++	mc->cp_gpio[CP_GPIO_CP2AP_CP_WRST_N].node_name = "cp2ap-cp-wrst";
++	mc->cp_gpio[CP_GPIO_AP2CP_PM_WRST_N].node_name = "ap2cp-pm-wrst";
+ #endif
+-	mc->cp_gpio[CP_GPIO_CP2AP_PS_HOLD].node_name = "gpio_cp2ap_cp_ps_hold";
+-	mc->cp_gpio[CP_GPIO_CP2AP_WAKEUP].node_name = "gpio_cp2ap_wake_up";
+-	mc->cp_gpio[CP_GPIO_CP2AP_CP_ACTIVE].node_name = "gpio_cp2ap_phone_active";
++	mc->cp_gpio[CP_GPIO_CP2AP_PS_HOLD].node_name = "cp2ap-ps-hold";
++	mc->cp_gpio[CP_GPIO_CP2AP_WAKEUP].node_name = "cp2ap-wakeup";
++	mc->cp_gpio[CP_GPIO_CP2AP_CP_ACTIVE].node_name = "cp2ap-phone-active";
+ 
+ 	/* irq */
+ 	mc->cp_gpio[CP_GPIO_CP2AP_WAKEUP].irq_type = CP_GPIO_IRQ_CP2AP_WAKEUP;
+@@ -2096,25 +2096,35 @@ static int s5100_get_pdata(struct modem_ctl *mc, struct modem_data *pdata)
+ 		mc->cp_gpio[CP_GPIO_CP2AP_CP_WRST_N].irq_type = CP_GPIO_IRQ_CP2AP_CP_WRST_N;
+ #endif
+ 
+-	/* gpio */
++	/*
++	 * gpio: "<node_name>-gpios" in this node, raw levels as Google's
++	 * legacy GPIO numbers gave; outputs start low, as on stock.
++	 */
+ 	for (i = 0; i < CP_GPIO_MAX; i++) {
+-		mc->cp_gpio[i].num =
+-			of_get_named_gpio(np, mc->cp_gpio[i].node_name, 0);
++		struct gpio_desc *desc;
+ 
+-		if (!gpio_is_valid(mc->cp_gpio[i].num))
++		if (!mc->cp_gpio[i].node_name)
++			continue;
++		desc = devm_gpiod_get_optional(&pdev->dev, mc->cp_gpio[i].node_name,
++					       GPIOD_ASIS);
++		if (IS_ERR(desc))
++			return dev_err_probe(&pdev->dev, PTR_ERR(desc), "%s\n",
++					     mc->cp_gpio[i].label);
++		if (!desc)
+ 			continue;
+ 
++		mc->cp_gpio[i].desc = desc;
+ 		mc->cp_gpio[i].valid = true;
++		gpiod_set_consumer_name(desc, mc->cp_gpio[i].label);
+ 
+-		gpio_request(mc->cp_gpio[i].num, mc->cp_gpio[i].label);
+ 		if (!strncmp(mc->cp_gpio[i].label, "AP2CP", 5))
+-			gpio_direction_output(mc->cp_gpio[i].num, 0);
++			gpiod_direction_output_raw(desc, 0);
+ 		else
+-			gpio_direction_input(mc->cp_gpio[i].num);
++			gpiod_direction_input(desc);
+ 
+ 		if (mc->cp_gpio[i].irq_type != CP_GPIO_IRQ_NONE) {
+ 			mc->cp_gpio_irq[mc->cp_gpio[i].irq_type].num =
+-				gpio_to_irq(mc->cp_gpio[i].num);
++				gpiod_to_irq(desc);
+ 
+ 			if (i == CP_GPIO_CP2AP_CP_ACTIVE) {
+ 				mc->cp_gpio_irq[mc->cp_gpio[i].irq_type].not_alive =
+diff --git a/drivers/soc/google/cpif/modem_dump.c b/drivers/soc/google/cpif/modem_dump.c
+index f0ea5dfab..b2934d9a3 100644
+--- a/drivers/soc/google/cpif/modem_dump.c
++++ b/drivers/soc/google/cpif/modem_dump.c
+@@ -13,6 +13,7 @@
+ #include "modem_prj.h"
+ #include "modem_utils.h"
+ #include "link_device_memory.h"
++#include "modem_dump.h"
+ 
+ static int save_log_dump(struct io_device *iod, struct link_device *ld, u8 __iomem *base,
+ 		size_t size)
+@@ -90,7 +91,7 @@ int cp_get_log_dump(struct io_device *iod, struct link_device *ld, unsigned long
+ 	switch (log_dump.idx) {
+ 	case LOG_IDX_SHMEM:
+ 		if (modem->legacy_raw_rx_buffer_cached) {
+-			base = phys_to_virt(cp_shmem_get_base(cp_num, SHMEM_IPC));
++			base = cp_shmem_get_region(cp_num, SHMEM_IPC);
+ 			size = cp_shmem_get_size(cp_num, SHMEM_IPC);
+ 		} else {
+ 			base = mld->base;
+@@ -121,7 +122,7 @@ int cp_get_log_dump(struct io_device *iod, struct link_device *ld, unsigned long
+ #endif
+ 
+ 	case LOG_IDX_DATABUF_DL:
+-		base = phys_to_virt(cp_shmem_get_base(cp_num, SHMEM_PKTPROC));
++		base = cp_shmem_get_region(cp_num, SHMEM_PKTPROC);
+ #if IS_ENABLED(CONFIG_LINK_DEVICE_PCIE_IOMMU)
+ 		size = mld->pktproc.buff_rgn_offset;
+ #else
+@@ -131,18 +132,18 @@ int cp_get_log_dump(struct io_device *iod, struct link_device *ld, unsigned long
+ 
+ #if IS_ENABLED(CONFIG_CP_PKTPROC_UL)
+ 	case LOG_IDX_DATABUF_UL:
+-		base = phys_to_virt(cp_shmem_get_base(cp_num, SHMEM_PKTPROC_UL));
++		base = cp_shmem_get_region(cp_num, SHMEM_PKTPROC_UL);
+ 		size = cp_shmem_get_size(cp_num, SHMEM_PKTPROC_UL);
+ 		break;
+ #endif
+ 
+ 	case LOG_IDX_L2B:
+-		base = phys_to_virt(cp_shmem_get_base(cp_num, SHMEM_L2B));
++		base = cp_shmem_get_region(cp_num, SHMEM_L2B);
+ 		size = cp_shmem_get_size(cp_num, SHMEM_L2B);
+ 		break;
+ 
+ 	case LOG_IDX_DDM:
+-		base = phys_to_virt(cp_shmem_get_base(cp_num, SHMEM_DDM));
++		base = cp_shmem_get_region(cp_num, SHMEM_DDM);
+ 		size = cp_shmem_get_size(cp_num, SHMEM_DDM);
+ 		break;
+ 
+diff --git a/drivers/soc/google/cpif/modem_main.c b/drivers/soc/google/cpif/modem_main.c
+index 206df2725..7663c8124 100644
+--- a/drivers/soc/google/cpif/modem_main.c
++++ b/drivers/soc/google/cpif/modem_main.c
+@@ -25,7 +25,7 @@
+ #include <linux/irq.h>
+ #include <linux/gpio.h>
+ #include <linux/proc_fs.h>
+-#include <linux/of_gpio.h>
++#include <linux/gpio/consumer.h>
+ #include <linux/delay.h>
+ #include <linux/mfd/syscon.h>
+ #include <linux/of_reserved_mem.h>
+@@ -246,7 +246,7 @@ static int attach_devices(struct io_device *iod, struct device *dev)
+ 
+ 	if (!get_current_link(iod)) {
+ 		mif_err("%s->link == NULL\n", iod->name);
+-		BUG();
++		return -ENODEV;
+ 	}
+ 
+ 	iod->ws = cpif_wake_lock_register(dev, iod->name);
+@@ -725,7 +725,7 @@ static int cpif_cdev_alloc_region(struct modem_data *pdata, struct modem_shared
+ 		return ret;
+ 	}
+ 
+-	msd->cdev_class = class_create(THIS_MODULE, "cpif");
++	msd->cdev_class = class_create("cpif");
+ 	if (IS_ERR(msd->cdev_class)) {
+ 		mif_err("class_create() failed:%ld\n", PTR_ERR(msd->cdev_class));
+ 		ret = -ENOMEM;
+@@ -923,7 +923,6 @@ static int cpif_probe(struct platform_device *pdev)
+ fail:
+ 	mif_err("%s: xxx\n", pdev->name);
+ 
+-	panic("CP interface driver probe failed\n");
+ 	return err;
+ }
+ 
+diff --git a/drivers/soc/google/cpif/modem_prj.h b/drivers/soc/google/cpif/modem_prj.h
+index e81c9f3fc..ccfc3d526 100644
+--- a/drivers/soc/google/cpif/modem_prj.h
++++ b/drivers/soc/google/cpif/modem_prj.h
+@@ -31,7 +31,7 @@
+ #if IS_ENABLED(CONFIG_GS_S2MPU)
+ #include <soc/google/s2mpu.h>
+ #endif
+-#include <misc/logbuffer.h>
++#include "cpif-compat.h"
+ #endif
+ #include "modem_v1.h"
+ 
+diff --git a/drivers/soc/google/cpif/modem_toe_device.c b/drivers/soc/google/cpif/modem_toe_device.c
+index afbffa92b..180063eb9 100644
+--- a/drivers/soc/google/cpif/modem_toe_device.c
++++ b/drivers/soc/google/cpif/modem_toe_device.c
+@@ -19,7 +19,7 @@ void toe_set_iod_clat_netdev(struct io_device *iod, void *args)
+ {
+ 	struct clat_info *clat = (struct clat_info *) args;
+ 	struct net_device *ndev = NULL;
+-	struct link_device *ld = get_current_link(iod);
++	struct link_device __maybe_unused *ld = get_current_link(iod);
+ 	unsigned long flags;
+ 
+ 	if (strncmp(iod->name, clat->ipv6_iface, IFNAMSIZ) != 0)
+diff --git a/drivers/soc/google/cpif/modem_utils.c b/drivers/soc/google/cpif/modem_utils.c
+index bfa110915..34da0d795 100644
+--- a/drivers/soc/google/cpif/modem_utils.c
++++ b/drivers/soc/google/cpif/modem_utils.c
+@@ -32,7 +32,6 @@
+ #include <linux/bitops.h>
+ #include "exynos-modem-ctrl.h"
+ 
+-#include <soc/google/acpm_ipc_ctrl.h>
+ #include "modem_prj.h"
+ #include "modem_utils.h"
+ #include "cpif_version.h"
+@@ -264,7 +263,7 @@ __be32 ipv4str_to_be32(const char *ipv4str, size_t count)
+ 	char *next = ipstr;
+ 	int i;
+ 
+-	strlcpy(ipstr, ipv4str, ARRAY_SIZE(ipstr));
++	strscpy(ipstr, ipv4str, ARRAY_SIZE(ipstr));
+ 
+ 	for (i = 0; i < 4; i++) {
+ 		char *p;
+@@ -513,7 +512,7 @@ void mif_init_irq(struct modem_irq *irq, unsigned int num, const char *name,
+ {
+ 	spin_lock_init(&irq->lock);
+ 	irq->num = num;
+-	strncpy(irq->name, name, (MAX_NAME_LEN - 1));
++	strscpy(irq->name, name, (MAX_NAME_LEN - 1));
+ 	irq->flags = flags;
+ 	mif_info("name:%s num:%d flags:%#08lX\n", name, num, flags);
+ }
+@@ -614,15 +613,15 @@ bool mif_gpio_set_value(struct cpif_gpio *gpio, int value, unsigned int delay_ms
+ 	int dup = 0;
+ 
+ 	if (!gpio->valid) {
+-		mif_err("SET GPIO %d is not valid\n", gpio->num);
++		mif_err("SET GPIO %s is not valid\n", gpio->label);
+ 		return false;
+ 	}
+ 
+-	if (gpio_get_value(gpio->num) == value)
++	if (gpiod_get_raw_value(gpio->desc) == value)
+ 		dup = 1;
+ 
+ 	/* set gpio even if it is set already */
+-	gpio_set_value(gpio->num, value);
++	gpiod_set_raw_value(gpio->desc, value);
+ 
+ 	if (!strcmp(gpio->label, "AP2CP_PM_WRST_N") || !strcmp(gpio->label, "AP2CP_CP_WRST_N"))
+ 		mif_info("SET GPIO %s = %d (wait %dms, dup %d)\n", gpio->label, value, delay_ms, dup);
+@@ -639,11 +638,11 @@ int mif_gpio_get_value(struct cpif_gpio *gpio, bool log_print)
+ 	int value;
+ 
+ 	if (!gpio->valid) {
+-		mif_err("GET GPIO %d is not valid\n", gpio->num);
++		mif_err("GET GPIO %s is not valid\n", gpio->label);
+ 		return -EINVAL;
+ 	}
+ 
+-	value = gpio_get_value(gpio->num);
++	value = gpiod_get_raw_value(gpio->desc);
+ 
+ 	if (log_print)
+ 		mif_debug("GET GPIO %s = %d\n", gpio->label, value);
+diff --git a/drivers/soc/google/cpif/modem_v1.h b/drivers/soc/google/cpif/modem_v1.h
+index 69047aa2e..1f778a354 100644
+--- a/drivers/soc/google/cpif/modem_v1.h
++++ b/drivers/soc/google/cpif/modem_v1.h
+@@ -303,7 +303,7 @@ struct modem_irq {
+ 
+ struct cpif_gpio {
+ 	bool valid;
+-	int num;
++	struct gpio_desc *desc;
+ 	enum cp_gpio_irq_type irq_type;
+ 	const char *label;
+ 	const char *node_name;
+diff --git a/drivers/soc/google/cpif/modem_variation.h b/drivers/soc/google/cpif/modem_variation.h
+index 523e7ebe0..fb852dd92 100644
+--- a/drivers/soc/google/cpif/modem_variation.h
++++ b/drivers/soc/google/cpif/modem_variation.h
+@@ -21,13 +21,13 @@
+ 
+ 
+ #define DECLARE_MODEM_INIT_DUMMY(type)					\
+-	int type ## _init_modemctl_device(				\
++	static int type ## _init_modemctl_device(				\
+ 				struct modem_ctl *mc,			\
+ 				struct modem_data *pdata)		\
+ 	{ return 0; }
+ 
+ #define DECLARE_MODEM_UNINIT_DUMMY(type)				\
+-	void type ## _uninit_modemctl_device(				\
++	static void type ## _uninit_modemctl_device(				\
+ 				struct modem_ctl *mc,			\
+ 				struct modem_data *pdata)		\
+ 	{ return; }
+@@ -39,7 +39,7 @@
+ 				u32 link_type)
+ 
+ #define DECLARE_LINK_INIT_DUMMY()					\
+-	struct link_device *dummy_create_link_device(			\
++	static struct link_device *dummy_create_link_device(			\
+ 				struct platform_device *pdev,		\
+ 				u32 link_type)				\
+ 	{ return NULL; }
+diff --git a/drivers/soc/google/cpif/pcie-gs201-compat.c b/drivers/soc/google/cpif/pcie-gs201-compat.c
+new file mode 100644
+index 000000000..4623ce1b6
+--- /dev/null
++++ b/drivers/soc/google/cpif/pcie-gs201-compat.c
+@@ -0,0 +1,166 @@
++// SPDX-License-Identifier: GPL-2.0
++/*
++ * The exynos_pcie_*() calls CPIF makes into Google's root complex driver,
++ * mapped onto the gs201 modem link driver (pcie-gs201-cp). There is one
++ * modem link, channel 0. The calls only the left-out parts use (BTL's
++ * outbound window, the packet processor's exclusive MSI vectors) fail.
++ */
++
++#include <linux/interrupt.h>
++#include <linux/printk.h>
++#include <linux/soc/google/gs201-pcie-cp.h>
++#include <linux/types.h>
++#include <linux/exynos-pci-noti.h>
++
++#include "modem_prj.h"
++#include "s51xx_pcie.h"
++
++#define CP_PCIE_CH	0
++
++static bool cp_ch_ok(int ch_num)
++{
++	if (ch_num == CP_PCIE_CH)
++		return true;
++	pr_err_once("cpif: PCIe channel %d does not exist, only %d\n",
++		    ch_num, CP_PCIE_CH);
++	return false;
++}
++
++static void cp_compat_event(struct gs201_pcie_cp_event *ev, u32 event)
++{
++	struct exynos_pcie_register_event *reg = ev->priv;
++
++	reg->notify.event = event & GS201_PCIE_CP_EVENT_LINKDOWN ?
++			    EXYNOS_PCIE_EVENT_LINKDOWN :
++			    EXYNOS_PCIE_EVENT_CPL_TIMEOUT;
++	reg->notify.user = reg->user;
++	if (reg->mode == EXYNOS_PCIE_TRIGGER_CALLBACK && reg->callback)
++		reg->callback(&reg->notify);
++	else if (reg->completion)
++		complete(reg->completion);
++}
++
++static struct gs201_pcie_cp_event cp_compat_ev = {
++	.callback = cp_compat_event,
++};
++
++int exynos_pcie_register_event(struct exynos_pcie_register_event *reg)
++{
++	if (!reg || !reg->user)
++		return -ENODEV;
++	cp_compat_ev.events = 0;
++	if (reg->events & EXYNOS_PCIE_EVENT_LINKDOWN)
++		cp_compat_ev.events |= GS201_PCIE_CP_EVENT_LINKDOWN;
++	if (reg->events & EXYNOS_PCIE_EVENT_CPL_TIMEOUT)
++		cp_compat_ev.events |= GS201_PCIE_CP_EVENT_CPL_TIMEOUT;
++	cp_compat_ev.priv = reg;
++	return gs201_pcie_cp_register_event(&cp_compat_ev);
++}
++
++int exynos_pcie_deregister_event(struct exynos_pcie_register_event *reg)
++{
++	if (cp_compat_ev.priv != reg)
++		return -ENODEV;
++	gs201_pcie_cp_deregister_event(&cp_compat_ev);
++	cp_compat_ev.priv = NULL;
++	return 0;
++}
++
++void exynos_pcie_rc_register_dump(int ch_num)
++{
++	gs201_pcie_cp_dump();
++}
++
++void exynos_pcie_rc_dump_all_status(int ch_num)
++{
++	gs201_pcie_cp_dump();
++}
++
++void exynos_pcie_rc_print_msi_register(int ch_num)
++{
++	gs201_pcie_cp_dump();
++}
++
++/* BTL only: not ported */
++int exynos_pcie_rc_set_outbound_atu(int ch_num, u32 target_addr, u32 offset,
++				    u32 size)
++{
++	return -EOPNOTSUPP;
++}
++
++bool exynos_pcie_rc_get_cpl_timeout_state(int ch_num)
++{
++	return gs201_pcie_cp_faults() & GS201_PCIE_CP_EVENT_CPL_TIMEOUT;
++}
++
++void exynos_pcie_rc_set_cpl_timeout_state(int ch_num, bool recovery)
++{
++	if (!recovery)
++		gs201_pcie_cp_clear_faults(GS201_PCIE_CP_EVENT_CPL_TIMEOUT);
++}
++
++bool exynos_pcie_rc_get_sudden_linkdown_state(int ch_num)
++{
++	return gs201_pcie_cp_faults() & GS201_PCIE_CP_EVENT_LINKDOWN;
++}
++
++void exynos_pcie_rc_set_sudden_linkdown_state(int ch_num, bool recovery)
++{
++	if (!recovery)
++		gs201_pcie_cp_clear_faults(GS201_PCIE_CP_EVENT_LINKDOWN);
++}
++
++void exynos_pcie_rc_force_linkdown_work(int ch_num)
++{
++	gs201_pcie_cp_force_linkdown();
++}
++
++int exynos_pcie_rc_chk_link_status(int ch_num)
++{
++	return cp_ch_ok(ch_num) && gs201_pcie_cp_link_ok();
++}
++
++int exynos_pcie_rc_l1ss_ctrl(int enable, int id, int ch_num)
++{
++	return cp_ch_ok(ch_num) ? gs201_pcie_cp_l1ss(enable) : -ENODEV;
++}
++
++/* The width is the modem's to choose, as in Google's driver */
++int exynos_pcie_poweron(int ch_num, int spd, int width)
++{
++	return cp_ch_ok(ch_num) ? gs201_pcie_cp_poweron(spd) : -ENODEV;
++}
++
++int exynos_pcie_poweroff(int ch_num)
++{
++	if (!cp_ch_ok(ch_num))
++		return -ENODEV;
++	gs201_pcie_cp_poweroff();
++	return 0;
++}
++
++void exynos_pcie_set_perst_gpio(int ch_num, bool on)
++{
++	if (cp_ch_ok(ch_num))
++		gs201_pcie_cp_set_perst_level(on);
++}
++
++void exynos_pcie_set_ready_cto_recovery(int ch_num)
++{
++	if (cp_ch_ok(ch_num))
++		gs201_pcie_cp_prepare_recovery();
++}
++
++/* The packet processor's exclusive vectors: not ported */
++int register_separated_msi_vector(int ch_num, irq_handler_t handler,
++				  void *context, int *irq_num)
++{
++	return -EOPNOTSUPP;
++}
++
++/* The target is the link's memory-region; check that both nodes agree. */
++int exynos_pcie_set_msi_ctrl_addr(int num, u64 msi_ctrl_addr)
++{
++	return cp_ch_ok(num) ? gs201_pcie_cp_check_msi_addr(msi_ctrl_addr) :
++			       -ENODEV;
++}
+diff --git a/drivers/soc/google/cpif/s51xx_pcie.c b/drivers/soc/google/cpif/s51xx_pcie.c
+index e6d0fd868..182f88204 100644
+--- a/drivers/soc/google/cpif/s51xx_pcie.c
++++ b/drivers/soc/google/cpif/s51xx_pcie.c
+@@ -38,7 +38,7 @@
+ #include "modem_ctrl.h"
+ #include "s51xx_pcie.h"
+ 
+-void s51xx_pcie_chk_ep_conf(struct pci_dev *pdev)
++static void s51xx_pcie_chk_ep_conf(struct pci_dev *pdev)
+ {
+ 	int i;
+ 	u32 val1, val2, val3, val4;
+@@ -510,9 +510,12 @@ static void s51xx_pcie_remove(struct pci_dev *pdev)
+ 	pci_release_regions(pdev);
+ }
+ 
+-/* For Test */
++/*
++ * The S5300 only (144d:a5a5): stock matches any Samsung function, which
++ * here includes the link's own root port (144d:ecec).
++ */
+ static struct pci_device_id s51xx_pci_id_tbl[] = {
+-	{ PCI_VENDOR_ID_SAMSUNG, PCI_ANY_ID, PCI_ANY_ID, PCI_ANY_ID, },   // SC Basic
++	{ PCI_DEVICE(PCI_VENDOR_ID_SAMSUNG, 0xa5a5) },
+ 	{ }
+ };
+ 
+diff --git a/drivers/soc/google/cpif/shm_ipc.c b/drivers/soc/google/cpif/shm_ipc.c
+index 5668298d6..92dc13e50 100644
+--- a/drivers/soc/google/cpif/shm_ipc.c
++++ b/drivers/soc/google/cpif/shm_ipc.c
+@@ -213,7 +213,7 @@ static int cp_shmem_check_mem_map_on_cp(struct device *dev)
+ 	long long base_diff = 0;
+ 
+ 	mif_dt_read_u32(dev->of_node, "cp_num", cp_num);
+-	base = phys_to_virt(cp_shmem_get_base(cp_num, SHMEM_CP));
++	base = cp_shmem_get_region(cp_num, SHMEM_CP);
+ 	if (!base) {
+ 		mif_err("base is null\n");
+ 		return -ENOMEM;
+@@ -350,31 +350,22 @@ int cp_shmem_get_mem_map_on_cp_flag(u32 cp_num)
+ }
+ EXPORT_SYMBOL(cp_shmem_get_mem_map_on_cp_flag);
+ 
++/*
++ * The modem's regions are reserved no-map on this kernel (they are not in
++ * the linear map, unlike stock's), so both kinds are memremap()ed: cached
++ * regions write-back (the link is I/O coherent), the others write-combine
++ * as stock's vmap() with pgprot_writecombine().
++ */
+ void __iomem *cp_shmem_get_nc_region(unsigned long base, u32 size)
+ {
+-	unsigned int num_pages = (unsigned int)DIV_ROUND_UP(size, PAGE_SIZE);
+-	pgprot_t prot = pgprot_writecombine(PAGE_KERNEL);
+-	struct page **pages;
+ 	void *v_addr;
+-	unsigned int i;
+ 
+ 	if (!base)
+ 		return NULL;
+ 
+-	pages = kvcalloc(num_pages, sizeof(struct page *), GFP_KERNEL);
+-	if (!pages)
+-		return NULL;
+-
+-	for (i = 0; i < num_pages; i++) {
+-		pages[i] = phys_to_page(base);
+-		base += PAGE_SIZE;
+-	}
+-
+-	v_addr = vmap(pages, num_pages, VM_MAP, prot);
++	v_addr = memremap(base, size, MEMREMAP_WC);
+ 	if (!v_addr)
+-		mif_err("Failed to vmap pages\n");
+-
+-	kvfree(pages);
++		mif_err("Failed to map 0x%08lx size 0x%08x\n", base, size);
+ 
+ 	return (void __iomem *)v_addr;
+ }
+@@ -382,44 +373,39 @@ EXPORT_SYMBOL(cp_shmem_get_nc_region);
+ 
+ void __iomem *cp_shmem_get_region(u32 cp, u32 idx)
+ {
+-	if (_cp_shmem[cp][idx].v_base)
+-		return _cp_shmem[cp][idx].v_base;
++	struct cp_shared_mem *shm = &_cp_shmem[cp][idx];
+ 
+-	if (_cp_shmem[cp][idx].cached)
+-		_cp_shmem[cp][idx].v_base = phys_to_virt(_cp_shmem[cp][idx].p_base);
++	if (shm->v_base)
++		return shm->v_base;
++	if (!shm->p_base)
++		return NULL;
++
++	if (shm->cached)
++		shm->v_base = (void __iomem *)memremap(shm->p_base, shm->size,
++						       MEMREMAP_WB);
+ 	else
+-		_cp_shmem[cp][idx].v_base = cp_shmem_get_nc_region(_cp_shmem[cp][idx].p_base,
+-				_cp_shmem[cp][idx].size);
++		shm->v_base = cp_shmem_get_nc_region(shm->p_base, shm->size);
+ 
+-	return _cp_shmem[cp][idx].v_base;
++	return shm->v_base;
+ }
+ EXPORT_SYMBOL(cp_shmem_get_region);
+ 
+ void cp_shmem_release_region(u32 cp, u32 idx)
+ {
+-	if (_cp_shmem[cp][idx].v_base)
+-		vunmap(_cp_shmem[cp][idx].v_base);
++	if (_cp_shmem[cp][idx].v_base) {
++		memunmap((void *)_cp_shmem[cp][idx].v_base);
++		_cp_shmem[cp][idx].v_base = NULL;
++	}
+ }
+ EXPORT_SYMBOL(cp_shmem_release_region);
+ 
++/*
++ * Stock gives unused reserved pages back to the page allocator. Here the
++ * regions are no-map and stay reserved: nothing is released.
++ */
+ void cp_shmem_release_rmem(u32 cp, u32 idx, u32 headroom)
+ {
+-	int i;
+-	unsigned long base, offset = 0;
+-	u32 size;
+-	struct page *page;
+-
+-	base = cp_shmem_get_base(cp, idx);
+-	size = cp_shmem_get_size(cp, idx);
+-	mif_info("Release rmem base:0x%08lx size:0x%08x headroom:0x%08x\n", base, size, headroom);
+-
+-	for (i = 0; i < (size >> PAGE_SHIFT); i++) {
+-		if (offset >= headroom) {
+-			page = phys_to_page(base + offset);
+-			free_reserved_page(page);
+-		}
+-		offset += PAGE_SIZE;
+-	}
++	mif_info("rmem %u stays reserved (headroom 0x%08x)\n", idx, headroom);
+ }
+ EXPORT_SYMBOL(cp_shmem_release_rmem);
+ 
+@@ -492,13 +478,12 @@ static int cp_shmem_probe(struct platform_device *pdev)
+ 	return 0;
+ 
+ fail:
+-	panic("CP shmem probe failed\n");
++	mif_err("CP shmem probe failed: %d\n", ret);
+ 	return ret;
+ }
+ 
+-static int cp_shmem_remove(struct platform_device *pdev)
++static void cp_shmem_remove(struct platform_device *pdev)
+ {
+-	return 0;
+ }
+ 
+ static const struct of_device_id cp_shmem_dt_match[] = {

@@ -1,0 +1,26 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Sun, 11 Oct 2026 23:58:25 -0400
+Subject: [PATCH] dt-bindings: serial: samsung: add Google gs201 UART
+
+The gs201 USI UARTs are the same IP as on gs101 (32-bit register access,
+FIFO size given in the DT), so describe them with a gs201 compatible and
+the gs101 one as fallback.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ Documentation/devicetree/bindings/serial/samsung_uart.yaml | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/Documentation/devicetree/bindings/serial/samsung_uart.yaml b/Documentation/devicetree/bindings/serial/samsung_uart.yaml
+index 75ac2a08f..668b93a32 100644
+--- a/Documentation/devicetree/bindings/serial/samsung_uart.yaml
++++ b/Documentation/devicetree/bindings/serial/samsung_uart.yaml
+@@ -30,6 +30,7 @@ properties:
+           - samsung,exynos8895-uart
+       - items:
+           - enum:
++              - google,gs201-uart
+               - samsung,exynos2200-uart
+           - const: google,gs101-uart
+       - items:

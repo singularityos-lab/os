@@ -1,0 +1,87 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Sun, 1 Nov 2026 13:58:01 -0647
+Subject: [PATCH] phy: samsung-ufs: Add the Tensor G4 Hibern8 sequences
+
+Google's UFS driver runs a PMA sequence after every Hibern8 entry
+(ufs_cal_post_h8_enter) and another before every exit
+(ufs_cal_pre_h8_exit). The Tensor G4 PHY data has no cfgs_hibern8, so
+phy_notify_state() writes nothing and the PMA stays in its active
+setting while the link is in Hibern8.
+
+Add both tables from Google's zuma calibration, which the zuma and
+zumapro builds share (CONFIG_SOC_ZUMA). After entry: the TRSV_SQ
+registers 0x9f4 = 0x08 and 0xa00 = 0x3a on each lane, the common
+register 0x000 = 0x51, then 0xb64 = 0x30 and 0x33 on each lane. Before
+exit: 0x000 = 0x11, a 10 us wait, 0x9f4 = 0x00 and 0xa00 = 0x30, then
+0xb64 = 0x32 and 0x22. As in the existing table, Google's byte offsets
+are converted to words and the lane stride is 0x800 bytes. The
+sequences are the same for every power mode (PMD_ALL), and Google's
+exit sequence has no CDR wait, so no wait_for_cdr is needed.
+
+As on gs101, the host driver runs the entry sequence after it has
+stopped the host clocks, where Google's runs it just before.
+
+The Pixel 8 Pro binds this data through its google,zuma-ufs-phy
+fallback. Its host has no idle clock gating, and runtime PM of its
+LUNs stays off unless userspace allows it, so it enters Hibern8 only
+on the way to turning the link off, at shutdown and system suspend.
+Google's driver runs the same entry sequence there, from the same
+tables.
+
+Link: https://android.googlesource.com/kernel/google-modules/soc/gs/+/204078758737776959ecc85c527a00fd2cabb62f/drivers/ufs/zuma/ufs-cal.h
+Link: https://android.googlesource.com/kernel/google-modules/soc/gs/+/204078758737776959ecc85c527a00fd2cabb62f/drivers/ufs/ufs-exynos.c
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ drivers/phy/samsung/phy-zumapro-ufs.c | 27 +++++++++++++++++++++++++++
+ 1 file changed, 27 insertions(+)
+
+diff --git a/drivers/phy/samsung/phy-zumapro-ufs.c b/drivers/phy/samsung/phy-zumapro-ufs.c
+index 899a327f5..195342435 100644
+--- a/drivers/phy/samsung/phy-zumapro-ufs.c
++++ b/drivers/phy/samsung/phy-zumapro-ufs.c
+@@ -56,10 +56,36 @@ static const struct samsung_ufs_phy_cfg zumapro_pre_init[] = {
+ 	END_UFS_PHY_CFG,
+ };
+ 
++/* Google's post_h8_enter: after the link has entered Hibern8. */
++static const struct samsung_ufs_phy_cfg zumapro_post_h8_enter[] = {
++	PHY_TRSV_REG_CFG_OFFSET(0x27d, 0x08, PWR_MODE_ANY, 0x200),
++	PHY_TRSV_REG_CFG_OFFSET(0x280, 0x3a, PWR_MODE_ANY, 0x200),
++	PHY_COMN_REG_CFG(0x000, 0x51, PWR_MODE_ANY),
++	PHY_TRSV_REG_CFG_OFFSET(0x2d9, 0x30, PWR_MODE_ANY, 0x200),
++	PHY_TRSV_REG_CFG_OFFSET(0x2d9, 0x33, PWR_MODE_ANY, 0x200),
++	END_UFS_PHY_CFG,
++};
++
++/* Google's pre_h8_exit: before the link leaves Hibern8. */
++static const struct samsung_ufs_phy_cfg zumapro_pre_h8_exit[] = {
++	PHY_COMN_REG_CFG(0x000, 0x11, PWR_MODE_ANY),
++	PHY_DELAY_US_CFG(10),
++	PHY_TRSV_REG_CFG_OFFSET(0x27d, 0x00, PWR_MODE_ANY, 0x200),
++	PHY_TRSV_REG_CFG_OFFSET(0x280, 0x30, PWR_MODE_ANY, 0x200),
++	PHY_TRSV_REG_CFG_OFFSET(0x2d9, 0x32, PWR_MODE_ANY, 0x200),
++	PHY_TRSV_REG_CFG_OFFSET(0x2d9, 0x22, PWR_MODE_ANY, 0x200),
++	END_UFS_PHY_CFG,
++};
++
+ static const struct samsung_ufs_phy_cfg *zumapro_cfgs[CFG_TAG_MAX] = {
+ 	[CFG_PRE_INIT] = zumapro_pre_init,
+ };
+ 
++static const struct samsung_ufs_phy_cfg *zumapro_hibern8_cfgs[] = {
++	[CFG_POST_HIBERN8_ENTER]	= zumapro_post_h8_enter,
++	[CFG_PRE_HIBERN8_EXIT]		= zumapro_pre_h8_exit,
++};
++
+ static const char * const zumapro_clks[] = { "ref_clk" };
+ 
+ static int zumapro_wait_for_cal(struct phy *phy, u8 lane)
+@@ -79,6 +105,7 @@ static int zumapro_wait_for_cal(struct phy *phy, u8 lane)
+ 
+ const struct samsung_ufs_phy_drvdata tensor_zumapro_ufs_phy = {
+ 	.cfgs = zumapro_cfgs,
++	.cfgs_hibern8 = zumapro_hibern8_cfgs,
+ 	.isol = {
+ 		.offset = 0x3ec0,
+ 		.mask = BIT(0),

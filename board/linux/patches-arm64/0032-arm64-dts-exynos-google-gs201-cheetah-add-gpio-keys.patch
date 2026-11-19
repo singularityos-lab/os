@@ -1,0 +1,65 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Sun, 11 Oct 2026 20:08:05 -0400
+Subject: [PATCH] arm64: dts: exynos: google: gs201-cheetah: add gpio-keys
+
+Describe the volume down (gpa10-1), volume up (gpa8-5) and power
+(gpa10-0, PMIC_PWRON_OD_L) buttons as gpio-keys, as gs101 Pixels do.
+The power line is the S2MPG12 PWRONB input, also routed to the SoC, so
+the PMIC's own long-press reset is unaffected.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ .../boot/dts/exynos/google/gs201-cheetah.dts  | 32 +++++++++++++++++++
+ 1 file changed, 32 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts b/arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts
+index 36da14619..d23374f90 100644
+--- a/arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts
++++ b/arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts
+@@ -5,6 +5,7 @@
+ 
+ /dts-v1/;
+ 
++#include <dt-bindings/input/input.h>
+ #include <dt-bindings/soc/samsung,exynos-usi.h>
+ #include "gs201.dtsi"
+ 
+@@ -39,6 +40,37 @@ framebuffer0: framebuffer@fac00000 {
+ 		};
+ 	};
+ 
++	gpio-keys {
++		compatible = "gpio-keys";
++		pinctrl-0 = <&key_voldown>, <&key_volup>, <&key_power>;
++		pinctrl-names = "default";
++
++		button-vol-down {
++			label = "KEY_VOLUMEDOWN";
++			linux,code = <KEY_VOLUMEDOWN>;
++			gpios = <&gpa10 1 GPIO_ACTIVE_LOW>;
++			wakeup-source;
++		};
++
++		button-vol-up {
++			label = "KEY_VOLUMEUP";
++			linux,code = <KEY_VOLUMEUP>;
++			gpios = <&gpa8 5 GPIO_ACTIVE_LOW>;
++			wakeup-source;
++		};
++
++		/*
++		 * PMIC_PWRON_OD_L: the S2MPG12 PWRONB line, also wired to the
++		 * SoC. The PMIC's own long-press reset is unaffected.
++		 */
++		button-power {
++			label = "KEY_POWER";
++			linux,code = <KEY_POWER>;
++			gpios = <&gpa10 0 GPIO_ACTIVE_LOW>;
++			wakeup-source;
++		};
++	};
++
+ 	/*
+ 	 * UFS VCC. Google drives it from GPIO gpp0-1 (boot-on); there is no
+ 	 * gs201 GPIO driver yet, so describe it as always on, as the

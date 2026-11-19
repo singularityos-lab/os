@@ -1,0 +1,71 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: saiththerobo <the.tom.sharp@gmail.com>
+Date: Tue, 3 Nov 2026 12:34:15 +0000
+Subject: [PATCH] scsi: ufs: exynos: power the gs101 device down in system
+ suspend too
+
+gs101_ufs_suspend() asserts the device reset on gs101 as it does on
+gs201, which shares that function, but only gs201's init raised spm_lvl
+to 5. On a Pixel 6 Pro (gs101) at the core's default level 3 every
+s2idle resume failed its first Hibern8 exit and the error handler reset
+the host twice before the link came back (three Power-woken cycles on
+2026-11-03: "ufshcd_uic_hibern8_exit: hibern8 exit failed. ret = 5",
+"host_reset: total cnt=2", then FAST series_B G4 L2 again, no I/O
+errors). At level 5 the same phone resumes through a full re-init with
+no error-handler pass.
+
+Set the level in gs101_ufs_drv_init(), which gs201's init only wrapped,
+and use it for gs201 directly: gs201 still gets level 5 from the same
+assignment, so the Pixel 7 Pro is unchanged.
+
+Assisted-by: Claude Opus 5.5
+Signed-off-by: saiththerobo <the.tom.sharp@gmail.com>
+---
+ drivers/ufs/host/ufs-exynos.c | 19 +++++++------------
+ 1 file changed, 7 insertions(+), 12 deletions(-)
+
+diff --git a/drivers/ufs/host/ufs-exynos.c b/drivers/ufs/host/ufs-exynos.c
+index 5a4b13db2..4eadca2fe 100644
+--- a/drivers/ufs/host/ufs-exynos.c
++++ b/drivers/ufs/host/ufs-exynos.c
+@@ -244,15 +244,6 @@ static int gs101_ufs_drv_init(struct exynos_ufs *ufs)
+ 	/* Enable clock gating and hibern8 */
+ 	hba->caps |= UFSHCD_CAP_CLK_GATING | UFSHCD_CAP_HIBERN8_WITH_CLK_GATING;
+ 
+-	/* set ACG to be controlled by UFS_ACG_DISABLE */
+-	reg = hci_readl(ufs, HCI_IOP_ACG_DISABLE);
+-	hci_writel(ufs, reg & (~HCI_IOP_ACG_DISABLE_EN), HCI_IOP_ACG_DISABLE);
+-
+-	return exynos_ufs_shareability(ufs);
+-}
+-
+-static int gs201_ufs_drv_init(struct exynos_ufs *ufs)
+-{
+ 	/*
+ 	 * gs101_ufs_suspend() asserts the device reset, so the link can't
+ 	 * stay in Hibern8 across system suspend: at the default level the
+@@ -261,9 +252,13 @@ static int gs201_ufs_drv_init(struct exynos_ufs *ufs)
+ 	 * link off instead, which resumes through a full re-init, as the
+ 	 * downstream driver does.
+ 	 */
+-	ufs->hba->spm_lvl = UFS_PM_LVL_5;
++	hba->spm_lvl = UFS_PM_LVL_5;
+ 
+-	return gs101_ufs_drv_init(ufs);
++	/* set ACG to be controlled by UFS_ACG_DISABLE */
++	reg = hci_readl(ufs, HCI_IOP_ACG_DISABLE);
++	hci_writel(ufs, reg & (~HCI_IOP_ACG_DISABLE_EN), HCI_IOP_ACG_DISABLE);
++
++	return exynos_ufs_shareability(ufs);
+ }
+ 
+ static int zuma_ufs_drv_init(struct exynos_ufs *ufs)
+@@ -2550,7 +2545,7 @@ static const struct exynos_ufs_drv_data gs201_ufs_drvs = {
+ 				  EXYNOS_UFS_OPT_UFSPR_SECURE |
+ 				  EXYNOS_UFS_OPT_TIMER_TICK_SELECT,
+ 	.iocc_mask		= UFS_GS101_SHARABLE,
+-	.drv_init		= gs201_ufs_drv_init,
++	.drv_init		= gs101_ufs_drv_init,
+ 	.pre_link		= gs201_ufs_pre_link,
+ 	.post_link		= gs101_ufs_post_link,
+ 	.pre_pwr_change		= gs101_ufs_pre_pwr_change,

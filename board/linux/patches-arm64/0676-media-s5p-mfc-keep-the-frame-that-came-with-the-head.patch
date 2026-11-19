@@ -1,0 +1,49 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?=C3=81ngel=20Ren=C3=A9?=
+ <17342133+angelrenefm@users.noreply.github.com>
+Date: Sat, 14 Nov 2026 16:03:30 +0100
+Subject: [PATCH] media: s5p-mfc: keep the frame that came with the header on
+ MFC v15
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+After the header is parsed, the driver only checks for H.264 whether
+the header's buffer holds more than the header, and treats the buffer
+as used up for every other codec. That buffer usually carries the first
+picture too: the first HEVC IRAP picture, and in VP8 and VP9 the header
+is the key frame itself. Dropping it, the firmware fails every HEVC
+frame with error 190 (SYNC_POINT_NOT_RECEIVED in Google's exynos-mfc
+driver) and every VP8/VP9 frame with error 34 (NO_KEY_FRAME).
+
+Check the consumed bytes for every codec on MFC v15. On the Pixel 7,
+HEVC, VP8 and VP9 clips then decode to the same frames as FFmpeg's and
+GStreamer's software decoders.
+
+Assisted-by: LLM
+Signed-off-by: Ángel René <17342133+angelrenefm@users.noreply.github.com>
+---
+ drivers/media/platform/samsung/s5p-mfc/s5p_mfc.c | 9 ++++++++-
+ 1 file changed, 8 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/media/platform/samsung/s5p-mfc/s5p_mfc.c b/drivers/media/platform/samsung/s5p-mfc/s5p_mfc.c
+index abe54f036..df170e29b 100644
+--- a/drivers/media/platform/samsung/s5p-mfc/s5p_mfc.c
++++ b/drivers/media/platform/samsung/s5p-mfc/s5p_mfc.c
+@@ -566,8 +566,15 @@ static void s5p_mfc_handle_seq_done(struct s5p_mfc_ctx *ctx,
+ 			v4l2_event_queue_fh(&ctx->fh, &ev_src_ch);
+ 		}
+ 
++		/*
++		 * The buffer the header came in may hold the first frame too.
++		 * Keep it for decoding unless the header used it up: on MFC
++		 * v15 for every codec, as the first HEVC IRAP picture and the
++		 * first VP8/VP9 key frame share the header's buffer.
++		 */
+ 		if ((ctx->codec_mode == S5P_MFC_CODEC_H264_DEC ||
+-			ctx->codec_mode == S5P_MFC_CODEC_H264_MVC_DEC) &&
++			ctx->codec_mode == S5P_MFC_CODEC_H264_MVC_DEC ||
++			IS_MFCV15(dev)) &&
+ 				!list_empty(&ctx->src_queue)) {
+ 			struct s5p_mfc_buf *src_buf;
+ 

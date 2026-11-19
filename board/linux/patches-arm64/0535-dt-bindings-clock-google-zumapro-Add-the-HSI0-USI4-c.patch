@@ -1,0 +1,31 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Sat, 31 Oct 2026 11:16:20 -0643
+Subject: [PATCH] dt-bindings: clock: google,zumapro: Add the HSI0 USI4 clocks
+
+Add CMU_HSI0's USI4 clock ids, 28 to 32, appended after USI3's. On the
+Pixel 9a USI4 is I2C19, the control bus of the two TAS2572 speaker
+amplifiers.
+
+Link: https://android.googlesource.com/kernel/google-modules/soc/gs/+/204078758737776959ecc85c527a00fd2cabb62f/drivers/soc/google/cal-if/zuma/cmucal-sfr.c
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ include/dt-bindings/clock/google,zumapro.h | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/include/dt-bindings/clock/google,zumapro.h b/include/dt-bindings/clock/google,zumapro.h
+index e54d7a6f3..b46da728a 100644
+--- a/include/dt-bindings/clock/google,zumapro.h
++++ b/include/dt-bindings/clock/google,zumapro.h
+@@ -103,6 +103,11 @@
+ #define CLK_DOUT_HSI0_USI3		25
+ #define CLK_GOUT_HSI0_USI3_IP		26
+ #define CLK_GOUT_HSI0_USI3_PCLK		27
++#define CLK_MOUT_HSI0_USI4_LOCAL	28
++#define CLK_GOUT_HSI0_USI4_SOURCE	29
++#define CLK_DOUT_HSI0_USI4		30
++#define CLK_GOUT_HSI0_USI4_IP		31
++#define CLK_GOUT_HSI0_USI4_PCLK		32
+ 
+ /* CMU_G3D. */
+ #define CLK_FOUT_G3D			1

@@ -1,0 +1,42 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Brett-Michael Green <brett@bmgvisualtech.com>
+Date: Sat, 31 Oct 2026 14:39:12 -0400
+Subject: [PATCH] dt-bindings: display: google,gs201-decon: Add the Tensor G3
+
+The Tensor G3 (zuma) DECON0 is the Tensor G4's: Google's display driver
+builds zuma with the same CAL (cal_9865), and the Pixel 8 Pro's stock
+DECON0 node has zumapro's main registers (0x19470000), DPP0 read DMA
+(0x19900000), interrupts (SPI 243, 242, 241) and fourteen windows. Add
+its compatible.
+
+Assisted-by: LLM
+Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
+---
+ .../bindings/display/samsung/google,gs201-decon.yaml       | 7 ++++---
+ 1 file changed, 4 insertions(+), 3 deletions(-)
+
+diff --git a/Documentation/devicetree/bindings/display/samsung/google,gs201-decon.yaml b/Documentation/devicetree/bindings/display/samsung/google,gs201-decon.yaml
+index 58709681c..baf0a8b90 100644
+--- a/Documentation/devicetree/bindings/display/samsung/google,gs201-decon.yaml
++++ b/Documentation/devicetree/bindings/display/samsung/google,gs201-decon.yaml
+@@ -10,9 +10,9 @@ maintainers:
+   - Derek Ross <derekross@gmail.com>
+ 
+ description:
+-  The DECON is the display controller of the gs201 (Tensor G2) and zumapro
+-  (Tensor G4) display pipelines. It blends up to six or fourteen windows,
+-  respectively, each fed by a DPP read DMA
++  The DECON is the display controller of the gs201 (Tensor G2), zuma
++  (Tensor G3) and zumapro (Tensor G4) display pipelines. It blends up to
++  six (gs201) or fourteen windows, each fed by a DPP read DMA
+   channel, compresses the result with DSC and hands it to a DSIM. In
+   command mode a frame is sent on each tearing effect (TE) pulse of the
+   panel; register writes are double-buffered and take effect at the
+@@ -22,6 +22,7 @@ properties:
+   compatible:
+     enum:
+       - google,gs201-decon
++      - google,zuma-decon
+       - google,zumapro-decon
+ 
+   reg:

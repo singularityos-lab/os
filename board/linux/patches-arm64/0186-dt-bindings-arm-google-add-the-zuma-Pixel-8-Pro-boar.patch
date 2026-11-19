@@ -1,0 +1,103 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Brett-Michael Green <brett@bmgvisualtech.com>
+Date: Thu, 22 Oct 2026 16:06:01 -0400
+Subject: [PATCH] dt-bindings: arm: google: add the zuma Pixel 8 Pro board
+
+Document google,zuma-husky with the google,zuma fallback, for the
+Google Tensor G3 (zuma) Pixel 8 Pro.
+
+zuma's bootloader picks the base DTB by matching the SoC against the
+children of a /soc_compatible node (product_id, major, minor,
+pkg_mode), the way gs101 and gs201 use /soc_id. The Pixel 7a's
+bootloader does too. Describe that node. Stock trees also give each
+child a "description" label, which a schema cannot name, so further
+properties are allowed there.
+
+zuma's bootloader also expects /ect to carry the location of the ECT
+(parameter_address, parameter_size), as stock's base DTBs do, rather
+than the empty node gs101 and gs201 use. Allow the two properties on
+zuma only.
+
+Assisted-by: LLM
+Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
+---
+ .../devicetree/bindings/arm/google.yaml       | 58 ++++++++++++++++++-
+ 1 file changed, 57 insertions(+), 1 deletion(-)
+
+diff --git a/Documentation/devicetree/bindings/arm/google.yaml b/Documentation/devicetree/bindings/arm/google.yaml
+index 063aa60cc..0734306a4 100644
+--- a/Documentation/devicetree/bindings/arm/google.yaml
++++ b/Documentation/devicetree/bindings/arm/google.yaml
+@@ -47,15 +47,71 @@ properties:
+               - google,gs201-felix
+               - google,gs201-lynx
+           - const: google,gs201
++      - description: Google Tensor G3 (zuma) boards
++        items:
++          - enum:
++              - google,zuma-husky
++          - const: google,zuma
+ 
+-  # Bootloader requires empty ect node to be present
++  # Bootloader requires an ect node to be present: empty on gs101 and gs201,
++  # with the location of the ECT blob on zuma
+   ect:
+     type: object
+     additionalProperties: false
++    properties:
++      parameter_address:
++        $ref: /schemas/types.yaml#/definitions/uint32
++        description:
++          Physical address of the Exynos Characteristic Table (ECT), the
++          bootloader-provided table of clock, voltage and timing parameters.
++      parameter_size:
++        $ref: /schemas/types.yaml#/definitions/uint32
++        description: Size of the ECT in bytes.
++
++  soc_compatible:
++    type: object
++    description:
++      Bootloaders that match on this node rather than /soc_id (zuma's, and
++      the Pixel 7a's) pick the base DTB by matching the SoC's product id,
++      revision and package against these children, one per supported
++      silicon revision and package.
++    additionalProperties:
++      type: object
++      # Stock trees also give each child a human-readable label in a
++      # property named "description", which a schema cannot name.
++      additionalProperties: true
++      properties:
++        product_id:
++          $ref: /schemas/types.yaml#/definitions/uint32
++        major:
++          $ref: /schemas/types.yaml#/definitions/uint32
++        minor:
++          $ref: /schemas/types.yaml#/definitions/uint32
++        pkg_mode:
++          $ref: /schemas/types.yaml#/definitions/uint32
++      required:
++        - product_id
++        - major
++        - minor
++        - pkg_mode
+ 
+ required:
+   - ect
+ 
++allOf:
++  - if:
++      properties:
++        compatible:
++          not:
++            contains:
++              const: google,zuma
++    then:
++      properties:
++        ect:
++          properties:
++            parameter_address: false
++            parameter_size: false
++
+ additionalProperties: true
+ 
+ ...

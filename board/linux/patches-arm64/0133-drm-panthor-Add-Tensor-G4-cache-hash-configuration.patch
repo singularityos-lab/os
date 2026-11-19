@@ -1,0 +1,52 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Thu, 22 Oct 2026 16:14:16 -0700
+Subject: [PATCH] drm/panthor: Add Tensor G4 cache hash configuration
+
+The Tensor G4 Mali-G715 needs its integration-specific ASN hash values
+programmed before L2 power-up. Google's GPL device tree supplies these
+values, and its kbase driver configures them before powering the cache.
+The generic Valhall match leaves the custom hash disabled.
+
+On a Pixel 9a, the generic configuration repeatedly failed CSF startup
+with a GPU bus fault. Selecting the documented hashes through Panthor's
+existing SoC-data mechanism allowed CSF firmware, interfaces and scheduler
+to initialize. Separate readback confirmed L2_CONFIG 0x01140000 and hash
+words 0x0036db6d, 0x005b6db6 and 0. Subsequent Mesa tests rendered on G715.
+
+Add the zumapro match and data. No clock, voltage, firmware, DMA-mask or
+protection-setting change is part of this driver fix. Testing used fixed
+clocks; this does not establish DVFS or suspend support.
+
+Link: https://android.googlesource.com/kernel/devices/google/zuma/+/42395e8adcb880aa336f0da6bb2a19ed53929c40/dts/zuma-gpu.dtsi
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ drivers/gpu/drm/panthor/panthor_drv.c | 9 +++++++++
+ 1 file changed, 9 insertions(+)
+
+diff --git a/drivers/gpu/drm/panthor/panthor_drv.c b/drivers/gpu/drm/panthor/panthor_drv.c
+index 46a3080b0..7641dd006 100644
+--- a/drivers/gpu/drm/panthor/panthor_drv.c
++++ b/drivers/gpu/drm/panthor/panthor_drv.c
+@@ -1876,12 +1876,21 @@ static struct attribute *panthor_attrs[] = {
+ 
+ ATTRIBUTE_GROUPS(panthor);
+ 
++static const struct panthor_soc_data soc_data_google_zumapro = {
++	.asn_hash_enable = true,
++	.asn_hash = { 0x0036db6d, 0x005b6db6, 0x0, },
++};
++
+ static const struct panthor_soc_data soc_data_mediatek_mt8196 = {
+ 	.asn_hash_enable = true,
+ 	.asn_hash = { 0xb, 0xe, 0x0, },
+ };
+ 
+ static const struct of_device_id dt_match[] = {
++	{
++		.compatible = "google,zumapro-mali",
++		.data = &soc_data_google_zumapro,
++	},
+ 	{ .compatible = "mediatek,mt8196-mali", .data = &soc_data_mediatek_mt8196, },
+ 	{ .compatible = "rockchip,rk3588-mali" },
+ 	{ .compatible = "arm,mali-valhall-csf" },

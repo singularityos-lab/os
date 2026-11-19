@@ -1,0 +1,59 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Mon, 12 Oct 2026 01:36:16 -0400
+Subject: [PATCH] wifi: brcmfmac: msgbuf: keep rx packet IDs for the control
+ buffers
+
+Rx data buffers, ioctl response buffers and event buffers all take
+their packet IDs from one pool of 1024. The firmware sets how many data
+buffers the host may post (max_rxbufpost); the BCM4389's says 1535
+(Google's driver posts 2040 with a larger pool). brcmfmac then fills
+the whole rx ID pool with data buffers before it posts the ioctl
+response and event buffers, and those fail:
+
+  brcmf_msgbuf_rxbuf_ctrl_post: No PKTID available !!
+
+after which no ioctl can complete.
+
+Make the rx pool 2048 IDs, and cap the data buffers so the eight ioctl
+response and eight event buffers (and the unused ID 0) always fit.
+
+Assisted-by: LLM
+Signed-off-by: Derek Ross <derekross@gmail.com>
+---
+ .../net/wireless/broadcom/brcm80211/brcmfmac/msgbuf.c | 11 +++++++++--
+ 1 file changed, 9 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/msgbuf.c b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/msgbuf.c
+index 5928d1507..0ab9d9e06 100644
+--- a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/msgbuf.c
++++ b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/msgbuf.c
+@@ -49,7 +49,7 @@
+ #define MSGBUF_TYPE_LPBK_DMAXFER_CMPLT		0x14
+ 
+ #define NR_TX_PKTIDS				2048
+-#define NR_RX_PKTIDS				1024
++#define NR_RX_PKTIDS				2048
+ 
+ #define BRCMF_IOCTL_REQ_PKTID			0xFFFE
+ 
+@@ -1664,11 +1664,18 @@ int brcmf_proto_msgbuf_attach(struct brcmf_pub *drvr)
+ 		goto fail;
+ 
+ 	msgbuf->rx_dataoffset = if_msgbuf->rx_dataoffset;
+-	msgbuf->max_rxbufpost = if_msgbuf->max_rxbufpost;
+ 
+ 	msgbuf->max_ioctlrespbuf = BRCMF_MSGBUF_MAX_IOCTLRESPBUF_POST;
+ 	msgbuf->max_eventbuf = BRCMF_MSGBUF_MAX_EVENTBUF_POST;
+ 
++	/* Data, ioctl response and event buffers share the rx packet IDs
++	 * (ID 0 is never used): leave enough for the control buffers.
++	 */
++	msgbuf->max_rxbufpost = min_t(u32, if_msgbuf->max_rxbufpost,
++				      NR_RX_PKTIDS - 1 -
++				      msgbuf->max_ioctlrespbuf -
++				      msgbuf->max_eventbuf);
++
+ 	msgbuf->tx_pktids = brcmf_msgbuf_init_pktids(NR_TX_PKTIDS,
+ 						     DMA_TO_DEVICE);
+ 	if (!msgbuf->tx_pktids)

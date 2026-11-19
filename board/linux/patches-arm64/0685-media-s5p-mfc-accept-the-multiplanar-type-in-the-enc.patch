@@ -1,0 +1,47 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?=C3=81ngel=20Ren=C3=A9?=
+ <17342133+angelrenefm@users.noreply.github.com>
+Date: Sat, 14 Nov 2026 19:26:55 +0100
+Subject: [PATCH] media: s5p-mfc: accept the multiplanar type in the encoder
+ G_PARM
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The encoder's VIDIOC_S_PARM takes V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE but
+its VIDIOC_G_PARM only takes V4L2_BUF_TYPE_VIDEO_OUTPUT, and neither
+reports V4L2_CAP_TIMEPERFRAME. GStreamer reads the parameters first and
+does not set the frame rate when that fails, so the encoder never gets
+it.
+
+Accept both types in G_PARM and report V4L2_CAP_TIMEPERFRAME.
+
+Assisted-by: LLM
+Signed-off-by: Ángel René <17342133+angelrenefm@users.noreply.github.com>
+---
+ drivers/media/platform/samsung/s5p-mfc/s5p_mfc_enc.c | 5 ++++-
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_enc.c b/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_enc.c
+index a82d22954..8e1aed6f7 100644
+--- a/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_enc.c
++++ b/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_enc.c
+@@ -2287,6 +2287,7 @@ static int vidioc_s_parm(struct file *file, void *priv,
+ 	struct s5p_mfc_ctx *ctx = file_to_ctx(file);
+ 
+ 	if (a->type == V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE) {
++		a->parm.output.capability = V4L2_CAP_TIMEPERFRAME;
+ 		ctx->enc_params.rc_framerate_num =
+ 					a->parm.output.timeperframe.denominator;
+ 		ctx->enc_params.rc_framerate_denom =
+@@ -2303,7 +2304,9 @@ static int vidioc_g_parm(struct file *file, void *priv,
+ {
+ 	struct s5p_mfc_ctx *ctx = file_to_ctx(file);
+ 
+-	if (a->type == V4L2_BUF_TYPE_VIDEO_OUTPUT) {
++	if (a->type == V4L2_BUF_TYPE_VIDEO_OUTPUT ||
++	    a->type == V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE) {
++		a->parm.output.capability = V4L2_CAP_TIMEPERFRAME;
+ 		a->parm.output.timeperframe.denominator =
+ 					ctx->enc_params.rc_framerate_num;
+ 		a->parm.output.timeperframe.numerator =

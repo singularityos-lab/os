@@ -1,0 +1,795 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Mon, 12 Oct 2026 18:47:25 -0400
+Subject: [PATCH] PCI: dwc: gs201-cp: export the modem link to the modem driver
+
+Google's modem interface driver (CPIF) drives the S5300's PCIe link
+through about twenty exynos_pcie_*() calls into Google's root complex
+driver: power the link on at a given speed, off with the bus kept,
+check it, set PERST#, and get told about link-down and completion
+timeouts. Give it the same through gs201_pcie_cp_*() calls, declared in
+<linux/soc/google/gs201-pcie-cp.h>, built from the bring-up steps this
+driver already has, in Google's order:
+
+- gs201_pcie_cp_poweron(speed): link_up, the secure-ATU SMC, then the
+  bus: scanned the first time (the modem driver's PCI probe runs from
+  there) and the endpoint's configuration saved; MSI re-armed and that
+  configuration restored on later calls. Faults are cleared. The link
+  is taken down again on failure;
+- gs201_pcie_cp_poweroff(): PME_Turn_Off and the wait for L2 idle, as
+  exynos_pcie_rc_send_pme_turn_off(), then link_down;
+- gs201_pcie_cp_link_ok(): the LTSSM test of
+  exynos_pcie_rc_chk_link_status(), lock-free for the modem driver's
+  atomic paths, reading the controller only while the PHY is out of
+  isolation;
+- PERST# at a raw level, the MSI target check (the target is the
+  controller's memory-region), an L1 substate control that keeps L1SS
+  off for now, a reset before recovery, and a log dump.
+
+The controller-event interrupt ("ctrl") is enabled after link_up and
+disabled first at link_down, while ELBI is readable. It reports a
+link-down (IRQ1 bit 10) and a completion timeout (IRQ2 bit 24), as
+exynos_pcie_rc_irq_handler() does, to one registered client from a work
+item. The first fault is kept until the client clears it and later ones
+are only logged, as in Google's driver during a recovery. After a
+link-down the endpoint's configuration space reads as absent and the
+link-down source stays masked until the next link_up, so a dead link
+cannot keep interrupting. The modem driver can report a link-down it
+found itself (a doorbell reading back all ones) the same way.
+
+There is one modem link, so the calls take no handle; they return
+-ENODEV while the driver is not bound, and manual unbinding is disabled
+because the modem driver depends on the bound device.
+
+Assisted-by: LLM
+Signed-off-by: Derek Ross <derekross@gmail.com>
+---
+ drivers/pci/controller/dwc/pcie-gs201-cp.c | 544 +++++++++++++++++++++
+ include/linux/soc/google/gs201-pcie-cp.h   |  66 +++
+ 2 files changed, 610 insertions(+)
+ create mode 100644 include/linux/soc/google/gs201-pcie-cp.h
+
+diff --git a/drivers/pci/controller/dwc/pcie-gs201-cp.c b/drivers/pci/controller/dwc/pcie-gs201-cp.c
+index e1834845c..119618656 100644
+--- a/drivers/pci/controller/dwc/pcie-gs201-cp.c
++++ b/drivers/pci/controller/dwc/pcie-gs201-cp.c
+@@ -37,6 +37,11 @@
+  *   link_down  PERST#, LTSSM off, controller soft power reset, PHY
+  *              power-down, then the PHY isolated again in the PMU
+  *
++ * The modem driver takes the same steps through gs201_pcie_cp_poweron() and
++ * friends (include/linux/soc/google/gs201-pcie-cp.h), which stand in for the
++ * exynos_pcie_*() calls Google's CPIF makes into Google's root complex
++ * driver, and is told about link-down and completion-timeout interrupts.
++ *
+  * The bus is never removed while the module is loaded: as with Google's
+  * driver, the endpoint's pci_dev outlives link_down/link_up cycles, and its
+  * configuration space reads as absent while the link is down.
+@@ -67,7 +72,9 @@
+ #include <linux/regmap.h>
+ #include <linux/seq_file.h>
+ #include <linux/soc/samsung/exynos-pmu.h>
++#include <linux/soc/google/gs201-pcie-cp.h>
+ #include <linux/uaccess.h>
++#include <linux/workqueue.h>
+ 
+ #include "pcie-designware.h"
+ 
+@@ -86,6 +93,9 @@ MODULE_PARM_DESC(watch_lines, "Log every edge on the modem's cp2ap lines, with i
+ #define CP_ELBI_IRQ0_EN			0x010
+ #define CP_ELBI_IRQ1_EN			0x014
+ #define CP_ELBI_IRQ2_EN			0x018
++#define CP_ELBI_IRQ0_PM_TO_ACK		BIT(29)
++#define CP_ELBI_IRQ1_LINK_DOWN		BIT(10)	/* IRQ1 and IRQ1_EN */
++#define CP_ELBI_IRQ2_CPL_TIMEOUT	BIT(24)	/* IRQ2 and IRQ2_EN */
+ #define CP_ELBI_LTSSM_EN		0x054
+ #define CP_ELBI_DEVICE_TYPE		0x080
+ #define CP_ELBI_DEVICE_TYPE_RC		0x4
+@@ -98,6 +108,8 @@ MODULE_PARM_DESC(watch_lines, "Log every edge on the modem's cp2ap lines, with i
+ #define CP_ELBI_SOFT_NON_STICKY_RESET	BIT(3)
+ #define CP_ELBI_QCH_SEL			0x3a8
+ #define CP_ELBI_QCH_GATING_MASK		GENMASK(11, 0)
++#define CP_ELBI_APP_REQ_EXIT_L1_NOW	0x06c
++#define CP_ELBI_XMIT_PME_TURNOFF	0x118
+ #define CP_ELBI_REQ_EXIT_L1_MODE	0x3bc
+ #define CP_ELBI_APP_REQ_EXIT_L1		BIT(0)
+ #define CP_ELBI_L1_REQ_NAK_MASTER	BIT(4)
+@@ -124,6 +136,13 @@ MODULE_PARM_DESC(watch_lines, "Log every edge on the modem's cp2ap lines, with i
+ #define CP_LINK_TIMEOUT_US		48000
+ #define CP_LINK_TRIES			3
+ #define CP_SPEED_SETTLE_US		3000	/* Gen1 -> Gen3 change */
++#define CP_L2_POLL_US			10
++#define CP_L2_TIMEOUT_US		20000
++
++/* LTSSM states (DesignWare) in which the link counts as up for the client */
++#define CP_LTSSM_RCVRY_LOCK		0x0d
++#define CP_LTSSM_L1_IDLE		0x14
++#define CP_LTSSM_L2_IDLE		0x15
+ 
+ enum cp_line {
+ 	CP_PDA_ACTIVE,	/* ap2cp_pda_active, gph1-1 */
+@@ -188,8 +207,21 @@ struct gs201_pcie_cp {
+ 	bool atu_done;
+ 	bool msi_ready;		/* MSI domain and chained handlers set up */
+ 	bool msi_irqs_on;	/* their parent interrupts enabled */
++	int ctrl_irq;		/* controller events: link down, CPL timeout */
++	bool ctrl_irq_on;
++	spinlock_t event_lock;	/* faults, event_pending, client */
++	u32 faults;		/* GS201_PCIE_CP_EVENT_*, until cleared */
++	u32 event_pending;
++	struct gs201_pcie_cp_event *client;
++	struct work_struct event_work;
++	struct pci_dev *ep;		/* the modem, once the bus is scanned */
++	struct pci_saved_state *ep_state;	/* its config after the scan */
+ };
+ 
++/* The one modem link, for the modem driver's calls (gs201_pcie_cp_*()) */
++static struct gs201_pcie_cp *gs201_cp;
++static DEFINE_MUTEX(gs201_cp_lock);	/* gs201_cp against probe/remove */
++
+ static u32 cp_elbi_read(struct gs201_pcie_cp *cp, u32 reg)
+ {
+ 	return readl(cp->elbi + reg);
+@@ -495,6 +527,109 @@ static void cp_phy_isolate(struct gs201_pcie_cp *cp)
+ 		dev_info(cp->dev, "PHY isolated (PMU %#x = %#x)\n", cp->pmu_offset, val);
+ }
+ 
++/*
++ * Controller events (the "ctrl" interrupt), as Google's
++ * exynos_pcie_rc_irq_handler(): a link that drops out of L0 by itself
++ * (IRQ1 bit 10) and a completion timeout (IRQ2 bit 24). Both are latched
++ * in ELBI and cleared by writing them back. The first fault is reported to
++ * the client from a work item and kept until the client clears it; later
++ * ones are only counted in the log, as Google's driver ignores events
++ * while a recovery is running. After a link-down the endpoint's
++ * configuration space reads as absent, and the link-down source is masked
++ * until the next link_up, so a dead link cannot keep interrupting.
++ *
++ * The interrupt is enabled only while the PHY is out of isolation (ELBI
++ * is readable): after link_up, and disabled first in link_down.
++ */
++static irqreturn_t cp_ctrl_irq_handler(int irq, void *data)
++{
++	struct gs201_pcie_cp *cp = data;
++	u32 irq0, irq1, irq2, ev = 0;
++	bool queue = false;
++
++	raw_spin_lock(&cp->cfg_lock);
++	if (!cp->cfg_root_ok) {
++		raw_spin_unlock(&cp->cfg_lock);
++		return IRQ_NONE;
++	}
++	irq0 = cp_elbi_read(cp, CP_ELBI_IRQ0);
++	cp_elbi_write(cp, CP_ELBI_IRQ0, irq0);
++	irq1 = cp_elbi_read(cp, CP_ELBI_IRQ1);
++	cp_elbi_write(cp, CP_ELBI_IRQ1, irq1);
++	irq2 = cp_elbi_read(cp, CP_ELBI_IRQ2);
++	cp_elbi_write(cp, CP_ELBI_IRQ2, irq2);
++	if (irq1 & CP_ELBI_IRQ1_LINK_DOWN) {
++		ev |= GS201_PCIE_CP_EVENT_LINKDOWN;
++		cp->cfg_ep_ok = false;
++		cp_elbi_rmw(cp, CP_ELBI_IRQ1_EN, CP_ELBI_IRQ1_LINK_DOWN, 0);
++	}
++	if (irq2 & CP_ELBI_IRQ2_CPL_TIMEOUT)
++		ev |= GS201_PCIE_CP_EVENT_CPL_TIMEOUT;
++	raw_spin_unlock(&cp->cfg_lock);
++
++	if (!ev)
++		return (irq0 | irq1 | irq2) ? IRQ_HANDLED : IRQ_NONE;
++
++	dev_warn_ratelimited(cp->dev, "%s%s (IRQ0/1/2 %#x %#x %#x)\n",
++			     ev & GS201_PCIE_CP_EVENT_LINKDOWN ? "link down " : "",
++			     ev & GS201_PCIE_CP_EVENT_CPL_TIMEOUT ?
++			     "completion timeout " : "", irq0, irq1, irq2);
++
++	spin_lock(&cp->event_lock);
++	if (!cp->faults) {
++		/* a link-down wins: it is the one that needs a new link */
++		if (ev & GS201_PCIE_CP_EVENT_LINKDOWN)
++			ev = GS201_PCIE_CP_EVENT_LINKDOWN;
++		cp->faults = ev;
++		cp->event_pending = ev;
++		queue = true;
++	}
++	spin_unlock(&cp->event_lock);
++	if (queue)
++		schedule_work(&cp->event_work);
++
++	return IRQ_HANDLED;
++}
++
++static void cp_event_work(struct work_struct *work)
++{
++	struct gs201_pcie_cp *cp = container_of(work, struct gs201_pcie_cp,
++						event_work);
++	struct gs201_pcie_cp_event *client;
++	u32 ev;
++
++	spin_lock_irq(&cp->event_lock);
++	ev = cp->event_pending;
++	cp->event_pending = 0;
++	client = cp->client;
++	if (client && !(client->events & ev))
++		client = NULL;
++	spin_unlock_irq(&cp->event_lock);
++
++	if (!ev)
++		return;
++	if (client)
++		client->callback(client, ev);
++	else
++		dev_info(cp->dev, "event %#x: no client\n", ev);
++}
++
++static void cp_ctrl_irq(struct gs201_pcie_cp *cp, bool on)
++{
++	if (cp->ctrl_irq <= 0 || cp->ctrl_irq_on == on)
++		return;
++	if (on) {
++		cp_elbi_rmw(cp, CP_ELBI_IRQ1_EN, 0, CP_ELBI_IRQ1_LINK_DOWN);
++		cp_elbi_rmw(cp, CP_ELBI_IRQ2_EN, 0, CP_ELBI_IRQ2_CPL_TIMEOUT);
++		enable_irq(cp->ctrl_irq);
++	} else {
++		disable_irq(cp->ctrl_irq);
++		cp_elbi_rmw(cp, CP_ELBI_IRQ1_EN, CP_ELBI_IRQ1_LINK_DOWN, 0);
++		cp_elbi_rmw(cp, CP_ELBI_IRQ2_EN, CP_ELBI_IRQ2_CPL_TIMEOUT, 0);
++	}
++	cp->ctrl_irq_on = on;
++}
++
+ /*
+  * exynos_pcie_rc_poweroff(): PERST#, LTSSM off, a soft power reset of the
+  * controller, PHY power-down; then isolation, as on suspend.
+@@ -504,6 +639,7 @@ static void cp_link_down(struct gs201_pcie_cp *cp)
+ 	bool was_inited = cp->phy_inited;
+ 	u32 val;
+ 
++	cp_ctrl_irq(cp, false);		/* reads ELBI: before anything else */
+ 	cp_cfg_allow(cp, false, false);
+ 	cp_msi_irqs(cp, false);
+ 
+@@ -634,6 +770,7 @@ static int cp_link_up(struct gs201_pcie_cp *cp, unsigned int speed)
+ 	cp_elbi_write(cp, CP_ELBI_IRQ2, cp_elbi_read(cp, CP_ELBI_IRQ2));
+ 	cp->link_up = true;
+ 	cp_cfg_allow(cp, true, false);
++	cp_ctrl_irq(cp, true);
+ 
+ 	return 0;
+ }
+@@ -664,6 +801,383 @@ static int cp_read_id(struct gs201_pcie_cp *cp)
+ 	return (id & 0xffff) == PCI_VENDOR_ID_SAMSUNG ? 0 : -ENODEV;
+ }
+ 
++/*
++ * The calls the modem driver (Google's CPIF) makes, in place of the
++ * exynos_pcie_*() functions of Google's root complex driver. They take the
++ * same steps as the debugfs file, in stock's order:
++ * exynos_pcie_rc_poweron() is link_up + the secure ATU + the bus (scanned
++ * the first time, MSI re-armed and the modem's saved configuration restored
++ * after that), and exynos_pcie_rc_poweroff() is PME_Turn_Off + link_down,
++ * with the bus kept. Calls that need the controller check that the PHY is
++ * out of isolation first.
++ */
++static struct gs201_pcie_cp *cp_get(void)
++{
++	struct gs201_pcie_cp *cp;
++
++	mutex_lock(&gs201_cp_lock);
++	cp = gs201_cp;
++	if (cp)
++		mutex_lock(&cp->lock);
++	mutex_unlock(&gs201_cp_lock);
++
++	return cp;
++}
++
++static void cp_put(struct gs201_pcie_cp *cp)
++{
++	mutex_unlock(&cp->lock);
++}
++
++static void cp_ep_save(struct gs201_pcie_cp *cp)
++{
++	struct pci_bus *child;
++
++	child = list_first_entry_or_null(&cp->bridge->bus->children,
++					 struct pci_bus, node);
++	cp->ep = child ? pci_get_slot(child, PCI_DEVFN(0, 0)) : NULL;
++	if (!cp->ep) {
++		dev_warn(cp->dev, "no endpoint on the bus\n");
++		return;
++	}
++	pci_save_state(cp->ep);
++	cp->ep_state = pci_store_saved_state(cp->ep);
++}
++
++static void cp_ep_restore(struct gs201_pcie_cp *cp)
++{
++	if (!cp->ep || !cp->ep_state)
++		return;
++	if (pci_load_saved_state(cp->ep, cp->ep_state))
++		dev_warn(cp->dev, "cannot load the endpoint's saved state\n");
++	else
++		pci_restore_state(cp->ep);
++}
++
++static void cp_ep_forget(struct gs201_pcie_cp *cp)
++{
++	kfree(cp->ep_state);
++	cp->ep_state = NULL;
++	pci_dev_put(cp->ep);
++	cp->ep = NULL;
++}
++
++/* exynos_pcie_rc_send_pme_turn_off(): ask the endpoint into L2/L3 Ready */
++static void cp_pme_turn_off(struct gs201_pcie_cp *cp)
++{
++	u32 val;
++	int ret;
++
++	val = FIELD_GET(CP_ELBI_LTSSM_MASK, cp_elbi_read(cp, CP_ELBI_LTSSM_STATE));
++	if (val < CP_LTSSM_RCVRY_LOCK || val > CP_LTSSM_L1_IDLE)
++		return;
++
++	cp_elbi_write(cp, CP_ELBI_APP_REQ_EXIT_L1_NOW, 1);
++	cp_elbi_rmw(cp, CP_ELBI_REQ_EXIT_L1_MODE, CP_ELBI_APP_REQ_EXIT_L1,
++		    CP_ELBI_L1_REQ_NAK_MASTER);
++	cp_elbi_write(cp, CP_ELBI_XMIT_PME_TURNOFF, 1);
++	ret = readl_poll_timeout(cp->elbi + CP_ELBI_IRQ0, val,
++				 val & CP_ELBI_IRQ0_PM_TO_ACK,
++				 CP_L2_POLL_US, CP_L2_TIMEOUT_US);
++	cp_elbi_write(cp, CP_ELBI_XMIT_PME_TURNOFF, 0);
++	if (ret)
++		dev_info(cp->dev, "no PME_TO_Ack\n");
++	ret = readl_poll_timeout(cp->elbi + CP_ELBI_LTSSM_STATE, val,
++				 FIELD_GET(CP_ELBI_LTSSM_MASK, val) ==
++				 CP_LTSSM_L2_IDLE,
++				 CP_L2_POLL_US, CP_L2_TIMEOUT_US);
++	if (ret)
++		dev_info(cp->dev, "no L2 idle, LTSSM %#lx\n",
++			 FIELD_GET(CP_ELBI_LTSSM_MASK, val));
++}
++
++/**
++ * gs201_pcie_cp_poweron() - bring the modem link up
++ * @speed: target generation, 1 (the modem's ROM) to 3 (its firmware)
++ *
++ * Trains the link, has the secure monitor set up the windows and scans the
++ * bus the first time (the modem driver's PCI probe runs from here); later
++ * calls re-arm MSI and restore the modem's configuration as saved after
++ * the first scan. Clears the faults. Does nothing if the link is up.
++ *
++ * Return: 0, or a negative error with the link down again.
++ */
++int gs201_pcie_cp_poweron(unsigned int speed)
++{
++	struct gs201_pcie_cp *cp = cp_get();
++	bool scan;
++	int ret;
++
++	if (!cp)
++		return -ENODEV;
++	if (speed < 1 || speed > 3) {
++		ret = -EINVAL;
++		goto out;
++	}
++	ret = 0;
++	if (cp->link_up)
++		goto out;
++
++	ret = cp_link_up(cp, speed);
++	if (!ret)
++		ret = cp_secure_atu(cp);
++	if (ret)
++		goto err;
++
++	spin_lock_irq(&cp->event_lock);
++	cp->faults = 0;
++	spin_unlock_irq(&cp->event_lock);
++
++	scan = !cp->bridge->bus;
++	ret = cp_bus(cp);
++	if (ret)
++		goto err;
++	if (scan)
++		cp_ep_save(cp);
++	else
++		cp_ep_restore(cp);
++	goto out;
++
++err:
++	dev_err(cp->dev, "poweron Gen%u: %d\n", speed, ret);
++	cp_link_down(cp);
++	ret = -EPIPE;
++out:
++	cp_put(cp);
++	return ret;
++}
++EXPORT_SYMBOL_GPL(gs201_pcie_cp_poweron);
++
++/**
++ * gs201_pcie_cp_poweroff() - take the modem link down, keeping the bus
++ *
++ * PME_Turn_Off, then PERST#, LTSSM off, a controller reset, the PHY
++ * powered down and isolated. The modem's configuration space reads as
++ * absent until the next gs201_pcie_cp_poweron().
++ */
++void gs201_pcie_cp_poweroff(void)
++{
++	struct gs201_pcie_cp *cp = cp_get();
++
++	if (!cp)
++		return;
++	if (cp->link_up)
++		cp_pme_turn_off(cp);
++	cp_link_down(cp);
++	cp_put(cp);
++}
++EXPORT_SYMBOL_GPL(gs201_pcie_cp_poweroff);
++
++/**
++ * gs201_pcie_cp_link_ok() - whether the link is up, from the LTSSM state
++ *
++ * Safe from any context; reads the controller only while the PHY is out of
++ * isolation. As Google's exynos_pcie_rc_chk_link_status(), Recovery to
++ * L1 idle counts as up.
++ */
++bool gs201_pcie_cp_link_ok(void)
++{
++	struct gs201_pcie_cp *cp = READ_ONCE(gs201_cp);
++	unsigned long flags;
++	u32 ltssm = 0;
++	bool ok = false;
++
++	if (!cp)
++		return false;
++	raw_spin_lock_irqsave(&cp->cfg_lock, flags);
++	if (cp->cfg_root_ok) {
++		ltssm = FIELD_GET(CP_ELBI_LTSSM_MASK,
++				  cp_elbi_read(cp, CP_ELBI_LTSSM_STATE));
++		ok = ltssm >= CP_LTSSM_RCVRY_LOCK && ltssm <= CP_LTSSM_L1_IDLE;
++	}
++	raw_spin_unlock_irqrestore(&cp->cfg_lock, flags);
++
++	return ok;
++}
++EXPORT_SYMBOL_GPL(gs201_pcie_cp_link_ok);
++
++/**
++ * gs201_pcie_cp_check_msi_addr() - check the modem driver's MSI target
++ * @addr: the MSI page the modem driver expects
++ *
++ * The target comes from the controller's memory-region; Google's driver
++ * takes it from the modem driver instead. A mismatch means the two device
++ * tree nodes disagree.
++ */
++int gs201_pcie_cp_check_msi_addr(u64 addr)
++{
++	struct gs201_pcie_cp *cp = READ_ONCE(gs201_cp);
++
++	if (!cp)
++		return -ENODEV;
++	if (cp->msi_page.start && addr == cp->msi_page.start)
++		return 0;
++	dev_err(cp->dev, "MSI target %#llx is not the reserved page %pR\n",
++		addr, &cp->msi_page);
++	return -EINVAL;
++}
++EXPORT_SYMBOL_GPL(gs201_pcie_cp_check_msi_addr);
++
++/**
++ * gs201_pcie_cp_set_perst_level() - drive PERST# to a raw level
++ * @level: 1 releases the modem's PCIe reset, 0 asserts it
++ *
++ * Google's exynos_pcie_set_perst_gpio(), used by the modem driver while
++ * the link is down.
++ */
++void gs201_pcie_cp_set_perst_level(int level)
++{
++	struct gs201_pcie_cp *cp = READ_ONCE(gs201_cp);
++
++	if (cp)
++		gpiod_direction_output_raw(cp->perst, !!level);
++}
++EXPORT_SYMBOL_GPL(gs201_pcie_cp_set_perst_level);
++
++/**
++ * gs201_pcie_cp_l1ss() - allow or forbid L1 substates on the modem link
++ * @enable: whether the modem driver allows them now
++ *
++ * Not implemented yet: L1 substates are never enabled on this link, which
++ * is what the modem driver asks for while it boots the modem.
++ */
++int gs201_pcie_cp_l1ss(bool enable)
++{
++	return gs201_cp ? 0 : -ENODEV;
++}
++EXPORT_SYMBOL_GPL(gs201_pcie_cp_l1ss);
++
++/**
++ * gs201_pcie_cp_register_event() - set the client for link faults
++ * @ev: the events wanted and the callback, kept until deregistered
++ *
++ * Return: 0, -ENODEV without the link driver, -EBUSY if there is a client.
++ */
++int gs201_pcie_cp_register_event(struct gs201_pcie_cp_event *ev)
++{
++	struct gs201_pcie_cp *cp = READ_ONCE(gs201_cp);
++	int ret = 0;
++
++	if (!cp)
++		return -ENODEV;
++	if (!ev || !ev->callback)
++		return -EINVAL;
++	spin_lock_irq(&cp->event_lock);
++	if (cp->client)
++		ret = -EBUSY;
++	else
++		cp->client = ev;
++	spin_unlock_irq(&cp->event_lock);
++
++	return ret;
++}
++EXPORT_SYMBOL_GPL(gs201_pcie_cp_register_event);
++
++void gs201_pcie_cp_deregister_event(struct gs201_pcie_cp_event *ev)
++{
++	struct gs201_pcie_cp *cp = READ_ONCE(gs201_cp);
++
++	if (!cp)
++		return;
++	spin_lock_irq(&cp->event_lock);
++	if (cp->client == ev)
++		cp->client = NULL;
++	spin_unlock_irq(&cp->event_lock);
++	flush_work(&cp->event_work);
++}
++EXPORT_SYMBOL_GPL(gs201_pcie_cp_deregister_event);
++
++/* Google's exynos_pcie_rc_get_{sudden_linkdown,cpl_timeout}_state() */
++u32 gs201_pcie_cp_faults(void)
++{
++	struct gs201_pcie_cp *cp = READ_ONCE(gs201_cp);
++
++	return cp ? READ_ONCE(cp->faults) : 0;
++}
++EXPORT_SYMBOL_GPL(gs201_pcie_cp_faults);
++
++void gs201_pcie_cp_clear_faults(u32 events)
++{
++	struct gs201_pcie_cp *cp = READ_ONCE(gs201_cp);
++	unsigned long flags;
++
++	if (!cp)
++		return;
++	spin_lock_irqsave(&cp->event_lock, flags);
++	cp->faults &= ~events;
++	spin_unlock_irqrestore(&cp->event_lock, flags);
++}
++EXPORT_SYMBOL_GPL(gs201_pcie_cp_clear_faults);
++
++/**
++ * gs201_pcie_cp_force_linkdown() - report a link-down the client found
++ *
++ * Google's exynos_pcie_rc_force_linkdown_work(): when the modem stops
++ * answering (a doorbell reads back all ones), the client starts the same
++ * recovery as for a link-down interrupt. Safe in atomic context.
++ */
++void gs201_pcie_cp_force_linkdown(void)
++{
++	struct gs201_pcie_cp *cp = READ_ONCE(gs201_cp);
++	unsigned long flags;
++	bool queue = false;
++
++	if (!cp)
++		return;
++	spin_lock_irqsave(&cp->event_lock, flags);
++	if (!cp->faults) {
++		cp->faults = GS201_PCIE_CP_EVENT_LINKDOWN;
++		cp->event_pending = GS201_PCIE_CP_EVENT_LINKDOWN;
++		queue = true;
++	}
++	spin_unlock_irqrestore(&cp->event_lock, flags);
++	if (queue) {
++		dev_info(cp->dev, "link-down recovery requested\n");
++		schedule_work(&cp->event_work);
++	}
++}
++EXPORT_SYMBOL_GPL(gs201_pcie_cp_force_linkdown);
++
++/*
++ * Google's exynos_pcie_set_ready_cto_recovery(): before a new poweron after
++ * a fault, stop the controller's interrupt, assert PERST# and stop the
++ * LTSSM. The poweron that follows starts from link_down.
++ */
++void gs201_pcie_cp_prepare_recovery(void)
++{
++	struct gs201_pcie_cp *cp = cp_get();
++
++	if (!cp)
++		return;
++	dev_info(cp->dev, "recovery: link reset\n");
++	cp_link_down(cp);
++	cp_put(cp);
++}
++EXPORT_SYMBOL_GPL(gs201_pcie_cp_prepare_recovery);
++
++/* For the modem driver's error paths: the link state in the log */
++void gs201_pcie_cp_dump(void)
++{
++	struct gs201_pcie_cp *cp = READ_ONCE(gs201_cp);
++	unsigned long flags;
++
++	if (!cp)
++		return;
++	raw_spin_lock_irqsave(&cp->cfg_lock, flags);
++	if (cp->cfg_root_ok)
++		dev_info(cp->dev, "LTSSM %#lx, IRQ0/1/2 %#x %#x %#x, faults %#x\n",
++			 FIELD_GET(CP_ELBI_LTSSM_MASK,
++				   cp_elbi_read(cp, CP_ELBI_LTSSM_STATE)),
++			 cp_elbi_read(cp, CP_ELBI_IRQ0),
++			 cp_elbi_read(cp, CP_ELBI_IRQ1),
++			 cp_elbi_read(cp, CP_ELBI_IRQ2), READ_ONCE(cp->faults));
++	else
++		dev_info(cp->dev, "link down (PHY not powered), faults %#x\n",
++			 READ_ONCE(cp->faults));
++	raw_spin_unlock_irqrestore(&cp->cfg_lock, flags);
++}
++EXPORT_SYMBOL_GPL(gs201_pcie_cp_dump);
++
+ static ssize_t cp_ctl_write(struct file *file, const char __user *ubuf,
+ 			    size_t len, loff_t *ppos)
+ {
+@@ -745,6 +1259,8 @@ static int cp_status_show(struct seq_file *s, void *unused)
+ 	seq_printf(s, "state: cp %d, phy %d/%d, link %d, atu %d\n",
+ 		   cp->cp_powered, cp->phy_inited, cp->phy_on, cp->link_up,
+ 		   cp->atu_done);
++	seq_printf(s, "faults: %#x, ctrl irq %s\n", READ_ONCE(cp->faults),
++		   cp->ctrl_irq_on ? "on" : "off");
+ 	if (cp->phy_inited)
+ 		seq_printf(s, "LTSSM %#lx, IRQ0/1/2 %#x %#x %#x\n",
+ 			   FIELD_GET(CP_ELBI_LTSSM_MASK,
+@@ -866,6 +1382,8 @@ static int gs201_pcie_cp_probe(struct platform_device *pdev)
+ 	cp->dev = dev;
+ 	mutex_init(&cp->lock);
+ 	raw_spin_lock_init(&cp->cfg_lock);
++	spin_lock_init(&cp->event_lock);
++	INIT_WORK(&cp->event_work, cp_event_work);
+ 	platform_set_drvdata(pdev, cp);
+ 
+ 	/* Mappings only: nothing here touches the controller or the PHY. */
+@@ -928,6 +1446,17 @@ static int gs201_pcie_cp_probe(struct platform_device *pdev)
+ 			cp->pins_active = NULL;
+ 	}
+ 
++	/* Enabled only while the link is up (ELBI readable) */
++	cp->ctrl_irq = platform_get_irq_byname_optional(pdev, "ctrl");
++	if (cp->ctrl_irq > 0) {
++		ret = devm_request_irq(dev, cp->ctrl_irq, cp_ctrl_irq_handler,
++				       IRQF_NO_AUTOEN, "gs201-pcie-cp", cp);
++		if (ret)
++			return dev_err_probe(dev, ret, "ctrl interrupt\n");
++	} else {
++		dev_warn(dev, "no ctrl interrupt: link faults are not reported\n");
++	}
++
+ 	ret = cp_get_lines(cp);
+ 	if (ret)
+ 		return ret;
+@@ -939,6 +1468,15 @@ static int gs201_pcie_cp_probe(struct platform_device *pdev)
+ 	debugfs_create_file("status", 0400, cp->debugfs, cp, &cp_status_fops);
+ 	debugfs_create_file("ctl", 0200, cp->debugfs, cp, &cp_ctl_fops);
+ 
++	mutex_lock(&gs201_cp_lock);
++	if (gs201_cp) {
++		mutex_unlock(&gs201_cp_lock);
++		debugfs_remove_recursive(cp->debugfs);
++		return dev_err_probe(dev, -EBUSY, "a modem link is already bound\n");
++	}
++	gs201_cp = cp;
++	mutex_unlock(&gs201_cp_lock);
++
+ 	dev_info(dev, "modem PCIe ch0 bring-up: %u lanes, steps %s, modem lines %s\n",
+ 		 cp->num_lanes, allow_hw ? "enabled" : "disabled (allow_hw=0)",
+ 		 cp->has_lines ? "here" : "left to the modem driver");
+@@ -950,8 +1488,12 @@ static void gs201_pcie_cp_remove(struct platform_device *pdev)
+ {
+ 	struct gs201_pcie_cp *cp = platform_get_drvdata(pdev);
+ 
++	mutex_lock(&gs201_cp_lock);
++	gs201_cp = NULL;
++	mutex_unlock(&gs201_cp_lock);
+ 	debugfs_remove_recursive(cp->debugfs);
+ 	mutex_lock(&cp->lock);
++	cp_ep_forget(cp);
+ 	cp_bus_remove(cp);
+ 	cp_link_down(cp);
+ 	if (cp->msi_ready) {
+@@ -961,6 +1503,7 @@ static void gs201_pcie_cp_remove(struct platform_device *pdev)
+ 	if (cp->cp_powered)
+ 		cp_power_off(cp);
+ 	mutex_unlock(&cp->lock);
++	cancel_work_sync(&cp->event_work);
+ }
+ 
+ static void gs201_pcie_cp_shutdown(struct platform_device *pdev)
+@@ -981,6 +1524,7 @@ static struct platform_driver gs201_pcie_cp_driver = {
+ 	.driver = {
+ 		.name = "gs201-pcie-cp",
+ 		.of_match_table = gs201_pcie_cp_of_match,
++		.suppress_bind_attrs = true,	/* the modem driver uses it */
+ 	},
+ };
+ module_platform_driver(gs201_pcie_cp_driver);
+diff --git a/include/linux/soc/google/gs201-pcie-cp.h b/include/linux/soc/google/gs201-pcie-cp.h
+new file mode 100644
+index 000000000..7a9ac54b0
+--- /dev/null
++++ b/include/linux/soc/google/gs201-pcie-cp.h
+@@ -0,0 +1,66 @@
++/* SPDX-License-Identifier: GPL-2.0-only */
++/*
++ * Google gs201 PCIe GEN4A_0 (the Samsung S5300 modem's link): the calls the
++ * modem driver makes into the link driver (pcie-gs201-cp).
++ *
++ * There is one modem link, so the calls take no handle. Each returns
++ * -ENODEV (or does nothing) while the link driver is not bound.
++ */
++#ifndef __LINUX_SOC_GOOGLE_GS201_PCIE_CP_H
++#define __LINUX_SOC_GOOGLE_GS201_PCIE_CP_H
++
++#include <linux/bits.h>
++#include <linux/errno.h>
++#include <linux/types.h>
++
++/* Link faults, reported to the registered client and kept until cleared */
++#define GS201_PCIE_CP_EVENT_LINKDOWN		BIT(0)
++#define GS201_PCIE_CP_EVENT_CPL_TIMEOUT		BIT(1)
++
++/**
++ * struct gs201_pcie_cp_event - a client's fault callback
++ * @events: the GS201_PCIE_CP_EVENT_* bits the client wants
++ * @callback: called from a workqueue with the one event that happened
++ * @priv: the client's data
++ */
++struct gs201_pcie_cp_event {
++	u32 events;
++	void (*callback)(struct gs201_pcie_cp_event *ev, u32 event);
++	void *priv;
++};
++
++#if IS_ENABLED(CONFIG_PCIE_GS201_CP)
++int gs201_pcie_cp_poweron(unsigned int speed);
++void gs201_pcie_cp_poweroff(void);
++bool gs201_pcie_cp_link_ok(void);
++int gs201_pcie_cp_check_msi_addr(u64 addr);
++void gs201_pcie_cp_set_perst_level(int level);
++int gs201_pcie_cp_l1ss(bool enable);
++int gs201_pcie_cp_register_event(struct gs201_pcie_cp_event *ev);
++void gs201_pcie_cp_deregister_event(struct gs201_pcie_cp_event *ev);
++u32 gs201_pcie_cp_faults(void);
++void gs201_pcie_cp_clear_faults(u32 events);
++void gs201_pcie_cp_force_linkdown(void);
++void gs201_pcie_cp_prepare_recovery(void);
++void gs201_pcie_cp_dump(void);
++#else
++static inline int gs201_pcie_cp_poweron(unsigned int speed) { return -ENODEV; }
++static inline void gs201_pcie_cp_poweroff(void) { }
++static inline bool gs201_pcie_cp_link_ok(void) { return false; }
++static inline int gs201_pcie_cp_check_msi_addr(u64 addr) { return -ENODEV; }
++static inline void gs201_pcie_cp_set_perst_level(int level) { }
++static inline int gs201_pcie_cp_l1ss(bool enable) { return -ENODEV; }
++static inline int gs201_pcie_cp_register_event(struct gs201_pcie_cp_event *ev)
++{
++	return -ENODEV;
++}
++
++static inline void gs201_pcie_cp_deregister_event(struct gs201_pcie_cp_event *ev) { }
++static inline u32 gs201_pcie_cp_faults(void) { return 0; }
++static inline void gs201_pcie_cp_clear_faults(u32 events) { }
++static inline void gs201_pcie_cp_force_linkdown(void) { }
++static inline void gs201_pcie_cp_prepare_recovery(void) { }
++static inline void gs201_pcie_cp_dump(void) { }
++#endif
++
++#endif /* __LINUX_SOC_GOOGLE_GS201_PCIE_CP_H */

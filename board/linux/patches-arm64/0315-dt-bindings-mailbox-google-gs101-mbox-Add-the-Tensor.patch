@@ -1,0 +1,28 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Brett-Michael Green <brett@bmgvisualtech.com>
+Date: Fri, 30 Oct 2026 16:23:41 -0400
+Subject: [PATCH] dt-bindings: mailbox: google,gs101-mbox: Add the Tensor G3
+ mailbox
+
+zuma's (Tensor G3) AP-to-APM mailbox is gs101's, as on gs201 and
+Tensor G4: same registers, one interrupt and one bus clock. Document
+it with gs101's compatible as the fallback.
+
+Assisted-by: LLM
+Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
+---
+ Documentation/devicetree/bindings/mailbox/google,gs101-mbox.yaml | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/Documentation/devicetree/bindings/mailbox/google,gs101-mbox.yaml b/Documentation/devicetree/bindings/mailbox/google,gs101-mbox.yaml
+index d1a6c6eda..559da2393 100644
+--- a/Documentation/devicetree/bindings/mailbox/google,gs101-mbox.yaml
++++ b/Documentation/devicetree/bindings/mailbox/google,gs101-mbox.yaml
+@@ -27,6 +27,7 @@ properties:
+       - items:
+           - enum:
+               - google,gs201-mbox
++              - google,zuma-mbox
+               - google,zumapro-mbox
+           - const: google,gs101-mbox
+ 

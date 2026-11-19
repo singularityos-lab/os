@@ -1,0 +1,29 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Fri, 23 Oct 2026 23:38:05 -0400
+Subject: [PATCH] soc: samsung: exynos-pmu: drop the gs201 compatible
+
+gs201's PMU now carries google,gs101-pmu as a fallback, as the binding
+documents, and that entry has the same data. This reverts commit
+02d0019a7661 ("soc: samsung: exynos-pmu: add Google gs201 compatible").
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Signed-off-by: Derek Ross <derekross@gmail.com>
+---
+ drivers/soc/samsung/exynos-pmu.c | 3 ---
+ 1 file changed, 3 deletions(-)
+
+diff --git a/drivers/soc/samsung/exynos-pmu.c b/drivers/soc/samsung/exynos-pmu.c
+index 85056d540..b13a93f09 100644
+--- a/drivers/soc/samsung/exynos-pmu.c
++++ b/drivers/soc/samsung/exynos-pmu.c
+@@ -126,9 +126,6 @@ static const struct of_device_id exynos_pmu_of_device_ids[] = {
+ 	{
+ 		.compatible = "google,gs101-pmu",
+ 		.data = &gs101_pmu_data,
+-	}, {
+-		.compatible = "google,gs201-pmu",
+-		.data = &gs101_pmu_data,
+ 	}, {
+ 		.compatible = "google,zuma-pmu",
+ 		.data = &zuma_pmu_data,

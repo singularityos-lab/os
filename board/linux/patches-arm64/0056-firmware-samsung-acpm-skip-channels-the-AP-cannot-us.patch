@@ -1,0 +1,163 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Mon, 12 Oct 2026 11:21:57 -0400
+Subject: [PATCH] firmware: samsung: acpm: skip channels the AP cannot use
+
+On gs201 the first probe failed with "Channel 3 queues outside the
+SRAM": the firmware describes at least one channel whose queue offsets
+do not fall inside the APM SRAM window (0x18500000, 0x48000 bytes, the
+same window Google's driver maps). Google's driver never validates the
+table and simply never uses such channels; failing the whole probe over
+one of them also takes away the DVFS and PMIC channels.
+
+Skip a channel whose queues are outside the SRAM, or that gets no
+mailbox channel, with a warning that prints its raw descriptor, and
+refuse transfers on it with -ENODEV. Report how many channels are
+usable. A dump_chans module parameter prints every raw descriptor at
+probe; it only reads the SRAM.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ drivers/firmware/samsung/exynos-acpm.c | 63 ++++++++++++++++++++++----
+ 1 file changed, 53 insertions(+), 10 deletions(-)
+
+diff --git a/drivers/firmware/samsung/exynos-acpm.c b/drivers/firmware/samsung/exynos-acpm.c
+index ea5b7c8bd..cae59ebe9 100644
+--- a/drivers/firmware/samsung/exynos-acpm.c
++++ b/drivers/firmware/samsung/exynos-acpm.c
+@@ -20,6 +20,7 @@
+ #include <linux/mailbox/exynos-message.h>
+ #include <linux/mailbox_client.h>
+ #include <linux/module.h>
++#include <linux/moduleparam.h>
+ #include <linux/mutex.h>
+ #include <linux/math.h>
+ #include <linux/of.h>
+@@ -45,6 +46,10 @@
+ /* Sanity limit for the channel count read from SRAM. */
+ #define ACPM_MAX_CHANS			64
+ 
++static bool dump_chans;
++module_param(dump_chans, bool, 0444);
++MODULE_PARM_DESC(dump_chans, "Print the raw SRAM channel table at probe");
++
+ /**
+  * struct acpm_shmem - shared memory configuration information.
+  * @reserved:	unused fields.
+@@ -143,6 +148,8 @@ struct acpm_rx_data {
+  * @id:		channel ID.
+  * @poll_completion:	indicates if the transfer needs to be polled for
+  *			completion or interrupt mode is used.
++ * @usable:	the channel's queues lie inside the SRAM and it has a mailbox
++ *		channel; transfers on other channels are refused.
+  * @bitmap_seqnum: bitmap that tracks the messages on the TX/RX queues.
+  * @rx_data:	internal buffer used to drain the RX queue.
+  */
+@@ -160,6 +167,7 @@ struct acpm_chan {
+ 	u8 seqnum;
+ 	u8 id;
+ 	bool poll_completion;
++	bool usable;
+ 
+ 	DECLARE_BITMAP(bitmap_seqnum, ACPM_SEQNUM_MAX - 1);
+ 	struct acpm_rx_data rx_data[ACPM_SEQNUM_MAX];
+@@ -477,6 +485,8 @@ int acpm_do_xfer(struct acpm_handle *handle, const struct acpm_xfer *xfer)
+ 		return -EINVAL;
+ 
+ 	achan = &acpm->chans[xfer->acpm_chan_id];
++	if (!achan->usable)
++		return -ENODEV;
+ 
+ 	if (!xfer->txd ||
+ 	    (xfer->txcnt * sizeof(*xfer->txd) > achan->mlen) ||
+@@ -634,6 +644,21 @@ static int acpm_achan_alloc_cmds(struct acpm_chan *achan)
+  * acpm_free_mbox_chans() - free mailbox channels.
+  * @data:	pointer to driver data.
+  */
++/* Print the 18 raw words of one SRAM channel descriptor. */
++static void acpm_chan_dump(struct device *dev, const char *why, int i,
++			   struct acpm_chan_shmem __iomem *chan_shmem)
++{
++	u32 w[sizeof(*chan_shmem) / sizeof(u32)];
++	int k;
++
++	for (k = 0; k < ARRAY_SIZE(w); k++)
++		w[k] = readl((u32 __iomem *)chan_shmem + k);
++
++	dev_info(dev, "chan %d: %sid %u type %u rx %#x/%#x/%#x indr %#x/%#x/%#x tx %#x/%#x/%#x qlen %u mlen %u %#x/%#x poll %u\n",
++		 i, why, w[0], w[3], w[4], w[5], w[6], w[7], w[8], w[9],
++		 w[10], w[11], w[12], w[13], w[14], w[15], w[16], w[17]);
++}
++
+ static void acpm_free_mbox_chans(void *data)
+ {
+ 	struct acpm_info *acpm = data;
+@@ -685,25 +710,40 @@ static int acpm_channels_init(struct acpm_info *acpm)
+ 		struct mbox_client *cl = &achan->cl;
+ 
+ 		achan->acpm = acpm;
++		mutex_init(&achan->rx_lock);
++		mutex_init(&achan->tx_lock);
++
++		if (dump_chans)
++			acpm_chan_dump(dev, "", i, chan_shmem);
+ 
++		/*
++		 * A channel the firmware describes with queues outside the
++		 * SRAM is not one this driver can use (the AP may not own it).
++		 * Skip it rather than failing every other channel.
++		 */
+ 		ret = acpm_chan_shmem_get_params(achan, chan_shmem);
+-		if (ret)
+-			return dev_err_probe(dev, ret,
+-					     "Channel %d queues outside the SRAM.\n",
+-					     i);
++		if (ret) {
++			acpm_chan_dump(dev, "skipped, queues outside the SRAM: ",
++				       i, chan_shmem);
++			achan->mlen = 0;
++			continue;
++		}
+ 
+ 		ret = acpm_achan_alloc_cmds(achan);
+ 		if (ret)
+ 			return ret;
+ 
+-		mutex_init(&achan->rx_lock);
+-		mutex_init(&achan->tx_lock);
+-
+ 		cl->dev = dev;
+ 
+ 		achan->chan = mbox_request_channel(cl, 0);
+-		if (IS_ERR(achan->chan))
+-			return PTR_ERR(achan->chan);
++		if (IS_ERR(achan->chan)) {
++			dev_warn(dev, "chan %d: no mailbox channel (%pe), skipped\n",
++				 i, achan->chan);
++			achan->chan = NULL;
++			continue;
++		}
++
++		achan->usable = true;
+ 	}
+ 
+ 	return 0;
+@@ -749,6 +789,7 @@ static int acpm_probe(struct platform_device *pdev)
+ 	struct acpm_info *acpm;
+ 	resource_size_t size;
+ 	struct resource res;
++	unsigned int i, usable;
+ 	int ret;
+ 
+ 	acpm = devm_kzalloc(dev, sizeof(*acpm), GFP_KERNEL);
+@@ -781,7 +822,9 @@ static int acpm_probe(struct platform_device *pdev)
+ 	if (ret)
+ 		return ret;
+ 
+-	dev_info(dev, "%u channels\n", acpm->num_chans);
++	for (i = 0, usable = 0; i < acpm->num_chans; i++)
++		usable += acpm->chans[i].usable;
++	dev_info(dev, "%u channels, %u usable\n", acpm->num_chans, usable);
+ 
+ 	acpm->handle.ops = &exynos_acpm_driver_ops;
+ 

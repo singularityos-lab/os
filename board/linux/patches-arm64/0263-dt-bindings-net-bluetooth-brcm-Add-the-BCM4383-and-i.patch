@@ -1,0 +1,57 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Tue, 27 Oct 2026 12:28:33 -0647
+Subject: [PATCH] dt-bindings: net: bluetooth: brcm: Add the BCM4383 and its
+ REG_ON latch
+
+Add brcm,bcm4383-bt, the Bluetooth half of the Google Pixel 9a's
+BCM4383 Wi-Fi and Bluetooth combo chip.
+
+On that board BT_REG_ON reaches the chip through a flip-flop: the
+level on the shutdown line is only taken on a rising edge of a second
+line, the BLE DBO latch enable. Describe it as brcm,ble-dbo-gpios; a
+board that has it also needs the shutdown and device-wakeup lines.
+
+Google's board tree calls the line bt-ble-dbo-le-gpios, and its driver
+toggles it around every REG_ON change (toggle_dbo_ff() in nitrous.c).
+
+Link: https://android.googlesource.com/kernel/devices/google/zumapro/+/8831630eee2ad095b85ed452944e6353940966a5/dts/zumapro-board-bluetooth.dtsi
+Link: https://android.googlesource.com/kernel/google-modules/bluetooth/broadcom/+/d7bd4dd23cc52fedd2e36c6e45c12f0c2a595ae0/nitrous.c
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ .../devicetree/bindings/net/bluetooth/brcm,bluetooth.yaml | 8 ++++++++
+ 1 file changed, 8 insertions(+)
+
+diff --git a/Documentation/devicetree/bindings/net/bluetooth/brcm,bluetooth.yaml b/Documentation/devicetree/bindings/net/bluetooth/brcm,bluetooth.yaml
+index f2b1dffb9..13e8b4e95 100644
+--- a/Documentation/devicetree/bindings/net/bluetooth/brcm,bluetooth.yaml
++++ b/Documentation/devicetree/bindings/net/bluetooth/brcm,bluetooth.yaml
+@@ -31,6 +31,7 @@ properties:
+           - brcm,bcm43540-bt
+           - brcm,bcm4335a0
+           - brcm,bcm4349-bt
++          - brcm,bcm4383-bt
+           - brcm,bcm4389-bt
+           - cypress,cyw4373a0-bt
+           - infineon,cyw55572-bt
+@@ -52,6 +53,12 @@ properties:
+       wakeup the controller. This is using the BT_GPIO_0
+       pin on the chip when in use.
+ 
++  brcm,ble-dbo-gpios:
++    maxItems: 1
++    description: GPIO specifier for the clock of the flip-flop that holds
++      BT_REG_ON on boards that latch it (the BCM4383 on the Google Pixel
++      9a). BT_REG_ON only reaches the chip on a rising edge of this line.
++
+   host-wakeup-gpios:
+     maxItems: 1
+     deprecated: true
+@@ -125,6 +132,7 @@ required:
+ 
+ dependencies:
+   brcm,requires-autobaud-mode: [ shutdown-gpios ]
++  brcm,ble-dbo-gpios: [ shutdown-gpios, device-wakeup-gpios ]
+ 
+ allOf:
+   - $ref: /schemas/serial/serial-peripheral-props.yaml#

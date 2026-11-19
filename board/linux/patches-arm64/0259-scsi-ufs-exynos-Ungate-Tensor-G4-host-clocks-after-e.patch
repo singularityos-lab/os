@@ -1,0 +1,137 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Mon, 26 Oct 2026 10:54:19 -0647
+Subject: [PATCH] scsi: ufs: exynos: Ungate Tensor G4 host clocks after
+ enabling them
+
+On system resume ufshcd_resume() calls ufshcd_setup_clocks(hba, true),
+whose PRE_CHANGE hook writes the host's clock-stop registers before the
+clocks themselves are enabled. On gs101 and gs201 that works because
+their clock drivers register CMU_HSI2 with automatic gating
+(.auto_clock_gate = true in hsi2_cmu_info in clk-gs101.c and
+clk-gs201.c): the gates follow Q-channel requests and their bits are
+bookkeeping. clk-zumapro.c registers CMU_HSI2's gates as manual gates,
+so on zumapro (Pixel 9a) the UFS gates are real: with the link off
+across suspend (spm_lvl 5) the first HCI access on resume hits a block
+without its bus clock and the SoC hangs, with no way back but the
+watchdog. That is also why this isn't wanted on every SoC: with
+automatic gating the clock-stop registers stay reachable either way.
+
+Add EXYNOS_UFS_OPT_UNGATE_POST_CHANGE, which moves the ungate to
+POST_CHANGE, after clk_prepare_enable(), and set it for zumapro. The
+gating side is unchanged (CLKSTOP_PRE_CHANGE: gate while the clocks are
+still on).
+
+Found on the Pixel 9a with pm_test=devices and the pstore console kept
+awake (console_suspend=N): every device's suspend callback returned, and
+the resume stopped at "exynos-ufshc 13200000.ufs: PM: calling
+platform_pm_resume", with an RCU stall 30 s later. With this change the
+host resumes, the device WLUN re-initialises the link ("Power mode
+changed to : FAST series_B G_4 L_2") and the well-known and sd LUNs
+resume.
+
+The probe path is unchanged: the link setup still turns off the broken
+automatic clock control (exynos7, exynosautov9, FSD, exynosautov920)
+and ungates before the UniPro configuration. It now does both through
+exynos_ufs_ungate_host_clks(), which the clock setup and the hibernate
+exit, which open-coded the same pair, use too.
+
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ drivers/ufs/host/ufs-exynos.c | 35 +++++++++++++++++++++++++----------
+ drivers/ufs/host/ufs-exynos.h |  1 +
+ 2 files changed, 26 insertions(+), 10 deletions(-)
+
+diff --git a/drivers/ufs/host/ufs-exynos.c b/drivers/ufs/host/ufs-exynos.c
+index c72432af7..2860b1b01 100644
+--- a/drivers/ufs/host/ufs-exynos.c
++++ b/drivers/ufs/host/ufs-exynos.c
+@@ -213,6 +213,14 @@ static inline void exynos_ufs_ungate_clks(struct exynos_ufs *ufs)
+ 	exynos_ufs_ctrl_clkstop(ufs, false);
+ }
+ 
++/* Turn off broken automatic clock control, then ungate the host clocks. */
++static void exynos_ufs_ungate_host_clks(struct exynos_ufs *ufs)
++{
++	if (ufs->opts & EXYNOS_UFS_OPT_BROKEN_AUTO_CLK_CTRL)
++		exynos_ufs_disable_auto_ctrl_hcc(ufs);
++	exynos_ufs_ungate_clks(ufs);
++}
++
+ static int exynos_ufs_shareability(struct exynos_ufs *ufs)
+ {
+ 	/* IO Coherency setting */
+@@ -1145,7 +1153,7 @@ static int exynos_ufs_setup_clocks(struct ufs_hba *hba, bool on,
+ 				   enum ufs_notify_change_status status)
+ {
+ 	struct exynos_ufs *ufs = ufshcd_get_variant(hba);
+-	enum ufs_notify_change_status off_status;
++	enum ufs_notify_change_status off_status, on_status;
+ 
+ 	if (!ufs)
+ 		return 0;
+@@ -1155,10 +1163,17 @@ static int exynos_ufs_setup_clocks(struct ufs_hba *hba, bool on,
+ 	if (ufs->opts & EXYNOS_UFS_OPT_CLKSTOP_PRE_CHANGE)
+ 		off_status = PRE_CHANGE;
+ 
+-	if (on && status == PRE_CHANGE) {
+-		if (ufs->opts & EXYNOS_UFS_OPT_BROKEN_AUTO_CLK_CTRL)
+-			exynos_ufs_disable_auto_ctrl_hcc(ufs);
+-		exynos_ufs_ungate_clks(ufs);
++	/*
++	 * On SoCs whose CMU gates really stop the host clocks (zumapro), the
++	 * clock-stop registers can only be written once the gates are open
++	 * again: ungate after the clocks are enabled.
++	 */
++	on_status = PRE_CHANGE;
++	if (ufs->opts & EXYNOS_UFS_OPT_UNGATE_POST_CHANGE)
++		on_status = POST_CHANGE;
++
++	if (on && status == on_status) {
++		exynos_ufs_ungate_host_clks(ufs);
+ 	} else if (!on && status == off_status) {
+ 		exynos_ufs_gate_clks(ufs);
+ 		if (ufs->opts & EXYNOS_UFS_OPT_BROKEN_AUTO_CLK_CTRL)
+@@ -1179,7 +1194,8 @@ static int exynos_ufs_pre_link(struct ufs_hba *hba)
+ 	exynos_ufs_config_intr(ufs, DFES_DEF_L4_ERRS, UNIPRO_L4);
+ 	exynos_ufs_set_unipro_pclk_div(ufs);
+ 
+-	exynos_ufs_setup_clocks(hba, true, PRE_CHANGE);
++	/* The clocks are on here whichever status ungates them. */
++	exynos_ufs_ungate_host_clks(ufs);
+ 
+ 	/* unipro */
+ 	exynos_ufs_config_unipro(ufs);
+@@ -1697,9 +1713,7 @@ static void exynos_ufs_pre_hibern8(struct ufs_hba *hba, enum uic_cmd_dme cmd)
+ 	};
+ 
+ 	if (cmd == UIC_CMD_DME_HIBER_EXIT) {
+-		if (ufs->opts & EXYNOS_UFS_OPT_BROKEN_AUTO_CLK_CTRL)
+-			exynos_ufs_disable_auto_ctrl_hcc(ufs);
+-		exynos_ufs_ungate_clks(ufs);
++		exynos_ufs_ungate_host_clks(ufs);
+ 
+ 		phy_notify_state(ufs->phy, phystate);
+ 
+@@ -2540,7 +2554,8 @@ static const struct exynos_ufs_drv_data zumapro_ufs_drvs = {
+ 	.opts			= EXYNOS_UFS_OPT_SKIP_CONFIG_PHY_ATTR |
+ 				  EXYNOS_UFS_OPT_UFSPR_SECURE |
+ 				  EXYNOS_UFS_OPT_TIMER_TICK_SELECT |
+-				  EXYNOS_UFS_OPT_CLKSTOP_PRE_CHANGE,
++				  EXYNOS_UFS_OPT_CLKSTOP_PRE_CHANGE |
++				  EXYNOS_UFS_OPT_UNGATE_POST_CHANGE,
+ 	.iocc_mask		= UFS_GS101_SHARABLE,
+ 	.drv_init		= zumapro_ufs_drv_init,
+ 	.pre_link		= zumapro_ufs_pre_link,
+diff --git a/drivers/ufs/host/ufs-exynos.h b/drivers/ufs/host/ufs-exynos.h
+index ecbf7da13..9718c7870 100644
+--- a/drivers/ufs/host/ufs-exynos.h
++++ b/drivers/ufs/host/ufs-exynos.h
+@@ -246,6 +246,7 @@ struct exynos_ufs {
+ #define EXYNOS_UFS_OPT_UFSPR_SECURE		BIT(6)
+ #define EXYNOS_UFS_OPT_TIMER_TICK_SELECT	BIT(7)
+ #define EXYNOS_UFS_OPT_CLKSTOP_PRE_CHANGE	BIT(8)
++#define EXYNOS_UFS_OPT_UNGATE_POST_CHANGE	BIT(9)
+ };
+ 
+ #define for_each_ufs_rx_lane(ufs, i) \

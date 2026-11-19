@@ -1,0 +1,1543 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Sun, 1 Nov 2026 18:31:35 -0647
+Subject: [PATCH] soc: google: gnssif_spi: import Google's GNSS SPI interface
+ driver
+
+Import Google's driver for the Kepler GNSS core of the Pixel 9a's S5300
+modem (drivers/soc/google/gnssif_spi of google-modules/soc/gs in
+Google's GPL kernel for tegu, branch android-gs-tegu-6.1-android16, at
+204078758737, "Update kernel to ab/13436148"). It is Samsung's
+code, GPL-2.0, and makes two modules:
+
+- gnss_spi.ko, the SPI device driver for "samsung,gnss-spi": one
+  function to write a buffer and one to read one;
+- gnssif.ko, the platform driver for "samsung,exynos-gnss": the two
+  request lines and their handshake (gnss_keplerctl_device.c), the read
+  work and the write path over gnss_spi (gnss_link_device.c), and the
+  character device the GNSS daemon talks to, /dev/gnss_ipc
+  (gnss_io_device.c, gnss_main.c, gnss_utils.c).
+
+The kernel side of the core's firmware loading is not here: the daemon
+loads the firmware through the modem driver (CPIF's gnss_boot device).
+
+The ten .c and .h files are byte for byte Google's, with Google's style;
+Google's Kconfig and Makefile are not imported. Nothing builds them yet:
+the next commits port the driver to this kernel and wire it up.
+
+Link: https://android.googlesource.com/kernel/google-modules/soc/gs/+/204078758737776959ecc85c527a00fd2cabb62f/drivers/soc/google/gnssif_spi
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ .../soc/google/gnssif_spi/gnss_io_device.c    | 263 ++++++++++++++++++
+ .../google/gnssif_spi/gnss_keplerctl_device.c | 172 ++++++++++++
+ .../soc/google/gnssif_spi/gnss_link_device.c  | 247 ++++++++++++++++
+ drivers/soc/google/gnssif_spi/gnss_main.c     | 248 +++++++++++++++++
+ drivers/soc/google/gnssif_spi/gnss_prj.h      |  77 +++++
+ drivers/soc/google/gnssif_spi/gnss_spi.c      | 112 ++++++++
+ drivers/soc/google/gnssif_spi/gnss_spi.h      |  28 ++
+ drivers/soc/google/gnssif_spi/gnss_utils.c    | 105 +++++++
+ drivers/soc/google/gnssif_spi/gnss_utils.h    |  84 ++++++
+ drivers/soc/google/gnssif_spi/include/gnss.h  |  95 +++++++
+ 10 files changed, 1431 insertions(+)
+ create mode 100644 drivers/soc/google/gnssif_spi/gnss_io_device.c
+ create mode 100644 drivers/soc/google/gnssif_spi/gnss_keplerctl_device.c
+ create mode 100644 drivers/soc/google/gnssif_spi/gnss_link_device.c
+ create mode 100644 drivers/soc/google/gnssif_spi/gnss_main.c
+ create mode 100644 drivers/soc/google/gnssif_spi/gnss_prj.h
+ create mode 100644 drivers/soc/google/gnssif_spi/gnss_spi.c
+ create mode 100644 drivers/soc/google/gnssif_spi/gnss_spi.h
+ create mode 100644 drivers/soc/google/gnssif_spi/gnss_utils.c
+ create mode 100644 drivers/soc/google/gnssif_spi/gnss_utils.h
+ create mode 100644 drivers/soc/google/gnssif_spi/include/gnss.h
+
+diff --git a/drivers/soc/google/gnssif_spi/gnss_io_device.c b/drivers/soc/google/gnssif_spi/gnss_io_device.c
+new file mode 100644
+index 000000000..0fd47356b
+--- /dev/null
++++ b/drivers/soc/google/gnssif_spi/gnss_io_device.c
+@@ -0,0 +1,263 @@
++// SPDX-License-Identifier: GPL-2.0
++/*
++ * Copyright (C) 2022 Samsung Electronics.
++ *
++ */
++
++#include <linux/init.h>
++#include <linux/sched.h>
++#include <linux/fs.h>
++#include <linux/poll.h>
++#include <linux/irq.h>
++#include <linux/gpio.h>
++#include <linux/if_arp.h>
++#include <linux/ip.h>
++#include <linux/if_ether.h>
++#include <linux/etherdevice.h>
++#include <linux/device.h>
++#include <linux/module.h>
++#include <linux/skbuff.h>
++#include <linux/slab.h>
++
++#include "gnss_prj.h"
++#include "gnss_utils.h"
++
++#define WAKE_TIME   (HZ/2) /* 500 msec */
++#define MAX_RXQ_DEPTH	1024
++
++static inline void iodev_lock_wlock(struct io_device *iod)
++{
++	if (iod->waketime > 0 && !gnssif_wlock_active(iod->ws)) {
++		gnssif_wlock_unlock(iod->ws);
++		gnssif_wlock_lock_timeout(iod->ws, iod->waketime);
++	}
++}
++
++static void io_dev_recv_betp(struct io_device *iod,
++		struct link_device *ld, struct sk_buff *skb)
++{
++	struct sk_buff_head *rxq = &iod->sk_rx_q;
++
++	iodev_lock_wlock(iod);
++
++	if (unlikely(rxq->qlen >= MAX_RXQ_DEPTH)) {
++		gif_err_limited("Too much rx betps are queued: total %d\n",
++				MAX_RXQ_DEPTH);
++		dev_kfree_skb_any(skb);
++		goto wakeup;
++	}
++	skb_queue_tail(rxq, skb);
++
++wakeup:
++	wake_up(&iod->wq);
++
++}
++
++static int misc_open(struct inode *inode, struct file *filp)
++{
++	struct io_device *iod = container_of(filp->private_data, struct io_device,
++			miscdev);
++	struct link_device *ld;
++	int ref_cnt;
++
++	filp->private_data = (void *)iod;
++
++	ld = iod->ld;
++
++	ref_cnt = atomic_inc_return(&iod->opened);
++
++	gif_info("%s (opened %d)\n", iod->name, ref_cnt);
++
++	return 0;
++}
++
++static int misc_release(struct inode *inode, struct file *filp)
++{
++	struct io_device *iod = (struct io_device *)filp->private_data;
++	int ref_cnt;
++
++	ref_cnt = atomic_dec_return(&iod->opened);
++	if (ref_cnt == 0)
++		skb_queue_purge(&iod->sk_rx_q);
++
++	gif_info("%s (opened %d)\n", iod->name, ref_cnt);
++
++	return 0;
++}
++
++static unsigned int misc_poll(struct file *filp, struct poll_table_struct *wait)
++{
++	struct io_device *iod = (struct io_device *)filp->private_data;
++
++	if (skb_queue_empty(&iod->sk_rx_q))
++		poll_wait(filp, &iod->wq, wait);
++
++	if (!skb_queue_empty(&iod->sk_rx_q))
++		return POLLIN | POLLRDNORM;
++
++	return 0;
++}
++
++static long misc_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
++{
++	struct io_device *iod = (struct io_device *)filp->private_data;
++
++	gif_err("%s: ERR! undefined cmd 0x%X\n", iod->name, cmd);
++
++	return -EINVAL;
++}
++
++static ssize_t misc_write(struct file *filp, const char __user *data,
++			size_t count, loff_t *fpos)
++{
++	struct io_device *iod = (struct io_device *)filp->private_data;
++	struct link_device *ld = iod->ld;
++	char *buff;
++	int ret;
++
++	/* Store IPC message */
++	buff = kzalloc(roundup(count, ALIGNMENT_4BYTE), GFP_KERNEL);
++	if (!buff)
++		return -ENOMEM;
++
++	if (copy_from_user(buff, data, count)) {
++		gif_err("%s->%s: ERR! copy_from_user fail (count %ld)\n",
++			iod->name, ld->name, count);
++		kfree(buff);
++		return -EFAULT;
++	}
++
++	ret = ld->send(ld, iod, buff, roundup(count, ALIGNMENT_4BYTE));
++	if (ret < 0) {
++		gif_err("%s->%s: ERR! ld->send fail (err %d, count %ld)\n",
++			iod->name, ld->name, ret, count);
++		kfree(buff);
++		return ret;
++	}
++
++	kfree(buff);
++	return count;
++}
++
++static ssize_t misc_read(struct file *filp, char *buf, size_t count,
++			loff_t *fpos)
++{
++	struct io_device *iod = (struct io_device *)filp->private_data;
++	struct sk_buff_head *rxq = &iod->sk_rx_q;
++	struct sk_buff *skb;
++	int copied = 0;
++
++	if (skb_queue_empty(rxq)) {
++		gif_err("%s: ERR! no data in rxq\n", iod->name);
++		return 0;
++	}
++
++	skb = skb_dequeue(rxq);
++	if (unlikely(!skb)) {
++		gif_err("%s: No data in RXQ\n", iod->name);
++		return 0;
++	}
++
++	if (count <= 0) {
++		gif_err("%s: bytes to read not specified\n", iod->name);
++		return 0;
++	}
++
++	copied = skb->len > count ? count : skb->len;
++
++	if (copy_to_user(buf, skb->data, copied)) {
++		gif_err("%s: ERR! copy_to_user fail\n", iod->name);
++		dev_kfree_skb_any(skb);
++		return -EFAULT;
++	}
++
++	gif_debug("%s: data:%d copied:%d qlen:%d\n",
++			iod->name, skb->len, copied, rxq->qlen);
++
++	if (skb->len > count) {
++		skb_pull(skb, count);
++		skb_queue_head(rxq, skb);
++	} else {
++		dev_kfree_skb_any(skb);
++	}
++
++	return copied;
++}
++
++static const struct file_operations misc_io_fops = {
++	.owner = THIS_MODULE,
++	.open = misc_open,
++	.release = misc_release,
++	.poll = misc_poll,
++	.unlocked_ioctl = misc_ioctl,
++#if IS_ENABLED(CONFIG_COMPAT)
++	.compat_ioctl = misc_ioctl,
++#endif
++	.write = misc_write,
++	.read = misc_read,
++};
++
++int init_io_device(struct io_device *iod, struct device *dev)
++{
++	int ret = 0;
++
++	gif_info("+++\n");
++
++	iod->recv_betp = io_dev_recv_betp;
++
++	init_waitqueue_head(&iod->wq);
++	skb_queue_head_init(&iod->sk_rx_q);
++
++	iod->miscdev.minor = MISC_DYNAMIC_MINOR;
++	iod->miscdev.name = iod->name;
++	iod->miscdev.fops = &misc_io_fops;
++	iod->waketime = WAKE_TIME;
++	iod->ws = gnssif_wlock_register(dev, iod->name);
++	if (iod->ws == NULL) {
++		gif_err("%s: wakeup_source_register fail\n", iod->name);
++		return -EINVAL;
++	}
++
++	ret = misc_register(&iod->miscdev);
++	if (ret)
++		gif_err("%s: ERR! misc_register failed\n", iod->name);
++
++	gif_info("---\n");
++
++	return ret;
++}
++
++struct io_device *create_io_device(struct platform_device *pdev,
++		struct link_device *ld, struct gnss_ctl *gc, struct gnss_pdata *pdata)
++{
++	int ret;
++	struct device *dev = &pdev->dev;
++	struct io_device *iod;
++
++	gif_info("+++\n");
++	iod = devm_kzalloc(dev, sizeof(struct io_device), GFP_KERNEL);
++	if (!iod) {
++		gif_err("iod is NULL\n");
++		return NULL;
++	}
++
++	iod->name = pdata->node_name;
++	atomic_set(&iod->opened, 0);
++
++	iod->gc = gc;
++	gc->iod = iod;
++
++	iod->ld = ld;
++	ld->iod = iod;
++
++	ret = init_io_device(iod, dev);
++	if (ret) {
++		devm_kfree(dev, iod);
++		gif_err("init_io_device fail (%d)\n", ret);
++		return NULL;
++	}
++
++	gif_info("---\n");
++
++	return iod;
++}
+diff --git a/drivers/soc/google/gnssif_spi/gnss_keplerctl_device.c b/drivers/soc/google/gnssif_spi/gnss_keplerctl_device.c
+new file mode 100644
+index 000000000..d005bec9f
+--- /dev/null
++++ b/drivers/soc/google/gnssif_spi/gnss_keplerctl_device.c
+@@ -0,0 +1,172 @@
++// SPDX-License-Identifier: GPL-2.0
++/*
++ * Copyright (C) 2022 Samsung Electronics.
++ *
++ */
++
++#include <linux/init.h>
++#include <linux/irq.h>
++#include <linux/gpio.h>
++#include <linux/of_gpio.h>
++#include <linux/delay.h>
++
++#include "include/gnss.h"
++#include "gnss_prj.h"
++#include "gnss_utils.h"
++
++/* handling interrupt by BETP messages from kepler through SPI */
++static irqreturn_t kepler_spi_irq_handler(int irq, void *data)
++{
++	struct gnss_ctl *gc = data;
++	struct link_device *ld = gc->iod->ld;
++
++	gif_disable_irq_nosync(&gc->irq_gnss2ap_spi);
++
++	if (atomic_read(&gc->wait_rdy)) {
++		atomic_set(&gc->wait_rdy, 0);
++		complete_all(&gc->gnss_rdy_cmpl);
++		return IRQ_HANDLED;
++	}
++
++	if (atomic_read(&gc->rx_in_progress) == 0) {
++		queue_delayed_work(ld->rx_wq, &ld->rx_dwork, 0);
++	}
++
++	return IRQ_HANDLED;
++}
++
++static int kepler_spi_status(struct gnss_ctl *gc)
++{
++	return gpio_get_value(gc->gpio_gnss2ap_spi.num);
++}
++
++static void kepler_send_betp_int(struct gnss_ctl *gc, int value)
++{
++	gif_debug("About to Set ap2gnss_spi value to %d\n", value);
++	gpio_set_value(gc->gpio_ap2gnss_spi.num, value);
++	gif_debug("complete to set ap2gnss_spi value to %d\n", value);
++}
++
++static int kepler_betp_int_status(struct gnss_ctl *gc)
++{
++	return gpio_get_value(gc->gpio_ap2gnss_spi.num);
++}
++
++static void gnss_set_ops(struct gnss_ctl *gc)
++{
++	gc->ops.gnss_spi_status = kepler_spi_status;
++	gc->ops.gnss_send_betp_int = kepler_send_betp_int;
++	gc->ops.gnss_betp_int_status = kepler_betp_int_status;
++}
++
++static int init_ctl_device(struct gnss_ctl *gc, struct gnss_pdata *pdata)
++{
++	int ret;
++	struct platform_device *pdev;
++	struct device_node *np;
++
++	gnss_set_ops(gc);
++
++	dev_set_drvdata(gc->dev, gc);
++
++	pdev = to_platform_device(gc->dev);
++	np = pdev->dev.of_node;
++
++	/* GNSS2AP SPI INT */
++	gc->gpio_gnss2ap_spi.num = of_get_named_gpio(np, "gpio_gnss2ap_spi", 0);
++	if (gc->gpio_gnss2ap_spi.num < 0) {
++		gif_err("Can't get gpio_gnss2ap_spi!\n");
++		return -ENODEV;
++	}
++	gc->gpio_gnss2ap_spi.label = "GNSS2AP_SPI";
++	ret = gpio_request(gc->gpio_gnss2ap_spi.num, gc->gpio_gnss2ap_spi.label);
++	if (ret) {
++		gif_err("Request gpio fail - gpio_gnss2ap_spi.num failed(%d)\n", ret);
++		return ret;
++	}
++	gc->irq_gnss2ap_spi.num = gpio_to_irq(gc->gpio_gnss2ap_spi.num);
++
++	/* Disable the interrupt until gnss_main.c probe function finish */
++	gif_configure_irq(&gc->irq_gnss2ap_spi, gc->irq_gnss2ap_spi.num,
++			"kepler_spi_irq_handler", IRQF_TRIGGER_HIGH | IRQF_NO_AUTOEN);
++
++	ret = gif_request_irq(&gc->irq_gnss2ap_spi, kepler_spi_irq_handler, gc);
++	if (ret) {
++		gif_err("Request irq fail - kepler_spi_irq_handler(%d)\n", ret);
++		goto free_gpio_gnss2ap;
++	}
++
++	ret = enable_irq_wake(gc->irq_gnss2ap_spi.num);
++	if (ret) {
++		gif_err("Failed to enable wakeup_source - enable_irq_wake(%d)\n", ret);
++		goto free_gpio_irq;
++	}
++
++	gc->gpio_ap2gnss_spi.num =
++				of_get_named_gpio(np, "gpio_ap2gnss_spi", 0);
++	if (gc->gpio_ap2gnss_spi.num < 0) {
++		gif_err("Can't get gpio_ap2gnss_spi!\n");
++		ret = -ENODEV;
++		goto free_gpio_irq;
++	}
++	gc->gpio_ap2gnss_spi.label = "AP2GNSS_SPI";
++	ret = gpio_request(gc->gpio_ap2gnss_spi.num, gc->gpio_ap2gnss_spi.label);
++	if (ret) {
++		gif_err("Request gpio fail - gpio_ap2gnss_spi.num failed(%d)\n", ret);
++		goto free_gpio_irq;
++	}
++
++	ret = gpio_direction_output(gc->gpio_ap2gnss_spi.num, 0);
++	if (ret) {
++		gif_err("Set gpio direction fail - gpio_ap2gnss_spi.num failed(%d)\n", ret);
++		goto free_gpio_ap2gnss;
++	}
++
++	/* initialize gpio values to all zero */
++	gpio_set_value(gc->gpio_ap2gnss_spi.num, 0);
++
++	init_completion(&gc->gnss_rdy_cmpl);
++
++	atomic_set(&gc->wait_rdy, 0);
++	atomic_set(&gc->tx_in_progress, 0);
++	atomic_set(&gc->rx_in_progress, 0);
++
++	return ret;
++
++free_gpio_ap2gnss:
++	gpio_free(gc->gpio_ap2gnss_spi.num);
++
++free_gpio_irq:
++	free_irq(gc->irq_gnss2ap_spi.num, &gc);
++
++free_gpio_gnss2ap:
++	gpio_free(gc->gpio_gnss2ap_spi.num);
++
++	return ret;
++
++}
++
++struct gnss_ctl *create_ctl_device(struct platform_device *pdev)
++{
++	struct device *dev = &pdev->dev;
++	struct gnss_pdata *pdata = pdev->dev.platform_data;
++	struct gnss_ctl *gc;
++	int ret;
++
++	gc = devm_kzalloc(dev, sizeof(struct gnss_ctl), GFP_KERNEL);
++	if (!gc)
++		return NULL;
++	gc->dev = dev;
++	gc->pdata = pdata;
++	gc->name = pdata->name;
++
++	ret = init_ctl_device(gc, pdata);
++	if (ret) {
++		gif_err("%s: init_ctl_device fail (err %d)\n",
++				pdata->name, ret);
++		devm_kfree(dev, gc);
++		return NULL;
++	}
++
++	return gc;
++}
+diff --git a/drivers/soc/google/gnssif_spi/gnss_link_device.c b/drivers/soc/google/gnssif_spi/gnss_link_device.c
+new file mode 100644
+index 000000000..abd81efe7
+--- /dev/null
++++ b/drivers/soc/google/gnssif_spi/gnss_link_device.c
+@@ -0,0 +1,247 @@
++// SPDX-License-Identifier: GPL-2.0
++/*
++ * Copyright (C) 2022 Samsung Electronics.
++ *
++ */
++
++#include <linux/irq.h>
++#include <linux/gpio.h>
++#include <linux/interrupt.h>
++#include <linux/skbuff.h>
++#include <linux/delay.h>
++#include <linux/netdevice.h>
++
++#include "include/gnss.h"
++#include "gnss_prj.h"
++#include "gnss_utils.h"
++#include "gnss_spi.h"
++
++/* #define GNSS_PKT_DEBUG	1 */
++
++#if defined(GNSS_PKT_DEBUG)
++#define PR_BUFFER_SIZE	64
++
++static inline void dump2hex(char *buff, size_t buff_size,
++			    const char *data, size_t data_len)
++{
++	static const char *hex = "0123456789abcdef";
++	char *dest = buff;
++	size_t len;
++	size_t i;
++
++	if (buff_size < (data_len * 3))
++		len = buff_size / 3;
++	else
++		len = data_len;
++
++	for (i = 0; i < len; i++) {
++		*dest++ = hex[(data[i] >> 4) & 0xf];
++		*dest++ = hex[data[i] & 0xf];
++		*dest++ = ' ';
++	}
++
++	/* The last character must be overwritten with NULL */
++	if (likely(len > 0))
++		dest--;
++
++	*dest = 0;
++}
++
++static int pr_buffer(const char *tag, const char *data, size_t data_len,
++							size_t max_len)
++{
++	size_t len = min(data_len, max_len);
++	unsigned char str[PR_BUFFER_SIZE * 3]; /* 1 <= sizeof <= max_len*3 */
++
++	if (len > PR_BUFFER_SIZE)
++		len = PR_BUFFER_SIZE;
++
++	dump2hex(str, (len ? len * 3 : 1), data, len);
++
++	/* don't change this printk to mif_debug for print this as level7 */
++	return pr_info("%s: %s(%ld): %s%s\n", "gnss_spi", tag, (long)data_len,
++			str, (len == data_len) ? "" : " ...");
++}
++#else	/* GNSS_PKT_DEBUG */
++static inline int pr_buffer(const char *tag, const char *data, size_t data_len,
++							size_t max_len)
++{
++	return 0;
++}
++#endif	/* GNSS_PKT_DEBUG */
++
++static void rx_work(struct work_struct *ws)
++{
++	struct link_device *ld = container_of(ws, struct link_device,
++						rx_dwork.work);
++	struct gnss_ctl *gc = ld->gc;
++	struct io_device *iod = ld->iod;
++	struct sk_buff *skb = NULL;
++	char *buff = NULL;
++	unsigned int len = ld->spi_rx_size;
++	unsigned int max_len = ld->max_spi_rx_size;
++	unsigned int iter = 0;
++	int ret = 0;
++
++	atomic_set(&gc->rx_in_progress, 1);
++
++	do {
++		if (!skb) {
++			gc->ops.gnss_send_betp_int(gc, 1);
++			if (atomic_read(&gc->tx_in_progress) == 0) {
++				udelay(100);
++				gc->ops.gnss_send_betp_int(gc, 0);
++			}
++
++			skb = alloc_skb(max_len, GFP_KERNEL);
++			if (!skb) {
++				gif_err("%s: ERR! rx alloc_skb fail (msg size:%u)\n",
++						iod->name, len);
++				goto exit;
++			}
++		}
++
++		buff = skb_put(skb, len);
++		ret = gnss_spi_recv(buff, len);
++		if (ret) {
++			gif_err("gnss_spi_recv() error:%d\n", ret);
++			dev_kfree_skb_any(skb);
++			goto exit;
++		}
++
++		iter++;
++		if (skb->len >= max_len || atomic_read(&gc->wait_rdy) == 1) {
++			pr_buffer("RX", skb->data, skb->len, skb->len);
++			gif_debug("Received %d(%d * %d) bytes data from kepler.\n",
++					skb->len, len, iter);
++
++			iod->recv_betp(iod, ld, skb);
++			skb = NULL;	/* skb to be freed by gnss iod*/
++			iter = 0;
++
++			if (atomic_read(&gc->wait_rdy) == 1) {
++				atomic_set(&gc->wait_rdy, 0);
++				complete_all(&gc->gnss_rdy_cmpl);
++				gif_debug("TX request while Rx is in-progress\n");
++
++				while (atomic_read(&gc->tx_in_progress) == 1)
++					udelay(10);
++			}
++		}
++	} while (gc->ops.gnss_spi_status(gc));
++
++	if (skb) {
++		pr_buffer("RX", skb->data, skb->len, skb->len);
++		gif_debug("Received %d(%d * %d) bytes data from kepler.\n",
++				skb->len, len, iter);
++
++		iod->recv_betp(iod, ld, skb);
++	}
++exit:
++	atomic_set(&gc->rx_in_progress, 0);
++	if (atomic_read(&gc->tx_in_progress) == 0)
++		gc->ops.gnss_send_betp_int(gc, 0);
++
++	gif_debug("Done receiving from kepler\n");
++
++	gif_enable_irq(&gc->irq_gnss2ap_spi);
++}
++
++static int send_betp(struct link_device *ld, struct io_device *iod, char *buff,
++		unsigned int size)
++{
++	struct gnss_ctl *gc = ld->gc;
++	struct sk_buff *skb;
++	int ret = 0;
++
++	if (size > ld->spi_tx_size) {
++		gif_err("size(%d) is over %d\n", size, ld->spi_tx_size);
++		size = ld->spi_tx_size;
++	}
++
++	skb = alloc_skb(size, GFP_KERNEL);
++	if (!skb) {
++		gif_err("%s: ERR! tx alloc_skb fail (msg size:%u)\n",
++				iod->name, size);
++		return -ENOMEM;
++	}
++	skb_put(skb, size);
++
++	atomic_set(&gc->tx_in_progress, 1);
++
++	reinit_completion(&gc->gnss_rdy_cmpl);
++	atomic_set(&gc->wait_rdy, 1);
++
++	gc->ops.gnss_send_betp_int(gc, 1);
++
++	gif_enable_irq(&gc->irq_gnss2ap_spi);
++
++	ret = wait_for_completion_timeout(&gc->gnss_rdy_cmpl, GNSS_RDY_TIMEOUT);
++	if (ret == 0) {
++		gif_err("TIMEOUT(%lu): gnss ready signal not came from kepler\n", GNSS_RDY_TIMEOUT);
++		dev_kfree_skb_any(skb);
++		ret = -EBUSY;
++		goto exit;
++	}
++
++	ret = gnss_spi_send(buff, size, (char *)skb->data);
++	if (ret) {
++		gif_err("gnss_spi_send() error:%d\n", ret);
++		dev_kfree_skb_any(skb);
++		goto exit;
++	} else {
++		gif_debug("Sent %d bytes to kepler\n", size);
++		pr_buffer("TX", buff, size, size);
++		iod->recv_betp(iod, ld, skb);
++	}
++
++exit:
++	atomic_set(&gc->wait_rdy, 0);
++	atomic_set(&gc->tx_in_progress, 0);
++	gc->ops.gnss_send_betp_int(gc, 0);
++
++	gif_enable_irq(&gc->irq_gnss2ap_spi);
++
++	return ret;
++}
++
++struct link_device *create_link_device(struct platform_device *pdev)
++{
++	struct link_device *ld = NULL;
++	struct gnss_pdata *pdata = NULL;
++	struct device *dev = &pdev->dev;
++
++	gif_info("+++\n");
++
++	pdata = (struct gnss_pdata *)dev->platform_data;
++	if (!pdata) {
++		gif_err("ERR! gnss == NULL\n");
++		return NULL;
++	}
++
++	ld = devm_kzalloc(dev, sizeof(struct link_device), GFP_KERNEL);
++	if (!ld) {
++		gif_err("ERR! link device kzalloc fail\n");
++		return NULL;
++	}
++
++	ld->pdata = pdata;
++	ld->name = "GNSS_LINK_DEVICE";
++	ld->send = send_betp;
++	ld->spi_rx_size = DEFAULT_SPI_RX_SIZE;
++	ld->max_spi_rx_size = MAX_SPI_RX_SIZE;
++	ld->spi_tx_size = DEFAULT_SPI_TX_SIZE;
++
++	ld->rx_wq = alloc_workqueue("gnss_spi_wq",
++					__WQ_LEGACY | WQ_MEM_RECLAIM | WQ_UNBOUND, 1);
++	if (!ld->rx_wq) {
++		gif_err("alloc_workqueue() error\n");
++		goto exit;
++	}
++	INIT_DELAYED_WORK(&ld->rx_dwork, rx_work);
++
++	gif_info("---\n");
++
++exit:
++	return ld;
++}
+diff --git a/drivers/soc/google/gnssif_spi/gnss_main.c b/drivers/soc/google/gnssif_spi/gnss_main.c
+new file mode 100644
+index 000000000..fddc1c233
+--- /dev/null
++++ b/drivers/soc/google/gnssif_spi/gnss_main.c
+@@ -0,0 +1,248 @@
++// SPDX-License-Identifier: GPL-2.0
++/*
++ * Copyright (C) 2022 Samsung Electronics.
++ *
++ */
++#include <linux/init.h>
++#include <linux/gpio.h>
++#include <linux/module.h>
++#include <linux/of.h>
++#include <linux/platform_device.h>
++#include <linux/platform_data/sscoredump.h>
++#include <linux/time.h>
++
++#include "gnss_prj.h"
++#include "gnss_utils.h"
++
++#define DEVICE_NAME "gnss"
++
++static void sscd_release(struct device *dev);
++
++static struct sscd_platform_data sscd_pdata;
++
++static struct platform_device sscd_dev = {
++	.name            = DEVICE_NAME,
++	.driver_override = SSCD_NAME,
++	.id              = -1,
++	.dev             = {
++		.platform_data = &sscd_pdata,
++		.release       = sscd_release,
++		},
++};
++
++static void sscd_release(struct device *dev)
++{
++	gif_info("%s: enter\n", __FUNCTION__);
++}
++
++static ssize_t coredump_store(struct device *dev, struct device_attribute *attr, const char *buf,
++			      size_t count)
++{
++	int symbol = (int)';';
++	const char *next = NULL;
++	char *coredump = NULL;
++	char *reason = NULL;
++	int length = 0;
++	static time64_t last_trigger_time = 0;
++	time64_t trigger_time = ktime_get_seconds();
++
++	// Ignore the trigger time less than 30 seconds
++	if (trigger_time - last_trigger_time < 30) {
++		goto clean;
++	}
++	last_trigger_time = trigger_time;
++
++	gif_err("Trigger Coredump string: %s\n", buf);
++	next = strchr(buf, symbol);
++	if (next) {
++		length = (int)(next - buf);
++		reason = kmalloc(length + 1, GFP_KERNEL);
++		if (!reason) {
++			gif_err("Allocate crash reason failed\n");
++			goto clean;
++		}
++		memcpy(reason, buf, length);
++		reason[length] = '\0';
++		length = strlen(next + 1);
++		coredump = kmalloc(length, GFP_KERNEL);
++		if (!coredump) {
++			gif_err("Allocate crash coredump failed\n");
++			goto clean;
++		}
++		memcpy(coredump, next + 1, length);
++		gnss_set_coredump(coredump, length, reason);
++	}
++clean:
++	if (reason)
++		kfree(reason);
++	if (coredump)
++		kfree(coredump);
++	return count;
++}
++
++static DEVICE_ATTR_WO(coredump);
++
++static int parse_dt_common_pdata(struct device_node *np, struct gnss_pdata *pdata)
++{
++	gif_dt_read_string(np, "device,name", pdata->name);
++	gif_dt_read_string(np, "device_node_name", pdata->node_name);
++
++	gif_info("device name: %s node name: %s\n", pdata->name, pdata->node_name);
++	return 0;
++}
++
++static struct gnss_pdata *gnss_if_parse_dt_pdata(struct device *dev)
++{
++	struct gnss_pdata *pdata;
++	int ret = 0;
++
++	pdata = devm_kzalloc(dev, sizeof(struct gnss_pdata), GFP_KERNEL);
++	if (!pdata) {
++		gif_err("gnss_pdata: alloc fail\n");
++		return ERR_PTR(-ENOMEM);
++	}
++	dev->platform_data = pdata;
++
++	ret = parse_dt_common_pdata(dev->of_node, pdata);
++	if (ret != 0) {
++		gif_err("Failed to parse common pdata from dt\n");
++		goto parse_dt_pdata_err;
++	}
++
++	gif_info("DT parse complete!\n");
++	return pdata;
++
++parse_dt_pdata_err:
++	if (pdata)
++		devm_kfree(dev, pdata);
++	dev->platform_data = NULL;
++
++	return ERR_PTR(-EINVAL);
++}
++
++static int gnss_remove(struct platform_device *pdev)
++{
++	struct gnss_ctl *gc = platform_get_drvdata(pdev);
++
++	gif_disable_irq_sync(&gc->irq_gnss2ap_spi);
++
++	gpio_set_value(gc->gpio_ap2gnss_spi.num, 0);
++
++	free_irq(gc->irq_gnss2ap_spi.num, &gc);
++
++	gpio_free(gc->gpio_ap2gnss_spi.num);
++
++	gpio_free(gc->gpio_gnss2ap_spi.num);
++
++	platform_device_unregister(&sscd_dev);
++
++	device_remove_file(&pdev->dev, &dev_attr_coredump);
++
++	return 0;
++}
++
++static int gnss_probe(struct platform_device *pdev)
++{
++	struct device *dev = &pdev->dev;
++	struct gnss_pdata *pdata = dev->platform_data;
++	struct gnss_ctl *gc;
++	struct io_device *iod;
++	struct link_device *ld;
++
++	gif_info("Exynos GNSS interface driver probe begins\n");
++
++	gif_info("%s: +++\n", pdev->name);
++
++	if (!dev->of_node) {
++		gif_err("No DT data!\n");
++		goto probe_fail;
++	}
++
++	pdata = gnss_if_parse_dt_pdata(dev);
++	if (IS_ERR(pdata)) {
++		gif_err("DT parse error!\n");
++		return PTR_ERR(pdata);
++	}
++
++	gc = create_ctl_device(pdev);
++	if (!gc) {
++		gif_err("%s: Could not create gc\n", pdata->name);
++		goto probe_fail;
++	}
++
++	ld = create_link_device(pdev);
++	if (!ld) {
++		gif_err("%s: Could not create ld\n", pdata->name);
++		goto free_gc;
++	}
++
++	ld->gc = gc;
++
++	iod = create_io_device(pdev, ld, gc, pdata);
++	if (!iod) {
++		gif_err("%s: Could not create iod\n", pdata->name);
++		goto free_ld;
++	}
++
++	platform_set_drvdata(pdev, gc);
++
++	platform_device_register(&sscd_dev);
++
++	if (device_create_file(dev, &dev_attr_coredump))
++		gif_err("Unable to create sysfs coredump entry");
++
++	/* wa: to prevent wrong irq handling during probe */
++	gif_enable_irq(&gc->irq_gnss2ap_spi);
++
++	gif_info("%s: ---\n", pdev->name);
++
++	return 0;
++
++free_ld:
++	devm_kfree(dev, ld);
++free_gc:
++	devm_kfree(dev, gc);
++probe_fail:
++	gif_err("%s: xxx\n", pdata->name);
++
++	return -ENOMEM;
++}
++
++static const struct of_device_id gnss_dt_match[] = {
++	{
++		.compatible = "samsung,exynos-gnss",
++	},
++	{},
++};
++MODULE_DEVICE_TABLE(of, gnss_dt_match);
++
++static struct platform_driver gnss_driver = {
++		.probe = gnss_probe,
++		.remove = gnss_remove,
++		.driver = {
++				.name = "gnss_interface",
++				.owner = THIS_MODULE,
++#if IS_ENABLED(CONFIG_OF)
++				.of_match_table = of_match_ptr(gnss_dt_match),
++#endif
++		},
++};
++
++module_platform_driver(gnss_driver);
++
++int gnss_set_coredump(const char *buf, int buf_len, const char *info)
++{
++	struct sscd_platform_data *pdata = dev_get_platdata(&sscd_dev.dev);
++	struct sscd_segment seg;
++
++	if (pdata->sscd_report) {
++		memset(&seg, 0, sizeof(seg));
++		seg.addr = (void *)buf;
++		seg.size = buf_len;
++		pdata->sscd_report(&sscd_dev, &seg, 1, 0, info);
++	}
++	return 0;
++}
++
++MODULE_DESCRIPTION("Exynos GNSS interface driver");
++MODULE_LICENSE("GPL");
+diff --git a/drivers/soc/google/gnssif_spi/gnss_prj.h b/drivers/soc/google/gnssif_spi/gnss_prj.h
+new file mode 100644
+index 000000000..8e51d32d0
+--- /dev/null
++++ b/drivers/soc/google/gnssif_spi/gnss_prj.h
+@@ -0,0 +1,77 @@
++/* SPDX-License-Identifier: GPL-2.0 */
++/*
++ * Copyright (C) 2022, Samsung Electronics.
++ *
++ */
++
++#ifndef __GNSS_PRJ_H__
++#define __GNSS_PRJ_H__
++
++#include <linux/miscdevice.h>
++#include <linux/skbuff.h>
++#include <linux/interrupt.h>
++#include <linux/spinlock.h>
++
++#include "include/gnss.h"
++
++#define GNSS_RDY_TIMEOUT	msecs_to_jiffies(5000)
++#define ALIGNMENT_4BYTE		4
++
++struct io_device {
++	char *name;
++	struct link_device *ld;
++	struct gnss_ctl *gc;
++	atomic_t opened;
++	wait_queue_head_t wq;
++	struct miscdevice miscdev;
++	struct sk_buff_head sk_rx_q;
++	struct wakeup_source *ws;
++	long waketime;
++
++	void (*recv_betp)(struct io_device *iod, struct link_device *ld,
++				struct sk_buff *skb);
++};
++
++struct link_device {
++	char *name;
++	struct gnss_pdata *pdata;
++	struct gnss_ctl *gc;
++	struct io_device *iod;
++	struct gnss_spi *gnss_if;
++	unsigned int spi_rx_size;
++	unsigned int max_spi_rx_size;
++	unsigned int spi_tx_size;
++	struct workqueue_struct *rx_wq;
++	struct delayed_work rx_dwork;
++
++	int (*send)(struct link_device *ld, struct io_device *iod, char *buff,
++			unsigned int size);
++};
++
++struct gnssctl_ops {
++	int (*gnss_spi_status)(struct gnss_ctl *gc);
++	void (*gnss_send_betp_int)(struct gnss_ctl *gc, int value);
++	int (*gnss_betp_int_status)(struct gnss_ctl *gc);
++};
++
++struct gnss_ctl {
++	struct device *dev;
++	char *name;
++	struct gnss_pdata *pdata;
++	struct gnssctl_ops ops;
++	struct io_device *iod;
++	struct completion gnss_rdy_cmpl;
++	struct gnss_irq irq_gnss2ap_spi;
++	struct gnss_gpio gpio_gnss2ap_spi;
++	struct gnss_gpio gpio_ap2gnss_spi;
++	atomic_t wait_rdy;
++	atomic_t tx_in_progress;
++	atomic_t rx_in_progress;
++};
++
++struct gnss_ctl *create_ctl_device(struct platform_device *pdev);
++struct link_device *create_link_device(struct platform_device *pdev);
++struct io_device *create_io_device(struct platform_device *pdev,
++		struct link_device *ld, struct gnss_ctl *gc, struct gnss_pdata *pdata);
++
++#endif /* end of __GNSS_PRJ_H__ */
+diff --git a/drivers/soc/google/gnssif_spi/gnss_spi.c b/drivers/soc/google/gnssif_spi/gnss_spi.c
+new file mode 100644
+index 000000000..83680d08d
+--- /dev/null
++++ b/drivers/soc/google/gnssif_spi/gnss_spi.c
+@@ -0,0 +1,112 @@
++// SPDX-License-Identifier: GPL-2.0
++/*
++ * Copyright (C) 2022 Samsung Electronics.
++ *
++ */
++
++#include <linux/module.h>
++#include <linux/mutex.h>
++#include <linux/spi/spi.h>
++#include <linux/of.h>
++#include <linux/of_platform.h>
++#include <linux/platform_device.h>
++
++#include "include/gnss.h"
++#include "gnss_spi.h"
++
++
++int gnss_spi_send(char *buff, unsigned int size, char *rx_buff)
++{
++	int ret = 0;
++	struct spi_message msg;
++	struct spi_transfer tx;
++
++	memset(&tx, 0, sizeof(struct spi_transfer));
++	spi_message_init(&msg);
++	tx.len = size;
++	tx.tx_buf = buff;
++	tx.bits_per_word = SPI_BITS_PER_WORD;
++	if (rx_buff)
++		tx.rx_buf = rx_buff;
++	spi_message_add_tail(&tx, &msg);
++	ret = spi_sync(gnss_if.spi, &msg);
++	if (ret < 0)
++		gif_err("spi_sync() error:%d\n", ret);
++
++	return ret;
++}
++EXPORT_SYMBOL(gnss_spi_send);
++
++int gnss_spi_recv(char *buff, unsigned int size)
++{
++	int ret = 0;
++	struct spi_message msg;
++	struct spi_transfer rx;
++
++	memset(&rx, 0, sizeof(struct spi_transfer));
++	rx.len = size;
++	rx.rx_buf = buff;
++	rx.bits_per_word = SPI_BITS_PER_WORD;
++	spi_message_init(&msg);
++	spi_message_add_tail(&rx, &msg);
++	ret = spi_sync(gnss_if.spi, &msg);
++	if (ret < 0)
++		gif_err("spi_sync() error:%d\n", ret);
++
++	return ret;
++
++}
++EXPORT_SYMBOL(gnss_spi_recv);
++
++static int gnss_spi_probe(struct spi_device *spi)
++{
++	int ret = 0;
++
++	gif_info("+++\n");
++	mutex_init(&gnss_if.lock);
++
++	if (spi_setup(spi)) {
++		gif_err("ERR! spi_setup fail\n");
++		ret = -EINVAL;
++		goto err_setup;
++	}
++	spi_set_drvdata(spi, &gnss_if);
++	gnss_if.spi = spi;
++	gif_info("---\n");
++
++	return 0;
++
++err_setup:
++	mutex_destroy(&gnss_if.lock);
++
++	return ret;
++}
++
++static void gnss_spi_remove (struct spi_device *spi)
++{
++	struct gnss_spi *gnss_if = spi_get_drvdata(spi);
++
++	mutex_destroy(&gnss_if->lock);
++}
++
++static const struct of_device_id gnss_spi_dt_match[] = {
++	{ .compatible = "samsung,gnss-spi" },
++	{},
++};
++MODULE_DEVICE_TABLE(of, gnss_spi_dt_match);
++
++static struct spi_driver gnss_spi_driver = {
++	.probe = gnss_spi_probe,
++	.remove = gnss_spi_remove,
++	.driver = {
++		.name = "gnss_spi",
++		.owner = THIS_MODULE,
++		.of_match_table = of_match_ptr(gnss_spi_dt_match),
++		.suppress_bind_attrs = true,
++	},
++};
++module_spi_driver(gnss_spi_driver);
++
++MODULE_DESCRIPTION("Exynos SPI driver for GNSS communication");
++MODULE_LICENSE("GPL");
++
+diff --git a/drivers/soc/google/gnssif_spi/gnss_spi.h b/drivers/soc/google/gnssif_spi/gnss_spi.h
+new file mode 100644
+index 000000000..553c40a0d
+--- /dev/null
++++ b/drivers/soc/google/gnssif_spi/gnss_spi.h
+@@ -0,0 +1,28 @@
++/* SPDX-License-Identifier: GPL-2.0 */
++/*
++ * Copyright (C) 2022, Samsung Electronics.
++ *
++ */
++
++#ifndef __GNSS_SPI_H__
++#define __GNSS_SPI_H__
++
++#include <linux/spi/spi.h>
++#include <linux/mutex.h>
++
++#define DEFAULT_SPI_RX_SIZE	64
++#define MAX_SPI_RX_SIZE	SZ_2K
++#define DEFAULT_SPI_TX_SIZE	SZ_4K
++#define SPI_BITS_PER_WORD	32
++
++struct gnss_spi {
++	struct spi_device *spi;
++	struct mutex lock;
++};
++
++static struct gnss_spi gnss_if;
++
++extern int gnss_spi_send(char *buff, unsigned int size, char *recv_buff);
++extern int gnss_spi_recv(char *buff, unsigned int size);
++
++#endif /* __GNSS_SPI_H__ */
+diff --git a/drivers/soc/google/gnssif_spi/gnss_utils.c b/drivers/soc/google/gnssif_spi/gnss_utils.c
+new file mode 100644
+index 000000000..ed4b4c9d1
+--- /dev/null
++++ b/drivers/soc/google/gnssif_spi/gnss_utils.c
+@@ -0,0 +1,105 @@
++// SPDX-License-Identifier: GPL-2.0
++/*
++ * Copyright (C) 2022 Samsung Electronics.
++ *
++ */
++
++#include <linux/init.h>
++#include <linux/platform_device.h>
++#include <linux/interrupt.h>
++#include <linux/irq.h>
++#include <linux/gpio.h>
++
++#include "gnss_prj.h"
++#include "gnss_utils.h"
++
++
++void gif_configure_irq(struct gnss_irq *irq, unsigned int num, const char *name,
++	unsigned long flags)
++{
++	spin_lock_init(&irq->lock);
++	irq->num = num;
++	strncpy(irq->name, name, sizeof(irq->name) - 1);
++	irq->flags = flags;
++	gif_info("name:%s num:%d flags:0x%08lX\n", name, num, flags);
++}
++
++int gif_request_irq(struct gnss_irq *irq, irq_handler_t isr, void *data)
++{
++	int ret;
++
++	ret = request_irq(irq->num, isr, irq->flags, irq->name, data);
++	if (ret) {
++		gif_err("%s: ERR! request_irq fail (%d)\n", irq->name, ret);
++		return ret;
++	}
++
++	irq->active = irq->flags & IRQF_NO_AUTOEN ? false : true;
++	irq->registered = true;
++
++	gif_info("%s(#%d) handler registered (flags:0x%08lX)\n",
++		irq->name, irq->num, irq->flags);
++
++	return 0;
++}
++
++void gif_enable_irq(struct gnss_irq *irq)
++{
++	unsigned long flags;
++
++	spin_lock_irqsave(&irq->lock, flags);
++
++	if (irq->active)
++		goto exit;
++
++	enable_irq(irq->num);
++
++	irq->active = true;
++
++exit:
++	spin_unlock_irqrestore(&irq->lock, flags);
++}
++
++void gif_disable_irq_nosync(struct gnss_irq *irq)
++{
++	unsigned long flags;
++
++	if (irq->registered == false)
++		return;
++
++	spin_lock_irqsave(&irq->lock, flags);
++
++	if (!irq->active)
++		goto exit;
++	disable_irq_nosync(irq->num);
++	irq->active = false;
++
++exit:
++	spin_unlock_irqrestore(&irq->lock, flags);
++}
++
++void gif_disable_irq_sync(struct gnss_irq *irq)
++{
++	if (irq->registered == false)
++		return;
++
++	spin_lock(&irq->lock);
++
++	if (!irq->active) {
++		spin_unlock(&irq->lock);
++		gif_debug("%s(#%d) is not active <%ps>\n",
++				irq->name, irq->num, CALLER);
++		return;
++	}
++
++	spin_unlock(&irq->lock);
++
++	disable_irq(irq->num);
++
++	spin_lock(&irq->lock);
++	irq->active = false;
++	spin_unlock(&irq->lock);
++
++	gif_debug("%s(#%d) is disabled <%ps>\n",
++			irq->name, irq->num, CALLER);
++}
+diff --git a/drivers/soc/google/gnssif_spi/gnss_utils.h b/drivers/soc/google/gnssif_spi/gnss_utils.h
+new file mode 100644
+index 000000000..9125e6a41
+--- /dev/null
++++ b/drivers/soc/google/gnssif_spi/gnss_utils.h
+@@ -0,0 +1,84 @@
++/* SPDX-License-Identifier: GPL-2.0 */
++/*
++ * Copyright (C) 2022, Samsung Electronics.
++ *
++ */
++
++#ifndef __GNSS_UTILS_H__
++#define __GNSS_UTILS_H__
++
++#include "gnss_prj.h"
++
++static inline struct wakeup_source *gnssif_wlock_register(struct device *dev,
++		const char *name)
++{
++	struct wakeup_source *ws = NULL;
++
++	ws = wakeup_source_register(dev, name);
++	if (ws == NULL) {
++		gif_err("%s: wakelock register fail\n", name);
++		return NULL;
++	}
++
++	return ws;
++}
++
++static inline void gnssif_wlock_unregister(struct wakeup_source *ws)
++{
++	if (ws == NULL) {
++		gif_err("wakelock unregister fail\n");
++		return;
++	}
++
++	wakeup_source_unregister(ws);
++}
++
++static inline void gnssif_wlock_lock(struct wakeup_source *ws)
++{
++	if (ws == NULL) {
++		gif_err("wakelock fail\n");
++		return;
++	}
++
++	__pm_stay_awake(ws);
++}
++
++static inline void gnssif_wlock_lock_timeout(struct wakeup_source *ws, long timeout)
++{
++	if (ws == NULL) {
++		gif_err("wakelock timeout fail\n");
++		return;
++	}
++
++	__pm_wakeup_event(ws, jiffies_to_msecs(timeout));
++}
++
++static inline void gnssif_wlock_unlock(struct wakeup_source *ws)
++{
++	if (ws == NULL) {
++		gif_err("wake unlock fail\n");
++		return;
++	}
++
++	__pm_relax(ws);
++}
++
++static inline int gnssif_wlock_active(struct wakeup_source *ws)
++{
++	if (ws == NULL) {
++		gif_err("wakelock active fail\n");
++		return 0;
++	}
++
++	return ws->active;
++}
++
++/* gnss irq */
++void gif_configure_irq(struct gnss_irq *irq, unsigned int num, const char *name,
++			unsigned long flags);
++int gif_request_irq(struct gnss_irq *irq, irq_handler_t isr, void *data);
++void gif_enable_irq(struct gnss_irq *irq);
++void gif_disable_irq_nosync(struct gnss_irq *irq);
++void gif_disable_irq_sync(struct gnss_irq *irq);
++
++#endif /* end of __GNSS_UTILS_H__ */
+diff --git a/drivers/soc/google/gnssif_spi/include/gnss.h b/drivers/soc/google/gnssif_spi/include/gnss.h
+new file mode 100644
+index 000000000..e7d4cc421
+--- /dev/null
++++ b/drivers/soc/google/gnssif_spi/include/gnss.h
+@@ -0,0 +1,95 @@
++/* SPDX-License-Identifier: GPL-2.0 */
++/*
++ * Copyright (C) 2022, Samsung Electronics.
++ *
++ */
++
++#ifndef __GNSS_IF_H__
++#define __GNSS_IF_H__
++
++#include <linux/platform_device.h>
++#include <linux/miscdevice.h>
++
++#define MAX_NAME_LEN		64
++
++struct gnss_pdata {
++	char	*name;	/* device name (ex. KEPLER) */
++	char	*node_name;	/* device node (ex. gnss_ipc) */
++
++	int	irq_gnss2ap_spi;
++	int	irq_gnss2ap_wdt;
++
++	struct gnss_io_t	*iodev;
++	struct gnss_link_dev	*link_dev;
++
++};
++
++struct gnss_irq {
++		spinlock_t lock;
++		unsigned int num;
++		char name[MAX_NAME_LEN];
++		unsigned long flags;
++		bool active;
++		bool registered;
++};
++
++struct gnss_gpio {
++	unsigned int num;
++	const char *label;
++};
++
++#define gif_dt_read_enum(np, prop, dest) \
++		do { \
++				u32 val; \
++				if (of_property_read_u32(np, prop, &val)) \
++						return -EINVAL; \
++				dest = (__typeof__(dest))(val); \
++		} while (0)
++
++#define gif_dt_read_bool(np, prop, dest) \
++		do { \
++				u32 val; \
++				if (of_property_read_u32(np, prop, &val)) \
++						return -EINVAL; \
++				dest = val ? true : false; \
++		} while (0)
++
++#define gif_dt_read_string(np, prop, dest) \
++		do { \
++				if (of_property_read_string(np, prop, \
++								(const char **)&dest)) \
++				return -EINVAL; \
++		} while (0)
++
++#define gif_dt_read_u32(np, prop, dest) \
++		do { \
++				u32 val; \
++				if (of_property_read_u32(np, prop, &val)) \
++						return -EINVAL; \
++								dest = val; \
++		} while (0)
++#define gif_dt_read_u32_array(np, prop, dest, sz) \
++		do { \
++				if (of_property_read_u32_array(np, prop, dest, (sz))) \
++						return -EINVAL; \
++		} while (0)
++
++#define LOG_TAG "gif: "
++#define CALLEE  (__func__)
++#define CALLER  (__builtin_return_address(0))
++
++#define gif_err_limited(fmt, ...) \
++		 printk_ratelimited(KERN_ERR LOG_TAG "%s: " pr_fmt(fmt), __func__, ##__VA_ARGS__)
++#define gif_err(fmt, ...) \
++		pr_err(LOG_TAG "%s: " pr_fmt(fmt), __func__, ##__VA_ARGS__)
++#define gif_debug(fmt, ...) \
++		pr_debug(LOG_TAG "%s: " pr_fmt(fmt), __func__, ##__VA_ARGS__)
++#define gif_info(fmt, ...) \
++		pr_info(LOG_TAG "%s: " pr_fmt(fmt), __func__, ##__VA_ARGS__)
++#define gif_trace(fmt, ...) \
++		printk(KERN_DEBUG "gif: %s: %d: called(%pF): " fmt, \
++				__func__, __LINE__, __builtin_return_address(0), ##__VA_ARGS__)
++
++int gnss_set_coredump(const char *buf, int buf_len, const char *info);
++
++#endif /* __GNSS_IF_H__ */

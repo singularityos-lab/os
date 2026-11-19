@@ -1,0 +1,34 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Sun, 11 Oct 2026 22:39:17 -0400
+Subject: [PATCH] dt-bindings: net: wireless: brcm,bcm4329-fmac: allow a
+ restricted DMA pool
+
+A PCIe Wi-Fi chip runs firmware that parses untrusted frames. Platforms
+that confine the chip's DMA to one region (with an IOMMU-less firewall
+such as the Google gs201 S2MPU) describe that region as a
+restricted-dma-pool and point the device node at it, as is already done
+for other PCIe Wi-Fi bindings.
+
+Assisted-by: LLM
+Signed-off-by: Derek Ross <derekross@gmail.com>
+---
+ .../devicetree/bindings/net/wireless/brcm,bcm4329-fmac.yaml  | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/Documentation/devicetree/bindings/net/wireless/brcm,bcm4329-fmac.yaml b/Documentation/devicetree/bindings/net/wireless/brcm,bcm4329-fmac.yaml
+index 38e9a0444..858963108 100644
+--- a/Documentation/devicetree/bindings/net/wireless/brcm,bcm4329-fmac.yaml
++++ b/Documentation/devicetree/bindings/net/wireless/brcm,bcm4329-fmac.yaml
+@@ -125,6 +125,11 @@ properties:
+       NVRAM. This would normally be filled in by the bootloader from platform
+       configuration data.
+ 
++  memory-region:
++    maxItems: 1
++    description: A restricted-dma-pool region that all DMA of a PCIe device
++      bounces through, for platforms that limit the device's DMA to it.
++
+   clocks:
+     items:
+       - description: External Low Power Clock input (32.768KHz)

@@ -1,0 +1,26 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Alejandro Garcia <skipper.pelygro@gmail.com>
+Date: Tue, 27 Oct 2026 21:02:25 -0700
+Subject: [PATCH] dt-bindings: arm: google: Add Pixel 7 (panther)
+
+The Pixel 7 (panther) is a gs201 (Tensor G2) board like the Pixel 7 Pro,
+Pixel Fold and Pixel 7a. Add its compatible to the gs201 board list.
+
+Assisted-by: Claude Opus 5.5
+Signed-off-by: Alejandro Garcia <skipper.pelygro@gmail.com>
+---
+ Documentation/devicetree/bindings/arm/google.yaml | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/Documentation/devicetree/bindings/arm/google.yaml b/Documentation/devicetree/bindings/arm/google.yaml
+index d7b7eed97..a05273275 100644
+--- a/Documentation/devicetree/bindings/arm/google.yaml
++++ b/Documentation/devicetree/bindings/arm/google.yaml
+@@ -46,6 +46,7 @@ properties:
+               - google,gs201-cheetah
+               - google,gs201-felix
+               - google,gs201-lynx
++              - google,gs201-panther
+           - const: google,gs201
+       - description: Google Tensor G3 (zuma) boards
+         items:

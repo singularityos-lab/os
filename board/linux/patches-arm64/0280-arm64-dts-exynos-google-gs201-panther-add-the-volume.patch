@@ -1,0 +1,80 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Alejandro Garcia <skipper.pelygro@gmail.com>
+Date: Tue, 27 Oct 2026 21:03:51 -0700
+Subject: [PATCH] arm64: dts: exynos: google: gs201-panther: add the volume and
+ power keys
+
+Add gpio-keys for volume down (gpa10-1), volume up (gpa8-5) and power
+(gpa10-0, the S2MPG12 PWRONB line, also wired to the SoC). The node is
+cheetah's, with the same pins and pin states, which Google's
+gs201-common.dtsi gives every gs201 board. It is added enabled, as the
+Pixel Fold's volume keys were, since it passed on this phone.
+
+Tested on a Pixel 7 from slot B: each key reports press and release on
+the gpio-keys input device, and the power key wakes the screen.
+
+Assisted-by: Claude Opus 5.5
+Signed-off-by: Alejandro Garcia <skipper.pelygro@gmail.com>
+---
+ .../boot/dts/exynos/google/gs201-panther.dts  | 37 ++++++++++++++++++-
+ 1 file changed, 35 insertions(+), 2 deletions(-)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/gs201-panther.dts b/arch/arm64/boot/dts/exynos/google/gs201-panther.dts
+index c57880a45..6023ee8b5 100644
+--- a/arch/arm64/boot/dts/exynos/google/gs201-panther.dts
++++ b/arch/arm64/boot/dts/exynos/google/gs201-panther.dts
+@@ -3,12 +3,13 @@
+  * Google Pixel 7 (panther) - first-light board file.
+  *
+  * USB (NCM + ACM), the cluster watchdogs from gs201.dtsi, a
+- * simple-framebuffer on the buffer ABL leaves DPP0 scanning out, and UFS.
+- * The panel driver, touch and the GPU stay disabled.
++ * simple-framebuffer on the buffer ABL leaves DPP0 scanning out, UFS and
++ * the three keys. The panel driver, touch and the GPU stay disabled.
+  */
+ 
+ /dts-v1/;
+ 
++#include <dt-bindings/input/input.h>
+ #include "gs201.dtsi"
+ 
+ / {
+@@ -45,6 +46,38 @@ framebuffer0: framebuffer@fac00000 {
+ 		};
+ 	};
+ 
++	/* The same pins as cheetah's (Google's gs201-common.dtsi). */
++	gpio-keys {
++		compatible = "gpio-keys";
++		pinctrl-0 = <&key_voldown>, <&key_volup>, <&key_power>;
++		pinctrl-names = "default";
++
++		button-vol-down {
++			label = "KEY_VOLUMEDOWN";
++			linux,code = <KEY_VOLUMEDOWN>;
++			gpios = <&gpa10 1 GPIO_ACTIVE_LOW>;
++			wakeup-source;
++		};
++
++		button-vol-up {
++			label = "KEY_VOLUMEUP";
++			linux,code = <KEY_VOLUMEUP>;
++			gpios = <&gpa8 5 GPIO_ACTIVE_LOW>;
++			wakeup-source;
++		};
++
++		/*
++		 * PMIC_PWRON_OD_L: the S2MPG12 PWRONB line, also wired to the
++		 * SoC. The PMIC's own long-press reset is unaffected.
++		 */
++		button-power {
++			label = "KEY_POWER";
++			linux,code = <KEY_POWER>;
++			gpios = <&gpa10 0 GPIO_ACTIVE_LOW>;
++			wakeup-source;
++		};
++	};
++
+ 	/*
+ 	 * UFS VCC. Stock drives it from GPIO gpp0-1 (boot-on), as on
+ 	 * cheetah; there is no gs201 GPIO driver yet, so describe it as

@@ -1,0 +1,140 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Brett-Michael Green <brett@bmgvisualtech.com>
+Date: Sat, 31 Oct 2026 11:45:10 -0400
+Subject: [PATCH] wifi: brcmfmac: scan interface versions 3 and 4
+
+"scan_ver" reports the scan interface's major version. Version 3 keeps
+the version 2 layout with its pad byte used as ssid_type; version 4
+adds scan_type_ext after scan_type. The BCM4398's firmware reports 3 and
+rejects version 2 requests (brcmf_run_escan: error -52).
+
+Read the major version, and send version 3 or 4 escan parameters when
+the firmware asks for them, as Broadcom's driver does
+(wl_cfgscan.c, scan_params_ver).
+
+Assisted-by: LLM
+Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
+---
+ .../broadcom/brcm80211/brcmfmac/cfg80211.c    | 31 ++++++++++++++++++-
+ .../broadcom/brcm80211/brcmfmac/feature.c     | 16 ++++++++++
+ .../broadcom/brcm80211/brcmfmac/feature.h     |  6 +++-
+ .../broadcom/brcm80211/brcmfmac/fwil_types.h  |  6 ++++
+ 4 files changed, 57 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/cfg80211.c b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/cfg80211.c
+index 473b49cc1..07df3beea 100644
+--- a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/cfg80211.c
++++ b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/cfg80211.c
+@@ -1469,7 +1469,36 @@ brcmf_run_escan(struct brcmf_cfg80211_info *cfg, struct brcmf_if *ifp,
+ 
+ 	params->version = cpu_to_le32(BRCMF_ESCAN_REQ_VERSION_V2);
+ 
+-	if (!brcmf_feat_is_enabled(ifp, BRCMF_FEAT_SCAN_V2)) {
++	if (brcmf_feat_is_enabled(ifp, BRCMF_FEAT_SCAN_V3)) {
++		/* The v2 layout; its pad byte is ssid_type, 0 for the default */
++		params->version = cpu_to_le32(BRCMF_ESCAN_REQ_VERSION_V3);
++		params->params_v2_le.version =
++			cpu_to_le16(BRCMF_SCAN_PARAMS_VERSION_V3);
++	} else if (brcmf_feat_is_enabled(ifp, BRCMF_FEAT_SCAN_V4)) {
++		struct brcmf_escan_params_le *params_v4;
++		u8 *v2 = (u8 *)&params->params_v2_le;
++		u16 len = le16_to_cpu(params->params_v2_le.length);
++		u8 *v4;
++
++		params_size += sizeof(__le32);
++		params_v4 = kzalloc(params_size, GFP_KERNEL);
++		if (!params_v4) {
++			err = -ENOMEM;
++			goto exit_params;
++		}
++		params_v4->version = cpu_to_le32(BRCMF_ESCAN_REQ_VERSION_V4);
++		v4 = (u8 *)&params_v4->params_v2_le;
++		memcpy(v4, v2, BRCMF_SCAN_PARAMS_V4_EXT_OFFSET);
++		memcpy(v4 + BRCMF_SCAN_PARAMS_V4_EXT_OFFSET + sizeof(__le32),
++		       v2 + BRCMF_SCAN_PARAMS_V4_EXT_OFFSET,
++		       len - BRCMF_SCAN_PARAMS_V4_EXT_OFFSET);
++		params_v4->params_v2_le.version =
++			cpu_to_le16(BRCMF_SCAN_PARAMS_VERSION_V4);
++		params_v4->params_v2_le.length =
++			cpu_to_le16(len + sizeof(__le32));
++		kfree(params);
++		params = params_v4;
++	} else if (!brcmf_feat_is_enabled(ifp, BRCMF_FEAT_SCAN_V2)) {
+ 		struct brcmf_escan_params_le *params_v1;
+ 
+ 		params_size -= BRCMF_SCAN_PARAMS_V2_FIXED_SIZE;
+diff --git a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/feature.c b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/feature.c
+index 145b57639..afac815ca 100644
+--- a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/feature.c
++++ b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/feature.c
+@@ -356,6 +356,22 @@ void brcmf_feat_attach(struct brcmf_pub *drvr)
+ 
+ 	brcmf_feat_iovar_int_get(ifp, BRCMF_FEAT_FWSUP, "sup_wpa");
+ 	brcmf_feat_iovar_int_get(ifp, BRCMF_FEAT_SCAN_V2, "scan_ver");
++	if (brcmf_feat_is_enabled(ifp, BRCMF_FEAT_SCAN_V2)) {
++		struct {
++			__le16 version;
++			__le16 length;
++			__le16 major;
++		} scan_ver = {};
++
++		err = brcmf_fil_iovar_data_get(ifp, "scan_ver", &scan_ver,
++					       sizeof(scan_ver));
++		brcmf_dbg(INFO, "scan interface version %u\n",
++			  le16_to_cpu(scan_ver.major));
++		if (!err && le16_to_cpu(scan_ver.major) == 3)
++			ifp->drvr->feat_flags |= BIT(BRCMF_FEAT_SCAN_V3);
++		else if (!err && le16_to_cpu(scan_ver.major) >= 4)
++			ifp->drvr->feat_flags |= BIT(BRCMF_FEAT_SCAN_V4);
++	}
+ 
+ 	brcmf_feat_wlc_version_overrides(drvr);
+ 	brcmf_feat_firmware_overrides(drvr);
+diff --git a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/feature.h b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/feature.h
+index 8ebd23116..be20a6336 100644
+--- a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/feature.h
++++ b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/feature.h
+@@ -32,6 +32,8 @@
+  * DUMP_OBSS: Firmware has capable to dump obss info to support ACS
+  * SCAN_V2: Version 2 scan params
+  * SAE_EXT: SAE authentication handled by user-space supplicant
++ * SCAN_V3: Version 3 scan params (the v2 layout, with the pad as ssid_type)
++ * SCAN_V4: Version 4 scan params (scan_type_ext after scan_type)
+  */
+ #define BRCMF_FEAT_LIST \
+ 	BRCMF_FEAT_DEF(MBSS) \
+@@ -61,7 +63,9 @@
+ 	BRCMF_FEAT_DEF(PMKID_V3) \
+ 	BRCMF_FEAT_DEF(SAE_EXT) \
+ 	BRCMF_FEAT_DEF(JOIN_V1) \
+-	BRCMF_FEAT_DEF(HOST_SFHLLC)
++	BRCMF_FEAT_DEF(HOST_SFHLLC) \
++	BRCMF_FEAT_DEF(SCAN_V3) \
++	BRCMF_FEAT_DEF(SCAN_V4)
+ 
+ /*
+  * Quirks:
+diff --git a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/fwil_types.h b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/fwil_types.h
+index f346f7c71..a018dfa7a 100644
+--- a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/fwil_types.h
++++ b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/fwil_types.h
+@@ -49,6 +49,10 @@
+ /* size of brcmf_scan_params not including variable length array */
+ #define BRCMF_SCAN_PARAMS_FIXED_SIZE	64
+ #define BRCMF_SCAN_PARAMS_V2_FIXED_SIZE	72
++#define BRCMF_SCAN_PARAMS_VERSION_V3	3
++#define BRCMF_SCAN_PARAMS_VERSION_V4	4
++/* v4: scan_type_ext follows scan_type, at the v2 offset of nprobes */
++#define BRCMF_SCAN_PARAMS_V4_EXT_OFFSET	52
+ 
+ /* version of brcmf_scan_params structure */
+ #define BRCMF_SCAN_PARAMS_VERSION_V2	2
+@@ -72,6 +76,8 @@
+ #define DOT11_BSSTYPE_ANY		2
+ #define BRCMF_ESCAN_REQ_VERSION		1
+ #define BRCMF_ESCAN_REQ_VERSION_V2	2
++#define BRCMF_ESCAN_REQ_VERSION_V3	3
++#define BRCMF_ESCAN_REQ_VERSION_V4	4
+ 
+ #define BRCMF_MAXRATES_IN_SET		16	/* max # of rates in rateset */
+ 

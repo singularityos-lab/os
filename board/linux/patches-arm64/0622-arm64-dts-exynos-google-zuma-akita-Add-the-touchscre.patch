@@ -1,0 +1,86 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: DarekM <149845949+aninmucek@users.noreply.github.com>
+Date: Wed, 11 Nov 2026 00:42:50 +0000
+Subject: [PATCH] arm64: dts: exynos: google: zuma-akita: Add the touchscreen
+
+The Pixel 8a's touchscreen is a Goodix GT9895 (Berlin) on USI2_HSI0's
+SPI, the bus, interrupt and reset lines of the Pixel 8 Pro's: 10 MHz,
+interrupt on gpn0-0 (falling edge, as stock's goodix,irq-flags = 2),
+reset on gpp21-2 (Google's zuma-akita-touch.dtsi; the stock phone's
+/proc/interrupts lists goodix_ts on gpn0 0 Edge). Both of stock's
+firmware files, goodix_firmware_ak3a.bin and goodix_firmware_ak3b.bin,
+carry "9895" in their Berlin header, so it takes the gt9895 match data
+(14-byte contact records), as the Pixel 7a does. The driver runs the
+firmware already on the chip and loads none.
+
+The supplies are the LDO4M and LDO25M described with the PMIC, at
+stock's 3.0 V and 1.8 V.
+
+Tested on a Pixel 8a from slot B (7.3.0-rc6), in a later boot than the
+one that first set the voltage: with the driver held back, the rails
+read 3.0 V and 1.8 V and off; loading goodix_berlin_spi enabled them
+and registered "Goodix Berlin Capacitive TouchScreen". Touches in the
+four corners came in at (110,121), (1004,118), (118,2311) and
+(971,2298), so no axis swap or inversion is needed, and 842 interrupts
+gave no checksum errors. In the next boots the driver loads by itself,
+and the PIN pad, the shell and the on-screen keyboard work by touch.
+
+Assisted-by: Claude Opus 5.5
+Signed-off-by: DarekM <149845949+aninmucek@users.noreply.github.com>
+---
+ .../boot/dts/exynos/google/zuma-akita.dts     | 31 +++++++++++++++++++
+ 1 file changed, 31 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/zuma-akita.dts b/arch/arm64/boot/dts/exynos/google/zuma-akita.dts
+index c7c1b3358..77cd6a350 100644
+--- a/arch/arm64/boot/dts/exynos/google/zuma-akita.dts
++++ b/arch/arm64/boot/dts/exynos/google/zuma-akita.dts
+@@ -7,6 +7,7 @@
+ 
+ #include <dt-bindings/gpio/gpio.h>
+ #include <dt-bindings/input/input.h>
++#include <dt-bindings/interrupt-controller/irq.h>
+ #include "zuma.dtsi"
+ 
+ / {
+@@ -146,6 +147,32 @@ touch_vdd: ldo25m {
+ 	};
+ };
+ 
++&spi20 {
++	status = "okay";
++
++	/*
++	 * Goodix GT9895 (Berlin), the Pixel 7a's controller: both of stock's
++	 * firmware files (goodix_firmware_ak3a.bin and _ak3b.bin) say "9895".
++	 * Wired as zuma-husky's touchscreen: 10 MHz, interrupt on gpn0-0
++	 * (falling edge, stock's goodix,irq-flags = 2), reset on gpp21-2.
++	 * avdd is LDO4M at 3.0 V and vddio LDO25M at 1.8 V, as on stock.
++	 */
++	touchscreen@0 {
++		compatible = "goodix,gt9895";
++		reg = <0>;
++		spi-max-frequency = <10000000>;
++		interrupt-parent = <&gpn0>;
++		interrupts = <0 IRQ_TYPE_EDGE_FALLING>;
++		reset-gpios = <&gpp21 2 GPIO_ACTIVE_LOW>;
++		avdd-supply = <&touch_avdd>;
++		vddio-supply = <&touch_vdd>;
++		touchscreen-size-x = <1080>;
++		touchscreen-size-y = <2400>;
++		pinctrl-names = "default";
++		pinctrl-0 = <&ts_irq &ts_reset>;
++	};
++};
++
+ /*
+  * Behind the init's storage guard (only slot B's boot images and userdata
+  * writable), which sets every partition read-only before anything mounts
+@@ -171,3 +198,7 @@ &usb_hsphy {
+ &usbdrd_phy {
+ 	status = "okay";
+ };
++
++&usi2_hsi0 {
++	status = "okay";
++};

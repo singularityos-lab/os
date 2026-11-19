@@ -1,0 +1,35 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Tue, 13 Oct 2026 23:23:39 -0400
+Subject: [PATCH] soc: google: cpif: s51xx: don't release regions it never
+ requested
+
+s51xx_pcie_remove() calls pci_release_regions(), but the driver never
+requests them (it maps the doorbell itself, and BARs 2-5 are given back
+to the PCI core at probe). Every unbind, and so every shutdown with the
+modem bound, logs
+
+  resource: Trying to free nonexistent resource <0x0000000040000000-0x00000000400fffff>
+
+right after "s51xx PCIe Remove!!!" (MODEM-PLAN M4.1j). Stock's driver
+has the same unpaired call. Drop it.
+
+Assisted-by: LLM
+Signed-off-by: Derek Ross <derekross@gmail.com>
+---
+ drivers/soc/google/cpif/s51xx_pcie.c | 2 --
+ 1 file changed, 2 deletions(-)
+
+diff --git a/drivers/soc/google/cpif/s51xx_pcie.c b/drivers/soc/google/cpif/s51xx_pcie.c
+index 013d4f220..8608a63e4 100644
+--- a/drivers/soc/google/cpif/s51xx_pcie.c
++++ b/drivers/soc/google/cpif/s51xx_pcie.c
+@@ -577,8 +577,6 @@ static void s51xx_pcie_remove(struct pci_dev *pdev)
+ 
+ 	if (s51xx_pcie->pci_saved_configs)
+ 		kfree(s51xx_pcie->pci_saved_configs);
+-
+-	pci_release_regions(pdev);
+ }
+ 
+ /*

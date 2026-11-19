@@ -1,0 +1,253 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?=C3=81ngel=20Ren=C3=A9?=
+ <17342133+angelrenefm@users.noreply.github.com>
+Date: Sat, 14 Nov 2026 19:27:21 +0100
+Subject: [PATCH] media: s5p-mfc: single-buffer NV12 encoder input on MFC v15
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Offer V4L2_PIX_FMT_NV12 in one buffer as the encoder input on MFC v15,
+laid out as the decoder's NV12 output: 64 byte aligned stride, chroma
+right after bytesperline * height, and room after it for the rows the
+MFC reads past the chroma and its 256 byte padding.
+
+NV12M and NV21M are not offered on v15. GStreamer always prefers the
+non-contiguous variant and then places the chroma at stride * height,
+ignoring the padded luma sizeimage, so it writes past the luma buffer.
+
+Assisted-by: LLM
+Signed-off-by: Ángel René <17342133+angelrenefm@users.noreply.github.com>
+---
+ .../platform/samsung/s5p-mfc/s5p_mfc_enc.c    | 81 ++++++++++++++-----
+ .../platform/samsung/s5p-mfc/s5p_mfc_opr_v6.c | 21 ++++-
+ 2 files changed, 82 insertions(+), 20 deletions(-)
+
+diff --git a/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_enc.c b/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_enc.c
+index 57e846bd7..9b5d8449a 100644
+--- a/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_enc.c
++++ b/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_enc.c
+@@ -50,14 +50,14 @@ static const struct s5p_mfc_fmt formats[] = {
+ 		.codec_mode	= S5P_MFC_CODEC_NONE,
+ 		.type		= MFC_FMT_RAW,
+ 		.num_planes	= 2,
+-		.versions	= MFC_V5PLUS_BITS,
++		.versions	= MFC_V5PLUS_BITS & ~MFC_V15_BIT,
+ 	},
+ 	{
+ 		.fourcc		= V4L2_PIX_FMT_NV21M,
+ 		.codec_mode	= S5P_MFC_CODEC_NONE,
+ 		.type		= MFC_FMT_RAW,
+ 		.num_planes	= 2,
+-		.versions	= MFC_V6PLUS_BITS,
++		.versions	= MFC_V6PLUS_BITS & ~MFC_V15_BIT,
+ 	},
+ 	{
+ 		.fourcc         = V4L2_PIX_FMT_YUV420M,
+@@ -73,6 +73,13 @@ static const struct s5p_mfc_fmt formats[] = {
+ 		.num_planes     = 3,
+ 		.versions       = MFC_V12_BIT,
+ 	},
++	{
++		.fourcc		= V4L2_PIX_FMT_NV12,
++		.codec_mode	= S5P_MFC_CODEC_NONE,
++		.type		= MFC_FMT_RAW,
++		.num_planes	= 1,
++		.versions	= MFC_V15_BIT,
++	},
+ 	{
+ 		.fourcc		= V4L2_PIX_FMT_H264,
+ 		.codec_mode	= S5P_MFC_CODEC_H264_ENC,
+@@ -1198,6 +1205,30 @@ static int enc_post_seq_start(struct s5p_mfc_ctx *ctx)
+ 	return 0;
+ }
+ 
++/*
++ * Bytes of a one-buffer NV12 source: both planes, then room for the rows
++ * the MFC reads past the chroma (its height rounded up to 16) and the
++ * 256 bytes it wants after a plane.
++ */
++static unsigned int enc_nv12_size(struct s5p_mfc_ctx *ctx)
++{
++	return ctx->luma_size + ctx->chroma_size + 8 * ctx->stride[1] +
++	       MFC_CHROMA_PAD_BYTES_V12;
++}
++
++/*
++ * Source plane addresses. NV12 in one buffer has its chroma right after
++ * the luma's bytesperline * height.
++ */
++static unsigned long enc_src_addr(struct s5p_mfc_ctx *ctx,
++				  struct vb2_buffer *vb, unsigned int plane)
++{
++	if (ctx->src_fmt->num_planes == 1)
++		return vb2_dma_contig_plane_dma_addr(vb, 0) +
++		       (plane ? ctx->luma_size : 0);
++	return vb2_dma_contig_plane_dma_addr(vb, plane);
++}
++
+ static int enc_pre_frame_start(struct s5p_mfc_ctx *ctx)
+ {
+ 	struct s5p_mfc_dev *dev = ctx->dev;
+@@ -1207,8 +1238,8 @@ static int enc_pre_frame_start(struct s5p_mfc_ctx *ctx)
+ 	unsigned int dst_size;
+ 
+ 	src_mb = list_entry(ctx->src_queue.next, struct s5p_mfc_buf, list);
+-	src_y_addr = vb2_dma_contig_plane_dma_addr(&src_mb->b->vb2_buf, 0);
+-	src_c_addr = vb2_dma_contig_plane_dma_addr(&src_mb->b->vb2_buf, 1);
++	src_y_addr = enc_src_addr(ctx, &src_mb->b->vb2_buf, 0);
++	src_c_addr = enc_src_addr(ctx, &src_mb->b->vb2_buf, 1);
+ 	if (ctx->src_fmt->fourcc == V4L2_PIX_FMT_YUV420M || ctx->src_fmt->fourcc ==
+ 			V4L2_PIX_FMT_YVU420M)
+ 		src_c_1_addr =
+@@ -1248,10 +1279,8 @@ static int enc_post_frame_start(struct s5p_mfc_ctx *ctx)
+ 		s5p_mfc_hw_call(dev->mfc_ops, get_enc_frame_buffer, ctx,
+ 				&enc_y_addr, &enc_c_addr, &enc_c_1_addr);
+ 		list_for_each_entry(mb_entry, &ctx->src_queue, list) {
+-			mb_y_addr = vb2_dma_contig_plane_dma_addr(
+-					&mb_entry->b->vb2_buf, 0);
+-			mb_c_addr = vb2_dma_contig_plane_dma_addr(
+-					&mb_entry->b->vb2_buf, 1);
++			mb_y_addr = enc_src_addr(ctx, &mb_entry->b->vb2_buf, 0);
++			mb_c_addr = enc_src_addr(ctx, &mb_entry->b->vb2_buf, 1);
+ 			if (ctx->src_fmt->fourcc ==
+ 					V4L2_PIX_FMT_YUV420M ||
+ 					ctx->src_fmt->fourcc ==
+@@ -1271,10 +1300,8 @@ static int enc_post_frame_start(struct s5p_mfc_ctx *ctx)
+ 			}
+ 		}
+ 		list_for_each_entry(mb_entry, &ctx->ref_queue, list) {
+-			mb_y_addr = vb2_dma_contig_plane_dma_addr(
+-					&mb_entry->b->vb2_buf, 0);
+-			mb_c_addr = vb2_dma_contig_plane_dma_addr(
+-					&mb_entry->b->vb2_buf, 1);
++			mb_y_addr = enc_src_addr(ctx, &mb_entry->b->vb2_buf, 0);
++			mb_c_addr = enc_src_addr(ctx, &mb_entry->b->vb2_buf, 1);
+ 			if (ctx->src_fmt->fourcc ==
+ 					V4L2_PIX_FMT_YUV420M ||
+ 					ctx->src_fmt->fourcc == V4L2_PIX_FMT_YVU420M)
+@@ -1426,6 +1453,8 @@ static int vidioc_g_fmt(struct file *file, void *priv, struct v4l2_format *f)
+ 			pix_fmt_mp->plane_fmt[2].bytesperline = ctx->stride[2];
+ 			pix_fmt_mp->plane_fmt[2].sizeimage = ctx->chroma_size_1;
+ 		}
++		if (ctx->src_fmt->num_planes == 1)
++			pix_fmt_mp->plane_fmt[0].sizeimage = enc_nv12_size(ctx);
+ 	} else {
+ 		mfc_err("invalid buf type\n");
+ 		return -EINVAL;
+@@ -1470,6 +1499,15 @@ static int vidioc_try_fmt(struct file *file, void *priv, struct v4l2_format *f)
+ 					->height, 4, 1080, 1, 0);
+ 		pix_fmt_mp->field = V4L2_FIELD_NONE;
+ 		pix_fmt_mp->num_planes = fmt->num_planes;
++		/* Same layout as enc_calc_src_size() and enc_nv12_size() */
++		if (fmt->num_planes == 1) {
++			unsigned int stride = ALIGN(pix_fmt_mp->width, 64);
++
++			pix_fmt_mp->plane_fmt[0].bytesperline = stride;
++			pix_fmt_mp->plane_fmt[0].sizeimage =
++				stride * pix_fmt_mp->height * 3 / 2 +
++				8 * stride + MFC_CHROMA_PAD_BYTES_V12;
++		}
+ 	} else {
+ 		mfc_err("invalid buf type\n");
+ 		return -EINVAL;
+@@ -1527,6 +1565,10 @@ static int vidioc_s_fmt(struct file *file, void *priv, struct v4l2_format *f)
+ 			pix_fmt_mp->plane_fmt[2].bytesperline = ctx->stride[2];
+ 			pix_fmt_mp->plane_fmt[2].sizeimage = ctx->chroma_size_1;
+ 		}
++		if (ctx->src_fmt->num_planes == 1) {
++			pix_fmt_mp->num_planes = 1;
++			pix_fmt_mp->plane_fmt[0].sizeimage = enc_nv12_size(ctx);
++		}
+ 
+ 		ctx->src_bufs_cnt = 0;
+ 		ctx->output_state = QUEUE_FREE;
+@@ -2465,6 +2507,8 @@ static int s5p_mfc_queue_setup(struct vb2_queue *vq,
+ 
+ 		psize[0] = ctx->luma_size;
+ 		psize[1] = ctx->chroma_size;
++		if (ctx->src_fmt && ctx->src_fmt->num_planes == 1)
++			psize[0] = enc_nv12_size(ctx);
+ 		if (ctx->src_fmt && (ctx->src_fmt->fourcc ==
+ 					V4L2_PIX_FMT_YUV420M || ctx->src_fmt->fourcc ==
+ 					V4L2_PIX_FMT_YVU420M))
+@@ -2511,10 +2555,8 @@ static int s5p_mfc_buf_init(struct vb2_buffer *vb)
+ 			return ret;
+ 		i = vb->index;
+ 		ctx->src_bufs[i].b = vbuf;
+-		ctx->src_bufs[i].cookie.raw.luma =
+-					vb2_dma_contig_plane_dma_addr(vb, 0);
+-		ctx->src_bufs[i].cookie.raw.chroma =
+-					vb2_dma_contig_plane_dma_addr(vb, 1);
++		ctx->src_bufs[i].cookie.raw.luma = enc_src_addr(ctx, vb, 0);
++		ctx->src_bufs[i].cookie.raw.chroma = enc_src_addr(ctx, vb, 1);
+ 		if (ctx->src_fmt->fourcc ==
+ 				V4L2_PIX_FMT_YUV420M || ctx->src_fmt->fourcc ==
+ 				V4L2_PIX_FMT_YVU420M)
+@@ -2552,7 +2594,9 @@ static int s5p_mfc_buf_prepare(struct vb2_buffer *vb)
+ 			vb2_plane_size(vb, 0), ctx->luma_size);
+ 		mfc_debug(2, "plane size: %ld, chroma size: %d\n",
+ 			vb2_plane_size(vb, 1), ctx->chroma_size);
+-		if (vb2_plane_size(vb, 0) < ctx->luma_size ||
++		if (ctx->src_fmt->num_planes == 1 ?
++		    vb2_plane_size(vb, 0) < enc_nv12_size(ctx) :
++		    vb2_plane_size(vb, 0) < ctx->luma_size ||
+ 		    vb2_plane_size(vb, 1) < ctx->chroma_size) {
+ 			mfc_err("plane size is too small for output\n");
+ 			return -EINVAL;
+@@ -2775,7 +2819,8 @@ void s5p_mfc_enc_ctrls_delete(struct s5p_mfc_ctx *ctx)
+ void s5p_mfc_enc_init(struct s5p_mfc_ctx *ctx)
+ {
+ 	struct v4l2_format f;
+-	f.fmt.pix_mp.pixelformat = DEF_SRC_FMT_ENC;
++	f.fmt.pix_mp.pixelformat = IS_MFCV15(ctx->dev) ? V4L2_PIX_FMT_NV12 :
++				   DEF_SRC_FMT_ENC;
+ 	ctx->src_fmt = find_format(&f, MFC_FMT_RAW);
+ 	f.fmt.pix_mp.pixelformat = DEF_DST_FMT_ENC;
+ 	ctx->dst_fmt = find_format(&f, MFC_FMT_ENC);
+diff --git a/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_opr_v6.c b/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_opr_v6.c
+index 683027fea..75a372e39 100644
+--- a/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_opr_v6.c
++++ b/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_opr_v6.c
+@@ -563,6 +563,18 @@ static void s5p_mfc_enc_calc_src_size_v6(struct s5p_mfc_ctx *ctx)
+ 
+ 	if (IS_MFCV12(ctx->dev)) {
+ 		switch (ctx->src_fmt->fourcc) {
++		case V4L2_PIX_FMT_NV12:
++			/*
++			 * One buffer, laid out as V4L2 NV12: a 64 byte aligned
++			 * stride (as Google's NV12N) and the chroma right after
++			 * bytesperline * height.
++			 */
++			ctx->stride[0] = ALIGN(ctx->img_width, 64);
++			ctx->stride[1] = ctx->stride[0];
++			ctx->luma_size = ctx->stride[0] * ctx->img_height;
++			ctx->chroma_size = ctx->stride[1] * ctx->img_height / 2;
++			ctx->chroma_size_1 = 0;
++			return;
+ 		case V4L2_PIX_FMT_NV12M:
+ 		case V4L2_PIX_FMT_NV21M:
+ 			ctx->stride[0] = ALIGN(ctx->img_width, S5P_FIMV_NV12M_HALIGN_V6);
+@@ -971,7 +983,8 @@ static int s5p_mfc_set_enc_params(struct s5p_mfc_ctx *ctx)
+ 	writel(reg, mfc_regs->e_enc_options);
+ 
+ 	/* memory structure cur. frame */
+-	if (ctx->src_fmt->fourcc == V4L2_PIX_FMT_NV12M) {
++	if (ctx->src_fmt->fourcc == V4L2_PIX_FMT_NV12M ||
++	    ctx->src_fmt->fourcc == V4L2_PIX_FMT_NV12) {
+ 		/* 0: Linear, 1: 2D tiled*/
+ 		reg = readl(mfc_regs->e_enc_options);
+ 		reg &= ~(0x1 << 7);
+@@ -2153,7 +2166,11 @@ static inline int s5p_mfc_run_enc_frame(struct s5p_mfc_ctx *ctx)
+ 			ctx->state = MFCINST_FINISHING;
+ 		} else {
+ 			src_y_addr = vb2_dma_contig_plane_dma_addr(&src_mb->b->vb2_buf, 0);
+-			src_c_addr = vb2_dma_contig_plane_dma_addr(&src_mb->b->vb2_buf, 1);
++			/* One-buffer NV12: the chroma follows the luma */
++			if (ctx->src_fmt->num_planes == 1)
++				src_c_addr = src_y_addr + ctx->luma_size;
++			else
++				src_c_addr = vb2_dma_contig_plane_dma_addr(&src_mb->b->vb2_buf, 1);
+ 			if (ctx->src_fmt->fourcc == V4L2_PIX_FMT_YUV420M || ctx->src_fmt->fourcc ==
+ 					V4L2_PIX_FMT_YVU420M)
+ 				src_c_1_addr = vb2_dma_contig_plane_dma_addr

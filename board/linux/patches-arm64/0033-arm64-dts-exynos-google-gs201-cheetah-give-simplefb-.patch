@@ -1,0 +1,41 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Sun, 11 Oct 2026 20:26:17 -0400
+Subject: [PATCH] arm64: dts: exynos: google: gs201-cheetah: give simplefb the
+ panel size
+
+Without it simpledrm reports a 96 dpi monitor (381 x 825 mm), so
+size-aware clients such as on-screen keyboards treat the phone as a
+desktop. Sizes from the vendor S6E3HC4 panel driver.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts | 12 ++++++++++++
+ 1 file changed, 12 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts b/arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts
+index d23374f90..b970dbafc 100644
+--- a/arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts
++++ b/arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts
+@@ -37,9 +37,21 @@ framebuffer0: framebuffer@fac00000 {
+ 			height = <3120>;
+ 			stride = <(1440 * 4)>;
+ 			format = "a8r8g8b8";
++			panel = <&panel>;
+ 		};
+ 	};
+ 
++	/*
++	 * The Samsung S6E3HC4 command-mode OLED. No driver yet: the bootloader
++	 * leaves it running for simplefb, which reads its physical size here.
++	 */
++	panel: panel {
++		compatible = "samsung,s6e3hc4";
++		width-mm = <71>;
++		height-mm = <155>;
++		status = "disabled";
++	};
++
+ 	gpio-keys {
+ 		compatible = "gpio-keys";
+ 		pinctrl-0 = <&key_voldown>, <&key_volup>, <&key_power>;

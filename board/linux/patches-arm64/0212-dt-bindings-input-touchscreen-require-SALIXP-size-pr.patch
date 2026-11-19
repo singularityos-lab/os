@@ -1,0 +1,37 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: boozedog <code@booze.dog>
+Date: Mon, 26 Oct 2026 07:32:50 -0400
+Subject: [PATCH] dt-bindings: input: touchscreen: require SALIXP size
+ properties
+
+The cover node already sets touchscreen-size-x and
+touchscreen-size-y. Require them, and set them in the example, so
+the binding check passes in this commit.
+
+Signed-off-by: boozedog <code@booze.dog>
+Assisted-by: LLM
+---
+ .../devicetree/bindings/input/touchscreen/st,salixp.yaml      | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/Documentation/devicetree/bindings/input/touchscreen/st,salixp.yaml b/Documentation/devicetree/bindings/input/touchscreen/st,salixp.yaml
+index c87136249..323299632 100644
+--- a/Documentation/devicetree/bindings/input/touchscreen/st,salixp.yaml
++++ b/Documentation/devicetree/bindings/input/touchscreen/st,salixp.yaml
+@@ -46,6 +46,8 @@ required:
+   - avdd-supply
+   - reset-gpios
+   - spi-max-frequency
++  - touchscreen-size-x
++  - touchscreen-size-y
+ 
+ unevaluatedProperties: false
+ 
+@@ -67,5 +69,7 @@ examples:
+             vdd-supply = <&ldo25m>;
+             avdd-supply = <&ldo26m>;
+             reset-gpios = <&gpp23 3 GPIO_ACTIVE_LOW>;
++            touchscreen-size-x = <1080>;
++            touchscreen-size-y = <2092>;
+         };
+     };

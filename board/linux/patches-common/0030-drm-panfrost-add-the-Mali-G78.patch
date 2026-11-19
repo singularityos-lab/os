@@ -1,0 +1,69 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: saiththerobo <the.tom.sharp@gmail.com>
+Date: Tue, 20 Oct 2026 07:44:51 +0100
+Subject: [PATCH] drm/panfrost: add the Mali-G78
+
+Add the Mali-G78 (tBEx) as found in Google's gs101 (Pixel 6), GPU_ID
+0x9202. panfrost_model_cmp() compares Valhall IDs masked with 0xf00f
+(arch major and product major), so the model is listed as 0x9002.
+
+Its feature set is the G57's (Arm's kbase adds only L2_CONFIG, which
+panfrost doesn't track). The Pixel 6 Pro's G78 is r0p1 ("mali-g78 id
+0x9202 major 0x0 minor 0x1 status 0x0"). Of the hardware issues panfrost
+tracks, kbase's base_hw_issues_tBEx_r0p1 lists only TTRX_2968_TTRX_3162.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Signed-off-by: saiththerobo <the.tom.sharp@gmail.com>
+---
+ drivers/gpu/drm/panfrost/panfrost_features.h | 3 +++
+ drivers/gpu/drm/panfrost/panfrost_gpu.c      | 3 +++
+ drivers/gpu/drm/panfrost/panfrost_issues.h   | 8 ++++++++
+ 3 files changed, 14 insertions(+)
+
+diff --git a/drivers/gpu/drm/panfrost/panfrost_features.h b/drivers/gpu/drm/panfrost/panfrost_features.h
+index 52f9d69f6..0d999b765 100644
+--- a/drivers/gpu/drm/panfrost/panfrost_features.h
++++ b/drivers/gpu/drm/panfrost/panfrost_features.h
+@@ -121,6 +121,9 @@ enum panfrost_hw_feature {
+ 	BIT_ULL(HW_FEATURE_IDVS_GROUP_SIZE) | \
+ 	BIT_ULL(HW_FEATURE_CLEAN_ONLY_SAFE))
+ 
++/* Mali-G78 (tBEx): G57's set; Arm's kbase adds only L2_CONFIG, untracked here */
++#define hw_features_g78 hw_features_g57
++
+ static inline bool panfrost_has_hw_feature(struct panfrost_device *pfdev,
+ 					   enum panfrost_hw_feature feat)
+ {
+diff --git a/drivers/gpu/drm/panfrost/panfrost_gpu.c b/drivers/gpu/drm/panfrost/panfrost_gpu.c
+index 7d555e63e..8e749836b 100644
+--- a/drivers/gpu/drm/panfrost/panfrost_gpu.c
++++ b/drivers/gpu/drm/panfrost/panfrost_gpu.c
+@@ -242,6 +242,9 @@ static const struct panfrost_model gpu_models[] = {
+ 	/* MediaTek MT8188 Mali-G57 MC3 */
+ 	GPU_MODEL(g57, 0x9093,
+ 		GPU_REV(g57, 0, 0)),
++
++	/* Google gs101 (Pixel 6) Mali-G78 MP20, tBEx: GPU_ID 0x9202, matched masked */
++	GPU_MODEL(g78, 0x9002),
+ 	{0},
+ };
+ 
+diff --git a/drivers/gpu/drm/panfrost/panfrost_issues.h b/drivers/gpu/drm/panfrost/panfrost_issues.h
+index eb60cb836..9d2030cf0 100644
+--- a/drivers/gpu/drm/panfrost/panfrost_issues.h
++++ b/drivers/gpu/drm/panfrost/panfrost_issues.h
+@@ -265,6 +265,14 @@ enum panfrost_hw_issue {
+ #define hw_issues_g57_r0p0 (\
+ 	BIT_ULL(HW_ISSUE_TTRX_3485))
+ 
++/*
++ * Mali-G78 (tBEx), from Arm's kbase base_hw_issues_tBEx_r0p1: of the
++ * issues tracked here only TTRX_2968_TTRX_3162 applies (no TTRX_3076, and
++ * TTRX_3485 is G57 r0p0 only).
++ */
++#define hw_issues_g78 (\
++	BIT_ULL(HW_ISSUE_TTRX_2968_TTRX_3162))
++
+ static inline bool panfrost_has_hw_issue(const struct panfrost_device *pfdev,
+ 					 enum panfrost_hw_issue issue)
+ {

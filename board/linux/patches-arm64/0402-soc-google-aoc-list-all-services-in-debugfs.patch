@@ -1,0 +1,106 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Mon, 12 Oct 2026 16:05:46 -0400
+Subject: [PATCH] soc: google: aoc: list all services in debugfs
+
+The services attribute is limited to a page, which the 82 services of
+the gs201 firmware overflow, so the later services and their ring
+counters are cut off. Add aoc/services in debugfs with the same
+listing, complete, for bring-up.
+
+Assisted-by: LLM
+Signed-off-by: Derek Ross <derekross@gmail.com>
+---
+ drivers/soc/google/aoc/aoc.c | 45 ++++++++++++++++++++++++++++++++++++
+ drivers/soc/google/aoc/aoc.h |  1 +
+ 2 files changed, 46 insertions(+)
+
+diff --git a/drivers/soc/google/aoc/aoc.c b/drivers/soc/google/aoc/aoc.c
+index e2a5e5aec..bd3d6e7c1 100644
+--- a/drivers/soc/google/aoc/aoc.c
++++ b/drivers/soc/google/aoc/aoc.c
+@@ -40,6 +40,8 @@
+ #include <linux/mutex.h>
+ #include <linux/soc/google/gs201-aoc-sysmmu.h>
+ #include <linux/soc/google/gsa.h>
++#include <linux/debugfs.h>
++#include <linux/seq_file.h>
+ 
+ #include "aoc_firmware.h"
+ #include "aoc_ramdump_regions.h"
+@@ -954,6 +956,44 @@ static ssize_t services_show(struct device *dev, struct device_attribute *attr,
+ 
+ static DEVICE_ATTR_RO(services);
+ 
++/*
++ * The services attribute stops at a page, which this firmware's 82 services
++ * overflow. debugfs aoc/services has the same listing, complete.
++ */
++static int aoc_services_dbg_show(struct seq_file *m, void *unused)
++{
++	struct aoc_prvdata *prvdata = m->private;
++	int services, i;
++
++	atomic_inc(&prvdata->aoc_process_active);
++	if (aoc_state != AOC_STATE_ONLINE) {
++		seq_puts(m, "offline\n");
++		goto exit;
++	}
++
++	services = aoc_num_services();
++	seq_printf(m, "Services : %d\n", services);
++	for (i = 0; i < services; i++) {
++		aoc_service *s = service_at_index(prvdata, i);
++		struct aoc_ipc_service_header *hdr = (struct aoc_ipc_service_header *)s;
++
++		seq_printf(m, "%d : \"%s\" mbox %d\n", i, aoc_service_name(s),
++			   aoc_service_irq_index(s));
++		if (hdr->regions[0].slots > 0)
++			seq_printf(m, " Up Size:%ux%uB Tx:%u Rx:%u\n",
++				   hdr->regions[0].slots, hdr->regions[0].size,
++				   hdr->regions[0].tx, hdr->regions[0].rx);
++		if (hdr->regions[1].slots > 0)
++			seq_printf(m, " Down Size:%ux%uB Tx:%u Rx:%u\n",
++				   hdr->regions[1].slots, hdr->regions[1].size,
++				   hdr->regions[1].tx, hdr->regions[1].rx);
++	}
++exit:
++	atomic_dec(&prvdata->aoc_process_active);
++	return 0;
++}
++DEFINE_SHOW_ATTRIBUTE(aoc_services_dbg);
++
+ int start_firmware_load(struct device *dev)
+ {
+ 	struct aoc_prvdata *prvdata = dev_get_drvdata(dev);
+@@ -2712,6 +2752,10 @@ static int aoc_platform_probe(struct platform_device *pdev)
+ 
+ 	ret = sysfs_create_groups(&dev->kobj, aoc_groups);
+ 
++	prvdata->debugfs = debugfs_create_dir("aoc", NULL);
++	debugfs_create_file("services", 0444, prvdata->debugfs, prvdata,
++			    &aoc_services_dbg_fops);
++
+ 	pr_debug("platform_probe matched\n");
+ 
+ 	return 0;
+@@ -2748,6 +2792,7 @@ static void aoc_platform_remove(struct platform_device *pdev)
+ 		}
+ 	}
+ 	sysfs_remove_groups(&pdev->dev.kobj, aoc_groups);
++	debugfs_remove_recursive(prvdata->debugfs);
+ 
+ 	aoc_cleanup_resources(pdev);
+ 	deinit_chardev(prvdata);
+diff --git a/drivers/soc/google/aoc/aoc.h b/drivers/soc/google/aoc/aoc.h
+index 0a3ad23c5..944b80a13 100644
+--- a/drivers/soc/google/aoc/aoc.h
++++ b/drivers/soc/google/aoc/aoc.h
+@@ -90,6 +90,7 @@ typedef int (*aoc_map_handler)(u32 handle, phys_addr_t p, size_t size,
+ 
+ struct aoc_prvdata {
+ 	struct mbox_slot *mbox_channels;
++	struct dentry *debugfs;
+ 	struct aoc_service_dev **services;
+ 
+ 	unsigned long *read_blocked_mask;

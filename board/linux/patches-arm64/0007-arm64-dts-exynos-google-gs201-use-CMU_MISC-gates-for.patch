@@ -1,0 +1,54 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Sun, 11 Oct 2026 16:43:43 -0400
+Subject: [PATCH] arm64: dts: exynos: google: gs201: use CMU_MISC gates for the
+ watchdogs
+
+Feed the cluster watchdogs their real bus clocks, the CMU_MISC
+WDT_CLUSTER0/1 PCLK gates (0x2144/0x2148, as in Google's gs201 CMUCAL
+tables), as on gs101. The watchdog source clock stays oscclk.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ arch/arm64/boot/dts/exynos/google/gs201.dtsi | 10 +++++-----
+ 1 file changed, 5 insertions(+), 5 deletions(-)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/gs201.dtsi b/arch/arm64/boot/dts/exynos/google/gs201.dtsi
+index e07d0fddc..38ab3c29e 100644
+--- a/arch/arm64/boot/dts/exynos/google/gs201.dtsi
++++ b/arch/arm64/boot/dts/exynos/google/gs201.dtsi
+@@ -159,7 +159,6 @@ soc: soc@0 {
+ 		 * Clock controllers. Consumers below still use the fixed-clock
+ 		 * placeholders (and we boot with clk_ignore_unused); switch them
+ 		 * one at a time:
+-		 *   watchdog_cl0/1: <&cmu_misc CLK_GOUT_MISC_WDT_CLUSTER{0,1}_PCLK>
+ 		 *   MCT:            <&cmu_misc CLK_GOUT_MISC_MCT_PCLK>
+ 		 *   usbdrd31_phy:   CLK_GOUT_HSI0_USB31DRD_ACLK_PHYCTRL ("phy"),
+ 		 *                   CLK_GOUT_HSI0_USB31DRD_I_USB20_PHY_REFCLK_26 ("ref"),
+@@ -280,13 +279,13 @@ usb_dwc3: usb@11210000 {
+ 
+ 		/*
+ 		 * ABL leaves both watchdogs running (about 60 s). The driver stops
+-		 * them at probe unless tmr_atboot is set. Clocks are placeholders
+-		 * until clk-gs201 exists.
++		 * them at probe unless tmr_atboot is set.
+ 		 */
+ 		watchdog_cl0: watchdog@10060000 {
+ 			compatible = "google,gs201-wdt";
+ 			reg = <0x10060000 0x100>;
+-			clocks = <&oscclk>, <&oscclk>;
++			clocks = <&cmu_misc CLK_GOUT_MISC_WDT_CLUSTER0_PCLK>,
++				 <&oscclk>;
+ 			clock-names = "watchdog", "watchdog_src";
+ 			interrupts = <GIC_SPI 797 IRQ_TYPE_LEVEL_HIGH>;
+ 			samsung,syscon-phandle = <&pmu_system_controller>;
+@@ -296,7 +295,8 @@ watchdog_cl0: watchdog@10060000 {
+ 		watchdog_cl1: watchdog@10070000 {
+ 			compatible = "google,gs201-wdt";
+ 			reg = <0x10070000 0x100>;
+-			clocks = <&oscclk>, <&oscclk>;
++			clocks = <&cmu_misc CLK_GOUT_MISC_WDT_CLUSTER1_PCLK>,
++				 <&oscclk>;
+ 			clock-names = "watchdog", "watchdog_src";
+ 			interrupts = <GIC_SPI 798 IRQ_TYPE_LEVEL_HIGH>;
+ 			samsung,syscon-phandle = <&pmu_system_controller>;

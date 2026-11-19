@@ -1,0 +1,53 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: saiththerobo <the.tom.sharp@gmail.com>
+Date: Thu, 15 Oct 2026 14:29:36 +0100
+Subject: [PATCH] drm/panfrost: add Google gs101
+
+gs101's Mali-G78 needs four rails on (VDD_G3D, VDD_G3D_L2, VDD_G3D_M,
+VDD_INT_M); there is no DVFS yet, so they stay where the bootloader put
+them.
+
+The G78 is a Valhall v9 GPU like the G57 that the MediaTek mt8188,
+mt8192 and mt8370 entries describe, and those all set
+GPU_QUIRK_FORCE_AARCH64_PGTABLE. Without it the G78 walked the legacy
+Mali LPAE tables: every fragment job failed with DATA_INVALID_FAULT at
+its own job header, and the header read back with a zero job type. With
+the quirk, clears, solid, blended and textured draws (up to 4096x4096,
+mipmapped) render the expected pixels and the GPU reports no fault;
+Hyprland runs on the G78.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Signed-off-by: saiththerobo <the.tom.sharp@gmail.com>
+---
+ drivers/gpu/drm/panfrost/panfrost_drv.c | 11 +++++++++++
+ 1 file changed, 11 insertions(+)
+
+diff --git a/drivers/gpu/drm/panfrost/panfrost_drv.c b/drivers/gpu/drm/panfrost/panfrost_drv.c
+index 36cc2e67a..c7ba90874 100644
+--- a/drivers/gpu/drm/panfrost/panfrost_drv.c
++++ b/drivers/gpu/drm/panfrost/panfrost_drv.c
+@@ -1079,6 +1079,16 @@ static const struct panfrost_compatible default_data = {
+ 	.pm_domain_names = NULL,
+ };
+ 
++/* gs101 (Pixel 6): the G3D rails, all always-on; no DVFS yet */
++static const char * const gs101_supplies[] = { "mali", "g3d-l2", "g3d-m", "int-m", NULL };
++static const struct panfrost_compatible gs101_data = {
++	.num_supplies = ARRAY_SIZE(gs101_supplies) - 1,
++	.supply_names = gs101_supplies,
++	.num_pm_domains = 1, /* optional */
++	.pm_domain_names = NULL,
++	.gpu_quirks = BIT(GPU_QUIRK_FORCE_AARCH64_PGTABLE),
++};
++
+ static const struct panfrost_compatible default_pm_rt_data = {
+ 	.num_supplies = ARRAY_SIZE(default_supplies) - 1,
+ 	.supply_names = default_supplies,
+@@ -1179,6 +1189,7 @@ static const struct of_device_id dt_match[] = {
+ 	{ .compatible = "mediatek,mt8192-mali", .data = &mediatek_mt8192_data },
+ 	{ .compatible = "mediatek,mt8370-mali", .data = &mediatek_mt8370_data },
+ 	{ .compatible = "allwinner,sun50i-h616-mali", .data = &default_pm_rt_data },
++	{ .compatible = "google,gs101-mali", .data = &gs101_data },
+ 	{}
+ };
+ MODULE_DEVICE_TABLE(of, dt_match);

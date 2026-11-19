@@ -1,0 +1,38 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Sat, 31 Oct 2026 20:06:30 -0400
+Subject: [PATCH] dt-bindings: firmware: google,gs101-acpm-ipc: Add the Tensor
+ G2 TMU
+
+The Tensor G2 (gs201) reads its SoC temperatures through the same ACPM
+TMU service as gs101, on channel 9, with a seventh sensor, AUR, after
+the six gs101 has (Google's gs201 device tree lists BIG, MID, LITTLE,
+G3D, ISP, TPU and AUR as TMU ids 0-6). Add google,gs201-acpm-tmu.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Signed-off-by: Derek Ross <derekross@gmail.com>
+---
+ .../devicetree/bindings/firmware/google,gs101-acpm-ipc.yaml    | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/Documentation/devicetree/bindings/firmware/google,gs101-acpm-ipc.yaml b/Documentation/devicetree/bindings/firmware/google,gs101-acpm-ipc.yaml
+index 9163560a1..154039cd4 100644
+--- a/Documentation/devicetree/bindings/firmware/google,gs101-acpm-ipc.yaml
++++ b/Documentation/devicetree/bindings/firmware/google,gs101-acpm-ipc.yaml
+@@ -78,7 +78,7 @@ properties:
+     description:
+       The SoC's thermal sensors, which the ACPM firmware reads on the
+       kernel's behalf. Cells are the sensor index (0 big, 1 mid, 2 little
+-      CPU cluster, 3 GPU, 4 ISP, 5 TPU, and on zumapro 6 AUR).
++      CPU cluster, 3 GPU, 4 ISP, 5 TPU, and on gs201 and zumapro 6 AUR).
+     type: object
+     $ref: /schemas/thermal/thermal-sensor.yaml#
+     unevaluatedProperties: false
+@@ -87,6 +87,7 @@ properties:
+       compatible:
+         enum:
+           - google,gs101-acpm-tmu
++          - google,gs201-acpm-tmu
+           - google,zumapro-acpm-tmu
+ 
+       "#thermal-sensor-cells":

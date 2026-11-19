@@ -1,0 +1,55 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Mon, 12 Oct 2026 10:30:34 -0400
+Subject: [PATCH] i2c: exynos5: scale the transfer timeout with the message
+ length
+
+Every message got a fixed 100 ms, so any write longer than about 4 KiB at
+400 kHz timed out ("tx timeout"), e.g. the CS40L26 haptics driver's
+20 KiB firmware block. Add the message's time on the wire, 9 bit times a
+byte at the bus clock, to the fixed allowance.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ drivers/i2c/busses/i2c-exynos5.c | 15 +++++++++++----
+ 1 file changed, 11 insertions(+), 4 deletions(-)
+
+diff --git a/drivers/i2c/busses/i2c-exynos5.c b/drivers/i2c/busses/i2c-exynos5.c
+index 9c1c5f3c0..7fe021bac 100644
+--- a/drivers/i2c/busses/i2c-exynos5.c
++++ b/drivers/i2c/busses/i2c-exynos5.c
+@@ -790,23 +790,30 @@ static bool exynos5_i2c_poll_irqs_timeout(struct exynos5_i2c *i2c,
+ static int exynos5_i2c_xfer_msg(struct exynos5_i2c *i2c,
+ 			      struct i2c_msg *msgs, int stop)
+ {
+-	unsigned long time_left;
++	unsigned long time_left, timeout;
+ 	int ret;
+ 
+ 	i2c->msg = msgs;
+ 	i2c->msg_ptr = 0;
+ 	i2c->trans_done = 0;
+ 
++	/*
++	 * A long message (a DSP firmware block, say) needs more than the
++	 * fixed allowance: add its time on the wire, 9 bit times a byte.
++	 */
++	timeout = EXYNOS5_I2C_TIMEOUT +
++		  msecs_to_jiffies(DIV_ROUND_UP(msgs->len * 9 * MSEC_PER_SEC,
++						i2c->op_clock));
++
+ 	reinit_completion(&i2c->msg_complete);
+ 
+ 	exynos5_i2c_message_start(i2c, stop);
+ 
+ 	if (!i2c->atomic)
+ 		time_left = wait_for_completion_timeout(&i2c->msg_complete,
+-							EXYNOS5_I2C_TIMEOUT);
++							timeout);
+ 	else
+-		time_left = exynos5_i2c_poll_irqs_timeout(i2c,
+-							  EXYNOS5_I2C_TIMEOUT);
++		time_left = exynos5_i2c_poll_irqs_timeout(i2c, timeout);
+ 
+ 	if (time_left == 0)
+ 		ret = -ETIMEDOUT;

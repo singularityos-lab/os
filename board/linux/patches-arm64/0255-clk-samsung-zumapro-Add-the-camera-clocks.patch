@@ -1,0 +1,136 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Tue, 27 Oct 2026 08:57:01 -0647
+Subject: [PATCH] clk: samsung: zumapro: Add the camera clocks
+
+Add CMU_TOP's four camera sensor master clocks (CIS_CLK0 to CIS_CLK3)
+and the camera front end's NoC clock. The sensor clocks belong to the
+kernel, as on gs101 and gs201: their muxes, gates and dividers are
+writable and in top_regs, so they run in manual mode and the sensor
+drivers turn them on and set their rate. The front end's NoC clock
+sits on the INT rail: its mux stays read-only and its gate is a
+read-only gate, but its divider is writable and in top_regs. The
+bootloader leaves it at SHARED3/6 (111 MHz), and the main camera's
+three-trio C-PHY link overruns that, so the CSIS driver raises it to
+332 MHz while a link streams.
+
+Every offset, width and parent list was checked against zuma's
+cmucal-sfr.c and cmucal-node.c, including all eight parents of each mux.
+
+Booted on the Pixel 9a:
+7.3.0-rc6-omamobile-tegu-s2mpg15-m1-g991042e2eff3-dirty, whose
+clk-zumapro.c (blob c1db3a4a7736) carries these clocks under that
+tree's own clock ids.
+
+Link: https://android.googlesource.com/kernel/google-modules/soc/gs/+/204078758737776959ecc85c527a00fd2cabb62f/drivers/soc/google/cal-if/zuma/cmucal-sfr.c
+Link: https://android.googlesource.com/kernel/google-modules/soc/gs/+/204078758737776959ecc85c527a00fd2cabb62f/drivers/soc/google/cal-if/zuma/cmucal-node.c
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ drivers/clk/samsung/clk-zumapro.c | 55 +++++++++++++++++++++++++++++--
+ 1 file changed, 53 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/clk/samsung/clk-zumapro.c b/drivers/clk/samsung/clk-zumapro.c
+index c1dacd6a8..a01a59305 100644
+--- a/drivers/clk/samsung/clk-zumapro.c
++++ b/drivers/clk/samsung/clk-zumapro.c
+@@ -76,6 +76,18 @@ PNAME(g3d_switch_parents) = {
+ 	"zumapro_spare", "zumapro_spare",
+ };
+ 
++PNAME(cis_clk_parents) = {
++	"oscclk", "zumapro_shared0_d3", "zumapro_shared1_d3",
++	"zumapro_shared2_d2", "zumapro_shared3_d2", "zumapro_spare",
++	"oscclk", "oscclk",
++};
++
++PNAME(ispfe_noc_parents) = {
++	"zumapro_shared0_d3", "zumapro_shared3", "zumapro_shared1_d3",
++	"zumapro_shared0_d4", "zumapro_shared1_d4", "zumapro_shared2_d2",
++	"zumapro_spare", "oscclk",
++};
++
+ static const struct samsung_mux_clock top_muxes[] __initconst = {
+ 	MUX_F(CLK_MOUT_HSI2_NOC, "zumapro_mout_hsi2_noc", hsi2_noc_parents,
+ 	      0x10b0, 0, 3, 0, CLK_MUX_READ_ONLY),
+@@ -105,6 +117,17 @@ static const struct samsung_mux_clock top_muxes[] __initconst = {
+ 	      0x10f4, 0, 2, 0, CLK_MUX_READ_ONLY),
+ 	MUX_F(CLK_MOUT_PERIC0_IP, "zumapro_mout_peric0_ip", peric0_noc_parents,
+ 	      0x10ec, 0, 2, 0, CLK_MUX_READ_ONLY),
++	/* The sensor master clocks are the kernel's, as on gs101 and gs201. */
++	MUX(CLK_MOUT_CIS_CLK0, "zumapro_mout_cis_clk0", cis_clk_parents,
++	    0x1010, 0, 3),
++	MUX(CLK_MOUT_CIS_CLK1, "zumapro_mout_cis_clk1", cis_clk_parents,
++	    0x1014, 0, 3),
++	MUX(CLK_MOUT_CIS_CLK2, "zumapro_mout_cis_clk2", cis_clk_parents,
++	    0x1018, 0, 3),
++	MUX(CLK_MOUT_CIS_CLK3, "zumapro_mout_cis_clk3", cis_clk_parents,
++	    0x101c, 0, 3),
++	MUX_F(CLK_MOUT_ISPFE_NOC, "zumapro_mout_ispfe_noc", ispfe_noc_parents,
++	      0x10bc, 0, 3, 0, CLK_MUX_READ_ONLY),
+ };
+ 
+ /* The hardware order is mux -> gate -> divider. */
+@@ -117,6 +140,14 @@ static const struct samsung_gate_clock top_gates[] __initconst = {
+ 	     "zumapro_mout_peric0_noc", 0x2114, 21, CLK_IGNORE_UNUSED, 0),
+ 	GATE(CLK_GOUT_HSI2_PCIE, "zumapro_gout_hsi2_pcie", "zumapro_mout_hsi2_pcie",
+ 	     0x20dc, 21, CLK_IGNORE_UNUSED, 0),
++	GATE(CLK_GOUT_CIS_CLK0, "zumapro_gout_cis_clk0", "zumapro_mout_cis_clk0",
++	     0x2038, 21, 0, 0),
++	GATE(CLK_GOUT_CIS_CLK1, "zumapro_gout_cis_clk1", "zumapro_mout_cis_clk1",
++	     0x203c, 21, 0, 0),
++	GATE(CLK_GOUT_CIS_CLK2, "zumapro_gout_cis_clk2", "zumapro_mout_cis_clk2",
++	     0x2040, 21, 0, 0),
++	GATE(CLK_GOUT_CIS_CLK3, "zumapro_gout_cis_clk3", "zumapro_mout_cis_clk3",
++	     0x2044, 21, 0, 0),
+ };
+ 
+ /* Preserve the inherited MISC gate; even TOP registration must not switch it. */
+@@ -141,6 +172,8 @@ static const struct samsung_gate_clock top_ro_gates[] __initconst = {
+ 	     0x2118, 21, CLK_IGNORE_UNUSED, 0),
+ 	GATE(CLK_GOUT_PERIC0_IP, "zumapro_gout_peric0_ip", "zumapro_mout_peric0_ip",
+ 	     0x2110, 21, CLK_IGNORE_UNUSED, 0),
++	GATE(CLK_GOUT_ISPFE_NOC, "zumapro_gout_ispfe_noc", "zumapro_mout_ispfe_noc",
++	     0x20e4, 21, CLK_IGNORE_UNUSED, 0),
+ };
+ 
+ static const struct samsung_div_clock top_dividers[] __initconst = {
+@@ -172,11 +205,29 @@ static const struct samsung_div_clock top_dividers[] __initconst = {
+ 	      0x18ec, 0, 4, 0, CLK_DIVIDER_READ_ONLY),
+ 	DIV_F(CLK_DOUT_PERIC0_IP, "zumapro_dout_peric0_ip", "zumapro_gout_peric0_ip",
+ 	      0x18e4, 0, 4, 0, CLK_DIVIDER_READ_ONLY),
++	DIV(CLK_DOUT_CIS_CLK0, "zumapro_dout_cis_clk0", "zumapro_gout_cis_clk0",
++	    0x1810, 0, 5),
++	DIV(CLK_DOUT_CIS_CLK1, "zumapro_dout_cis_clk1", "zumapro_gout_cis_clk1",
++	    0x1814, 0, 5),
++	DIV(CLK_DOUT_CIS_CLK2, "zumapro_dout_cis_clk2", "zumapro_gout_cis_clk2",
++	    0x1818, 0, 5),
++	DIV(CLK_DOUT_CIS_CLK3, "zumapro_dout_cis_clk3", "zumapro_gout_cis_clk3",
++	    0x181c, 0, 5),
++	DIV(CLK_DOUT_ISPFE_NOC, "zumapro_dout_ispfe_noc", "zumapro_gout_ispfe_noc",
++	    0x18b4, 0, 4),
+ };
+ 
+-/* Only these branch gates are put under manual CCF control. */
++/*
++ * Saved and restored across suspend; the gates among them are also
++ * put in manual mode at probe.
++ */
+ static const unsigned long top_regs[] __initconst = {
+ 	0x20d8, 0x20e0, 0x2114, 0x20dc,
++	/* the sensor master clocks: muxes, dividers and gates */
++	0x1010, 0x1014, 0x1018, 0x101c, 0x1810, 0x1814, 0x1818, 0x181c,
++	0x2038, 0x203c, 0x2040, 0x2044,
++	/* the camera front end's NoC divider */
++	0x18b4,
+ };
+ 
+ static const struct samsung_cmu_info top_cmu __initconst = {
+@@ -192,7 +243,7 @@ static const struct samsung_cmu_info top_cmu __initconst = {
+ 	.nr_ro_gate_clks = ARRAY_SIZE(top_ro_gates),
+ 	.div_clks = top_dividers,
+ 	.nr_div_clks = ARRAY_SIZE(top_dividers),
+-	.nr_clk_ids = CLK_DOUT_PERIC0_IP + 1,
++	.nr_clk_ids = CLK_DOUT_ISPFE_NOC + 1,
+ 	.clk_regs = top_regs,
+ 	.nr_clk_regs = ARRAY_SIZE(top_regs),
+ };

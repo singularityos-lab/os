@@ -1,0 +1,35 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Alejandro Garcia <skipper.pelygro@gmail.com>
+Date: Wed, 28 Oct 2026 22:27:25 -0700
+Subject: [PATCH] Input: ft3658 - sleep instead of busy-waiting after each
+ transfer
+
+The controller needs chip select high for 150 us between transfers, and
+ft3658_read() runs only from probe and the threaded interrupt handler,
+both of which can sleep. Use fsleep() rather than spinning in udelay()
+on every transfer.
+
+Tested on a Pixel 7 (7.3.0-rc6) with the touch node: the controller
+probes (chip id 0x56, firmware 0x16) and reports touches across the
+panel with no CRC errors.
+
+Suggested-by: Derek Ross <derekross@gmail.com>
+Assisted-by: Claude Opus 5.5
+Signed-off-by: Alejandro Garcia <skipper.pelygro@gmail.com>
+---
+ drivers/input/touchscreen/focaltech_ft3658.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/drivers/input/touchscreen/focaltech_ft3658.c b/drivers/input/touchscreen/focaltech_ft3658.c
+index 61fc50514..17bdeb15c 100644
+--- a/drivers/input/touchscreen/focaltech_ft3658.c
++++ b/drivers/input/touchscreen/focaltech_ft3658.c
+@@ -111,7 +111,7 @@ static int ft3658_read(struct ft3658 *ts, u8 addr, u8 *data, size_t len)
+ 	xfer.len = xfer_len;
+ 
+ 	ret = spi_sync_transfer(ts->spi, &xfer, 1);
+-	udelay(FT3658_CS_HIGH_US);
++	fsleep(FT3658_CS_HIGH_US);
+ 	if (ret)
+ 		return ret;
+ 

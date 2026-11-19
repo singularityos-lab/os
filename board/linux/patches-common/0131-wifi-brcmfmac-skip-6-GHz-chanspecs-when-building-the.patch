@@ -1,0 +1,32 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Mon, 12 Oct 2026 11:26:37 -0400
+Subject: [PATCH] wifi: brcmfmac: skip 6 GHz chanspecs when building the
+ channel list
+
+brcmf_construct_chaninfo() only fills the 2.4 and 5 GHz bands. Now that
+6 GHz chanspecs decode as such, skip them quietly instead of logging
+"Invalid channel Spec." for each one, until 6 GHz support is added.
+
+Assisted-by: LLM
+Signed-off-by: Derek Ross <derekross@gmail.com>
+---
+ drivers/net/wireless/broadcom/brcm80211/brcmfmac/cfg80211.c | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/cfg80211.c b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/cfg80211.c
+index aa869ecf3..5c43cd380 100644
+--- a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/cfg80211.c
++++ b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/cfg80211.c
+@@ -7155,6 +7155,11 @@ static int brcmf_construct_chaninfo(struct brcmf_cfg80211_info *cfg,
+ 			band = wiphy->bands[NL80211_BAND_2GHZ];
+ 		} else if (ch.band == BRCMU_CHAN_BAND_5G) {
+ 			band = wiphy->bands[NL80211_BAND_5GHZ];
++		} else if (ch.band == BRCMU_CHAN_BAND_6G) {
++			/* 6 GHz is not supported yet */
++			brcmf_dbg(INFO, "skipping 6 GHz chanspec 0x%x\n",
++				  ch.chspec);
++			continue;
+ 		} else {
+ 			bphy_err(drvr, "Invalid channel Spec. 0x%x.\n",
+ 				 ch.chspec);

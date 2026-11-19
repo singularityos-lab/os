@@ -1,0 +1,39 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: quatrixone <quatrix1@gmail.com>
+Date: Mon, 9 Nov 2026 21:45:38 +0100
+Subject: [PATCH] arm64: dts: qcom: reserve Dipper firmware memory
+
+The stock removed region spans 0x85fc0000-0x8a900000. The existing
+AOP, SMEM and old RMTFS nodes already reserve portions of it, so
+reserve the remaining ranges around those nodes. The complete firmware
+carve-out then stays out of System RAM without overlapping the named
+reservations.
+
+Assisted-by: LLM Codex
+Signed-off-by: quatrixone <quatrix1@gmail.com>
+---
+ .../boot/dts/qcom/sdm845-xiaomi-dipper-common.dtsi    | 11 +++++++++++
+ 1 file changed, 11 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/qcom/sdm845-xiaomi-dipper-common.dtsi b/arch/arm64/boot/dts/qcom/sdm845-xiaomi-dipper-common.dtsi
+index d2e6987bc..c4f8e4065 100644
+--- a/arch/arm64/boot/dts/qcom/sdm845-xiaomi-dipper-common.dtsi
++++ b/arch/arm64/boot/dts/qcom/sdm845-xiaomi-dipper-common.dtsi
+@@ -131,6 +131,17 @@ old-rmtfs@88f00000 {
+ 			no-map;
+ 		};
+ 
++		/* Preserve the vendor's reserved ranges around AOP, SMEM and RMTFS. */
++		removed-region@86200000 {
++			reg = <0 0x86200000 0 0x2d00000>;
++			no-map;
++		};
++
++		removed-region@89100000 {
++			reg = <0 0x89100000 0 0x1800000>;
++			no-map;
++		};
++
+ 		adsp_mem: adsp@8c500000 {
+ 			reg = <0 0x8c500000 0 0x1e00000>;
+ 			no-map;

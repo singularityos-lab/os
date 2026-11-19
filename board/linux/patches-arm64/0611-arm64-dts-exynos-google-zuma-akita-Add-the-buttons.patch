@@ -1,0 +1,71 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: DarekM <149845949+aninmucek@users.noreply.github.com>
+Date: Tue, 10 Nov 2026 15:57:45 +0000
+Subject: [PATCH] arm64: dts: exynos: google: zuma-akita: Add the buttons
+
+The Pixel 8a's volume and power keys are wired as on the Pixel 8 Pro:
+volume down on gpa4-1, volume up on gpa6-2 and power on gpa4-0, all
+active low and wake sources (Google's zuma-common.dtsi; the stock
+phone's /proc/interrupts lists the same three gpio-keys lines). Add the
+same gpio-keys node as zuma-husky, with zuma-pinctrl.dtsi's key pins.
+
+Without it the power key is not an input device, so nothing on the
+phone can wake the screen once the lock has blanked it.
+
+Tested on a Pixel 8a from slot B (7.3.0-rc6): gpio-keys registers as an
+input device with the three keys; one short press of each raises its
+interrupt twice (press and release), and a short Power press wakes the
+screen through the session's lock without powering the phone off.
+
+Assisted-by: Claude Opus 5.5
+Signed-off-by: DarekM <149845949+aninmucek@users.noreply.github.com>
+---
+ .../boot/dts/exynos/google/zuma-akita.dts     | 28 +++++++++++++++++++
+ 1 file changed, 28 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/zuma-akita.dts b/arch/arm64/boot/dts/exynos/google/zuma-akita.dts
+index 0f01727be..aad383858 100644
+--- a/arch/arm64/boot/dts/exynos/google/zuma-akita.dts
++++ b/arch/arm64/boot/dts/exynos/google/zuma-akita.dts
+@@ -6,6 +6,7 @@
+ /dts-v1/;
+ 
+ #include <dt-bindings/gpio/gpio.h>
++#include <dt-bindings/input/input.h>
+ #include "zuma.dtsi"
+ 
+ / {
+@@ -77,6 +78,33 @@ framebuffer0: framebuffer {
+ 		};
+ 	};
+ 
++	gpio-keys {
++		compatible = "gpio-keys";
++		pinctrl-0 = <&key_voldown>, <&key_volup>, <&key_power>;
++		pinctrl-names = "default";
++
++		button-vol-down {
++			label = "KEY_VOLUMEDOWN";
++			linux,code = <KEY_VOLUMEDOWN>;
++			gpios = <&gpa4 1 GPIO_ACTIVE_LOW>;
++			wakeup-source;
++		};
++
++		button-vol-up {
++			label = "KEY_VOLUMEUP";
++			linux,code = <KEY_VOLUMEUP>;
++			gpios = <&gpa6 2 GPIO_ACTIVE_LOW>;
++			wakeup-source;
++		};
++
++		button-power {
++			label = "KEY_POWER";
++			linux,code = <KEY_POWER>;
++			gpios = <&gpa4 0 GPIO_ACTIVE_LOW>;
++			wakeup-source;
++		};
++	};
++
+ 	reserved-memory {
+ 		#address-cells = <2>;
+ 		#size-cells = <1>;

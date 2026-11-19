@@ -1,0 +1,74 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Mon, 12 Oct 2026 01:34:37 -0400
+Subject: [PATCH] arm64: dts: exynos: google: gs201-cheetah: add the
+ fingerprint sensor
+
+Add the Goodix under-display fingerprint sensor: interrupt on gpa9-2
+(rising edge), reset on gpp1-1 (active low), from Google's cheetah
+device tree. Its supply, S2MPG13 LDO15S, is off when the bootloader
+hands over and needs the ACPM regulator driver; vdd-supply is added with
+it. Disabled until the fingerprint bring-up gates.
+
+Assisted-by: LLM
+Signed-off-by: Derek Ross <derekross@gmail.com>
+---
+ .../boot/dts/exynos/google/gs201-cheetah.dts  | 31 +++++++++++++++++++
+ 1 file changed, 31 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts b/arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts
+index 1972bc04c..a40b5f071 100644
+--- a/arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts
++++ b/arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts
+@@ -72,6 +72,22 @@ battery: battery {
+ 		constant-charge-current-max-microamp = <1466730>;
+ 	};
+ 
++	/*
++	 * Goodix optical under-display fingerprint sensor. Trusty owns its SPI
++	 * bus; Linux only switches its supply, reset and interrupt lines.
++	 * Disabled until the fingerprint bring-up gates: it needs Trusty, and
++	 * its supply needs the sub-PMIC (pmic-2) enabled.
++	 */
++	fingerprint {
++		compatible = "goodix,g7-udfps";
++		interrupt-parent = <&gpa9>;
++		interrupts = <2 IRQ_TYPE_EDGE_RISING>;
++		reset-gpios = <&gpp1 1 GPIO_ACTIVE_LOW>;
++		pinctrl-0 = <&fp_irq &fp_reset>;
++		pinctrl-names = "default";
++		status = "disabled";
++	};
++
+ 	gpio-keys {
+ 		compatible = "gpio-keys";
+ 		pinctrl-0 = <&key_voldown>, <&key_volup>, <&key_power>;
+@@ -762,6 +778,13 @@ hapt_amp_rst: hapt-amp-rst-pins {
+ };
+ 
+ &pinctrl_gpio_alive {
++	fp_irq: fp-irq-pins {
++		samsung,pins = "gpa9-2";
++		samsung,pin-function = <GS101_PIN_FUNC_EINT>;
++		samsung,pin-pud = <GS101_PIN_PULL_NONE>;
++		samsung,pin-drv = <GS101_PIN_DRV_2_5_MA>;
++	};
++
+ 	if_pmic_fg_int: if-pmic-fg-int-pins {
+ 		samsung,pins = "gpa9-3";
+ 		samsung,pin-function = <GS101_PIN_FUNC_EINT>;
+@@ -1025,6 +1048,14 @@ modem {
+ 	};
+ };
+ 
++&pinctrl_peric0 {
++	fp_reset: fp-reset-pins {
++		samsung,pins = "gpp1-1";
++		samsung,pin-function = <GS101_PIN_FUNC_OUTPUT>;
++		samsung,pin-pud = <GS101_PIN_PULL_NONE>;
++	};
++};
++
+ /*
+  * Camera power (CAMERA-PLAN.md 1.2), from Google's GPL pantah camera PMIC
+  * device tree: two fixed supplies switched by S2MPG13 GPIOs feed the

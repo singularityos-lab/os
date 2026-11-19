@@ -1,0 +1,155 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Wed, 14 Oct 2026 21:05:13 -0400
+Subject: [PATCH] arm64: dts: exynos: google: gs201-cheetah: add the ultrawide
+ camera
+
+The ultrawide is a Sony IMX386 at 0x1a on USI3 (Google's I2C bus 3),
+four D-PHY lanes at 1548 Mbps per lane to CSIS link 2 (DC-PHY slaves 2
+and 3 as one four-lane receiver), then CSIS WDMA context 0 to a 128 MiB
+reusable capture pool below 4 GiB. Its master clock is CIS_CLK0 on
+gpp3-0 at 24.576 MHz, as the stock sensor settings expect, and its
+supplies come up in stock's order. The module is mounted at 270
+degrees, the other way from the main camera.
+
+Its full-resolution lines are lengthened to 330 MB/s: at 360 MB/s the
+4032x3016 mode still lost lines in the CSIS write DMA now and then.
+
+Its AF actuator is an AK7375-type VCM at 0x0f on the same bus, on L12S
+and the camera PMIC's LDO4. The DC-PHY receive settings come from the
+user's data file. Everything stays disabled.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ .../boot/dts/exynos/google/gs201-cheetah.dts  | 114 ++++++++++++++++++
+ 1 file changed, 114 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts b/arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts
+index 8f28e025d..c70ebc3c9 100644
+--- a/arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts
++++ b/arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts
+@@ -103,6 +103,22 @@ reserved-memory {
+ 		#size-cells = <1>;
+ 		ranges;
+ 
++		/*
++		 * Camera capture buffers: the CSIS WDMA takes 32-bit addresses
++		 * and its SysMMU is left in bypass, so frames go to contiguous
++		 * memory below 4 GiB. Four 12.5 MP RAW10 frames are about
++		 * 63 MiB; reusable, so the pages serve movable allocations while
++		 * no camera streams.
++		 */
++		camera_pool: camera-pool {
++			compatible = "shared-dma-pool";
++			reusable;
++			size = <0x8000000>;
++			/* read with the root's #address-cells (2), not #size-cells */
++			alignment = <0x0 0x200000>;
++			alloc-ranges = <0x0 0x80000000 0x80000000>;
++		};
++
+ 		/* [I] verify against the ABL-injected node in /sys/firmware/fdt */
+ 		/*
+ 		 * Same region and layout as stock Android, so a log written by
+@@ -582,3 +598,101 @@ cam_sw4: sw4 {
+ 		};
+ 	};
+ };
++
++/*
++ * Ultrawide camera module on PERIC0 USI3 (Google's I2C bus 3): sensor at
++ * 0x1a (16-bit addresses, 8-bit values), module EEPROM at 0x50 (not
++ * described), AF actuator at 0x0f. Stock power-up: PP3200_BB, PP1300,
++ * LDO12S, LDO6, LDO2, 1 ms, MCLK on (CIS_CLK0 on gpp3-0), 1 ms, reset
++ * released, 10 ms.
++ */
++&usi3 {
++	samsung,mode = <USI_MODE_I2C>;
++};
++
++&hsi2c_3 {
++	clock-frequency = <950000>;
++
++};
++
++&pinctrl_peric0 {
++	cam_uw_mclk_on: cam-uw-mclk-on-pins {
++		samsung,pins = "gpp3-0";
++		samsung,pin-function = <GS101_PIN_FUNC_2>;
++		samsung,pin-pud = <GS101_PIN_PULL_NONE>;
++		samsung,pin-drv = <GS101_PIN_DRV_2_5_MA>;
++	};
++};
++
++/*
++ * Ultrawide capture (CAMERA-PLAN.md CAM3b/CAM4): the Sony IMX386 [HAL model
++ * ID 0x0386] on four D-PHY lanes at 1548 Mbps per lane, through CSIS link 2
++ * (DC-PHY slaves 2 and 3 as one four-lane receiver) and CSIS WDMA context 0
++ * to memory. With the sensor streaming, links 0 and 1 see nothing; link 2 is
++ * where its data arrives. All disabled; the camera-stream-link2 overlay
++ * enables the path and the drivers are blacklisted as well. The MCLK runs
++ * from the 24.576 MHz oscillator, as the stock sensor settings expect.
++ */
++&hsi2c_3 {
++	camera-sensor@1a {
++		compatible = "sony,imx386";
++		reg = <0x1a>;
++		clocks = <&cmu_top CLK_DOUT_CMU_CIS_CLK0>;
++		assigned-clocks = <&cmu_top CLK_DOUT_CMU_CIS_CLK0>;
++		assigned-clock-rates = <24576000>;
++		pinctrl-names = "default";
++		pinctrl-0 = <&cam_uw_mclk_on>;
++		reset-gpios = <&gpp6 3 GPIO_ACTIVE_LOW>;
++		/* stock's order: PP3200_BB, PP1300, LDO12S, LDO6, LDO2 */
++		vbb-supply = <&pp3200_bb_cam>;
++		vbuck-supply = <&pp1300_cam>;
++		vif-supply = <&ldo12s>;
++		vdig-supply = <&cam_ldo6>;
++		vana-supply = <&cam_ldo2>;
++		firmware-name = "omamobile/camera/imx386-uw.bin";
++		/* 360 still let an odd frame of the 4032x3016 mode drop lines */
++		sony,max-line-throughput = <330>;
++		orientation = <1>;	/* back */
++		rotation = <270>;	/* mounted the other way from the main camera (upside down at 90) */
++		status = "disabled";
++
++		port {
++			uw_out: endpoint {
++				remote-endpoint = <&csis2_in>;
++				data-lanes = <1 2 3 4>;
++				link-frequencies = /bits/ 64 <774144000>;
++			};
++		};
++	};
++};
++
++&csis2 {
++	memory-region = <&camera_pool>;
++};
++
++&csis2_in {
++	remote-endpoint = <&uw_out>;
++	data-lanes = <1 2 3 4>;
++};
++
++&csis_dcphy {
++	/* receive settings, generated from the phone's own camera software */
++	firmware-name = "omamobile/camera/gs201-dcphy.bin";
++};
++
++/*
++ * Ultrawide focus (CAMERA-PLAN.md CAM5.3): an AKM AK7375-type VCM driver at
++ * 0x0f on the ultrawide's bus (stock "act-slenderman-sandworm"), on LDO12S
++ * and the camera PMIC's LDO4 (2.9 V). Disabled; the camera-uw-lens overlay
++ * enables it and links it to the sensor (lens-focus), and the ak7375
++ * module must then load with the others or the media graph waits for it.
++ */
++&hsi2c_3 {
++	uw_vcm: lens@f {
++		compatible = "asahi-kasei,ak7375";
++		reg = <0x0f>;
++		vdd-supply = <&cam_ldo4>;
++		vio-supply = <&ldo12s>;
++		status = "disabled";
++	};
++};

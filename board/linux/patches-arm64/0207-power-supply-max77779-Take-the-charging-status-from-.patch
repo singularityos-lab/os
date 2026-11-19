@@ -1,0 +1,36 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Tue, 27 Oct 2026 03:25:56 -0647
+Subject: [PATCH] power: supply: max77779: Take the charging status from the
+ charger
+
+The gauge can't tell charging from discharging by itself, so the driver
+reported STATUS as unknown, and desktops showed no charging state. When
+a charger supplies the gauge (power-supplies, or supplied_to from the
+charger driver), report that charger's status instead.
+
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ drivers/power/supply/max77779_battery.c | 9 +++++++--
+ 1 file changed, 7 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/power/supply/max77779_battery.c b/drivers/power/supply/max77779_battery.c
+index d5a9dfe2a..dbefc3c23 100644
+--- a/drivers/power/supply/max77779_battery.c
++++ b/drivers/power/supply/max77779_battery.c
+@@ -118,8 +118,13 @@ static int max77779_get_property(struct power_supply *supply,
+ 		value->intval = ((s16)reg * 10) / 256;
+ 		return 0;
+ 	case POWER_SUPPLY_PROP_STATUS:
+-		/* The charger and external-power detection are separate devices. */
+-		value->intval = POWER_SUPPLY_STATUS_UNKNOWN;
++		/*
++		 * The charger is a separate device: take its status when one
++		 * supplies this gauge, else report it as unknown.
++		 */
++		if (power_supply_get_property_from_supplier(supply, POWER_SUPPLY_PROP_STATUS,
++							    value))
++			value->intval = POWER_SUPPLY_STATUS_UNKNOWN;
+ 		return 0;
+ 	case POWER_SUPPLY_PROP_TECHNOLOGY:
+ 		value->intval = POWER_SUPPLY_TECHNOLOGY_LION;

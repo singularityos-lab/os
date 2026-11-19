@@ -1,0 +1,82 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Brett-Michael Green <brett@bmgvisualtech.com>
+Date: Fri, 30 Oct 2026 16:23:47 -0400
+Subject: [PATCH] arm64: dts: exynos: google: zuma: add ACPM and its mailbox
+
+Add CMU_APM, the AP-to-APM mailbox (SPI 80), the APM SRAM and the ACPM
+firmware node, at the addresses stock's acpm_ipc node gives them. CMU_APM
+is read-only: it only names the mailbox's and the SRAM's clocks, which
+the always-on domain keeps running.
+
+Assisted-by: LLM
+Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
+---
+ arch/arm64/boot/dts/exynos/google/zuma.dtsi | 41 +++++++++++++++++++++
+ 1 file changed, 41 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/zuma.dtsi b/arch/arm64/boot/dts/exynos/google/zuma.dtsi
+index f76de50ad..d5d71ee26 100644
+--- a/arch/arm64/boot/dts/exynos/google/zuma.dtsi
++++ b/arch/arm64/boot/dts/exynos/google/zuma.dtsi
+@@ -148,6 +148,15 @@ cpu8: cpu@800 {
+ 		};
+ 	};
+ 
++	firmware {
++		acpm_ipc: power-management {
++			compatible = "google,zuma-acpm-ipc";
++			#clock-cells = <1>;
++			mboxes = <&ap2apm_mailbox>;
++			shmem = <&apm_sram>;
++		};
++	};
++
+ 	psci {
+ 		compatible = "arm,psci-1.0";
+ 		method = "smc";
+@@ -439,6 +448,23 @@ ufs_0_phy: phy@13204000 {
+ 			status = "disabled";
+ 		};
+ 
++		ap2apm_mailbox: mailbox@15110000 {
++			compatible = "google,zuma-mbox", "google,gs101-mbox";
++			reg = <0x15110000 0x1000>;
++			clocks = <&cmu_apm CLK_GOUT_APM_MAILBOX_AP>;
++			clock-names = "pclk";
++			interrupts = <GIC_SPI 80 IRQ_TYPE_LEVEL_HIGH>;
++			#mbox-cells = <0>;
++		};
++
++		cmu_apm: clock-controller@15400000 {
++			compatible = "google,zuma-cmu-apm";
++			reg = <0x15400000 0x8000>;
++			#clock-cells = <1>;
++			clocks = <&oscclk>;
++			clock-names = "oscclk";
++		};
++
+ 		/* Writes go through EL3 (SMC), as on gs101. */
+ 		pmu_system_controller: system-controller@15460000 {
+ 			compatible = "google,zuma-pmu";
+@@ -470,6 +496,21 @@ wakeup-interrupt-controller {
+ 			};
+ 		};
+ 
++		apm_sram: sram@15700000 {
++			compatible = "mmio-sram";
++			reg = <0x15700000 0x58000>;
++			clocks = <&cmu_apm CLK_GOUT_APM_INTMEM_ACLK>;
++			#address-cells = <1>;
++			#size-cells = <1>;
++			ranges = <0x0 0x15700000 0x58000>;
++			no-memory-wc;
++
++			/* The APM firmware's window, as one block. */
++			firmware-sram@0 {
++				reg = <0x0 0x58000>;
++			};
++		};
++
+ 		cmu_top: clock-controller@26040000 {
+ 			compatible = "google,zuma-cmu-top";
+ 			reg = <0x26040000 0x8000>;

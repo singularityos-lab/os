@@ -1,0 +1,61 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?=C3=81ngel=20Ren=C3=A9?=
+ <17342133+angelrenefm@users.noreply.github.com>
+Date: Sat, 14 Nov 2026 19:27:08 +0100
+Subject: [PATCH] media: s5p-mfc: do not write the encoder frame size on MFC
+ v15
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+MFC v15 has no E_FRAME_WIDTH and E_FRAME_HEIGHT: 0xF770 and 0xF774 are
+the decoder's payload registers there. The encoder takes the cropped size
+only, as in Google's exynos-mfc driver (kernel/google-modules/soc/gs,
+drivers/media/platform/exynos/mfc/, branch
+android-gs-pantah-6.1-android16). The other encoder registers that
+s5p-mfc writes match that driver's mfc_regs.h by address, 76 of 76.
+
+Assisted-by: LLM
+Signed-off-by: Ángel René <17342133+angelrenefm@users.noreply.github.com>
+---
+ .../platform/samsung/s5p-mfc/s5p_mfc_opr_v6.c | 20 +++++++++++++------
+ 1 file changed, 14 insertions(+), 6 deletions(-)
+
+diff --git a/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_opr_v6.c b/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_opr_v6.c
+index 6d764254b..683027fea 100644
+--- a/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_opr_v6.c
++++ b/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_opr_v6.c
+@@ -913,10 +913,17 @@ static int s5p_mfc_set_enc_params(struct s5p_mfc_ctx *ctx)
+ 
+ 	mfc_debug_enter();
+ 
+-	/* width */
+-	writel(ctx->img_width, mfc_regs->e_frame_width); /* 16 align */
+-	/* height */
+-	writel(ctx->img_height, mfc_regs->e_frame_height); /* 16 align */
++	/*
++	 * MFC v15 has no frame width and height registers: the encoder
++	 * takes the cropped size, and 0xF770/0xF774 are the decoder's
++	 * payload registers there (as in Google's exynos-mfc driver).
++	 */
++	if (!IS_MFCV15(dev)) {
++		/* width */
++		writel(ctx->img_width, mfc_regs->e_frame_width); /* 16 align */
++		/* height */
++		writel(ctx->img_height, mfc_regs->e_frame_height); /* 16 align */
++	}
+ 
+ 	/* cropped width */
+ 	writel(ctx->img_width, mfc_regs->e_cropped_frame_width);
+@@ -1191,8 +1198,9 @@ static int s5p_mfc_set_enc_params_h264(struct s5p_mfc_ctx *ctx)
+ 
+ 	/* height */
+ 	if (p_h264->interlace) {
+-		writel(ctx->img_height >> 1,
+-				mfc_regs->e_frame_height); /* 32 align */
++		if (!IS_MFCV15(dev))
++			writel(ctx->img_height >> 1,
++			       mfc_regs->e_frame_height); /* 32 align */
+ 		/* cropped height */
+ 		writel(ctx->img_height >> 1,
+ 				mfc_regs->e_cropped_frame_height);

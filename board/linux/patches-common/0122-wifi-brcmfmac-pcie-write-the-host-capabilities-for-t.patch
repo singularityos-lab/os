@@ -1,0 +1,90 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Mon, 12 Oct 2026 01:35:56 -0400
+Subject: [PATCH] wifi: brcmfmac: pcie: write the host capabilities for the
+ BCM4389
+
+From shared area revision 6 on, Broadcom's driver writes a host
+capability word into the shared area (host_cap, offset 84) before it
+uses the rings: the IPC revision in use, "host ready will be rung"
+when the firmware supports it, the device-wake mode, and "don't trap
+on an unsupported request" (bcmdhd dhd_msgbuf.c dhd_set_host_cap(),
+bcmpcie.h pciedev_shared_t and HOSTCAP_*). brcmfmac writes nothing
+there.
+
+It does write a "ring update" buffer address and length at offsets 64
+and 68, a field of older shared areas. In the revision 6/7 layout
+those offsets are host_scb_addr, and the high half of the buffer
+address lands in host_scb_size (offset 72); on the Pixel 7 Pro, with
+DMA memory above 4 GiB, that makes the size non-zero.
+
+For the BCM4389 (revision 7 firmware), write host_cap the way bcmdhd
+does with device wake off (version | ENABLE_HOSTRDY when offered |
+DS_NO_OOB_DW | UR_FW_NO_TRAP), and leave the legacy ring update fields
+alone. Other chips are unchanged.
+
+Assisted-by: LLM
+Signed-off-by: Derek Ross <derekross@gmail.com>
+---
+ .../broadcom/brcm80211/brcmfmac/pcie.c        | 34 +++++++++++++++++++
+ 1 file changed, 34 insertions(+)
+
+diff --git a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/pcie.c b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/pcie.c
+index 7436f67f1..8235c50a1 100644
+--- a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/pcie.c
++++ b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/pcie.c
+@@ -261,6 +261,12 @@ static const struct brcmf_firmware_mapping brcmf_pcie_fwnames[] = {
+ #define BRCMF_SHARED_DMA_SCRATCH_ADDR_OFFSET	56
+ #define BRCMF_SHARED_DMA_RINGUPD_LEN_OFFSET	64
+ #define BRCMF_SHARED_DMA_RINGUPD_ADDR_OFFSET	68
++/* shared area revision >= 6: host capabilities, read by the firmware */
++#define BRCMF_SHARED_HOST_CAP_OFFSET		84
++
++#define BRCMF_HOSTCAP_H2D_ENABLE_HOSTRDY	0x00000400
++#define BRCMF_HOSTCAP_DS_NO_OOB_DW		0x00001000
++#define BRCMF_HOSTCAP_UR_FW_NO_TRAP		0x00800000
+ 
+ #define BRCMF_RING_H2D_RING_COUNT_OFFSET	0
+ #define BRCMF_RING_D2H_RING_COUNT_OFFSET	1
+@@ -1632,6 +1638,29 @@ brcmf_pcie_release_scratchbuffers(struct brcmf_pciedev_info *devinfo)
+ 	}
+ }
+ 
++/*
++ * Tell the firmware what the host does, as Broadcom's driver does for shared
++ * area revision 6 and later (bcmdhd dhd_msgbuf.c dhd_set_host_cap()): the
++ * IPC revision in use, that a host-ready doorbell will come, that there is
++ * no device-wake (no deep sleep), and not to trap on an unsupported
++ * request.
++ */
++static void brcmf_pcie_set_host_cap(struct brcmf_pciedev_info *devinfo)
++{
++	u32 cap = devinfo->shared.version;
++
++	if (devinfo->shared.version < 6)
++		return;
++
++	if (devinfo->shared.flags & BRCMF_PCIE_SHARED_HOSTRDY_DB1)
++		cap |= BRCMF_HOSTCAP_H2D_ENABLE_HOSTRDY;
++	cap |= BRCMF_HOSTCAP_DS_NO_OOB_DW | BRCMF_HOSTCAP_UR_FW_NO_TRAP;
++
++	brcmf_pcie_write_tcm32(devinfo, devinfo->shared.tcm_base_address +
++			       BRCMF_SHARED_HOST_CAP_OFFSET, cap);
++	brcmf_dbg(PCIE, "host capabilities 0x%08x\n", cap);
++}
++
+ static int brcmf_pcie_init_scratchbuffers(struct brcmf_pciedev_info *devinfo)
+ {
+ 	struct brcmf_bus *bus = dev_get_drvdata(&devinfo->pdev->dev);
+@@ -1655,6 +1684,11 @@ static int brcmf_pcie_init_scratchbuffers(struct brcmf_pciedev_info *devinfo)
+ 	       BRCMF_SHARED_DMA_SCRATCH_LEN_OFFSET;
+ 	brcmf_pcie_write_tcm32(devinfo, addr, BRCMF_DMA_D2H_SCRATCH_BUF_LEN);
+ 
++	if (devinfo->pdev->device == BRCM_PCIE_4389_DEVICE_ID) {
++		brcmf_pcie_set_host_cap(devinfo);
++		return 0;
++	}
++
+ 	devinfo->shared.ringupd =
+ 		dma_alloc_coherent(&devinfo->pdev->dev,
+ 				   BRCMF_DMA_D2H_RINGUPD_BUF_LEN,

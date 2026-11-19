@@ -1,0 +1,104 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Alejandro Garcia <skipper.pelygro@gmail.com>
+Date: Sat, 31 Oct 2026 18:05:20 -0700
+Subject: [PATCH] arm64: dts: exynos: google: gs201-panther: give the fuel
+ gauge its battery model
+
+Give the gauge the ModelGauge m5 model that the stock kernel loads for
+the pack with a 1 kOhm ID resistor (Coslight, cos-a1-1k in Google's
+gs201-panther-battery-data.dtsi), as the Pixel 7 Pro does with its own.
+The phone's pack is that one: under stock's driver the gauge's TempCo
+read 0x1a02, this model's, where the 0 and 3 kOhm models have 0x223e and
+0x1802. RelaxCfg takes the value stock writes over the model at boot
+(r_regval_1720x in the live device tree); the rest, FilterCfg included,
+is Google's, and the same as the live tree's.
+
+On a POR, the driver writes the model into the gauge's RAM and clears
+POR. With it, the gauge measures the battery thermistor, and one
+capacity LSB becomes 2 mAh (TaskPeriod 0x2d00).
+
+Tested on a Pixel 7 from slot B (7.3.0-rc6), on top of the previous
+patch, with the gauge in POR: the driver logs "battery model loaded
+(DesignCap 0x873, TaskPeriod 0x2d00)". On the cable it then read 92 %
+(99 % with the default model), 4.33 V, 33.1 C (22.0 C before),
+charge_full 4324 mAh of 4326 mAh design, and Charging. upower and the
+shell show 92 %. With the cable out for a minute, btop showed a
+discharge of 1.38-1.67 W from it. No I2C errors. The gauge's interrupt
+fired in bursts, about 1300 times while the model loaded and about 400
+during the unplug, and was quiet otherwise.
+
+Assisted-by: Claude Opus 5.5
+Signed-off-by: Alejandro Garcia <skipper.pelygro@gmail.com>
+---
+ .../boot/dts/exynos/google/gs201-panther.dts  | 51 +++++++++++++++++--
+ 1 file changed, 47 insertions(+), 4 deletions(-)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/gs201-panther.dts b/arch/arm64/boot/dts/exynos/google/gs201-panther.dts
+index a3008a7da..cae0e762a 100644
+--- a/arch/arm64/boot/dts/exynos/google/gs201-panther.dts
++++ b/arch/arm64/boot/dts/exynos/google/gs201-panther.dts
+@@ -199,10 +199,6 @@ &hsi2c_13 {
+ 	clock-frequency = <400000>;
+ 	status = "okay";
+ 
+-	/*
+-	 * No battery model yet: the gauge reports from its default one, so
+-	 * the capacity and the temperature are approximate.
+-	 */
+ 	fuel-gauge@36 {
+ 		compatible = "maxim,max77759-fg";
+ 		reg = <0x36>;
+@@ -212,6 +208,53 @@ fuel-gauge@36 {
+ 		/* maxim,rsense-default = <500> (10 uOhm units) in the live tree */
+ 		shunt-resistor-micro-ohms = <5000>;
+ 		monitored-battery = <&battery>;
++
++		/*
++		 * Battery model for the pack with a 1 kOhm ID resistor, the one
++		 * this phone has (the gauge's TempCo read 0x1a02 under stock's
++		 * driver, which is this model's). From Google's
++		 * gs201-panther-battery-data.dtsi (cos-a1-1k, model version 2),
++		 * except RelaxCfg 0x143b, the value stock writes over the
++		 * model's at boot (r_regval_1720x). TaskPeriod 0x2d00 makes one
++		 * capacity LSB 2 mAh with 5 mOhm: DesignCap 0x0873 = 4326 mAh.
++		 */
++		maxim,fg-model = /bits/ 16 <
++			0x8c80 0xb770 0xb8f0 0xba50 0xbb40 0xbc30 0xbe00 0xbfd0
++			0xc1b0 0xc3a0 0xc6b0 0xc9c0 0xd020 0xd300 0xd5e0 0xdc30
++			0x0080 0x1070 0x1020 0x0ed0 0x0f00 0x1700 0x1530 0x0c20
++			0x0c40 0x07f0 0x07f0 0x06f0 0x0710 0x06d0 0x06f0 0x06f0
++			0x0200 0x0200 0x0200 0x0200 0x0200 0x0200 0x0200 0x0200
++			0x0200 0x0200 0x0200 0x0200 0x0200 0x0200 0x0200 0x0200
++		>;
++		maxim,fg-params = /bits/ 16 <
++			0xf060	/* IAvgEmpty */
++			0x143b	/* RelaxCfg */
++			0x260e	/* LearnCfg */
++			0x4217	/* Config: external thermistor, TEx clear */
++			0x0090	/* Config2 */
++			0x5f00	/* FullSOCThr */
++			0x0873	/* FullCapRep */
++			0x0873	/* DesignCap */
++			0x3200	/* dPAcc */
++			0x021c	/* dQAcc */
++			0x0873	/* FullCapNom */
++			0xa561	/* VEmpty */
++			0x1f00	/* QRTable00 */
++			0x0d80	/* QRTable10 */
++			0x0480	/* QRTable20 */
++			0x0400	/* QRTable30 */
++			0x0740	/* RComp0 */
++			0x1a02	/* TempCo */
++			0x0557	/* IChgTerm */
++			0xed51	/* TGain */
++			0x1eba	/* TOff */
++			0x0014	/* Curve */
++			0x3870	/* MiscCfg */
++			0x1900	/* AtRate */
++			0x2241	/* ConvgCfg */
++			0xc613	/* FilterCfg */
++			0x2d00	/* TaskPeriod */
++		>;
+ 	};
+ };
+ 

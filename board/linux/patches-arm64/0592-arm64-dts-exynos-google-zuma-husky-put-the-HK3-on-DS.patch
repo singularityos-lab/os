@@ -1,0 +1,60 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Brett-Michael Green <brett@bmgvisualtech.com>
+Date: Sat, 31 Oct 2026 15:08:22 -0400
+Subject: [PATCH] arm64: dts: exynos: google: zuma-husky: put the HK3 on DSIM0
+
+Enable DSIM0 with the Pixel 8 Pro's HK3 panel and connect it to DECON0's
+output port, so gs-decon switches the link and the panel between 60 and
+120 Hz and the panel driver handles brightness and sleep. The panel is
+described without its reset line and supplies: the driver takes it over
+as the bootloader left it, and the main PMIC's regulators are not
+described yet.
+
+Assisted-by: LLM
+Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
+---
+ .../boot/dts/exynos/google/zuma-husky.dts     | 26 +++++++++++++++++--
+ 1 file changed, 24 insertions(+), 2 deletions(-)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/zuma-husky.dts b/arch/arm64/boot/dts/exynos/google/zuma-husky.dts
+index 3b508eb2a..478a57697 100644
+--- a/arch/arm64/boot/dts/exynos/google/zuma-husky.dts
++++ b/arch/arm64/boot/dts/exynos/google/zuma-husky.dts
+@@ -255,13 +255,35 @@ ldo11s: ldo11s {
+ 
+ /*
+  * DECON0 takes the display over from simple-framebuffer and flips DPP0
+- * between scanout buffers. Without a DSIM on its output port it stays at
+- * the bootloader's 60 Hz.
++ * between scanout buffers. It scans out to DSIM0, so gs-decon can switch
++ * the link and the panel between 60 and 120 Hz.
+  */
+ &decon0 {
+ 	memory-region = <&display_pool>, <&cont_splash_mem>;
+ 	memory-region-names = "pool", "boot-framebuffer";
+ 	status = "okay";
++
++	port {
++		decon0_out: endpoint {
++			remote-endpoint = <&dsi0_in>;
++		};
++	};
++};
++
++/* The HK3, running as the bootloader left it: no reset or supply control. */
++&dsi0 {
++	status = "okay";
++
++	panel@0 {
++		compatible = "google,hk3";
++		reg = <0>;
++	};
++
++	port {
++		dsi0_in: endpoint {
++			remote-endpoint = <&decon0_out>;
++		};
++	};
+ };
+ 
+ /*

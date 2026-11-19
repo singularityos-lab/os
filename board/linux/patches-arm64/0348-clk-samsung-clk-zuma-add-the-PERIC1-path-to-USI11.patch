@@ -1,0 +1,160 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Lef <me@lefteros.com>
+Date: Sat, 31 Oct 2026 16:39:51 +0200
+Subject: [PATCH] clk: samsung: clk-zuma: add the PERIC1 path to USI11
+
+Add the CMU_TOP PERIC1 NoC and IP clocks (firmware-owned, read-only) and
+CMU_PERIC1 with USI11's user mux, divider and gates, for the I2C bus of
+the battery, charger and Type-C chips. The layout follows the Pixel 9a's
+PERIC1 code, which comes from the same cal-if/zuma tables; USI11 is the
+next slot after USI10 there (mux 0x640, divider 0x1810, gates
+0x2048/0x204c/0x2094). The USI11 gates keep the mode firmware set.
+
+Signed-off-by: Lef <me@lefteros.com>
+Assisted-by: LLM
+---
+ drivers/clk/samsung/clk-zuma.c | 79 ++++++++++++++++++++++++++++++++--
+ 1 file changed, 75 insertions(+), 4 deletions(-)
+
+diff --git a/drivers/clk/samsung/clk-zuma.c b/drivers/clk/samsung/clk-zuma.c
+index ccb80f62e..962f2ae8e 100644
+--- a/drivers/clk/samsung/clk-zuma.c
++++ b/drivers/clk/samsung/clk-zuma.c
+@@ -1,11 +1,14 @@
+ // SPDX-License-Identifier: GPL-2.0-only
+ /*
+- * Google Tensor G3 (zuma) clocks for the touchscreen and its PMIC.
++ * Google Tensor G3 (zuma) clocks for the touchscreen, its PMIC and the
++ * battery bus.
+  *
+  * Register layout and parents derived from Google's GPL CMUCAL tables in
+  * cal-if/zuma/cmucal-{sfr,node}.c, Copyright 2022 Samsung Electronics Co., Ltd.
+  * Only the path from CMU_TOP to HSI0's USI2 is described, with CMU_APM's
+- * clocks for the APM mailbox, its SRAM and the always-on GPIO banks. PLLs,
++ * clocks for the APM mailbox, its SRAM and the always-on GPIO banks, and
++ * the path from CMU_TOP to PERIC1's USI11 (the battery, charger and USB-C
++ * I2C bus). PLLs,
+  * muxes and dividers keep their firmware settings, except USI2's own
+  * divider, which sets the SPI rate. No PLL rate table is supplied.
+  */
+@@ -43,6 +46,9 @@ static const struct samsung_fixed_factor_clock top_factors[] __initconst = {
+ 	FFACTOR(CLK_SHARED3_D2, "zuma_shared3_d2", "zuma_shared3", 1, 2, 0),
+ };
+ 
++PNAME(mout_peric1_parents) = {
++	"zuma_shared0_d4", "zuma_shared2_d2", "zuma_shared3_d2", "zuma_spare",
++};
+ PNAME(mout_hsi0_noc_parents) = {
+ 	"zuma_shared0_d4", "zuma_shared1_d4", "zuma_shared2_d2",
+ 	"zuma_shared3_d2", "zuma_spare", "oscclk", "oscclk", "oscclk",
+@@ -57,14 +63,22 @@ static const struct samsung_mux_clock top_muxes[] __initconst = {
+ 	      0x1094, 0, 3, 0, CLK_MUX_READ_ONLY),
+ 	MUX_F(CLK_MOUT_HSI0_PERI, "zuma_mout_hsi0_peri", mout_hsi0_peri_parents,
+ 	      0x1098, 0, 2, 0, CLK_MUX_READ_ONLY),
++	MUX_F(CLK_MOUT_PERIC1_NOC, "zuma_mout_peric1_noc", mout_peric1_parents,
++	      0x10f8, 0, 2, 0, CLK_MUX_READ_ONLY),
++	MUX_F(CLK_MOUT_PERIC1_IP, "zuma_mout_peric1_ip", mout_peric1_parents,
++	      0x10f4, 0, 2, 0, CLK_MUX_READ_ONLY),
+ };
+ 
+-/* The hardware order is mux -> gate -> divider. HSI0 is firmware-owned. */
++/* The hardware order is mux -> gate -> divider. HSI0 and PERIC1 are firmware-owned. */
+ static const struct samsung_gate_clock top_ro_gates[] __initconst = {
+ 	GATE(CLK_GOUT_HSI0_NOC, "zuma_gout_hsi0_noc", "zuma_mout_hsi0_noc",
+ 	     0x20bc, 21, CLK_IGNORE_UNUSED, 0),
+ 	GATE(CLK_GOUT_HSI0_PERI, "zuma_gout_hsi0_peri", "zuma_mout_hsi0_peri",
+ 	     0x20c0, 21, CLK_IGNORE_UNUSED, 0),
++	GATE(CLK_GOUT_PERIC1_NOC, "zuma_gout_peric1_noc", "zuma_mout_peric1_noc",
++	     0x211c, 21, CLK_IGNORE_UNUSED, 0),
++	GATE(CLK_GOUT_PERIC1_IP, "zuma_gout_peric1_ip", "zuma_mout_peric1_ip",
++	     0x2118, 21, CLK_IGNORE_UNUSED, 0),
+ };
+ 
+ static const struct samsung_div_clock top_dividers[] __initconst = {
+@@ -72,6 +86,10 @@ static const struct samsung_div_clock top_dividers[] __initconst = {
+ 	      0x188c, 0, 4, 0, CLK_DIVIDER_READ_ONLY),
+ 	DIV_F(CLK_DOUT_HSI0_PERI, "zuma_dout_hsi0_peri", "zuma_gout_hsi0_peri",
+ 	      0x1890, 0, 4, 0, CLK_DIVIDER_READ_ONLY),
++	DIV_F(CLK_DOUT_PERIC1_NOC, "zuma_dout_peric1_noc", "zuma_gout_peric1_noc",
++	      0x18f0, 0, 4, 0, CLK_DIVIDER_READ_ONLY),
++	DIV_F(CLK_DOUT_PERIC1_IP, "zuma_dout_peric1_ip", "zuma_gout_peric1_ip",
++	      0x18ec, 0, 4, 0, CLK_DIVIDER_READ_ONLY),
+ };
+ 
+ static const struct samsung_cmu_info top_cmu __initconst = {
+@@ -85,7 +103,7 @@ static const struct samsung_cmu_info top_cmu __initconst = {
+ 	.nr_ro_gate_clks = ARRAY_SIZE(top_ro_gates),
+ 	.div_clks = top_dividers,
+ 	.nr_div_clks = ARRAY_SIZE(top_dividers),
+-	.nr_clk_ids = CLK_DOUT_HSI0_PERI + 1,
++	.nr_clk_ids = CLK_DOUT_PERIC1_IP + 1,
+ };
+ 
+ static void __init zuma_top_init(struct device_node *np)
+@@ -223,6 +241,58 @@ static const struct samsung_cmu_info hsi0_cmu __initconst = {
+ 	.clk_name = "bus",
+ };
+ 
++/*
++ * CMU_PERIC1, 0x10c00000. Firmware sets it up: the user muxes and the USI11
++ * divider are read-only, and the GPIO and sysreg gates are read-only gates.
++ * USI11 is the I2C bus of the MAX77759 gauge, charger and Type-C controller
++ * and the MAX77729 PMIC. Its gates are the ones Linux turns on, as for the
++ * Pixel 9a's USI10; their auto/manual mode is left as firmware set it.
++ */
++PNAME(mout_peric1_noc_user_parents) = { "oscclk", "zuma_dout_peric1_noc" };
++PNAME(mout_peric1_usi11_user_parents) = { "oscclk", "zuma_dout_peric1_ip" };
++
++static const struct samsung_mux_clock peric1_muxes[] __initconst = {
++	MUX_F(CLK_MOUT_PERIC1_NOC_USER, "zuma_mout_peric1_noc_user",
++	      mout_peric1_noc_user_parents, 0x610, 4, 1, 0, CLK_MUX_READ_ONLY),
++	MUX_F(CLK_MOUT_PERIC1_USI11_USER, "zuma_mout_peric1_usi11_user",
++	      mout_peric1_usi11_user_parents, 0x640, 4, 1, 0, CLK_MUX_READ_ONLY),
++};
++
++static const struct samsung_div_clock peric1_dividers[] __initconst = {
++	DIV_F(CLK_DOUT_PERIC1_USI11, "zuma_dout_peric1_usi11",
++	      "zuma_mout_peric1_usi11_user", 0x1810, 0, 4, 0,
++	      CLK_DIVIDER_READ_ONLY),
++};
++
++static const struct samsung_gate_clock peric1_ro_gates[] __initconst = {
++	GATE(CLK_GOUT_GPIO_PERIC1, "zuma_gout_gpio_peric1",
++	     "zuma_mout_peric1_noc_user", 0x2080, 21, CLK_IGNORE_UNUSED, 0),
++	GATE(CLK_GOUT_PERIC1_SYSREG, "zuma_gout_peric1_sysreg",
++	     "zuma_mout_peric1_noc_user", 0x20a4, 21, CLK_IGNORE_UNUSED, 0),
++};
++
++static const struct samsung_gate_clock peric1_gates[] __initconst = {
++	GATE(CLK_GOUT_PERIC1_USI11_IPCLK, "zuma_gout_peric1_usi11_ipclk",
++	     "zuma_dout_peric1_usi11", 0x2048, 21, 0, 0),
++	GATE(CLK_GOUT_PERIC1_USI11_PCLK, "zuma_gout_peric1_usi11_pclk",
++	     "zuma_mout_peric1_noc_user", 0x204c, 21, 0, 0),
++	GATE(CLK_GOUT_PERIC1_USI11_RSTNSYNC, "zuma_gout_peric1_usi11_rstnsync",
++	     "zuma_dout_peric1_usi11", 0x2094, 21, 0, 0),
++};
++
++static const struct samsung_cmu_info peric1_cmu __initconst = {
++	.mux_clks = peric1_muxes,
++	.nr_mux_clks = ARRAY_SIZE(peric1_muxes),
++	.div_clks = peric1_dividers,
++	.nr_div_clks = ARRAY_SIZE(peric1_dividers),
++	.ro_gate_clks = peric1_ro_gates,
++	.nr_ro_gate_clks = ARRAY_SIZE(peric1_ro_gates),
++	.gate_clks = peric1_gates,
++	.nr_gate_clks = ARRAY_SIZE(peric1_gates),
++	.nr_clk_ids = CLK_GOUT_PERIC1_USI11_RSTNSYNC + 1,
++	.clk_name = "bus",
++};
++
+ static int __init zuma_cmu_probe(struct platform_device *pdev)
+ {
+ 	const struct samsung_cmu_info *cmu = device_get_match_data(&pdev->dev);
+@@ -234,6 +304,7 @@ static int __init zuma_cmu_probe(struct platform_device *pdev)
+ static const struct of_device_id zuma_cmu_match[] = {
+ 	{ .compatible = "google,zuma-cmu-apm", .data = &apm_cmu },
+ 	{ .compatible = "google,zuma-cmu-hsi0", .data = &hsi0_cmu },
++	{ .compatible = "google,zuma-cmu-peric1", .data = &peric1_cmu },
+ 	{ }
+ };
+ 

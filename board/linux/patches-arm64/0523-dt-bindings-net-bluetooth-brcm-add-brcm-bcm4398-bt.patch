@@ -1,0 +1,41 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Lef <me@lefteros.com>
+Date: Fri, 6 Nov 2026 06:45:48 +0200
+Subject: [PATCH] dt-bindings: net: bluetooth: brcm: add brcm,bcm4398-bt
+
+The Pixel 8 Pro's Bluetooth is a BCM4398. hci_bcm has no data of its
+own for it and uses the BCM4389's, so the compatible names the chip and
+falls back to brcm,bcm4389-bt, the same form as infineon,cyw43439-bt.
+No driver change is needed.
+
+Also mention the BCM4398 next to the Pixel 9a's BCM4383 in the
+description of brcm,ble-dbo-gpios, as it latches BT_REG_ON the same way.
+
+Signed-off-by: Lef <me@lefteros.com>
+---
+ .../devicetree/bindings/net/bluetooth/brcm,bluetooth.yaml    | 5 ++++-
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/Documentation/devicetree/bindings/net/bluetooth/brcm,bluetooth.yaml b/Documentation/devicetree/bindings/net/bluetooth/brcm,bluetooth.yaml
+index 13e8b4e95..ff8ceb943 100644
+--- a/Documentation/devicetree/bindings/net/bluetooth/brcm,bluetooth.yaml
++++ b/Documentation/devicetree/bindings/net/bluetooth/brcm,bluetooth.yaml
+@@ -19,6 +19,9 @@ properties:
+           - enum:
+               - infineon,cyw43439-bt
+           - const: brcm,bcm4329-bt
++      - items:
++          - const: brcm,bcm4398-bt
++          - const: brcm,bcm4389-bt
+       - enum:
+           - brcm,bcm20702a1
+           - brcm,bcm4329-bt
+@@ -57,7 +60,7 @@ properties:
+     maxItems: 1
+     description: GPIO specifier for the clock of the flip-flop that holds
+       BT_REG_ON on boards that latch it (the BCM4383 on the Google Pixel
+-      9a). BT_REG_ON only reaches the chip on a rising edge of this line.
++      9a and the BCM4398 on the Pixel 8 Pro). BT_REG_ON only reaches the chip on a rising edge of this line.
+ 
+   host-wakeup-gpios:
+     maxItems: 1

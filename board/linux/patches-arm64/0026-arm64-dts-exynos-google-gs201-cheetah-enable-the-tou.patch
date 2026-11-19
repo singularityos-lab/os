@@ -1,0 +1,78 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Sun, 11 Oct 2026 19:35:50 -0400
+Subject: [PATCH] arm64: dts: exynos: google: gs201-cheetah: enable the
+ touchscreen
+
+The Pixel 7 Pro has a Synaptics S3908 touch controller on PERIC1 USI0
+SPI, with its chip select on gpp20-3 (driven as a GPIO), ATTN on gpa7-0
+and reset on gpp23-2. Its supplies, S2MPG12 LDO25M and LDO26M, are left
+on by the bootloader and are not described until there is a regulator
+driver for the PMIC.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ .../boot/dts/exynos/google/gs201-cheetah.dts  | 36 +++++++++++++++++++
+ 1 file changed, 36 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts b/arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts
+index 537c2d47c..fbb8195db 100644
+--- a/arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts
++++ b/arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts
+@@ -5,6 +5,7 @@
+ 
+ /dts-v1/;
+ 
++#include <dt-bindings/soc/samsung,exynos-usi.h>
+ #include "gs201.dtsi"
+ 
+ / {
+@@ -17,6 +18,10 @@ / {
+ 	 */
+ 	soc_id = <0x09855001 0x0>;
+ 
++	aliases {
++		spi0 = &spi_0;
++	};
++
+ 	chosen {
+ 		/* ABL requires bootargs to exist; it appends its own after these. */
+ 		bootargs = "console=tty0 fbcon=font:TER16x32 panic=10 clk_ignore_unused pd_ignore_unused rdinit=/init omandroid.ufs-probe";
+@@ -71,6 +76,37 @@ cont_splash_mem: splash@fac00000 {
+ 	};
+ };
+ 
++/* Touchscreen: Synaptics S3908 on USI0 SPI */
++&usi0 {
++	samsung,mode = <USI_MODE_SPI>;
++	status = "okay";
++};
++
++&spi_0 {
++	pinctrl-0 = <&spi0_bus &spi0_miso &spi0_cs_gpio>;
++	cs-gpios = <&gpp20 3 GPIO_ACTIVE_LOW>;
++	num-cs = <1>;
++	status = "okay";
++
++	/*
++	 * The 1.8 V (VDD) and 3.3 V (AVDD) supplies are S2MPG12 LDO25M and
++	 * LDO26M. There is no S2MPG12 regulator driver yet; the bootloader
++	 * leaves both on.
++	 */
++	touchscreen@0 {
++		compatible = "syna,s3908";
++		reg = <0>;
++		spi-max-frequency = <10000000>;
++		interrupt-parent = <&gpa7>;
++		interrupts = <0 IRQ_TYPE_LEVEL_LOW>;
++		reset-gpios = <&gpp23 2 GPIO_ACTIVE_LOW>;
++		pinctrl-0 = <&ts_irq &ts_reset>;
++		pinctrl-names = "default";
++		touchscreen-x-mm = <71>;
++		touchscreen-y-mm = <154>;
++	};
++};
++
+ &usbdrd31_phy {
+ 	status = "okay";
+ };

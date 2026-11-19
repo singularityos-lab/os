@@ -1,0 +1,136 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Lef <me@lefteros.com>
+Date: Wed, 4 Nov 2026 22:55:42 +0200
+Subject: [PATCH] arm64: dts: exynos: google: zuma-husky: add the rear flash
+ LED (LM3644)
+
+Add cmu_peric0, sysreg_peric0, usi14 and hsi2c_14 (0x10980000, IRQ 648)
+to zuma.dtsi, and the pins hsi2c14_bus (gpp16-0 and gpp16-1, function
+2) and flash_en (gpp8-2). The board file gets the LM3644 at 0x63 with
+HWEN on gpp8-2 and the 7 Pro's bring-up cap of 50 mA per LED (not a
+stock value), and enables cmu_peric0 and sysreg_peric0, which stay off
+in zuma.dtsi like PERIC1.
+
+Tested on a Pixel 8 Pro with 7.3.0-rc6: the chip is found (LM3644TT,
+ID 0x04), the LED class white:torch has 17 steps from 2550 to 49110 uA
+and lights the rear LED.
+
+Signed-off-by: Lef <me@lefteros.com>
+---
+ .../boot/dts/exynos/google/zuma-husky.dts     | 42 +++++++++++++++++++
+ .../boot/dts/exynos/google/zuma-pinctrl.dtsi  | 16 +++++++
+ arch/arm64/boot/dts/exynos/google/zuma.dtsi   | 10 ++---
+ 3 files changed, 63 insertions(+), 5 deletions(-)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/zuma-husky.dts b/arch/arm64/boot/dts/exynos/google/zuma-husky.dts
+index a7fcee3e1..6ed1514cb 100644
+--- a/arch/arm64/boot/dts/exynos/google/zuma-husky.dts
++++ b/arch/arm64/boot/dts/exynos/google/zuma-husky.dts
+@@ -7,6 +7,7 @@
+ 
+ #include <dt-bindings/gpio/gpio.h>
+ #include <dt-bindings/input/input.h>
++#include <dt-bindings/leds/common.h>
+ #include <dt-bindings/interrupt-controller/irq.h>
+ #include <dt-bindings/usb/pd.h>
+ #include "zuma.dtsi"
+@@ -421,3 +422,44 @@ haptics: haptic-driver@43 {
+ 		cirrus,vpbr-threshold-microvolt = <3008000>;
+ 	};
+ };
++
++/*
++ * Rear flash LED: TI LM3644 at 0x63 on PERIC0 USI14 (Google's I2C bus 14,
++ * 390 kHz in stock, 400 kHz here), HWEN on gpp8-2. Stock drives it from the
++ * camera HAL through LWIS. Torch only; the cap is the 7 Pro's bring-up limit
++ * (50 mA per LED), not a stock value. CMU_PERIC0 and its sysreg are enabled
++ * here, as CMU_PERIC1 is for the haptics: the torch's I2C bus (USI14) sits
++ * on them.
++ */
++&cmu_peric0 {
++	status = "okay";
++};
++
++&sysreg_peric0 {
++	status = "okay";
++};
++
++&usi14 {
++	status = "okay";
++};
++
++&hsi2c_14 {
++	clock-frequency = <400000>;
++	/* The bus pins and HWEN's mux, as in Google's zuma-husky-camera.dtsi. */
++	pinctrl-0 = <&hsi2c14_bus &flash_en>;
++	pinctrl-names = "default";
++	status = "okay";
++
++	led-controller@63 {
++		compatible = "ti,lm3644";
++		reg = <0x63>;
++		enable-gpios = <&gpp8 2 GPIO_ACTIVE_HIGH>;
++
++		led {
++			function = LED_FUNCTION_TORCH;
++			color = <LED_COLOR_ID_WHITE>;
++			led-sources = <1 2>;
++			led-max-microamp = <50000>;
++		};
++	};
++};
+diff --git a/arch/arm64/boot/dts/exynos/google/zuma-pinctrl.dtsi b/arch/arm64/boot/dts/exynos/google/zuma-pinctrl.dtsi
+index ada6e943f..74b690563 100644
+--- a/arch/arm64/boot/dts/exynos/google/zuma-pinctrl.dtsi
++++ b/arch/arm64/boot/dts/exynos/google/zuma-pinctrl.dtsi
+@@ -445,6 +445,22 @@ gpp16: gpp16-gpio-bank {
+ 		interrupt-controller;
+ 		#interrupt-cells = <2>;
+ 	};
++
++	/* USI14, the rear flash LED's bus: gpp16-0/1 in function 2, as stock. */
++	hsi2c14_bus: hsi2c14-bus-pins {
++		samsung,pins = "gpp16-0", "gpp16-1";
++		samsung,pin-function = <GS101_PIN_FUNC_2>;
++		samsung,pin-pud = <GS101_PIN_PULL_NONE>;
++		samsung,pin-drv = <GS101_PIN_DRV_2_5_MA>;
++	};
++
++	/* The LM3644's HWEN (flashlight enable), gpp8-2; the LED driver takes it as a GPIO. */
++	flash_en: flash-en-pins {
++		samsung,pins = "gpp8-2";
++		samsung,pin-function = <GS101_PIN_FUNC_OUTPUT>;
++		samsung,pin-pud = <GS101_PIN_PULL_NONE>;
++		samsung,pin-drv = <GS101_PIN_DRV_2_5_MA>;
++	};
+ };
+ 
+ &pinctrl_hsi1 {
+diff --git a/arch/arm64/boot/dts/exynos/google/zuma.dtsi b/arch/arm64/boot/dts/exynos/google/zuma.dtsi
+index b4416d2b8..21c184ae8 100644
+--- a/arch/arm64/boot/dts/exynos/google/zuma.dtsi
++++ b/arch/arm64/boot/dts/exynos/google/zuma.dtsi
+@@ -365,11 +365,6 @@ pinctrl_peric1: pinctrl@10c40000 {
+ 			interrupts = <GIC_SPI 649 IRQ_TYPE_LEVEL_HIGH>;
+ 		};
+ 
+-		/*
+-		 * CMU_PERIC1 and USI11, the I2C bus of the MAX77759 gauge,
+-		 * charger and Type-C controller. Firmware leaves them running;
+-		 * board files enable them.
+-		 */
+ 		/* CMU_PERIC0 and USI14, the I2C bus of the rear flash LED. */
+ 		cmu_peric0: clock-controller@10800000 {
+ 			compatible = "google,zuma-cmu-peric0";
+@@ -418,6 +413,11 @@ hsi2c_14: i2c@10980000 {
+ 			};
+ 		};
+ 
++		/*
++		 * CMU_PERIC1 and USI11, the I2C bus of the MAX77759 gauge,
++		 * charger and Type-C controller. Firmware leaves them running;
++		 * board files enable them.
++		 */
+ 		cmu_peric1: clock-controller@10c00000 {
+ 			compatible = "google,zuma-cmu-peric1";
+ 			reg = <0x10c00000 0x8000>;

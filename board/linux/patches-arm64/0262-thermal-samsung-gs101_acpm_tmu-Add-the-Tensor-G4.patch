@@ -1,0 +1,99 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Tue, 27 Oct 2026 11:48:56 -0647
+Subject: [PATCH] thermal: samsung: gs101_acpm_tmu: Add the Tensor G4
+
+The Tensor G4 (zumapro) reads its SoC temperatures through the same ACPM
+TMU service on channel 9, with the same sensor order plus a seventh,
+AUR. Make the sensor count part of the match data and add
+google,zumapro-acpm-tmu with seven sensors.
+
+Tested on the Pixel 9a: the driver binds the thermal-sensor node under
+ACPM, the firmware accepts the TMU init, and the big, mid, little and
+GPU thermal zones register with their cpufreq and devfreq cooling maps
+and read 46-48 C idle.
+
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ drivers/thermal/samsung/Kconfig          |  5 +++--
+ drivers/thermal/samsung/gs101_acpm_tmu.c | 19 +++++++++++++++----
+ 2 files changed, 18 insertions(+), 6 deletions(-)
+
+diff --git a/drivers/thermal/samsung/Kconfig b/drivers/thermal/samsung/Kconfig
+index 0ec58c797..ab491d061 100644
+--- a/drivers/thermal/samsung/Kconfig
++++ b/drivers/thermal/samsung/Kconfig
+@@ -12,7 +12,7 @@ config EXYNOS_THERMAL
+ 	  data from the supported SoCs.
+ 
+ config GS101_ACPM_THERMAL
+-	tristate "Google gs101 thermal sensors through ACPM"
++	tristate "Google gs101 and Tensor G4 thermal sensors through ACPM"
+ 	depends on THERMAL_OF
+ 	depends on EXYNOS_ACPM_PROTOCOL
+ 	help
+@@ -22,4 +22,5 @@ config GS101_ACPM_THERMAL
+ 	  TMU channel. The driver only reads; the firmware's own hardware
+ 	  trips stay as the bootloader left them.
+ 
+-	  Say Y or M here on Google gs101 (Pixel 6) devices.
++	  Say Y or M here on Google gs101 (Pixel 6) and Tensor G4
++	  (zumapro, Pixel 9a) devices.
+diff --git a/drivers/thermal/samsung/gs101_acpm_tmu.c b/drivers/thermal/samsung/gs101_acpm_tmu.c
+index 82a391657..8ea276ce9 100644
+--- a/drivers/thermal/samsung/gs101_acpm_tmu.c
++++ b/drivers/thermal/samsung/gs101_acpm_tmu.c
+@@ -16,11 +16,15 @@
+ #include <linux/platform_device.h>
+ #include <linux/thermal.h>
+ 
+-/* The sensors: BIG, MID, LITTLE, G3D, ISP, TPU */
+-#define GS101_ACPM_TMU_SENSORS	6
++/*
++ * The sensors: BIG, MID, LITTLE, G3D, ISP, TPU, and on zumapro also AUR,
++ * in the firmware's order.
++ */
++#define GS101_ACPM_TMU_MAX_SENSORS	7
+ 
+ struct gs101_tmu_data {
+ 	unsigned int acpm_chan;		/* ACPM channel of the TMU service */
++	unsigned int nr_sensors;
+ };
+ 
+ struct gs101_tmu;
+@@ -33,7 +37,7 @@ struct gs101_tmu_sensor {
+ struct gs101_tmu {
+ 	struct acpm_handle *handle;
+ 	unsigned int acpm_chan;
+-	struct gs101_tmu_sensor sensors[GS101_ACPM_TMU_SENSORS];
++	struct gs101_tmu_sensor sensors[GS101_ACPM_TMU_MAX_SENSORS];
+ };
+ 
+ static int gs101_tmu_get_temp(struct thermal_zone_device *tz, int *temp)
+@@ -81,7 +85,7 @@ static int gs101_tmu_probe(struct platform_device *pdev)
+ 	if (ret)
+ 		return dev_err_probe(dev, ret, "ACPM TMU init failed\n");
+ 
+-	for (i = 0; i < GS101_ACPM_TMU_SENSORS; i++) {
++	for (i = 0; i < data->nr_sensors; i++) {
+ 		tmu->sensors[i].tmu = tmu;
+ 		tmu->sensors[i].id = i;
+ 
+@@ -103,10 +107,17 @@ static int gs101_tmu_probe(struct platform_device *pdev)
+ 
+ static const struct gs101_tmu_data gs101_tmu_data = {
+ 	.acpm_chan = 9,
++	.nr_sensors = 6,
++};
++
++static const struct gs101_tmu_data zumapro_tmu_data = {
++	.acpm_chan = 9,
++	.nr_sensors = 7,
+ };
+ 
+ static const struct of_device_id gs101_tmu_of_match[] = {
+ 	{ .compatible = "google,gs101-acpm-tmu", .data = &gs101_tmu_data },
++	{ .compatible = "google,zumapro-acpm-tmu", .data = &zumapro_tmu_data },
+ 	{ }
+ };
+ MODULE_DEVICE_TABLE(of, gs101_tmu_of_match);

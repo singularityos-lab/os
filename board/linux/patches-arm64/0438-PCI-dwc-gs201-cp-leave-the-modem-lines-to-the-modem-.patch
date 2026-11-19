@@ -1,0 +1,202 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Mon, 12 Oct 2026 18:42:52 -0400
+Subject: [PATCH] PCI: dwc: gs201-cp: leave the modem lines to the modem driver
+
+The modem's lines are described in the "modem" child node so that the
+cp_on/cp_off bring-up steps can power the S5300 without a modem driver.
+Google's modem interface driver drives the same lines itself, from its
+own node, and two owners of a reset line cannot work.
+
+Take the lines only when the "modem" child is present and available.
+Without it the link driver still probes, cp_on/cp_off return -ENODEV,
+the status file says who owns the lines, and watch_lines does nothing.
+
+Assisted-by: LLM
+Signed-off-by: Derek Ross <derekross@gmail.com>
+---
+ drivers/pci/controller/dwc/pcie-gs201-cp.c | 112 +++++++++++++--------
+ 1 file changed, 72 insertions(+), 40 deletions(-)
+
+diff --git a/drivers/pci/controller/dwc/pcie-gs201-cp.c b/drivers/pci/controller/dwc/pcie-gs201-cp.c
+index 823c21bf9..e1834845c 100644
+--- a/drivers/pci/controller/dwc/pcie-gs201-cp.c
++++ b/drivers/pci/controller/dwc/pcie-gs201-cp.c
+@@ -25,6 +25,8 @@
+  *
+  *   cp_on      modem power-on sequence on its control lines
+  *   cp_off     modem power-off sequence
++ *              (both only while the "modem" child node is available; when
++ *              it is disabled, the modem driver owns the lines)
+  *   link_up    PHY out of isolation, PHY and controller setup, PERST#
+  *              release, LTSSM, wait for L0 (Gen1 unless "link_up 3")
+  *   atu        the secure-ATU SMC (config and memory windows)
+@@ -164,6 +166,7 @@ struct gs201_pcie_cp {
+ 	struct gpio_desc *perst;
+ 	struct pinctrl *pinctrl;
+ 	struct pinctrl_state *pins_active;
++	bool has_lines;			/* "modem" child available: we own the lines */
+ 	struct gpio_desc *out[CP_NUM_OUTPUTS];
+ 	struct gpio_desc *in[CP_NUM_INPUTS];
+ 	struct gs201_pcie_cp_watch {
+@@ -588,7 +591,7 @@ static int cp_link_up(struct gs201_pcie_cp *cp, unsigned int speed)
+ 	u8 cap;
+ 	int ret;
+ 
+-	if (!cp->cp_powered)
++	if (cp->has_lines && !cp->cp_powered)
+ 		dev_warn(cp->dev, "modem not powered (cp_on): expect no link\n");
+ 
+ 	if (!cp->phy_inited) {
+@@ -679,11 +682,15 @@ static ssize_t cp_ctl_write(struct file *file, const char __user *ubuf,
+ 	cmd = strim(buf);
+ 
+ 	mutex_lock(&cp->lock);
+-	if (!strcmp(cmd, "cp_on")) {
+-		cp_power_on(cp);
+-	} else if (!strcmp(cmd, "cp_off")) {
+-		cp_link_down(cp);
+-		cp_power_off(cp);
++	if (!strcmp(cmd, "cp_on") || !strcmp(cmd, "cp_off")) {
++		if (!cp->has_lines) {
++			ret = -ENODEV;	/* the modem driver owns the lines */
++		} else if (cmd[4] == 'n') {
++			cp_power_on(cp);
++		} else {
++			cp_link_down(cp);
++			cp_power_off(cp);
++		}
+ 	} else if (!strncmp(cmd, "link_up", 7)) {
+ 		if (cmd[7] == ' ' && kstrtouint(cmd + 8, 0, &speed))
+ 			ret = -EINVAL;
+@@ -722,10 +729,12 @@ static int cp_status_show(struct seq_file *s, void *unused)
+ 	unsigned int i, iso = 0;
+ 
+ 	mutex_lock(&cp->lock);
+-	for (i = 0; i < CP_NUM_OUTPUTS; i++)
++	if (!cp->has_lines)
++		seq_puts(s, "modem lines: owned by the modem driver\n");
++	for (i = 0; cp->has_lines && i < CP_NUM_OUTPUTS; i++)
+ 		seq_printf(s, "%-20s %d\n", cp_output_names[i],
+ 			   gpiod_get_raw_value_cansleep(cp->out[i]));
+-	for (i = 0; i < CP_NUM_INPUTS; i++)
++	for (i = 0; cp->has_lines && i < CP_NUM_INPUTS; i++)
+ 		seq_printf(s, "%-20s %d\n", cp_input_names[i],
+ 			   gpiod_get_raw_value_cansleep(cp->in[i]));
+ 	seq_printf(s, "%-20s %d\n", "perst (asserted)",
+@@ -795,14 +804,60 @@ static void cp_watch_lines(struct gs201_pcie_cp *cp)
+ 	}
+ }
+ 
++/*
++ * The modem's lines: ours when the "modem" child node is available (the
++ * debugfs steps cp_on/cp_off), otherwise the modem driver's, which then
++ * describes them in its own node. Exactly one of the two may own them.
++ */
++static int cp_get_lines(struct gs201_pcie_cp *cp)
++{
++	struct device *dev = cp->dev;
++	struct fwnode_handle *modem;
++	unsigned int i;
++	int ret;
++
++	modem = device_get_named_child_node(dev, "modem");
++	if (!modem)
++		return 0;
++	if (!fwnode_device_is_available(modem)) {
++		fwnode_handle_put(modem);
++		return 0;
++	}
++
++	/* All lines as the bootloader left them until a step drives them. */
++	for (i = 0; i < CP_NUM_OUTPUTS; i++) {
++		cp->out[i] = devm_fwnode_gpiod_get(dev, modem, cp_output_names[i],
++						   GPIOD_ASIS, cp_output_names[i]);
++		if (IS_ERR(cp->out[i])) {
++			ret = PTR_ERR(cp->out[i]);
++			goto err_node;
++		}
++	}
++	for (i = 0; i < CP_NUM_INPUTS; i++) {
++		cp->in[i] = devm_fwnode_gpiod_get(dev, modem, cp_input_names[i],
++						  GPIOD_ASIS, cp_input_names[i]);
++		if (IS_ERR(cp->in[i])) {
++			ret = PTR_ERR(cp->in[i]);
++			goto err_node;
++		}
++	}
++	fwnode_handle_put(modem);
++	cp->has_lines = true;
++
++	return 0;
++
++err_node:
++	fwnode_handle_put(modem);
++	return dev_err_probe(dev, ret, "modem line %s\n",
++			     i < CP_NUM_OUTPUTS ? cp_output_names[i] : "input");
++}
++
+ static int gs201_pcie_cp_probe(struct platform_device *pdev)
+ {
+ 	struct device *dev = &pdev->dev;
+ 	struct device_node *np = dev->of_node;
+-	struct fwnode_handle *modem;
+ 	struct gs201_pcie_cp *cp;
+ 	struct resource *res;
+-	unsigned int i;
+ 	int ret;
+ 
+ 	cp = devm_kzalloc(dev, sizeof(*cp), GFP_KERNEL);
+@@ -873,45 +928,22 @@ static int gs201_pcie_cp_probe(struct platform_device *pdev)
+ 			cp->pins_active = NULL;
+ 	}
+ 
+-	modem = device_get_named_child_node(dev, "modem");
+-	if (!modem)
+-		return dev_err_probe(dev, -ENODEV, "no modem node\n");
+-
+-	/* All lines as the bootloader left them until a step drives them. */
+-	for (i = 0; i < CP_NUM_OUTPUTS; i++) {
+-		cp->out[i] = devm_fwnode_gpiod_get(dev, modem, cp_output_names[i],
+-						   GPIOD_ASIS, cp_output_names[i]);
+-		if (IS_ERR(cp->out[i])) {
+-			ret = PTR_ERR(cp->out[i]);
+-			goto err_node;
+-		}
+-	}
+-	for (i = 0; i < CP_NUM_INPUTS; i++) {
+-		cp->in[i] = devm_fwnode_gpiod_get(dev, modem, cp_input_names[i],
+-						  GPIOD_ASIS, cp_input_names[i]);
+-		if (IS_ERR(cp->in[i])) {
+-			ret = PTR_ERR(cp->in[i]);
+-			goto err_node;
+-		}
+-	}
+-	fwnode_handle_put(modem);
++	ret = cp_get_lines(cp);
++	if (ret)
++		return ret;
+ 
+-	if (watch_lines)
++	if (watch_lines && cp->has_lines)
+ 		cp_watch_lines(cp);
+ 
+ 	cp->debugfs = debugfs_create_dir("gs201-pcie-cp", NULL);
+ 	debugfs_create_file("status", 0400, cp->debugfs, cp, &cp_status_fops);
+ 	debugfs_create_file("ctl", 0200, cp->debugfs, cp, &cp_ctl_fops);
+ 
+-	dev_info(dev, "modem PCIe ch0 bring-up: %u lanes, steps %s\n",
+-		 cp->num_lanes, allow_hw ? "enabled" : "disabled (allow_hw=0)");
++	dev_info(dev, "modem PCIe ch0 bring-up: %u lanes, steps %s, modem lines %s\n",
++		 cp->num_lanes, allow_hw ? "enabled" : "disabled (allow_hw=0)",
++		 cp->has_lines ? "here" : "left to the modem driver");
+ 
+ 	return 0;
+-
+-err_node:
+-	fwnode_handle_put(modem);
+-	return dev_err_probe(dev, ret, "modem line %s\n",
+-			     i < CP_NUM_OUTPUTS ? cp_output_names[i] : "input");
+ }
+ 
+ static void gs201_pcie_cp_remove(struct platform_device *pdev)

@@ -1,0 +1,42 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Mon, 12 Oct 2026 19:36:20 -0400
+Subject: [PATCH] soc: google: cpif: do not let the driver be unloaded
+
+CPIF's platform driver has no remove(): Google builds it in or never
+unloads it. module_platform_driver() still gave the module an exit
+function, so rmmod would unregister the driver and free its code while
+its character and network devices, notifiers and work items stayed
+registered.
+
+Register the driver from module_init() only. Without module_exit() the
+module is permanent: it stays loaded until reboot.
+
+Assisted-by: LLM
+Signed-off-by: Derek Ross <derekross@gmail.com>
+---
+ drivers/soc/google/cpif/modem_main.c | 11 ++++++++++-
+ 1 file changed, 10 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/soc/google/cpif/modem_main.c b/drivers/soc/google/cpif/modem_main.c
+index 7663c8124..041789794 100644
+--- a/drivers/soc/google/cpif/modem_main.c
++++ b/drivers/soc/google/cpif/modem_main.c
+@@ -987,7 +987,16 @@ static struct platform_driver cpif_driver = {
+ 	},
+ };
+ 
+-module_platform_driver(cpif_driver);
++/*
++ * No module_exit(): the driver has no remove(), so unbinding would leave its
++ * character and network devices, interrupts and notifiers behind. Loaded,
++ * the module stays until reboot.
++ */
++static int __init cpif_init(void)
++{
++	return platform_driver_register(&cpif_driver);
++}
++module_init(cpif_init);
+ 
+ MODULE_DESCRIPTION("Exynos CP interface Driver");
+ MODULE_LICENSE("GPL");

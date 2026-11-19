@@ -1,0 +1,32 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Sat, 31 Oct 2026 11:17:06 -0643
+Subject: [PATCH] soc: google: aoc: mailbox-wc: Add Tensor G4 (zumapro)
+
+Match google,zumapro-aoc-mbox. The 9a's three AoC
+mailboxes have gs201's registers.
+
+Booted on the Pixel 9a:
+7.3.0-rc6-omamobile-tegu-s2mpg15-m1-g991042e2eff3-dirty runs this
+driver with only this match added; the AoC's 48 doorbells carry its
+startup and its 93 services.
+
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ drivers/soc/google/aoc/mailbox-wc.c | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/drivers/soc/google/aoc/mailbox-wc.c b/drivers/soc/google/aoc/mailbox-wc.c
+index 3cae32624..e74de0e34 100644
+--- a/drivers/soc/google/aoc/mailbox-wc.c
++++ b/drivers/soc/google/aoc/mailbox-wc.c
+@@ -63,6 +63,9 @@ static const struct of_device_id wc_mbox_match[] = {
+ 	{
+ 		.compatible = "google,gs201-aoc-mbox",
+ 	},
++	{
++		.compatible = "google,zumapro-aoc-mbox",
++	},
+ 	{},
+ };
+ MODULE_DEVICE_TABLE(of, wc_mbox_match);

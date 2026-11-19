@@ -1,0 +1,39 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Brett-Michael Green <brett@bmgvisualtech.com>
+Date: Sat, 31 Oct 2026 13:02:03 -0400
+Subject: [PATCH] dt-bindings: firmware: google,gs101-acpm-ipc: Add the Tensor
+ G3 TMU
+
+The Tensor G3 (zuma) reads its SoC temperatures through the same ACPM
+TMU service as gs101 and zumapro, with zumapro's seven sensors in the
+same order: the Pixel 8 Pro's stock device tree names them BIG, MID,
+LITTLE, G3D, ISP, TPU and AUR (ids 0-6) on ACPM channel 9. Add its
+compatible.
+
+Assisted-by: LLM
+Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
+---
+ .../devicetree/bindings/firmware/google,gs101-acpm-ipc.yaml    | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/Documentation/devicetree/bindings/firmware/google,gs101-acpm-ipc.yaml b/Documentation/devicetree/bindings/firmware/google,gs101-acpm-ipc.yaml
+index 154039cd4..f75969b1c 100644
+--- a/Documentation/devicetree/bindings/firmware/google,gs101-acpm-ipc.yaml
++++ b/Documentation/devicetree/bindings/firmware/google,gs101-acpm-ipc.yaml
+@@ -78,7 +78,7 @@ properties:
+     description:
+       The SoC's thermal sensors, which the ACPM firmware reads on the
+       kernel's behalf. Cells are the sensor index (0 big, 1 mid, 2 little
+-      CPU cluster, 3 GPU, 4 ISP, 5 TPU, and on gs201 and zumapro 6 AUR).
++      CPU cluster, 3 GPU, 4 ISP, 5 TPU, and on gs201, zuma and zumapro 6 AUR).
+     type: object
+     $ref: /schemas/thermal/thermal-sensor.yaml#
+     unevaluatedProperties: false
+@@ -88,6 +88,7 @@ properties:
+         enum:
+           - google,gs101-acpm-tmu
+           - google,gs201-acpm-tmu
++          - google,zuma-acpm-tmu
+           - google,zumapro-acpm-tmu
+ 
+       "#thermal-sensor-cells":

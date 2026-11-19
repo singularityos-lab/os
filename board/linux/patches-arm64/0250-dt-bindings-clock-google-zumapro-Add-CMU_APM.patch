@@ -1,0 +1,97 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Tue, 27 Oct 2026 08:45:44 -0647
+Subject: [PATCH] dt-bindings: clock: google,zumapro: Add CMU_APM
+
+CMU_APM clocks the always-on GPIO banks, the APM mailbox and its
+internal memory. Describe it in the common Tensor G4 clock binding with
+the oscillator as its only input, as on gs101 and gs201, and add its 20
+identifiers in a new block, leaving the existing ones unchanged.
+
+Link: https://android.googlesource.com/kernel/google-modules/soc/gs/+/204078758737776959ecc85c527a00fd2cabb62f/drivers/soc/google/cal-if/zuma/cmucal-node.c
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ .../bindings/clock/google,zumapro-clock.yaml  | 15 ++++++++++++-
+ include/dt-bindings/clock/google,zumapro.h    | 22 +++++++++++++++++++
+ 2 files changed, 36 insertions(+), 1 deletion(-)
+
+diff --git a/Documentation/devicetree/bindings/clock/google,zumapro-clock.yaml b/Documentation/devicetree/bindings/clock/google,zumapro-clock.yaml
+index 21acd9094..cd9b44758 100644
+--- a/Documentation/devicetree/bindings/clock/google,zumapro-clock.yaml
++++ b/Documentation/devicetree/bindings/clock/google,zumapro-clock.yaml
+@@ -19,6 +19,8 @@ description: |
+   PLLs and CMU_TOP's G3D NoC, global and switch clocks.
+   CMU_HSI1 supplies the HSI1 GPIO bank's clock; its ALT input is a
+   board-level fixed clock.
++  CMU_APM supplies the always-on GPIO banks, the APM mailbox and its
++  internal memory from the always-on ALV PLL and the oscillator.
+   CMU_PERIC1 supplies the PERIC1 GPIO bank and USI9 (the I2C bus of the
+   NFC controller and the haptics driver) from CMU_TOP's PERIC1 NoC and IP
+   clocks.
+@@ -30,6 +32,7 @@ properties:
+   compatible:
+     enum:
+       - google,zumapro-cmu-top
++      - google,zumapro-cmu-apm
+       - google,zumapro-cmu-g3d
+       - google,zumapro-cmu-hsi0
+       - google,zumapro-cmu-hsi1
+@@ -66,7 +69,9 @@ allOf:
+   - if:
+       properties:
+         compatible:
+-          const: google,zumapro-cmu-top
++          enum:
++            - google,zumapro-cmu-top
++            - google,zumapro-cmu-apm
+     then:
+       properties:
+         clocks:
+@@ -256,6 +261,14 @@ examples:
+         clock-names = "oscclk", "bus", "ip";
+     };
+ 
++    clock-controller@15400000 {
++        compatible = "google,zumapro-cmu-apm";
++        reg = <0x15400000 0x8000>;
++        #clock-cells = <1>;
++        clocks = <&oscclk>;
++        clock-names = "oscclk";
++    };
++
+     clock-controller@1ee00000 {
+         compatible = "google,zumapro-cmu-g3d";
+         reg = <0x1ee00000 0x8000>;
+diff --git a/include/dt-bindings/clock/google,zumapro.h b/include/dt-bindings/clock/google,zumapro.h
+index 2b62e2dc7..ffc904b26 100644
+--- a/include/dt-bindings/clock/google,zumapro.h
++++ b/include/dt-bindings/clock/google,zumapro.h
+@@ -102,6 +102,28 @@
+ #define CLK_GOUT_G3D_COREGROUP		18
+ #define CLK_GOUT_G3D_STACKS		19
+ 
++/* CMU_APM. */
++#define CLK_APM_PLL_ALV_DIV2		1
++#define CLK_APM_PLL_ALV_DIV4		2
++#define CLK_APM_PLL_ALV_DIV8		3
++#define CLK_APM_PLL_ALV_DIV16		4
++#define CLK_MOUT_APM_FUNCSRC		5
++#define CLK_MOUT_APM_FUNC		6
++#define CLK_GOUT_APM_FUNC		7
++#define CLK_DOUT_APM_NOC		8
++#define CLK_GOUT_APM_CMU		9
++#define CLK_GOUT_APM_MAILBOX_AP		10
++#define CLK_GOUT_APM_INTMEM_ACLK	11
++#define CLK_GOUT_APM_INTMEM_PCLK	12
++#define CLK_GOUT_APM_GPIO_CUSTOM_ALIVE	13
++#define CLK_GOUT_APM_GPIO_ALIVE		14
++#define CLK_GOUT_APM_GPIO_FAR_ALIVE	15
++#define CLK_DOUT_APM_USI1_UART		16
++#define CLK_GOUT_APM_USI1_UART_IPCLK	17
++#define CLK_GOUT_APM_USI1_UART_PCLK	18
++#define CLK_GOUT_APM_USI1_UART_RSTNSYNC	19
++#define CLK_GOUT_APM_SYSREG		20
++
+ /* CMU_HSI1. */
+ #define CLK_MOUT_HSI1_NOC_USER		1
+ #define CLK_MOUT_HSI1_ALT_USER		2

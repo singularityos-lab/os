@@ -1,0 +1,101 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Mon, 12 Oct 2026 15:18:20 -0400
+Subject: [PATCH] soc: google: aoc: read the board id from google,board-id;
+ channel defaults
+
+The core read the vendor properties aoc-board-cfg/-id/-rev, which this
+device tree does not have, and fell back to Google's R4/O6 default board
+id 0x20202: the firmware got the wrong board. Read google,board-id and
+google,board-rev, as the binding and the bring-up driver do.
+
+aoc_channel_dev refused to probe without the vendor properties
+channel-max-pending-msgs and block-channel-threshold, so the sensor and
+CHRE channels never appeared. Use gs201's stock values (0x80, 0x40).
+
+Assisted-by: LLM
+Signed-off-by: Derek Ross <derekross@gmail.com>
+---
+ drivers/soc/google/aoc/aoc.c             | 33 +++++-------------------
+ drivers/soc/google/aoc/aoc_channel_dev.c | 14 +++-------
+ 2 files changed, 10 insertions(+), 37 deletions(-)
+
+diff --git a/drivers/soc/google/aoc/aoc.c b/drivers/soc/google/aoc/aoc.c
+index 41be1b94e..3366def0d 100644
+--- a/drivers/soc/google/aoc/aoc.c
++++ b/drivers/soc/google/aoc/aoc.c
+@@ -460,42 +460,23 @@ static void aoc_pass_fw_information(void *base, const struct aoc_fw_data *fwd,
+ 	}
+ }
+ 
++/* The board id and revision passed to the firmware (google,board-id/-rev) */
+ static u32 aoc_board_config_parse(struct device_node *node, u32 *board_id, u32 *board_rev)
+ {
+-	const char *board_cfg;
+-	int err = 0;
++	int err;
+ 
+-	/* Read board config from device tree */
+-	err = of_property_read_string(node, "aoc-board-cfg", &board_cfg);
++	err = of_property_read_u32(node, "google,board-id", board_id);
++	if (!err)
++		err = of_property_read_u32(node, "google,board-rev", board_rev);
+ 	if (err < 0) {
+-		pr_err("Unable to retrieve AoC board configuration, check DT");
++		pr_err("Unable to retrieve AoC board id/revision, check DT");
+ 		pr_info("Assuming R4/O6 board configuration");
+ 		*board_id  = AOC_FWDATA_BOARDID_DFL;
+ 		*board_rev = AOC_FWDATA_BOARDREV_DFL;
+ 		return err;
+ 	}
+ 
+-	/* Read board id from device tree */
+-	err = of_property_read_u32(node, "aoc-board-id", board_id);
+-	if (err < 0) {
+-		pr_err("Unable to retrieve AoC board id, check DT");
+-		pr_info("Assuming R4/O6 board configuration");
+-		*board_id  = AOC_FWDATA_BOARDID_DFL;
+-		*board_rev = AOC_FWDATA_BOARDREV_DFL;
+-		return err;
+-	}
+-
+-	/* Read board revision from device tree */
+-	err = of_property_read_u32(node, "aoc-board-rev", board_rev);
+-	if (err < 0) {
+-		pr_err("Unable to retrieve AoC board revision, check DT");
+-		pr_info("Assuming R4/O6 board configuration");
+-		*board_id  = AOC_FWDATA_BOARDID_DFL;
+-		*board_rev = AOC_FWDATA_BOARDREV_DFL;
+-		return err;
+-	}
+-
+-	pr_info("AoC Platform: %s", board_cfg);
++	pr_info("AoC board id %#x rev %#x", *board_id, *board_rev);
+ 
+ 	return err;
+ }
+diff --git a/drivers/soc/google/aoc/aoc_channel_dev.c b/drivers/soc/google/aoc/aoc_channel_dev.c
+index 33f7746f5..3744bfbf7 100644
+--- a/drivers/soc/google/aoc/aoc_channel_dev.c
++++ b/drivers/soc/google/aoc/aoc_channel_dev.c
+@@ -775,17 +775,9 @@ static int aocc_probe(struct aoc_service_dev *dev)
+ 	if (!prvdata)
+ 		return -ENOMEM;
+ 
+-	aocc_max_pending_msgs = dt_property(dev->dev.parent->of_node, "channel-max-pending-msgs");
+-	if (aocc_max_pending_msgs == DT_PROPERTY_NOT_FOUND) {
+-		dev_err(&dev->dev, "AOC DT missing property channel-max-pending-msgs");
+-		return -EINVAL;
+-	}
+-	aocc_block_channel_threshold = dt_property(dev->dev.parent->of_node,
+-						"block-channel-threshold");
+-	if (aocc_block_channel_threshold == DT_PROPERTY_NOT_FOUND) {
+-		dev_err(&dev->dev, "AOC DT missing property block_channel_threshold");
+-		return -EINVAL;
+-	}
++	/* gs201's values (stock device tree: 0x80 and 0x40) */
++	aocc_max_pending_msgs = 0x80;
++	aocc_block_channel_threshold = 0x40;
+ 
+ 	if (strcmp(dev_name(&dev->dev), "usf_sh_mem_doorbell") != 0) {
+ 		ret = create_character_device(dev);

@@ -1,0 +1,26 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Tue, 13 Oct 2026 13:35:43 -0400
+Subject: [PATCH] dt-bindings: vendor-prefixes: add semco
+
+Samsung Electro-Mechanics Co., Ltd. (SEMCO) makes camera modules and
+their lens controllers, such as the SEM1215SA.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ Documentation/devicetree/bindings/vendor-prefixes.yaml | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/Documentation/devicetree/bindings/vendor-prefixes.yaml b/Documentation/devicetree/bindings/vendor-prefixes.yaml
+index ba2002969..9530e0c16 100644
+--- a/Documentation/devicetree/bindings/vendor-prefixes.yaml
++++ b/Documentation/devicetree/bindings/vendor-prefixes.yaml
+@@ -1487,6 +1487,8 @@ patternProperties:
+     description: Seeed Technology Co., Ltd
+   "^seirobotics,.*":
+     description: Shenzhen SEI Robotics Co., Ltd
++  "^semco,.*":
++    description: Samsung Electro-Mechanics Co., Ltd.
+   "^semtech,.*":
+     description: Semtech Corporation
+   "^senseair,.*":

@@ -1,0 +1,421 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Brett-Michael Green <brett@bmgvisualtech.com>
+Date: Sat, 31 Oct 2026 11:45:09 -0400
+Subject: [PATCH] wifi: brcmfmac: chip: support the NCI backplane
+
+The BCM4398 (Pixel 8 Pro) reports backplane type 6, NCI ("Booker"),
+which brcmfmac rejected ("chip backplane type 6 is not supported").
+
+On NCI, chipcommon's eromptr points at EROM2, a list of interface
+descriptors grouped by core. Each core's info word and interface count
+sit in EROM1 or in the OOB router (OOBR); OOBR cores also have a DMP
+control word that takes the clock and core flags the AI backplane keeps
+in the wrapper's ioctrl. Each interface is a network interface (NI)
+node with its own reset control. Scan that into brcmfmac's core list
+(the base is a core's APB slave, or a bridge's own slave; the wrapper
+its first Booker interface) and implement iscoreup, coredisable and
+resetcore on it, after Broadcom's GPL bcmdhd (nciutils.c,
+hal_nci_cmn.h, hndoobr.h). An APB NI shared by several cores is left
+out of a core's reset.
+
+Read the CA7's halt bit from its DMP control word, and start a halted
+CA7 by clearing that bit only, as bcmdhd does for NCI chips
+(dhdpcie_bus_download_state()): resetting it again keeps a second
+firmware download from starting.
+
+On the Pixel 8 Pro the scan finds 46 cores, and the RAM base and size
+and chipcommon revision match bcmdhd's.
+
+Assisted-by: LLM
+Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
+---
+ .../broadcom/brcm80211/brcmfmac/chip.c        | 315 +++++++++++++++++-
+ 1 file changed, 312 insertions(+), 3 deletions(-)
+
+diff --git a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/chip.c b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/chip.c
+index d0fed7b6a..c7278d250 100644
+--- a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/chip.c
++++ b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/chip.c
+@@ -2,6 +2,7 @@
+ /*
+  * Copyright (c) 2014 Broadcom Corporation
+  */
++#include <linux/bitfield.h>
+ #include <linux/kernel.h>
+ #include <linux/delay.h>
+ #include <linux/list.h>
+@@ -20,6 +21,7 @@
+ /* SOC Interconnect types (aka chip types) */
+ #define SOCI_SB		0
+ #define SOCI_AI		1
++#define SOCI_NCI	6
+ 
+ /* PL-368 DMP definitions */
+ #define DMP_DESC_TYPE_MSK	0x0000000F
+@@ -229,11 +231,60 @@ struct sbsocramregs {
+ #define	ARMCR4_BSZ_MULT		8192
+ #define	ARMCR4_BLK_1K_MASK	0x200
+ 
++/*
++ * NCI ("Booker") backplane, as on the BCM4398. Chipcommon's eromptr points
++ * at EROM2, a list of interface descriptors grouped by core. Each core's
++ * info word and interface count sit either in EROM1 (just below EROM2) or
++ * in the OOB router (OOBR, at the 8 KiB boundary below it); OOBR cores also
++ * have a DMP control word, which takes the clock and core flags that the AI
++ * backplane keeps in the wrapper's ioctrl. Each interface is a network
++ * interface (NI) node with its own reset control. Register layout from
++ * Broadcom's GPL bcmdhd (nciutils.c, hal_nci_cmn.h, hndoobr.h).
++ */
++#define NCI_OOBR_BASE(erom2)		((erom2) & ~0x1fffU)
++#define NCI_EROM1_BASE(erom2)		((erom2) & ~0xfffU)
++#define NCI_OOBR_CAP			0x0
++#define NCI_OOBR_CAP_CORECNT		0x1f
++#define NCI_CI_COREID			GENMASK(11, 0)
++#define NCI_CI_REV			GENMASK(19, 12)
++#define NCI_CI_ISBP			BIT(27)
++#define NCI_IC_IFACECNT			GENMASK(15, 12)
++#define NCI_ID0_NODEPTR			GENMASK(31, 3)
++#define NCI_ID1_WORDOFFSET		GENMASK(31, 28)
++#define NCI_ID1_EROM1			BIT(27)
++#define NCI_ID1_MASTER			BIT(26)
++#define NCI_ID1_NADDR			GENMASK(25, 24)
++#define NCI_ID1_BPID			GENMASK(23, 20)
++#define NCI_ID1_COREPTR			GENMASK(12, 0)
++#define NCI_BPID_BOOKER			0
++#define NCI_BPID_PMNI_FIRST		2
++#define NCI_BPID_PMNI_LAST		8
++#define NCI_SP_BASE			GENMASK(31, 8)
++#define NCI_SP_BOUND			BIT(6)
++#define NCI_SP_64BIT			BIT(5)
++#define NCI_EROM_END			0xffffffff
++#define NCI_DMPCTRL			0x8
++#define NCI_NI_RESET_CTL		0x140
++#define NCI_NI_RESET_ENTRY		BIT(0)
++#define NCI_MAX_IFACES			16
++#define NCI_RESET_TIMEOUT_US		5000
++
++struct brcmf_nci_iface {
++	u32 node;
++	bool booker;
++	bool pmni;
++	bool shared;
++};
++
+ struct brcmf_core_priv {
+ 	struct brcmf_core pub;
+ 	u32 wrapbase;
+ 	struct list_head list;
+ 	struct brcmf_chip_priv *chip;
++	/* NCI only: the DMP control word (0 if none) and the NI nodes */
++	u32 dmpctrl;
++	u8 nifaces;
++	struct brcmf_nci_iface ifaces[NCI_MAX_IFACES];
+ };
+ 
+ struct brcmf_chip_priv {
+@@ -505,6 +556,96 @@ static void brcmf_chip_ai_resetcore(struct brcmf_core_priv *core, u32 prereset,
+ 	}
+ }
+ 
++/* Update the DMP control word, which holds the AI ioctrl bits on NCI */
++static void brcmf_chip_nci_cflags(struct brcmf_core_priv *core, u32 mask,
++				  u32 val)
++{
++	struct brcmf_chip_priv *ci = core->chip;
++	u32 regdata;
++
++	if (!core->dmpctrl)
++		return;
++
++	regdata = ci->ops->read32(ci->ctx, core->dmpctrl);
++	ci->ops->write32(ci->ctx, core->dmpctrl, (regdata & ~mask) | val);
++	ci->ops->read32(ci->ctx, core->dmpctrl);
++}
++
++/* Put each of the core's own NI nodes into reset, or take them out */
++static void brcmf_chip_nci_reset_ifaces(struct brcmf_core_priv *core,
++					bool reset)
++{
++	struct brcmf_chip_priv *ci = core->chip;
++	u32 addr, regdata;
++	int i, us;
++
++	for (i = core->nifaces - 1; i >= 0; i--) {
++		if (core->ifaces[i].shared || !core->ifaces[i].node)
++			continue;
++
++		addr = core->ifaces[i].node + NCI_NI_RESET_CTL;
++		regdata = ci->ops->read32(ci->ctx, addr);
++		if (reset)
++			regdata |= NCI_NI_RESET_ENTRY;
++		else
++			regdata &= ~NCI_NI_RESET_ENTRY;
++		ci->ops->write32(ci->ctx, addr, regdata);
++
++		for (us = 0; us < NCI_RESET_TIMEOUT_US; us += 10) {
++			regdata = ci->ops->read32(ci->ctx, addr);
++			if (!!(regdata & NCI_NI_RESET_ENTRY) == reset)
++				break;
++			udelay(10);
++		}
++		if (us >= NCI_RESET_TIMEOUT_US)
++			brcmf_err("core %#x: NI %#x reset %d timed out (%#x)\n",
++				  core->pub.id, core->ifaces[i].node, reset,
++				  regdata);
++	}
++}
++
++static bool brcmf_chip_nci_iscoreup(struct brcmf_core_priv *core)
++{
++	struct brcmf_chip_priv *ci = core->chip;
++	u32 regdata;
++
++	if (!core->wrapbase)
++		return true;
++
++	regdata = ci->ops->read32(ci->ctx, core->wrapbase + NCI_NI_RESET_CTL);
++
++	return !(regdata & NCI_NI_RESET_ENTRY);
++}
++
++/* bcmdhd's nci_core_reset_enable(), less the final release */
++static void brcmf_chip_nci_coredisable(struct brcmf_core_priv *core,
++				       u32 prereset, u32 reset)
++{
++	brcmf_chip_nci_cflags(core, BCMA_IOCTL_FGC | BCMA_IOCTL_CLK, 0);
++	udelay(1);
++	brcmf_chip_nci_cflags(core, ~(BCMA_IOCTL_FGC | BCMA_IOCTL_CLK),
++			      prereset);
++	brcmf_chip_nci_reset_ifaces(core, true);
++	brcmf_chip_nci_cflags(core, ~(BCMA_IOCTL_FGC | BCMA_IOCTL_CLK), reset);
++	brcmf_chip_nci_cflags(core, BCMA_IOCTL_CLK, BCMA_IOCTL_CLK);
++	brcmf_chip_nci_cflags(core, BCMA_IOCTL_FGC, BCMA_IOCTL_FGC);
++	udelay(1);
++	brcmf_chip_nci_cflags(core, BCMA_IOCTL_FGC | BCMA_IOCTL_CLK, 0);
++}
++
++static void brcmf_chip_nci_resetcore(struct brcmf_core_priv *core,
++				     u32 prereset, u32 reset, u32 postreset)
++{
++	brcmf_chip_nci_coredisable(core, prereset, reset);
++	brcmf_chip_nci_reset_ifaces(core, false);
++	brcmf_chip_nci_cflags(core, ~(BCMA_IOCTL_FGC | BCMA_IOCTL_CLK),
++			      postreset);
++	brcmf_chip_nci_cflags(core, BCMA_IOCTL_CLK, BCMA_IOCTL_CLK);
++	brcmf_chip_nci_cflags(core, BCMA_IOCTL_FGC, BCMA_IOCTL_FGC);
++	udelay(1);
++	brcmf_chip_nci_cflags(core, BCMA_IOCTL_FGC, 0);
++}
++
+ char *brcmf_chip_name(u32 id, u32 rev, char *buf, uint len)
+ {
+ 	const char *fmt;
+@@ -1004,6 +1145,148 @@ int brcmf_chip_dmp_erom_scan(struct brcmf_chip_priv *ci)
+ 	return 0;
+ }
+ 
++/* Skip a slave interface's address descriptors; return the core's base */
++static u32 brcmf_chip_nci_slave_addrs(struct brcmf_chip_priv *ci, u32 *addr,
++				      u32 naddr)
++{
++	u32 adesc, base = 0;
++	u32 i;
++
++	for (i = 0; i < naddr; i++) {
++		adesc = ci->ops->read32(ci->ctx, *addr);
++		*addr += 4;
++		if (i == 0)
++			base = adesc & NCI_SP_BASE;
++		if (adesc & NCI_SP_64BIT)
++			*addr += 12;	/* base high, bound low and high */
++		else if (adesc & NCI_SP_BOUND)
++			*addr += 4;	/* bound */
++	}
++
++	return base;
++}
++
++/* An APB NI that several cores share is not one core's to reset */
++static void brcmf_chip_nci_mark_shared(struct brcmf_chip_priv *ci)
++{
++	struct brcmf_core_priv *a, *b;
++	int i, j;
++
++	list_for_each_entry(a, &ci->cores, list) {
++		for (i = 0; i < a->nifaces; i++) {
++			if (!a->ifaces[i].pmni || !a->ifaces[i].node)
++				continue;
++			list_for_each_entry(b, &ci->cores, list) {
++				if (b == a)
++					continue;
++				for (j = 0; j < b->nifaces; j++)
++					if (b->ifaces[j].pmni &&
++					    b->ifaces[j].node == a->ifaces[i].node)
++						a->ifaces[i].shared = true;
++			}
++		}
++	}
++}
++
++static int brcmf_chip_nci_erom_scan(struct brcmf_chip_priv *ci)
++{
++	u32 erom2, erom1, oobr, addr, ptr, coreinfo, ifcfg, desc0, desc1;
++	u32 ncores, base, wordoffset, naddr;
++	struct brcmf_core_priv *core;
++	struct brcmf_core *pub;
++	u8 i, nifaces;
++	u16 id;
++
++	erom2 = ci->ops->read32(ci->ctx,
++				CORE_CC_REG(ci->pub.enum_base, eromptr));
++	erom1 = NCI_EROM1_BASE(erom2);
++	oobr = NCI_OOBR_BASE(erom2);
++	ncores = (erom2 - erom1) / 8 +
++		 (ci->ops->read32(ci->ctx, oobr + NCI_OOBR_CAP) &
++		  NCI_OOBR_CAP_CORECNT);
++	brcmf_dbg(INFO, "NCI: EROM2 %#x, EROM1 %#x, OOBR %#x, %u cores\n",
++		  erom2, erom1, oobr, ncores);
++
++	addr = erom2;
++	while (ci->num_cores < ncores) {
++		desc0 = ci->ops->read32(ci->ctx, addr);
++		if (desc0 == NCI_EROM_END)
++			break;
++
++		/* The first interface's second word locates the core info */
++		desc1 = ci->ops->read32(ci->ctx, addr + 4);
++		ptr = FIELD_GET(NCI_ID1_COREPTR, desc1);
++		ptr += (desc1 & NCI_ID1_EROM1) ? erom1 : oobr;
++		coreinfo = ci->ops->read32(ci->ctx, ptr);
++		ifcfg = ci->ops->read32(ci->ctx, ptr + 4);
++
++		id = FIELD_GET(NCI_CI_COREID, coreinfo);
++		if (id < 0xff)
++			id |= 0x800;	/* Broadcom's cores */
++		nifaces = FIELD_GET(NCI_IC_IFACECNT, ifcfg);
++		if (nifaces > NCI_MAX_IFACES) {
++			brcmf_err("NCI: core %#x has %u interfaces\n", id,
++				  nifaces);
++			return -EFAULT;
++		}
++
++		pub = brcmf_chip_add_core(ci, id, 0, 0);
++		if (IS_ERR(pub))
++			return PTR_ERR(pub);
++		ci->num_cores++;
++		pub->rev = FIELD_GET(NCI_CI_REV, coreinfo);
++		core = container_of(pub, struct brcmf_core_priv, pub);
++		if (!(desc1 & NCI_ID1_EROM1))
++			core->dmpctrl = ptr + NCI_DMPCTRL;
++		core->nifaces = nifaces;
++
++		wordoffset = 0;
++		for (i = 0; i < nifaces; i++) {
++			struct brcmf_nci_iface *ifc = &core->ifaces[i];
++			u8 bpid;
++
++			desc0 = ci->ops->read32(ci->ctx, addr);
++			desc1 = ci->ops->read32(ci->ctx, addr + 4);
++			addr += 8;
++
++			bpid = FIELD_GET(NCI_ID1_BPID, desc1);
++			ifc->node = desc0 & NCI_ID0_NODEPTR;
++			ifc->booker = bpid == NCI_BPID_BOOKER;
++			ifc->pmni = !(desc1 & NCI_ID1_MASTER) &&
++				    bpid >= NCI_BPID_PMNI_FIRST &&
++				    bpid <= NCI_BPID_PMNI_LAST;
++			wordoffset = FIELD_GET(NCI_ID1_WORDOFFSET, desc1);
++
++			if (desc1 & NCI_ID1_MASTER)
++				continue;
++
++			naddr = FIELD_GET(NCI_ID1_NADDR, desc1) + 1;
++			base = brcmf_chip_nci_slave_addrs(ci, &addr, naddr);
++			/* Registers: the APB slave, or a bridge's own slave */
++			if (!pub->base && (ifc->pmni || (coreinfo & NCI_CI_ISBP)))
++				pub->base = base;
++		}
++
++		/* The first Booker interface is the core's wrapper */
++		for (i = 0; i < nifaces; i++)
++			if (core->ifaces[i].booker) {
++				core->wrapbase = core->ifaces[i].node;
++				break;
++			}
++
++		brcmf_dbg(INFO, "NCI: core %#x rev %u base %#x wrap %#x dmpctrl %#x, %u interfaces\n",
++			  pub->id, pub->rev, pub->base, core->wrapbase,
++			  core->dmpctrl, nifaces);
++
++		if (!wordoffset)
++			break;
++	}
++
++	brcmf_chip_nci_mark_shared(ci);
++
++	return 0;
++}
++
+ u32 brcmf_chip_enum_base(u16 devid)
+ {
+ 	return SI_ENUM_BASE_DEFAULT;
+@@ -1036,7 +1319,8 @@ static int brcmf_chip_recognition(struct brcmf_chip_priv *ci)
+ 	brcmf_chip_name(ci->pub.chip, ci->pub.chiprev,
+ 			ci->pub.name, sizeof(ci->pub.name));
+ 	brcmf_dbg(INFO, "found %s chip: %s\n",
+-		  socitype == SOCI_SB ? "SB" : "AXI", ci->pub.name);
++		  socitype == SOCI_SB ? "SB" : socitype == SOCI_NCI ? "NCI" : "AXI",
++		  ci->pub.name);
+ 
+ 	if (socitype == SOCI_SB) {
+ 		if (ci->pub.chip != BRCM_CC_4329_CHIP_ID) {
+@@ -1083,6 +1367,14 @@ static int brcmf_chip_recognition(struct brcmf_chip_priv *ci)
+ 		ci->resetcore = brcmf_chip_ai_resetcore;
+ 
+ 		brcmf_chip_dmp_erom_scan(ci);
++	} else if (socitype == SOCI_NCI) {
++		ci->iscoreup = brcmf_chip_nci_iscoreup;
++		ci->coredisable = brcmf_chip_nci_coredisable;
++		ci->resetcore = brcmf_chip_nci_resetcore;
++
++		ret = brcmf_chip_nci_erom_scan(ci);
++		if (ret)
++			return ret;
+ 	} else {
+ 		brcmf_err("chip backplane type %u is not supported\n",
+ 			  socitype);
+@@ -1126,8 +1418,13 @@ static void brcmf_chip_disable_arm(struct brcmf_chip_priv *chip, u16 id)
+ 	case BCMA_CORE_ARM_CA7:
+ 		cpu = container_of(core, struct brcmf_core_priv, pub);
+ 
+-		/* clear all IOCTL bits except HALT bit */
+-		val = chip->ops->read32(chip->ctx, cpu->wrapbase + BCMA_IOCTL);
++		/* clear all IOCTL bits except HALT bit (DMP control on NCI) */
++		if (chip->resetcore == brcmf_chip_nci_resetcore)
++			val = cpu->dmpctrl ?
++			      chip->ops->read32(chip->ctx, cpu->dmpctrl) : 0;
++		else
++			val = chip->ops->read32(chip->ctx,
++						cpu->wrapbase + BCMA_IOCTL);
+ 		val &= ARMCR4_BCMA_IOCTL_CPUHALT;
+ 		brcmf_chip_resetcore(core, val, ARMCR4_BCMA_IOCTL_CPUHALT,
+ 				     ARMCR4_BCMA_IOCTL_CPUHALT);
+@@ -1413,6 +1710,18 @@ static bool brcmf_chip_ca7_set_active(struct brcmf_chip_priv *chip, u32 rstvec)
+ 
+ 	/* restore ARM */
+ 	core = brcmf_chip_get_core(&chip->pub, BCMA_CORE_ARM_CA7);
++	if (chip->resetcore == brcmf_chip_nci_resetcore) {
++		/*
++		 * set_passive left the CA7 out of reset and halted; on NCI,
++		 * as Broadcom's driver does, clearing the halt is enough
++		 * (dhdpcie_bus_download_state()). Resetting it again keeps a
++		 * second firmware download from starting.
++		 */
++		brcmf_chip_nci_cflags(container_of(core, struct brcmf_core_priv,
++						   pub),
++				      ARMCR4_BCMA_IOCTL_CPUHALT, 0);
++		return true;
++	}
+ 	brcmf_chip_resetcore(core, ARMCR4_BCMA_IOCTL_CPUHALT, 0, 0);
+ 
+ 	return true;

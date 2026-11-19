@@ -1,0 +1,106 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Tue, 27 Oct 2026 14:22:56 -0400
+Subject: [PATCH] ASoC: cs35l41: keep boost_en through a boost fault release;
+ say when the knobs apply
+
+From the review of the three bring-up parameters: cs35l41_irq() releases
+a boost over-voltage, under-voltage or short fault by turning the
+converter off and back on through cs35l41_boost_enable(), which did not
+look at boost_en, so one fault would have brought the converter (and the
+Pixel 7 Pro's static) back behind a status that still said "off". The
+helper now honours boost_en, whose declaration moves above it. Each
+parameter's description says it is applied at probe or rebind, bst_ctl
+above 0xAA warns instead of being silently ignored, the weak-FET mode is
+logged only when switched off so a default boot's log is unchanged, and
+the boost_en comment names the hibernate path that would undo it on a
+board without cirrus,dsp-no-hibernate.
+
+Assisted-by: LLM
+Signed-off-by: Derek Ross <derekross@gmail.com>
+---
+ sound/soc/codecs/cs35l41.c | 36 +++++++++++++++++++++++-------------
+ 1 file changed, 23 insertions(+), 13 deletions(-)
+
+diff --git a/sound/soc/codecs/cs35l41.c b/sound/soc/codecs/cs35l41.c
+index bb057ce77..705428f37 100644
+--- a/sound/soc/codecs/cs35l41.c
++++ b/sound/soc/codecs/cs35l41.c
+@@ -357,12 +357,27 @@ static const struct snd_kcontrol_new cs35l41_aud_controls[] = {
+ 	WM_ADSP_FW_CONTROL("DSP1", 0),
+ };
+ 
++/*
++ * Bring-up option (AOC-PLAN C9j): run the output stage from VP alone, with
++ * the internal boost converter disabled (PWR_CTRL2 BST_EN = 0, as Google's
++ * driver sets a shared-boost passive amplifier), to tell the converter's
++ * light-load behaviour from the rest of the chain. Applied when the DSP is
++ * set up at probe or rebind, and honoured when a boost fault is released
++ * (cs35l41_boost_enable()). On a board whose amplifiers hibernate,
++ * cs35l41_runtime_resume() re-runs cs35l41_init_boost() and turns the
++ * converter back on; the Pixel 7 Pro's carry cirrus,dsp-no-hibernate.
++ */
++static bool boost_en = true;
++module_param(boost_en, bool, 0644);
++MODULE_PARM_DESC(boost_en, "Internal boost converter (Y; applied at probe)");
++
+ static void cs35l41_boost_enable(struct cs35l41_private *cs35l41, unsigned int enable)
+ {
+ 	switch (cs35l41->hw_cfg.bst_type) {
+ 	case CS35L41_INT_BOOST:
+ 	case CS35L41_SHD_BOOST_ACTV:
+-		enable = enable ? CS35L41_BST_EN_DEFAULT : CS35L41_BST_DIS_FET_OFF;
++		enable = (enable && boost_en) ? CS35L41_BST_EN_DEFAULT :
++						CS35L41_BST_DIS_FET_OFF;
+ 		regmap_update_bits(cs35l41->regmap, CS35L41_PWR_CTRL2, CS35L41_BST_EN_MASK,
+ 				enable << CS35L41_BST_EN_SHIFT);
+ 		break;
+@@ -1105,18 +1120,9 @@ MODULE_PARM_DESC(dsp_rx6_classh, "Route the class H target, not VBSTMON, to DSP1
+  */
+ static bool wkfet_amp = true;
+ module_param(wkfet_amp, bool, 0644);
+-MODULE_PARM_DESC(wkfet_amp, "Weak-FET output mode at low levels (default Y)");
++MODULE_PARM_DESC(wkfet_amp, "Weak-FET output mode at low levels (Y; applied at probe)");
+ #define CS35L41_WKFET_AMP_EN_MASK	BIT(24)
+ 
+-/*
+- * Bring-up option (AOC-PLAN C9j): run the output stage from VP alone, with
+- * the internal boost converter disabled (PWR_CTRL2 BST_EN = 0, as Google's
+- * driver sets a shared-boost passive amplifier), to tell the converter's
+- * light-load behaviour from the rest of the chain.
+- */
+-static bool boost_en = true;
+-module_param(boost_en, bool, 0644);
+-MODULE_PARM_DESC(boost_en, "Internal boost converter (default Y)");
+ 
+ /*
+  * Bring-up option (AOC-PLAN C9j): a fixed boost target instead of class H
+@@ -1125,7 +1131,7 @@ MODULE_PARM_DESC(boost_en, "Internal boost converter (default Y)");
+  */
+ static unsigned int bst_ctl;
+ module_param(bst_ctl, uint, 0644);
+-MODULE_PARM_DESC(bst_ctl, "Fixed boost target, BST_CTL code 1-0xAA (default 0: class H)");
++MODULE_PARM_DESC(bst_ctl, "Fixed boost target, BST_CTL 1-0xAA (0: class H; applied at probe)");
+ 
+ static int cs35l41_dsp_init(struct cs35l41_private *cs35l41)
+ {
+@@ -1182,7 +1188,8 @@ static int cs35l41_dsp_init(struct cs35l41_private *cs35l41)
+ 		dev_err(cs35l41->dev, "Write PWR_CTRL3 (WKFET_AMP_EN) failed: %d\n", ret);
+ 		goto err_dsp;
+ 	}
+-	dev_info(cs35l41->dev, "weak-FET output mode %s\n", wkfet_amp ? "on" : "off");
++	if (!wkfet_amp)
++		dev_info(cs35l41->dev, "weak-FET output mode off\n");
+ 	if (!boost_en) {
+ 		ret = regmap_update_bits(cs35l41->regmap, CS35L41_PWR_CTRL2,
+ 					 CS35L41_BST_EN_MASK, 0);
+@@ -1192,6 +1199,9 @@ static int cs35l41_dsp_init(struct cs35l41_private *cs35l41)
+ 		}
+ 		dev_info(cs35l41->dev, "boost converter off: output stage from VP\n");
+ 	}
++	if (bst_ctl > 0xAA)
++		dev_warn(cs35l41->dev, "bst_ctl %u is above 0xAA: ignored, class H stays\n",
++			 bst_ctl);
+ 	if (bst_ctl && bst_ctl <= 0xAA) {
+ 		ret = regmap_update_bits(cs35l41->regmap, CS35L41_BSTCVRT_VCTRL1,
+ 					 CS35L41_BST_CTL_MASK, bst_ctl);

@@ -1,0 +1,57 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Brett-Michael Green <brett@bmgvisualtech.com>
+Date: Thu, 22 Oct 2026 12:43:01 -0400
+Subject: [PATCH] dt-bindings: phy: samsung: add zuma USB DRD and eUSB2 PHYs
+
+zuma's USB control block has the same link registers as Exynos 2200's
+and sits in front of the same Synopsys eUSB2 PHY, with an identical
+register map (Google's GPL zuma PHY driver, eusb-con-reg.h and
+exynos-usb-blkcon-sfr.h). Add google,zuma-usb32drd-phy with Exynos
+2200's constraints, and google,zuma-eusb2-phy with the Exynos 2200
+eUSB2 PHY as its fallback.
+
+Assisted-by: LLM
+Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
+---
+ .../bindings/phy/samsung,exynos2200-eusb2-phy.yaml         | 7 +++++--
+ .../devicetree/bindings/phy/samsung,usb3-drd-phy.yaml      | 2 ++
+ 2 files changed, 7 insertions(+), 2 deletions(-)
+
+diff --git a/Documentation/devicetree/bindings/phy/samsung,exynos2200-eusb2-phy.yaml b/Documentation/devicetree/bindings/phy/samsung,exynos2200-eusb2-phy.yaml
+index 5e7e1bc2e..f63210224 100644
+--- a/Documentation/devicetree/bindings/phy/samsung,exynos2200-eusb2-phy.yaml
++++ b/Documentation/devicetree/bindings/phy/samsung,exynos2200-eusb2-phy.yaml
+@@ -15,8 +15,11 @@ description:
+ 
+ properties:
+   compatible:
+-    enum:
+-      - samsung,exynos2200-eusb2-phy
++    oneOf:
++      - const: samsung,exynos2200-eusb2-phy
++      - items:
++          - const: google,zuma-eusb2-phy
++          - const: samsung,exynos2200-eusb2-phy
+ 
+   reg:
+     maxItems: 1
+diff --git a/Documentation/devicetree/bindings/phy/samsung,usb3-drd-phy.yaml b/Documentation/devicetree/bindings/phy/samsung,usb3-drd-phy.yaml
+index 1083ebbc3..f608988b0 100644
+--- a/Documentation/devicetree/bindings/phy/samsung,usb3-drd-phy.yaml
++++ b/Documentation/devicetree/bindings/phy/samsung,usb3-drd-phy.yaml
+@@ -27,6 +27,7 @@ properties:
+     enum:
+       - google,gs101-usb31drd-phy
+       - google,gs201-usb31drd-phy
++      - google,zuma-usb32drd-phy
+       - samsung,exynos2200-usb32drd-phy
+       - samsung,exynos5250-usbdrd-phy
+       - samsung,exynos5420-usbdrd-phy
+@@ -219,6 +220,7 @@ allOf:
+         compatible:
+           contains:
+             enum:
++              - google,zuma-usb32drd-phy
+               - samsung,exynos2200-usb32drd-phy
+     then:
+       properties:

@@ -1,0 +1,31 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: boozedog <code@booze.dog>
+Date: Mon, 26 Oct 2026 07:32:48 -0400
+Subject: [PATCH] arm64: dts: exynos: google: gs201-felix: size the cover
+ touchscreen
+
+The cover is 1080 by 2092. Google's st,sensor_inverted_x and
+st,sensor_inverted_y only reorder heatmap frames for touch offload.
+Coordinates are reported raw, so this node does not set
+touchscreen-inverted-x or touchscreen-inverted-y. The node stays
+disabled.
+
+Signed-off-by: boozedog <code@booze.dog>
+Assisted-by: LLM
+---
+ arch/arm64/boot/dts/exynos/google/gs201-felix.dts | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/gs201-felix.dts b/arch/arm64/boot/dts/exynos/google/gs201-felix.dts
+index 191c6a33b..3d56c7a25 100644
+--- a/arch/arm64/boot/dts/exynos/google/gs201-felix.dts
++++ b/arch/arm64/boot/dts/exynos/google/gs201-felix.dts
+@@ -237,6 +237,8 @@ cover_touch: touchscreen@0 {
+ 		vdd-supply = <&ldo25m>;
+ 		avdd-supply = <&ldo26m>;
+ 		reset-gpios = <&gpp23 3 GPIO_ACTIVE_LOW>;
++		touchscreen-size-x = <1080>;
++		touchscreen-size-y = <2092>;
+ 		pinctrl-names = "default";
+ 		pinctrl-0 = <&cover_ts_irq &cover_ts_reset>;
+ 		status = "disabled";

@@ -1,0 +1,31 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PeterXMR <xmrpeter@proton.me>
+Date: Sun, 1 Nov 2026 17:15:44 +0100
+Subject: [PATCH] dt-bindings: arm: google: Add Pixel 6a (bluejay)
+
+The Pixel 6a (bluejay) is a gs101 (Tensor) board like the Pixel 6 and
+Pixel 6 Pro, and the binding's description already names it. Add its
+compatible to the gs101 board list.
+
+Assisted-by: Claude Fable 5.1
+Signed-off-by: PeterXMR <xmrpeter@proton.me>
+---
+ Documentation/devicetree/bindings/arm/google.yaml | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/Documentation/devicetree/bindings/arm/google.yaml b/Documentation/devicetree/bindings/arm/google.yaml
+index 988cf3de0..1f5258ae2 100644
+--- a/Documentation/devicetree/bindings/arm/google.yaml
++++ b/Documentation/devicetree/bindings/arm/google.yaml
+@@ -34,9 +34,10 @@ properties:
+     const: '/'
+   compatible:
+     oneOf:
+-      - description: Google Pixel 6 or 6 Pro (Oriole or Raven)
++      - description: Google Pixel 6, 6 Pro or 6a (Oriole, Raven or Bluejay)
+         items:
+           - enum:
++              - google,gs101-bluejay
+               - google,gs101-oriole
+               - google,gs101-raven
+           - const: google,gs101

@@ -1,0 +1,57 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Lef <me@lefteros.com>
+Date: Wed, 4 Nov 2026 21:25:53 +0200
+Subject: [PATCH] clk: samsung: clk-zuma: add the CMU_APM USI1 UART and SYSREG
+ clocks
+
+Read-only, as the rest of CMU_APM. Offsets from Google's GPL zuma cal-if
+(cmucal-sfr.c), which match clk-zumapro.c's for the same blocks: USI1
+UART divider 0x1818 (7 bits, parent the APM function gate), IPCLK 0x20f4
+and RSTNSYNC 0x2148 behind it, PCLK 0x20f8 and SYSREG 0x2168 on the NOC
+divider.
+
+Tested on a Pixel 8 Pro with the Bluetooth board commit of this series
+on top: the UART comes up and the controller answers.
+
+Signed-off-by: Lef <me@lefteros.com>
+---
+ drivers/clk/samsung/clk-zuma.c | 12 +++++++++++-
+ 1 file changed, 11 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/clk/samsung/clk-zuma.c b/drivers/clk/samsung/clk-zuma.c
+index 8e7b12f59..4a831d69b 100644
+--- a/drivers/clk/samsung/clk-zuma.c
++++ b/drivers/clk/samsung/clk-zuma.c
+@@ -143,6 +143,8 @@ static const struct samsung_mux_clock apm_muxes[] __initconst = {
+ static const struct samsung_div_clock apm_dividers[] __initconst = {
+ 	DIV_F(CLK_DOUT_APM_NOC, "zuma_dout_apm_noc", "zuma_gout_apm_func",
+ 	      0x1808, 0, 3, 0, CLK_DIVIDER_READ_ONLY),
++	DIV_F(CLK_DOUT_APM_USI1_UART, "zuma_dout_apm_usi1_uart",
++	      "zuma_gout_apm_func", 0x1818, 0, 7, 0, CLK_DIVIDER_READ_ONLY),
+ };
+ 
+ static const struct samsung_gate_clock apm_ro_gates[] __initconst = {
+@@ -160,6 +162,14 @@ static const struct samsung_gate_clock apm_ro_gates[] __initconst = {
+ 	     "zuma_dout_apm_noc", 0x20dc, 21, CLK_IGNORE_UNUSED, 0),
+ 	GATE(CLK_GOUT_APM_GPIO_CUSTOM_ALIVE, "zuma_gout_apm_gpio_custom_alive",
+ 	     "zuma_dout_apm_noc", 0x2000, 21, CLK_IGNORE_UNUSED, 0),
++	GATE(CLK_GOUT_APM_USI1_UART_IPCLK, "zuma_gout_apm_usi1_uart_ipclk",
++	     "zuma_dout_apm_usi1_uart", 0x20f4, 21, CLK_IGNORE_UNUSED, 0),
++	GATE(CLK_GOUT_APM_USI1_UART_PCLK, "zuma_gout_apm_usi1_uart_pclk",
++	     "zuma_dout_apm_noc", 0x20f8, 21, CLK_IGNORE_UNUSED, 0),
++	GATE(CLK_GOUT_APM_USI1_UART_RSTNSYNC, "zuma_gout_apm_usi1_uart_rstnsync",
++	     "zuma_dout_apm_usi1_uart", 0x2148, 21, CLK_IGNORE_UNUSED, 0),
++	GATE(CLK_GOUT_APM_SYSREG, "zuma_gout_apm_sysreg", "zuma_dout_apm_noc",
++	     0x2168, 21, CLK_IGNORE_UNUSED, 0),
+ };
+ 
+ static const struct samsung_cmu_info apm_cmu __initconst = {
+@@ -171,7 +181,7 @@ static const struct samsung_cmu_info apm_cmu __initconst = {
+ 	.nr_div_clks = ARRAY_SIZE(apm_dividers),
+ 	.ro_gate_clks = apm_ro_gates,
+ 	.nr_ro_gate_clks = ARRAY_SIZE(apm_ro_gates),
+-	.nr_clk_ids = CLK_GOUT_APM_GPIO_CUSTOM_ALIVE + 1,
++	.nr_clk_ids = CLK_GOUT_APM_SYSREG + 1,
+ };
+ 
+ /* CMU_HSI0, 0x11000000. Firmware keeps the domain powered. */

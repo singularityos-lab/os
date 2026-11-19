@@ -1,0 +1,41 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Sun, 1 Nov 2026 20:03:09 -0647
+Subject: [PATCH] soc: samsung: gs101-pmu: zuma: allow the modem PCIe PHY's
+ isolation register
+
+zuma's PCIe PHY for its first controller (the S5300 modem's) is isolated
+through PMU offset 0x3ec4, as stock's pcie@12100000 gives it
+(pmu-offset). Its PHY driver releases the isolation and sets bit 10 once
+the PHY is configured, so add the register to zuma's PMU regmap, next to
+the Wi-Fi PHY's 0x3ec8.
+
+On the Pixel 9a, the modem link's bring-up driver read the register as
+0xc0 at boot, 0x1 out of isolation and 0x401 after configuration, and
+the link came up at Gen1 x1.
+
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ drivers/soc/samsung/gs101-pmu.c | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/drivers/soc/samsung/gs101-pmu.c b/drivers/soc/samsung/gs101-pmu.c
+index 40e26951c..6cf15a30b 100644
+--- a/drivers/soc/samsung/gs101-pmu.c
++++ b/drivers/soc/samsung/gs101-pmu.c
+@@ -344,6 +344,7 @@ const struct exynos_pmu_data gs101_pmu_data = {
+ #define ZUMA_HSI0_STATUS		0x2a84
+ #define ZUMA_PAD_CTRL_NFC_CLK		0x3e84
+ #define ZUMA_PHY_CTRL_UFS		0x3ec0
++#define ZUMA_PHY_CTRL_PCIE0		0x3ec4
+ #define ZUMA_PHY_CTRL_PCIE1		0x3ec8
+ 
+ static const struct regmap_range zuma_pmu_registers[] = {
+@@ -360,6 +361,7 @@ static const struct regmap_range zuma_pmu_registers[] = {
+ 	/* PHY isolation */
+ 	regmap_reg_range(GS101_PHY_CTRL_USB20, GS101_PHY_CTRL_USB20),
+ 	regmap_reg_range(ZUMA_PHY_CTRL_UFS, ZUMA_PHY_CTRL_UFS),
++	regmap_reg_range(ZUMA_PHY_CTRL_PCIE0, ZUMA_PHY_CTRL_PCIE0),
+ 	regmap_reg_range(ZUMA_PHY_CTRL_PCIE1, ZUMA_PHY_CTRL_PCIE1),
+ 	/* a hint TF-A reads, not a status register: see zuma_pmu_regmap_init() */
+ 	regmap_reg_range(ZUMA_PMU_INFORM0, ZUMA_PMU_INFORM0),

@@ -1,0 +1,183 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Chris Gray <chrisgray70@gmail.com>
+Date: Sat, 14 Nov 2026 09:32:29 -0600
+Subject: [PATCH] Input: salixp: add the ALIX variant with AP bus ownership
+
+Match ALIX chip ID 36:48 separately from SALIXP 36:40 and negotiate
+AP bus ownership with a bounded 500 ms acknowledgment before hardware
+initialization. The normal path keeps the identity, CRC, system-info
+and repair-refusal gates, then starts the qualified polling input path.
+
+Drop the development stage parameter and leave the shared USI driver
+unchanged. The address-based hold staged early bring-up; the saved
+evidence does not establish a normal-probe hardware defect.
+
+The revised normal path ran on the Pixel 6a in the signed integration
+linked below on November 12, 2026: two contacts held and released, with
+zero SPI errors or timeouts. The folded header
+correction changes documentation only. The board nodes stay disabled;
+this does not qualify Fold/SALIXP runtime or suspend.
+
+Link: https://android.googlesource.com/kernel/google-modules/touch/fts_touch/+/2a0089b3c7b9f1f1dbb52a1460a26621e50f61cf/
+Link: https://github.com/latentoperator/linux-omarchy-mobile/commit/720a495233734e4328a09c33c095d72a8291e1c4
+Assisted-by: LLM
+Signed-off-by: Chris Gray <chrisgray70@gmail.com>
+---
+ drivers/input/touchscreen/salixp.c | 81 ++++++++++++++++++++++++++----
+ 1 file changed, 70 insertions(+), 11 deletions(-)
+
+diff --git a/drivers/input/touchscreen/salixp.c b/drivers/input/touchscreen/salixp.c
+index f7c665d96..1e0810655 100644
+--- a/drivers/input/touchscreen/salixp.c
++++ b/drivers/input/touchscreen/salixp.c
+@@ -5,13 +5,16 @@
+  * SALIXP is the FTS part whose hardware id is 36 40. Google's GPL FTM5
+  * driver (kernel/google-modules/touch/fts_touch), Copyright (C) 2016
+  * STMicroelectronics, calls that id SALIXP. Chip id 36 48 is ALIX and is
+- * not this part. This driver sends four things: a hardware-register
+- * read (opcode 0xfb), a framebuffer read (opcode 0xa7), a FIFO read
+- * (opcode 0x87), and one scan command (0xa0 0x00 0xff). It also
+- * toggles the reset GPIO once, after the system-info read. It never
+- * sends opcode 0xfa, a flash or config write, a system or load
+- * command, or the setScanMode preamble. It does not request the
+- * interrupt. Attention is level low. After reset is released the line
++ * a separately matched part. ALIX negotiates AP bus ownership before reset,
++ * supply enable or SPI traffic. Device core pinctrl and SPI-controller setup
++ * precede the peripheral probe. Both variants assert reset before enabling
++ * vdd then avdd, and release reset before checking identity.
++ * This driver sends four things: a hardware-register read (opcode 0xfb), a
++ * framebuffer read (opcode 0xa7), a FIFO read (opcode 0x87), and one scan
++ * command (0xa0 0x00 0xff). It also toggles the reset GPIO once, after the
++ * system-info read. It never sends opcode 0xfa, a flash or config write, a
++ * system or load command, or the setScanMode preamble. It does not request
++ * the interrupt. Attention is level low. After reset is released the line
+  * falls and stays low, so a level interrupt would storm before any
+  * firmware handshake.
+  *
+@@ -113,10 +116,13 @@
+ 
+ struct salixp_info {
+ 	u8 id[2];
++	const char *name;
++	bool bus_handshake;
+ };
+ 
+ struct salixp {
+ 	struct spi_device *spi;
++	const struct salixp_info *info;
+ 	struct gpio_desc *reset;
+ 	struct input_dev *input;
+ 	struct touchscreen_properties prop;
+@@ -138,8 +144,49 @@ struct salixp {
+ 
+ static const struct salixp_info salixp_info = {
+ 	.id = { 0x36, 0x40 },
++	.name = "SALIXP Touchscreen",
++};
++
++static const struct salixp_info alix_info = {
++	.id = { 0x36, 0x48 },
++	.name = "ALIX Touchscreen",
++	.bus_handshake = true,
+ };
+ 
++/*
++ * Google's touch_bus_negotiator uses physical zero for AP ownership on
++ * both GPIOs and a 500 ms request timeout. Both descriptors are active low,
++ * so an asserted request/ack is physical zero. Poll the acknowledgment here;
++ * the bring-up driver never starts AoC or requests its interrupt.
++ */
++static int alix_request_bus(struct device *dev)
++{
++	struct gpio_desc *request, *ack;
++	ktime_t deadline;
++	int value;
++
++	ack = devm_gpiod_get(dev, "bus-ack", GPIOD_IN);
++	if (IS_ERR(ack))
++		return dev_err_probe(dev, PTR_ERR(ack), "getting bus ack\n");
++	request = devm_gpiod_get(dev, "bus-request", GPIOD_OUT_HIGH);
++	if (IS_ERR(request))
++		return dev_err_probe(dev, PTR_ERR(request), "requesting AP bus\n");
++
++	deadline = ktime_add_ms(ktime_get(), 500);
++	do {
++		value = gpiod_get_value_cansleep(ack);
++		if (value < 0)
++			return value;
++		if (value) {
++			dev_info(dev, "ALIX AP bus acknowledged\n");
++			return 0;
++		}
++		usleep_range(1000, 2000);
++	} while (ktime_before(ktime_get(), deadline));
++
++	return dev_err_probe(dev, -ETIMEDOUT, "AP bus not acknowledged\n");
++}
++
+ static void salixp_assert_reset(void *data)
+ {
+ 	struct salixp *ts = data;
+@@ -617,7 +664,8 @@ static int salixp_suspend(struct device *dev)
+ {
+ 	struct salixp *ts = spi_get_drvdata(to_spi_device(dev));
+ 
+-	disable_delayed_work_sync(&ts->poll_work);
++	if (ts->input)
++		disable_delayed_work_sync(&ts->poll_work);
+ 	return 0;
+ }
+ 
+@@ -625,8 +673,10 @@ static int salixp_resume(struct device *dev)
+ {
+ 	struct salixp *ts = spi_get_drvdata(to_spi_device(dev));
+ 
+-	enable_delayed_work(&ts->poll_work);
+-	queue_delayed_work(system_freezable_wq, &ts->poll_work, 0);
++	if (ts->input) {
++		enable_delayed_work(&ts->poll_work);
++		queue_delayed_work(system_freezable_wq, &ts->poll_work, 0);
++	}
+ 	return 0;
+ }
+ 
+@@ -648,7 +698,7 @@ static int salixp_register_input(struct salixp *ts)
+ 	if (!input)
+ 		return -ENOMEM;
+ 
+-	input->name = "SALIXP Touchscreen";
++	input->name = ts->info->name;
+ 	input->id.bustype = BUS_SPI;
+ 
+ 	/*
+@@ -690,8 +740,15 @@ static int salixp_probe(struct spi_device *spi)
+ 		return -ENOMEM;
+ 
+ 	ts->spi = spi;
++	ts->info = info;
+ 	spi_set_drvdata(spi, ts);
+ 
++	if (info->bus_handshake) {
++		ret = alix_request_bus(dev);
++		if (ret)
++			return ret;
++	}
++
+ 	/*
+ 	 * Assert reset before either rail. Cover rails are S2MPG12 LDO25M
+ 	 * (1.8 V) and LDO26M (3.3 V). The board leaves them off, with no
+@@ -765,12 +822,14 @@ static int salixp_probe(struct spi_device *spi)
+ 
+ static const struct of_device_id salixp_of_match[] = {
+ 	{ .compatible = "st,salixp", .data = &salixp_info },
++	{ .compatible = "st,alix", .data = &alix_info },
+ 	{ }
+ };
+ MODULE_DEVICE_TABLE(of, salixp_of_match);
+ 
+ static const struct spi_device_id salixp_id[] = {
+ 	{ "salixp", 0 },
++	{ "alix", 0 },
+ 	{ }
+ };
+ MODULE_DEVICE_TABLE(spi, salixp_id);

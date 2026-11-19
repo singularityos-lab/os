@@ -1,0 +1,46 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Sun, 1 Nov 2026 16:11:02 -0500
+Subject: [PATCH] dt-bindings: soc: google: gs101-pmu: describe the CLKOUT pads
+
+The gs201 PMU node describes its CLKOUT pads as clock outputs
+(#clock-cells, the TCXO as the CLKOUT mux's input 0), which the
+exynos-clkout driver binds to provide the Pixel 7 Pro's NFC reference
+clock. The binding didn't allow those properties, so dtbs_check flagged
+the node on gs201-cheetah.
+
+Allow #clock-cells, one input clock and its "clkout0" name, as
+samsung,exynos-pmu.yaml does for the Exynos PMUs.
+
+Assisted-by: LLM
+Signed-off-by: Derek Ross <derekross@gmail.com>
+---
+ .../bindings/soc/google/google,gs101-pmu.yaml     | 15 +++++++++++++++
+ 1 file changed, 15 insertions(+)
+
+diff --git a/Documentation/devicetree/bindings/soc/google/google,gs101-pmu.yaml b/Documentation/devicetree/bindings/soc/google/google,gs101-pmu.yaml
+index b88a04ae3..77be28079 100644
+--- a/Documentation/devicetree/bindings/soc/google/google,gs101-pmu.yaml
++++ b/Documentation/devicetree/bindings/soc/google/google,gs101-pmu.yaml
+@@ -28,6 +28,21 @@ properties:
+ 
+   ranges: true
+ 
++  "#clock-cells":
++    const: 1
++    description:
++      The PMU's CLKOUT pads (PAD_CTRL_CLKOUTn), one clock each, which
++      drive the PMU's selected input out to a board device.
++
++  clocks:
++    description:
++      The input the CLKOUT pads select, the TCXO on gs201.
++    maxItems: 1
++
++  clock-names:
++    items:
++      - const: clkout0
++
+   reboot-mode:
+     $ref: /schemas/power/reset/syscon-reboot-mode.yaml
+     type: object

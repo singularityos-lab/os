@@ -1,0 +1,197 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: boozedog <code@booze.dog>
+Date: Mon, 26 Oct 2026 07:32:55 -0400
+Subject: [PATCH] Input: salixp: register a touchscreen and decode one report
+
+After the chip id matches, register a multitouch device. One 8-byte
+report becomes a slot, a position, and a pressure. Attention stays
+unrequested, so this decode is not called yet. The Kconfig text
+matches that: it registers a touchscreen, and it does not read the
+FIFO, send a scan command, or request the interrupt.
+
+Signed-off-by: boozedog <code@booze.dog>
+Assisted-by: LLM
+---
+ drivers/input/touchscreen/Kconfig  | 11 ++--
+ drivers/input/touchscreen/salixp.c | 94 +++++++++++++++++++++++++++---
+ 2 files changed, 91 insertions(+), 14 deletions(-)
+
+diff --git a/drivers/input/touchscreen/Kconfig b/drivers/input/touchscreen/Kconfig
+index 8284916b7..adcc49466 100644
+--- a/drivers/input/touchscreen/Kconfig
++++ b/drivers/input/touchscreen/Kconfig
+@@ -1252,17 +1252,16 @@ config TOUCHSCREEN_STMFTS
+ 	  module will be called stmfts.
+ 
+ config TOUCHSCREEN_SALIXP
+-	tristate "STMicroelectronics SALIXP SPI chip-id reader"
++	tristate "STMicroelectronics SALIXP SPI touchscreen"
+ 	depends on SPI
+ 	help
+-	  Say Y here to read the chip id of the STMicroelectronics
+-	  SALIXP touch controller (chip id 36 40) over SPI. The driver
+-	  enables the supplies and pulses reset. It does not load
+-	  firmware or report touches.
++	  Say Y here for the STMicroelectronics SALIXP touch controller
++	  (chip id 36 40) over SPI. After the chip id matches, the
++	  driver registers a touchscreen. It does not read the FIFO,
++	  send a scan command, or request the interrupt.
+ 
+ 	  To compile this driver as a module, choose M here: the
+ 	  module will be called salixp.
+-
+ config TOUCHSCREEN_STMPE
+ 	tristate "STMicroelectronics STMPE touchscreens"
+ 	depends on MFD_STMPE
+diff --git a/drivers/input/touchscreen/salixp.c b/drivers/input/touchscreen/salixp.c
+index 7cf9e34f7..498a9fc90 100644
+--- a/drivers/input/touchscreen/salixp.c
++++ b/drivers/input/touchscreen/salixp.c
+@@ -5,8 +5,11 @@
+  * SALIXP is the FTS part whose hardware id is 36 40. Google's GPL FTM5
+  * driver (kernel/google-modules/touch/fts_touch), Copyright (C) 2016
+  * STMicroelectronics, calls that id SALIXP. Chip id 36 48 is ALIX and is
+- * not this part. This reader resets the controller and reads the id. It
+- * does not load firmware or report touches.
++ * not this part. This reader resets the controller, reads the id, and
++ * registers an input device. It can decode one 8-byte report. It does
++ * not load firmware. Attention is level low and this driver does not
++ * request it. After reset is released the line falls and stays low, so
++ * a level interrupt would storm before any firmware handshake.
+  *
+  * Hardware register read, SPI: opcode 0xfb, then the 32-bit address in
+  * big-endian, then a one-byte dummy, then the payload. Chip id is at
+@@ -15,10 +18,7 @@
+  * on MOSI while it samples MISO, because the Samsung SPI controller
+  * shifts a transfer only when it has a TX buffer. The power-cycle path
+  * in that driver asserts reset, enables vdd, waits 1 ms, enables avdd,
+- * and waits 15 ms before releasing reset. Attention is level low. This
+- * reader does not request it. After reset is released the line falls
+- * and stays low, so a level interrupt would storm before any firmware
+- * handshake.
++ * and waits 15 ms before releasing reset.
+  */
+ 
+ #include <linux/cache.h>
+@@ -26,6 +26,9 @@
+ #include <linux/device.h>
+ #include <linux/err.h>
+ #include <linux/gpio/consumer.h>
++#include <linux/input.h>
++#include <linux/input/mt.h>
++#include <linux/input/touchscreen.h>
+ #include <linux/ktime.h>
+ #include <linux/mod_devicetable.h>
+ #include <linux/module.h>
+@@ -40,6 +43,11 @@
+ #define SALIXP_AVDD_DELAY_US	15000
+ #define SALIXP_ID_TIMEOUT_MS	500
+ #define SALIXP_ID_INTERVAL_MS	20
++#define SALIXP_MAX_SLOTS	10
++#define SALIXP_EVT_TYPE_MASK	0xf3
++#define SALIXP_EVT_ENTER	0x13
++#define SALIXP_EVT_MOTION	0x23
++#define SALIXP_EVT_LEAVE	0x33
+ 
+ struct salixp_info {
+ 	u8 id[2];
+@@ -48,6 +56,8 @@ struct salixp_info {
+ struct salixp {
+ 	struct spi_device *spi;
+ 	struct gpio_desc *reset;
++	struct input_dev *input;
++	struct touchscreen_properties prop;
+ 	u8 tx[5] __aligned(ARCH_DMA_MINALIGN);
+ 	u8 reply_tx[3] __aligned(ARCH_DMA_MINALIGN);
+ 	u8 rx[3] __aligned(ARCH_DMA_MINALIGN);
+@@ -100,6 +110,74 @@ static int salixp_read_id(struct salixp *ts, u8 id[2])
+ 	return 0;
+ }
+ 
++/*
++ * One FIFO report from the felix ftm5 driver. The slot is the high
++ * nibble of event[1]. X and Y are packed in event[2..4]. Pressure is
++ * event[5]. Enter, motion, and leave are compared after masking the
++ * size bits in event[0]. Nothing in this driver calls this until
++ * attention is requested, and this driver does not request it.
++ */
++static void __maybe_unused salixp_report_event(struct salixp *ts,
++					       const u8 *event)
++{
++	u8 type = event[0] & SALIXP_EVT_TYPE_MASK;
++	u8 slot = event[1] >> 4;
++	unsigned int x, y;
++
++	if (slot >= SALIXP_MAX_SLOTS)
++		return;
++
++	input_mt_slot(ts->input, slot);
++
++	if (type == SALIXP_EVT_LEAVE) {
++		input_mt_report_slot_state(ts->input, MT_TOOL_FINGER, false);
++		input_mt_sync_frame(ts->input);
++		input_sync(ts->input);
++		return;
++	}
++
++	if (type != SALIXP_EVT_ENTER && type != SALIXP_EVT_MOTION)
++		return;
++
++	x = ((event[3] & 0x0f) << 8) | event[2];
++	y = (event[4] << 4) | ((event[3] & 0xf0) >> 4);
++
++	input_mt_report_slot_state(ts->input, MT_TOOL_FINGER, true);
++	touchscreen_report_pos(ts->input, &ts->prop, x, y, true);
++	input_report_abs(ts->input, ABS_MT_PRESSURE, event[5] ? event[5] : 1);
++	input_mt_sync_frame(ts->input);
++	input_sync(ts->input);
++}
++
++static int salixp_register_input(struct salixp *ts)
++{
++	struct device *dev = &ts->spi->dev;
++	struct input_dev *input;
++	u32 size;
++	int ret;
++
++	if (device_property_read_u32(dev, "touchscreen-size-x", &size) ||
++	    device_property_read_u32(dev, "touchscreen-size-y", &size))
++		return dev_err_probe(dev, -EINVAL, "missing touchscreen size\n");
++
++	input = devm_input_allocate_device(dev);
++	if (!input)
++		return -ENOMEM;
++
++	input->name = "SALIXP Touchscreen";
++	input->id.bustype = BUS_SPI;
++
++	input_set_abs_params(input, ABS_MT_PRESSURE, 0, 255, 0, 0);
++	touchscreen_parse_properties(input, true, &ts->prop);
++
++	ret = input_mt_init_slots(input, SALIXP_MAX_SLOTS, INPUT_MT_DIRECT);
++	if (ret)
++		return ret;
++
++	ts->input = input;
++	return input_register_device(input);
++}
++
+ static int salixp_probe(struct spi_device *spi)
+ {
+ 	struct device *dev = &spi->dev;
+@@ -157,7 +235,7 @@ static int salixp_probe(struct spi_device *spi)
+ 		ret = salixp_read_id(ts, id);
+ 		if (!ret && id[0] == info->id[0] && id[1] == info->id[1]) {
+ 			dev_info(dev, "chip id %02x %02x\n", id[0], id[1]);
+-			return 0;
++			return salixp_register_input(ts);
+ 		}
+ 		msleep(SALIXP_ID_INTERVAL_MS);
+ 	} while (ktime_before(ktime_get(), deadline));
+@@ -193,5 +271,5 @@ static struct spi_driver salixp_driver = {
+ module_spi_driver(salixp_driver);
+ 
+ MODULE_AUTHOR("David A. Buser <code@booze.dog>");
+-MODULE_DESCRIPTION("STMicroelectronics SALIXP SPI chip-id reader");
++MODULE_DESCRIPTION("STMicroelectronics SALIXP SPI touchscreen");
+ MODULE_LICENSE("GPL");

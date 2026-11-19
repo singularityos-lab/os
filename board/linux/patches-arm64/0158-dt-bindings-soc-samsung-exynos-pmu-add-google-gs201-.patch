@@ -1,0 +1,32 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Fri, 23 Oct 2026 23:36:55 -0400
+Subject: [PATCH] dt-bindings: soc: samsung: exynos-pmu: add google,gs201-pmu
+
+gs201 (Tensor G2) has gs101's PMU: the same secure register access
+through the EL3 monitor, the same CPU hotplug and reboot-mode controls
+and the same PMU interrupt generator, so exynos-pmu uses gs101's data
+for it. Document it with google,gs101-pmu as the fallback, so the
+gs101 rules (no syscon, the required interrupt generator phandle, the
+reboot modes) apply.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Signed-off-by: Derek Ross <derekross@gmail.com>
+---
+ Documentation/devicetree/bindings/soc/samsung/exynos-pmu.yaml | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/Documentation/devicetree/bindings/soc/samsung/exynos-pmu.yaml b/Documentation/devicetree/bindings/soc/samsung/exynos-pmu.yaml
+index d594982f2..7aedd2e7c 100644
+--- a/Documentation/devicetree/bindings/soc/samsung/exynos-pmu.yaml
++++ b/Documentation/devicetree/bindings/soc/samsung/exynos-pmu.yaml
+@@ -15,6 +15,9 @@ properties:
+       - enum:
+           - google,gs101-pmu
+           - google,zuma-pmu
++      - items:
++          - const: google,gs201-pmu
++          - const: google,gs101-pmu
+       - items:
+           - const: google,zumapro-pmu
+           - const: google,zuma-pmu

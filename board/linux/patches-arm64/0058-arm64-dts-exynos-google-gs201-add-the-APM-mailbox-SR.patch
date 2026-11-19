@@ -1,0 +1,85 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Mon, 12 Oct 2026 00:01:18 -0400
+Subject: [PATCH] arm64: dts: exynos: google: gs201: add the APM mailbox, SRAM
+ and ACPM
+
+Describe the AP-to-APM mailbox (0x18210000, GIC SPI 78), the APM SRAM
+(0x18500000, 0x48000 bytes) and the ACPM IPC node, as in Google's
+gs201.dtsi (acpm_ipc) and the stock device tree.
+
+There is no CMU_APM driver yet, so the mailbox gets a fixed-clock
+placeholder for its APB clock. Google's driver never enables that gate
+either; it runs under automatic clock gating.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ arch/arm64/boot/dts/exynos/google/gs201.dtsi | 41 ++++++++++++++++++++
+ 1 file changed, 41 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/gs201.dtsi b/arch/arm64/boot/dts/exynos/google/gs201.dtsi
+index 408611317..d3b59d6c6 100644
+--- a/arch/arm64/boot/dts/exynos/google/gs201.dtsi
++++ b/arch/arm64/boot/dts/exynos/google/gs201.dtsi
+@@ -4,6 +4,7 @@
+  */
+ 
+ #include <dt-bindings/clock/google,gs201.h>
++#include <dt-bindings/clock/google,gs201-acpm.h>
+ #include <dt-bindings/gpio/gpio.h>
+ #include <dt-bindings/interrupt-controller/arm-gic.h>
+ #include <dt-bindings/interrupt-controller/irq.h>
+@@ -132,6 +133,29 @@ usb_ref_clk: clock-usb-ref {
+ 		clock-output-names = "usb20-ref";
+ 	};
+ 
++	/*
++	 * Bring-up placeholder for the CMU_APM gate of the AP-APM mailbox
++	 * (GOUT_BLK_APM_UID_MAILBOX_APM_AP_IPCLKPORT_PCLK, CMU_APM + 0x20d4).
++	 * Google's ACPM driver never touches it: the gate runs under automatic
++	 * clock gating (Q-channel MAILBOX_APM_AP_QCH). Replace with cmu_apm once
++	 * there is a driver for it. The rate is not used.
++	 */
++	apm_mbox_pclk: clock-apm-mbox-pclk {
++		compatible = "fixed-clock";
++		#clock-cells = <0>;
++		clock-frequency = <24576000>;
++		clock-output-names = "apm-mbox-pclk";
++	};
++
++	firmware {
++		acpm_ipc: power-management {
++			compatible = "google,gs201-acpm-ipc";
++			#clock-cells = <1>;
++			mboxes = <&ap2apm_mailbox>;
++			shmem = <&apm_sram>;
++		};
++	};
++
+ 	/*
+ 	 * Bring-up placeholder for the GPU clocks. The real rate is owned by
+ 	 * the APM firmware (ACPM DVFS domains G3D and G3DL2); this only gives
+@@ -543,6 +567,23 @@ wakeup-interrupt-controller {
+ 			};
+ 		};
+ 
++		ap2apm_mailbox: mailbox@18210000 {
++			compatible = "google,gs201-mbox", "google,gs101-mbox";
++			reg = <0x18210000 0x1000>;
++			clocks = <&apm_mbox_pclk>;
++			clock-names = "pclk";
++			interrupts = <GIC_SPI 78 IRQ_TYPE_LEVEL_HIGH>;
++			#mbox-cells = <0>;
++		};
++
++		apm_sram: sram@18500000 {
++			compatible = "mmio-sram";
++			reg = <0x18500000 0x48000>;
++			#address-cells = <1>;
++			#size-cells = <1>;
++			ranges = <0x0 0x18500000 0x48000>;
++		};
++
+ 		/*
+ 		 * No power-domains: the bootloader leaves both G3D power domains
+ 		 * (pd_g3d, pd_embedded_g3d) on, and nothing in Linux turns them

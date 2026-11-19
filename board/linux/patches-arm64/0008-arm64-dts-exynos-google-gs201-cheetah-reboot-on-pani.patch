@@ -1,0 +1,27 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Sun, 11 Oct 2026 17:48:53 -0400
+Subject: [PATCH] arm64: dts: exynos: google: gs201-cheetah: reboot on panic
+
+ABL appends console=null, so a panic during bring-up freezes the phone
+with no message. Reboot after 10 s instead; once ABL runs out of retries
+it falls back to the other slot.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts b/arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts
+index 0beef155b..bbaea0a63 100644
+--- a/arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts
++++ b/arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts
+@@ -19,7 +19,7 @@ / {
+ 
+ 	chosen {
+ 		/* ABL requires bootargs to exist; it appends its own after these. */
+-		bootargs = "console=tty0 fbcon=font:TER16x32 clk_ignore_unused pd_ignore_unused rdinit=/init";
++		bootargs = "console=tty0 fbcon=font:TER16x32 panic=10 clk_ignore_unused pd_ignore_unused rdinit=/init";
+ 		#address-cells = <2>;
+ 		#size-cells = <1>;
+ 		ranges;

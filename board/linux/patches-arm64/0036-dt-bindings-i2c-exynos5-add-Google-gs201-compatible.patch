@@ -1,0 +1,25 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Sun, 11 Oct 2026 20:18:15 -0400
+Subject: [PATCH] dt-bindings: i2c: exynos5: add Google gs201 compatible
+
+The HSI2C controllers of the Google gs201 (Tensor G2) SoC are the same
+as on gs101 and work with the ExynosAuto v9 programming model.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ Documentation/devicetree/bindings/i2c/i2c-exynos5.yaml | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/Documentation/devicetree/bindings/i2c/i2c-exynos5.yaml b/Documentation/devicetree/bindings/i2c/i2c-exynos5.yaml
+index 32269239b..8b4332942 100644
+--- a/Documentation/devicetree/bindings/i2c/i2c-exynos5.yaml
++++ b/Documentation/devicetree/bindings/i2c/i2c-exynos5.yaml
+@@ -40,6 +40,7 @@ properties:
+       - items:
+           - enum:
+               - google,gs101-hsi2c
++              - google,gs201-hsi2c
+               - samsung,exynos2200-hsi2c
+               - samsung,exynos850-hsi2c
+               - samsung,exynos990-hsi2c

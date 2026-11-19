@@ -1,0 +1,199 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Tue, 27 Oct 2026 18:10:12 -0647
+Subject: [PATCH] mfd: sec: Add the S2MPG15 sub-PMIC
+
+Add the Tensor G4's sub-PMIC on ACPM channel 2, speedy channel 1, with
+no interrupt line yet. Its common regmap exposes only the revision, read
+only; its pmic regmap only the LDO controls the regulator driver uses.
+One cell, the regulators.
+
+Register offsets from Google's GPL s2mpg15-register.h.
+
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ drivers/mfd/sec-acpm.c              | 63 +++++++++++++++++++++++++++++
+ drivers/mfd/sec-common.c            | 10 +++++
+ drivers/mfd/sec-irq.c               |  1 +
+ include/linux/mfd/samsung/core.h    |  1 +
+ include/linux/mfd/samsung/s2mpg15.h | 18 +++++++++
+ 5 files changed, 93 insertions(+)
+ create mode 100644 include/linux/mfd/samsung/s2mpg15.h
+
+diff --git a/drivers/mfd/sec-acpm.c b/drivers/mfd/sec-acpm.c
+index 05efc8cf5..ef1834d7b 100644
+--- a/drivers/mfd/sec-acpm.c
++++ b/drivers/mfd/sec-acpm.c
+@@ -17,6 +17,7 @@
+ #include <linux/mfd/samsung/s2mpg12.h>
+ #include <linux/mfd/samsung/s2mpg13.h>
+ #include <linux/mfd/samsung/s2mpg14.h>
++#include <linux/mfd/samsung/s2mpg15.h>
+ #include <linux/module.h>
+ #include <linux/of.h>
+ #include <linux/platform_device.h>
+@@ -624,6 +625,58 @@ static const struct regmap_config s2mpg14_regmap_config_pmic = {
+ 	.wr_table = &s2mpg14_pmic_wr_table,
+ };
+ 
++/* The sub-PMIC's revision and the LDO controls its consumers use. */
++static const struct regmap_range s2mpg15_common_registers[] = {
++	regmap_reg_range(S2MPG15_COMMON_CHIPID, S2MPG15_COMMON_CHIPID),
++};
++
++static const struct regmap_access_table s2mpg15_common_rd_table = {
++	.yes_ranges = s2mpg15_common_registers,
++	.n_yes_ranges = ARRAY_SIZE(s2mpg15_common_registers),
++};
++
++static const struct regmap_range s2mpg15_common_no_writes[] = {
++	regmap_reg_range(0, S2MPG15_COMMON_CHIPID),
++};
++
++static const struct regmap_access_table s2mpg15_common_wr_table = {
++	.no_ranges = s2mpg15_common_no_writes,
++	.n_no_ranges = ARRAY_SIZE(s2mpg15_common_no_writes),
++};
++
++static const struct regmap_config s2mpg15_regmap_config_common = {
++	.name = "common",
++	.reg_bits = ACPM_ADDR_BITS,
++	.val_bits = 8,
++	.max_register = S2MPG15_COMMON_CHIPID,
++	.rd_table = &s2mpg15_common_rd_table,
++	.wr_table = &s2mpg15_common_wr_table,
++	.cache_type = REGCACHE_NONE,
++};
++
++static const struct regmap_range s2mpg15_pmic_registers[] = {
++	regmap_reg_range(S2MPG15_PMIC_L5S_CTRL, S2MPG15_PMIC_L5S_CTRL),
++	regmap_reg_range(S2MPG15_PMIC_L7S_CTRL, S2MPG15_PMIC_L7S_CTRL),
++	regmap_reg_range(S2MPG15_PMIC_L9S_CTRL, S2MPG15_PMIC_L11S_CTRL),
++	regmap_reg_range(S2MPG15_PMIC_L12S_CTRL, S2MPG15_PMIC_L12S_CTRL),
++	regmap_reg_range(S2MPG15_PMIC_L15S_CTRL, S2MPG15_PMIC_L15S_CTRL),
++};
++
++static const struct regmap_access_table s2mpg15_pmic_table = {
++	.yes_ranges = s2mpg15_pmic_registers,
++	.n_yes_ranges = ARRAY_SIZE(s2mpg15_pmic_registers),
++};
++
++static const struct regmap_config s2mpg15_regmap_config_pmic = {
++	.name = "pmic",
++	.reg_bits = ACPM_ADDR_BITS,
++	.val_bits = 8,
++	.max_register = S2MPG15_PMIC_L15S_CTRL,
++	.rd_table = &s2mpg15_pmic_table,
++	.wr_table = &s2mpg15_pmic_table,
++	.cache_type = REGCACHE_NONE,
++};
++
+ struct sec_pmic_acpm_shared_bus_context {
+ 	struct acpm_handle *acpm;
+ 	unsigned int acpm_chan_id;
+@@ -861,12 +914,22 @@ static const struct sec_pmic_acpm_platform_data s2mpg14_data = {
+ 	.no_irq = true,
+ };
+ 
++static const struct sec_pmic_acpm_platform_data s2mpg15_data = {
++	.device_type = S2MPG15,
++	.acpm_chan_id = 2,
++	.speedy_channel = 1,
++	.regmap_cfg_common = &s2mpg15_regmap_config_common,
++	.regmap_cfg_pmic = &s2mpg15_regmap_config_pmic,
++	.no_irq = true,
++};
++
+ static const struct of_device_id sec_pmic_acpm_of_match[] = {
+ 	{ .compatible = "samsung,s2mpg10-pmic", .data = &s2mpg10_data, },
+ 	{ .compatible = "samsung,s2mpg11-pmic", .data = &s2mpg11_data, },
+ 	{ .compatible = "samsung,s2mpg12-pmic", .data = &s2mpg12_data, },
+ 	{ .compatible = "samsung,s2mpg13-pmic", .data = &s2mpg13_data, },
+ 	{ .compatible = "samsung,s2mpg14-pmic", .data = &s2mpg14_data, },
++	{ .compatible = "samsung,s2mpg15-pmic", .data = &s2mpg15_data, },
+ 	{ },
+ };
+ MODULE_DEVICE_TABLE(of, sec_pmic_acpm_of_match);
+diff --git a/drivers/mfd/sec-common.c b/drivers/mfd/sec-common.c
+index a81ed6cb0..e6660b6aa 100644
+--- a/drivers/mfd/sec-common.c
++++ b/drivers/mfd/sec-common.c
+@@ -80,6 +80,11 @@ static const struct mfd_cell s2mpg14_devs[] = {
+ 	MFD_CELL_NAME("s2mpg14-regulator"),
+ };
+ 
++/* The sub-PMIC's LDOs; no interrupt, meter, GPIO or RTC. */
++static const struct mfd_cell s2mpg15_devs[] = {
++	MFD_CELL_NAME("s2mpg15-regulator"),
++};
++
+ static const struct resource s2mps11_rtc_resources[] = {
+ 	DEFINE_RES_IRQ_NAMED(S2MPS11_IRQ_RTCA0, "alarm"),
+ };
+@@ -152,6 +157,7 @@ static void sec_pmic_dump_rev(struct sec_pmic_dev *sec_pmic)
+ 	case S2MPG12:
+ 	case S2MPG13:
+ 	case S2MPG14:
++	case S2MPG15:
+ 		/* For s2mpg1x, the revision is in a different regmap */
+ 		return;
+ 	case S2MU005:
+@@ -286,6 +292,10 @@ int sec_pmic_probe(struct device *dev, int device_type, unsigned int irq,
+ 		sec_devs = s2mpg14_devs;
+ 		num_sec_devs = ARRAY_SIZE(s2mpg14_devs);
+ 		break;
++	case S2MPG15:
++		sec_devs = s2mpg15_devs;
++		num_sec_devs = ARRAY_SIZE(s2mpg15_devs);
++		break;
+ 	case S2MPS11X:
+ 		sec_devs = s2mps11_devs;
+ 		num_sec_devs = ARRAY_SIZE(s2mps11_devs);
+diff --git a/drivers/mfd/sec-irq.c b/drivers/mfd/sec-irq.c
+index 9eb38cf7a..dc6114b14 100644
+--- a/drivers/mfd/sec-irq.c
++++ b/drivers/mfd/sec-irq.c
+@@ -615,6 +615,7 @@ struct regmap_irq_chip_data *sec_irq_init(struct sec_pmic_dev *sec_pmic)
+ 		return sec_irq_init_s2mpg12(sec_pmic);
+ 	case S2MPG13:
+ 	case S2MPG14:
++	case S2MPG15:
+ 		/* No interrupt line described for it yet: LDOs only. */
+ 		return NULL;
+ 	case S2MPS11X:
+diff --git a/include/linux/mfd/samsung/core.h b/include/linux/mfd/samsung/core.h
+index 4c6678445..bc5ffa61f 100644
+--- a/include/linux/mfd/samsung/core.h
++++ b/include/linux/mfd/samsung/core.h
+@@ -44,6 +44,7 @@ enum sec_device_type {
+ 	S2MPG12,
+ 	S2MPG13,
+ 	S2MPG14,
++	S2MPG15,
+ 	S2MPS11X,
+ 	S2MPS13X,
+ 	S2MPS14X,
+diff --git a/include/linux/mfd/samsung/s2mpg15.h b/include/linux/mfd/samsung/s2mpg15.h
+new file mode 100644
+index 000000000..de66ce7f9
+--- /dev/null
++++ b/include/linux/mfd/samsung/s2mpg15.h
+@@ -0,0 +1,18 @@
++/* SPDX-License-Identifier: GPL-2.0-only */
++/*
++ * S2MPG15 register definitions derived from Google's GPL Samsung driver.
++ * Copyright (C) 2022 Samsung Electronics
++ */
++#ifndef __LINUX_MFD_S2MPG15_H
++#define __LINUX_MFD_S2MPG15_H
++
++#define S2MPG15_COMMON_CHIPID		0x0b
++#define S2MPG15_PMIC_L5S_CTRL		0x33
++#define S2MPG15_PMIC_L7S_CTRL		0x35
++#define S2MPG15_PMIC_L9S_CTRL		0x37
++#define S2MPG15_PMIC_L10S_CTRL		0x38
++#define S2MPG15_PMIC_L11S_CTRL		0x39
++#define S2MPG15_PMIC_L12S_CTRL		0x3a
++#define S2MPG15_PMIC_L15S_CTRL		0x3d
++
++#endif /* __LINUX_MFD_S2MPG15_H */

@@ -1,0 +1,75 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Sat, 31 Oct 2026 20:06:50 -0400
+Subject: [PATCH] thermal: samsung: gs101_acpm_tmu: Add the Tensor G2
+
+The Tensor G2 (gs201) reads its SoC temperatures through the same ACPM
+TMU service on channel 9 as gs101 (Google's gs201 device tree gives the
+acpm_tmu node acpm-ipc-channel = <9>), with the same sensor order plus a
+seventh, AUR (tmuctrl_6 in Google's gs201-b0.dts). Add
+google,gs201-acpm-tmu with seven sensors. gs101 and zumapro keep their
+match data.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Signed-off-by: Derek Ross <derekross@gmail.com>
+---
+ drivers/thermal/samsung/Kconfig          |  6 +++---
+ drivers/thermal/samsung/gs101_acpm_tmu.c | 10 ++++++++--
+ 2 files changed, 11 insertions(+), 5 deletions(-)
+
+diff --git a/drivers/thermal/samsung/Kconfig b/drivers/thermal/samsung/Kconfig
+index ab491d061..74fd91787 100644
+--- a/drivers/thermal/samsung/Kconfig
++++ b/drivers/thermal/samsung/Kconfig
+@@ -12,7 +12,7 @@ config EXYNOS_THERMAL
+ 	  data from the supported SoCs.
+ 
+ config GS101_ACPM_THERMAL
+-	tristate "Google gs101 and Tensor G4 thermal sensors through ACPM"
++	tristate "Google gs101, Tensor G2 and Tensor G4 thermal sensors through ACPM"
+ 	depends on THERMAL_OF
+ 	depends on EXYNOS_ACPM_PROTOCOL
+ 	help
+@@ -22,5 +22,5 @@ config GS101_ACPM_THERMAL
+ 	  TMU channel. The driver only reads; the firmware's own hardware
+ 	  trips stay as the bootloader left them.
+ 
+-	  Say Y or M here on Google gs101 (Pixel 6) and Tensor G4
+-	  (zumapro, Pixel 9a) devices.
++	  Say Y or M here on Google gs101 (Pixel 6), Tensor G2 (gs201,
++	  Pixel 7) and Tensor G4 (zumapro, Pixel 9a) devices.
+diff --git a/drivers/thermal/samsung/gs101_acpm_tmu.c b/drivers/thermal/samsung/gs101_acpm_tmu.c
+index 8ea276ce9..7950e9b58 100644
+--- a/drivers/thermal/samsung/gs101_acpm_tmu.c
++++ b/drivers/thermal/samsung/gs101_acpm_tmu.c
+@@ -17,8 +17,8 @@
+ #include <linux/thermal.h>
+ 
+ /*
+- * The sensors: BIG, MID, LITTLE, G3D, ISP, TPU, and on zumapro also AUR,
+- * in the firmware's order.
++ * The sensors: BIG, MID, LITTLE, G3D, ISP, TPU, and on gs201 and zumapro
++ * also AUR, in the firmware's order.
+  */
+ #define GS101_ACPM_TMU_MAX_SENSORS	7
+ 
+@@ -110,6 +110,11 @@ static const struct gs101_tmu_data gs101_tmu_data = {
+ 	.nr_sensors = 6,
+ };
+ 
++static const struct gs101_tmu_data gs201_tmu_data = {
++	.acpm_chan = 9,
++	.nr_sensors = 7,
++};
++
+ static const struct gs101_tmu_data zumapro_tmu_data = {
+ 	.acpm_chan = 9,
+ 	.nr_sensors = 7,
+@@ -117,6 +122,7 @@ static const struct gs101_tmu_data zumapro_tmu_data = {
+ 
+ static const struct of_device_id gs101_tmu_of_match[] = {
+ 	{ .compatible = "google,gs101-acpm-tmu", .data = &gs101_tmu_data },
++	{ .compatible = "google,gs201-acpm-tmu", .data = &gs201_tmu_data },
+ 	{ .compatible = "google,zumapro-acpm-tmu", .data = &zumapro_tmu_data },
+ 	{ }
+ };

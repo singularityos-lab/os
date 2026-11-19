@@ -1,0 +1,207 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Wed, 14 Oct 2026 21:05:07 -0400
+Subject: [PATCH] dt-bindings: media: add the Google gs201 CSIS receiver and
+ WDMA
+
+One node per CSIS camera receiver link of the gs201 (Tensor G2) SoC and
+the CSIS WDMA context it writes to memory through: the link's and the
+shared DMA block's registers, an optional EBUF, the link and WDMA
+interrupts, the ACPM CAM and INT DVFS clocks the link votes on while it
+streams, the DC-PHY receiver, the CSIS system registers that route a
+link to a WDMA context, a reserved memory pool the WDMA can address,
+and the sensor on its port (D-PHY or C-PHY, from the endpoint's bus
+type). Several links may name the same WDMA context.
+
+google,lrte-packet-delimiters tells the link to expect the LRTE packet
+delimiters some C-PHY sensors send between packets.
+
+Also add the gs201 CSIS sysreg compatible to the Exynos sysreg binding.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ .../bindings/media/google,gs201-csis.yaml     | 162 ++++++++++++++++++
+ .../soc/samsung/samsung,exynos-sysreg.yaml    |   1 +
+ 2 files changed, 163 insertions(+)
+ create mode 100644 Documentation/devicetree/bindings/media/google,gs201-csis.yaml
+
+diff --git a/Documentation/devicetree/bindings/media/google,gs201-csis.yaml b/Documentation/devicetree/bindings/media/google,gs201-csis.yaml
+new file mode 100644
+index 000000000..7859baca6
+--- /dev/null
++++ b/Documentation/devicetree/bindings/media/google,gs201-csis.yaml
+@@ -0,0 +1,162 @@
++# SPDX-License-Identifier: GPL-2.0-only OR BSD-2-Clause
++%YAML 1.2
++---
++$id: http://devicetree.org/schemas/media/google,gs201-csis.yaml#
++$schema: http://devicetree.org/meta-schemas/core.yaml#
++
++title: Google gs201 CSIS camera receiver link and CSIS WDMA
++
++maintainers:
++  - Derek Ross <derekross@gmail.com>
++
++description:
++  The camera block of Google's gs201 SoC has eight MIPI CSI-2 receiver links
++  (CSIS) and a DMA block whose CSIS WDMA contexts write a link's frames to
++  memory. One node describes one link and the WDMA context it feeds.
++
++properties:
++  compatible:
++    const: google,gs201-csis
++
++  reg:
++    minItems: 3
++    items:
++      - description: the CSIS link registers
++      - description: the CSIS DMA block's common page (shared by all links)
++      - description: the CSIS WDMA context (links may share one; they then
++          stream one at a time)
++      - description: the EBUF control (shared by all links), bypassed on the
++          way to the WDMA
++
++  reg-names:
++    minItems: 3
++    items:
++      - const: link
++      - const: dma
++      - const: wdma
++      - const: ebuf
++
++  interrupts:
++    items:
++      - description: link interrupt
++      - description: WDMA context interrupt
++
++  interrupt-names:
++    items:
++      - const: link
++      - const: wdma
++
++  clocks:
++    items:
++      - description: the camera block's DVFS domain
++      - description: the bus (INT) DVFS domain
++
++  clock-names:
++    items:
++      - const: cam
++      - const: int
++
++  phys:
++    maxItems: 1
++    description: The link's DC-PHY receiver.
++
++  google,csis-link:
++    $ref: /schemas/types.yaml#/definitions/uint32
++    maximum: 7
++    description: Index of the CSIS link.
++
++  google,wdma-context:
++    $ref: /schemas/types.yaml#/definitions/uint32
++    maximum: 3
++    description: Index of the CSIS WDMA context.
++
++  google,csis-sysreg:
++    $ref: /schemas/types.yaml#/definitions/phandle
++    description:
++      The camera block's system registers, which route a link through an
++      EBUF to a WDMA context.
++
++  google,ebuf:
++    $ref: /schemas/types.yaml#/definitions/uint32
++    maximum: 3
++    description:
++      WDMA input slot the link is routed to; defaults to the context index.
++
++  google,lrte-packet-delimiters:
++    type: boolean
++    description:
++      The sensor ends its C-PHY packets with LRTE packet delimiters (EPD),
++      which the link must be told to expect; without it, such a link
++      decodes frame starts and nothing else.
++
++  memory-region:
++    maxItems: 1
++    description: Pool for capture buffers the WDMA can address.
++
++  power-domains:
++    maxItems: 1
++
++  iommus:
++    maxItems: 1
++
++  port:
++    $ref: /schemas/graph.yaml#/$defs/port-base
++    unevaluatedProperties: false
++    description: Input port, connected to the sensor.
++
++    properties:
++      endpoint:
++        $ref: video-interfaces.yaml#
++        unevaluatedProperties: false
++
++        properties:
++          bus-type:
++            enum:
++              - 1 # MEDIA_BUS_TYPE_CSI2_CPHY
++              - 4 # MEDIA_BUS_TYPE_CSI2_DPHY
++            description:
++              D-PHY when absent. C-PHY counts trios in data-lanes (up to
++              three on links 0 and 1, two on the others).
++          data-lanes:
++            minItems: 1
++            maxItems: 4
++
++        required:
++          - data-lanes
++
++required:
++  - compatible
++  - reg
++  - reg-names
++  - interrupts
++  - interrupt-names
++  - phys
++  - google,csis-link
++  - google,wdma-context
++  - google,csis-sysreg
++  - port
++
++additionalProperties: false
++
++examples:
++  - |
++    #include <dt-bindings/interrupt-controller/arm-gic.h>
++    csis@1a440000 {
++        compatible = "google,gs201-csis";
++        reg = <0x1a440000 0x1000>, <0x1a4d0000 0x1000>, <0x1a4d7000 0x1000>;
++        reg-names = "link", "dma", "wdma";
++        interrupts = <GIC_SPI 189 IRQ_TYPE_LEVEL_HIGH>,
++                     <GIC_SPI 197 IRQ_TYPE_LEVEL_HIGH>;
++        interrupt-names = "link", "wdma";
++        phys = <&csis_dcphy 0>;
++        google,csis-link = <0>;
++        google,wdma-context = <0>;
++        google,csis-sysreg = <&sysreg_csis>;
++
++        port {
++            csis_in: endpoint {
++                remote-endpoint = <&sensor_out>;
++                data-lanes = <1 2 3 4>;
++            };
++        };
++    };
+diff --git a/Documentation/devicetree/bindings/soc/samsung/samsung,exynos-sysreg.yaml b/Documentation/devicetree/bindings/soc/samsung/samsung,exynos-sysreg.yaml
+index 47b8d444b..8a0e8610f 100644
+--- a/Documentation/devicetree/bindings/soc/samsung/samsung,exynos-sysreg.yaml
++++ b/Documentation/devicetree/bindings/soc/samsung/samsung,exynos-sysreg.yaml
+@@ -21,6 +21,7 @@ properties:
+               - google,gs101-misc-sysreg
+               - google,gs101-peric0-sysreg
+               - google,gs101-peric1-sysreg
++              - google,gs201-csis-sysreg
+               - google,gs201-hsi2-sysreg
+               - google,gs201-peric0-sysreg
+               - google,gs201-peric1-sysreg

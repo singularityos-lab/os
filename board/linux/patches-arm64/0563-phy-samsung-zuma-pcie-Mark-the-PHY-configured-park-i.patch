@@ -1,0 +1,178 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Sun, 1 Nov 2026 13:43:04 -0647
+Subject: [PATCH] phy: samsung: zuma-pcie: Mark the PHY configured, park its
+ clock when off
+
+Google's root-complex driver for the zuma family (pcie-exynos-rc.c,
+built with pcie-exynos-zuma-rc-cal.c for zuma and zumapro) does two
+things around the channel 1 PHY that this driver did not:
+
+- exynos_pcie_rc_establish_link() sets bit 10 of the PMU's PHY control
+  register once the PHY has been configured, through its private PMU
+  write, before it releases PERST#;
+- exynos_pcie_rc_poweroff() clears bits 1:0 of SOC 0x4000 before the
+  PHY power-down, which switches the PHY's input clock back to the
+  oscillator.
+
+Do the same on zumapro: set bit 10 at the end of power_on, after the
+UDBG 0xc800 write, and fail power_on if the PMU refuses it; return the
+input clock to the oscillator at the start of power_off. power_on
+already writes SOC 0x4000 first, so a power_off/power_on cycle (the
+host's training retry) selects the PHY clock again.
+
+Keep both to zumapro's own match entry, ahead of the zuma fallback its
+nodes carry. Google does them on zuma too, but they have only run on a
+zumapro board, so zuma's path stays as it was until a zuma board has
+run them.
+
+Nothing clears bit 10 again. Google never clears it in
+pcie-exynos-rc.c either: it is set by a read-modify-write and left set,
+and the isolation writes go through the PHY control mask, whose
+definition is not in the GPL sources, so that it leaves bit 10 alone
+is inferred, not read.
+
+Tested on a Pixel 9a (zumapro), PCIe channel 1, with pcie-gs201 as
+host: the link trained at Gen2 x1 on the first try and the BCM4383
+joined a network with no ping loss. An unbind and rebind of the
+controller ran the oscillator step and the power-down; the PHY control
+read 0x4c1 before power_on set bit 10 again, and the rebind trained
+Gen2 x1 on the first try with it already set. That boot had both steps
+on zuma's match data; this version moves them to zumapro's entry, which
+the same node selects first.
+
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ drivers/phy/samsung/phy-zuma-pcie.c | 54 ++++++++++++++++++++++++++++-
+ 1 file changed, 53 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/phy/samsung/phy-zuma-pcie.c b/drivers/phy/samsung/phy-zuma-pcie.c
+index a00239085..66a80c839 100644
+--- a/drivers/phy/samsung/phy-zuma-pcie.c
++++ b/drivers/phy/samsung/phy-zuma-pcie.c
+@@ -21,6 +21,7 @@
+ #include <linux/of.h>
+ #include <linux/phy/phy.h>
+ #include <linux/platform_device.h>
++#include <linux/property.h>
+ #include <linux/regmap.h>
+ #include <linux/soc/samsung/exynos-pmu.h>
+ 
+@@ -38,8 +39,12 @@ static unsigned int trace_delay_ms = 20;
+ module_param(trace_delay_ms, uint, 0644);
+ MODULE_PARM_DESC(trace_delay_ms, "Sleep after each trace line, in ms (default 20)");
+ 
+-/* PMU PHY control: bit 0 clear isolates the PHY */
++/*
++ * PMU PHY control: bit 0 clear isolates the PHY; bit 10 tells the PMU the
++ * PHY has been configured
++ */
+ #define ZUMA_PMU_PHY_BYPASS		BIT(0)
++#define ZUMA_PMU_PHY_CONFIGURED		BIT(10)
+ 
+ /* PHY reset block, in the controller's sub-control (ELBI) space at +0x1400 */
+ #define ZUMA_PHY_RST_CMN		0x0
+@@ -49,6 +54,7 @@ MODULE_PARM_DESC(trace_delay_ms, "Sleep after each trace line, in ms (default 20
+ /* SOC block: the PHY's input clock */
+ #define ZUMA_SOC_CLK_MODE		0x4000
+ #define ZUMA_SOC_CLK_MODE_VAL		0x15
++#define ZUMA_SOC_CLK_MODE_SEL		GENMASK(1, 0)
+ #define ZUMA_SOC_CLK_SEL		0x4004
+ #define ZUMA_SOC_CLK_SEL_TCXO		BIT(2)
+ #define ZUMA_SOC_CLK_SEL_EXT_PLL	GENMASK(5, 4)
+@@ -149,6 +155,19 @@ struct zuma_pcie_phy {
+ 	void __iomem *soc;
+ 	struct regmap *pmu;
+ 	u32 pmu_offset;
++	bool stock_link_steps;
++};
++
++/**
++ * struct zuma_pcie_phy_data - per-SoC steps
++ * @stock_link_steps: mark the PHY configured in the PMU at the end of
++ *	power_on and return its input clock to the oscillator at power_off,
++ *	as Google's exynos_pcie_rc_establish_link() and
++ *	exynos_pcie_rc_poweroff() do. Only zumapro so far: zuma does them in
++ *	Google's driver too, but they haven't run on a zuma board here.
++ */
++struct zuma_pcie_phy_data {
++	bool stock_link_steps;
+ };
+ 
+ static __printf(2, 3) void zuma_phy_trace(struct zuma_pcie_phy *zp,
+@@ -324,6 +343,7 @@ static int zuma_pcie_phy_init(struct phy *phy)
+ static int zuma_pcie_phy_power_on(struct phy *phy)
+ {
+ 	struct zuma_pcie_phy *zp = phy_get_drvdata(phy);
++	int ret;
+ 
+ 	zuma_phy_trace(zp, "about to write SOC 0x4000 (first SOC access)");
+ 	writel(ZUMA_SOC_CLK_MODE_VAL, zp->soc + ZUMA_SOC_CLK_MODE);
+@@ -334,6 +354,20 @@ static int zuma_pcie_phy_power_on(struct phy *phy)
+ 	/* exynos_pcie_rc_establish_link(), channel 1, before PERST# */
+ 	zuma_phy_trace(zp, "about to write UDBG 0xc800");
+ 	writel(ZUMA_UDBG_LINK_CTRL_VAL, zp->udbg + ZUMA_UDBG_LINK_CTRL);
++
++	if (!zp->stock_link_steps)
++		return 0;
++
++	/* exynos_pcie_rc_establish_link(): mark the PHY configured */
++	zuma_phy_trace(zp, "about to set PMU %#x bit 10 (PHY configured, SMC)",
++		       zp->pmu_offset);
++	ret = regmap_update_bits(zp->pmu, zp->pmu_offset,
++				 ZUMA_PMU_PHY_CONFIGURED,
++				 ZUMA_PMU_PHY_CONFIGURED);
++	if (ret) {
++		dev_err(zp->dev, "PMU write failed: %d\n", ret);
++		return ret;
++	}
+ 	zuma_phy_trace(zp, "PHY configured");
+ 
+ 	return 0;
+@@ -343,6 +377,16 @@ static int zuma_pcie_phy_power_off(struct phy *phy)
+ {
+ 	struct zuma_pcie_phy *zp = phy_get_drvdata(phy);
+ 
++	/*
++	 * exynos_pcie_rc_poweroff(): put the PHY's input clock back on the
++	 * oscillator before the power-down
++	 */
++	if (zp->stock_link_steps) {
++		zuma_phy_trace(zp, "about to return the PHY clock to the oscillator (SOC 0x4000)");
++		zuma_pcie_phy_rmw(zp->soc + ZUMA_SOC_CLK_MODE,
++				  ZUMA_SOC_CLK_MODE_SEL, 0);
++	}
++
+ 	zuma_pcie_phy_pwrdn(zp);
+ 
+ 	return 0;
+@@ -358,6 +402,7 @@ static const struct phy_ops zuma_pcie_phy_ops = {
+ static int zuma_pcie_phy_probe(struct platform_device *pdev)
+ {
+ 	struct device *dev = &pdev->dev;
++	const struct zuma_pcie_phy_data *data;
+ 	struct phy_provider *provider;
+ 	struct zuma_pcie_phy *zp;
+ 	struct phy *phy;
+@@ -368,6 +413,8 @@ static int zuma_pcie_phy_probe(struct platform_device *pdev)
+ 		return -ENOMEM;
+ 
+ 	zp->dev = dev;
++	data = device_get_match_data(dev);
++	zp->stock_link_steps = data && data->stock_link_steps;
+ 
+ 	/* Only mappings here: the PHY is not touched until phy_init() */
+ 	zp->pma = devm_platform_ioremap_resource_byname(pdev, "pma");
+@@ -413,7 +460,12 @@ static int zuma_pcie_phy_probe(struct platform_device *pdev)
+ 	return PTR_ERR_OR_ZERO(provider);
+ }
+ 
++static const struct zuma_pcie_phy_data zumapro_pcie_phy_data = {
++	.stock_link_steps = true,
++};
++
+ static const struct of_device_id zuma_pcie_phy_of_match[] = {
++	{ .compatible = "google,zumapro-pcie-phy", .data = &zumapro_pcie_phy_data },
+ 	{ .compatible = "google,zuma-pcie-phy" },
+ 	{ }
+ };

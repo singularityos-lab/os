@@ -1,0 +1,87 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Alejandro Garcia <skipper.pelygro@gmail.com>
+Date: Wed, 28 Oct 2026 22:28:37 -0700
+Subject: [PATCH] arm64: dts: exynos: google: gs201-panther: add the
+ touchscreen
+
+Describe the FocalTech FT3658 on USI0 SPI, with the focaltech,ft3658
+binding: the Pixel 7 Pro's S3908 wiring (chip select gpp20-3, interrupt
+gpa7-0 falling, reset gpp23-2, gs201-pinctrl.dtsi's ts_irq and
+ts_reset), 10 MHz, and the 1080x2400 panel. Enable the main PMIC, whose
+only regulators here are the controller's rails: LDO25M as VDD and LDO26M
+as AVDD. LDO26M's 3.0 V is Google's own value for this phone:
+gs201-panther-pmic.dtsi in kernel/devices/google/pantah sets
+regulator-max-microvolt = <3000000> on m_ldo26_reg ("Panther touch
+controller requires 3.0v typ").
+
+Tested on a Pixel 7 from slot B (7.3.0-rc6), with the GPU, the haptics
+and the driver's pending DMA-safe buffer and fsleep() fixes: the ft3658
+module loads at boot and reads chip id 0x56, firmware 0x16; vdd-ts reads
+1.8 V and avdd-ts 3.0 V; touches across the panel, the four corners
+included, drive Hyprland and unlock the PIN screen, with no SPI or CRC
+errors. The GPU and the haptics keep working.
+
+Assisted-by: Claude Opus 5.5
+Signed-off-by: Alejandro Garcia <skipper.pelygro@gmail.com>
+---
+ .../boot/dts/exynos/google/gs201-panther.dts  | 36 +++++++++++++++++--
+ 1 file changed, 33 insertions(+), 3 deletions(-)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/gs201-panther.dts b/arch/arm64/boot/dts/exynos/google/gs201-panther.dts
+index 27e20f56b..8c42276bf 100644
+--- a/arch/arm64/boot/dts/exynos/google/gs201-panther.dts
++++ b/arch/arm64/boot/dts/exynos/google/gs201-panther.dts
+@@ -4,8 +4,8 @@
+  *
+  * USB (NCM + ACM), the cluster watchdogs from gs201.dtsi, a
+  * simple-framebuffer on the buffer ABL leaves DPP0 scanning out, UFS, the
+- * three keys, the touch rails on the main PMIC, the GPU and the haptics.
+- * The panel driver and touch stay disabled.
++ * three keys, the touchscreen with its rails on the main PMIC, the GPU and
++ * the haptics. The panel driver stays disabled.
+  */
+ 
+ /dts-v1/;
+@@ -128,7 +128,6 @@ pmic-1 {
+ 		interrupts = <GIC_SPI 72 IRQ_TYPE_LEVEL_HIGH>;
+ 		google,vgpio2ap-sysreg = <&sysreg_vgpio2ap>;
+ 		wakeup-source;
+-		status = "disabled";
+ 
+ 		regulators {
+ 			/* Stock's 1.8 V, which ABL leaves programmed */
+@@ -225,3 +224,34 @@ haptics: haptic-driver@43 {
+ 		cirrus,lra-redc-micro-ohms = <13000000>;
+ 	};
+ };
++
++/*
++ * Touchscreen: a FocalTech FT3658 on USI0 SPI, wired as the Pixel 7 Pro's
++ * S3908 (chip select gpp20-3, interrupt gpa7-0, reset gpp23-2).
++ */
++&usi0 {
++	samsung,mode = <USI_MODE_SPI>;
++	status = "okay";
++};
++
++&spi_0 {
++	pinctrl-0 = <&spi0_bus &spi0_miso &spi0_cs_gpio>;
++	cs-gpios = <&gpp20 3 GPIO_ACTIVE_LOW>;
++	num-cs = <1>;
++	status = "okay";
++
++	touchscreen@0 {
++		compatible = "focaltech,ft3658";
++		reg = <0>;
++		spi-max-frequency = <10000000>;
++		interrupt-parent = <&gpa7>;
++		interrupts = <0 IRQ_TYPE_EDGE_FALLING>;
++		reset-gpios = <&gpp23 2 GPIO_ACTIVE_LOW>;
++		vdd-supply = <&ldo25m>;
++		avdd-supply = <&ldo26m>;
++		pinctrl-0 = <&ts_irq &ts_reset>;
++		pinctrl-names = "default";
++		touchscreen-size-x = <1080>;
++		touchscreen-size-y = <2400>;
++	};
++};

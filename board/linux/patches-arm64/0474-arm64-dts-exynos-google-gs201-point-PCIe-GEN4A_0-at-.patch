@@ -1,0 +1,36 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Mon, 12 Oct 2026 17:22:47 -0400
+Subject: [PATCH] arm64: dts: exynos: google: gs201: point PCIe GEN4A_0 at the
+ modem MSI page
+
+Label the modem's reserved MSI page and reference it from pcie_0 as its
+memory-region, the MSI target Google's driver programs for the modem
+link. The controller stays disabled.
+
+Assisted-by: LLM
+Signed-off-by: Derek Ross <derekross@gmail.com>
+---
+ arch/arm64/boot/dts/exynos/google/gs201.dtsi | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/gs201.dtsi b/arch/arm64/boot/dts/exynos/google/gs201.dtsi
+index 4d8134a5c..9050c0ea5 100644
+--- a/arch/arm64/boot/dts/exynos/google/gs201.dtsi
++++ b/arch/arm64/boot/dts/exynos/google/gs201.dtsi
+@@ -783,6 +783,7 @@ reserved-memory {
+ 		cp-rmem1@e8000000 { reg = <0x0 0xe8000000 0x2000000>; no-map; };
+ 		cp-rmem@ea400000 { reg = <0x0 0xea400000 0x800000>; no-map; };
+ 		/* The modem's MSI target (stock cp_msi_rmem) */
++		cp_msi_mem: cp-msi@f6200000 { reg = <0x0 0xf6200000 0x1000>; no-map; };
+ 		abl@f8800000 { reg = <0x0 0xf8800000 0x2000000>; no-map; };
+ 		/* ABL adds debug_kinfo_reserved@fd3fe000 (one page) after this. */
+ 		debug@fd3f0000 { reg = <0x0 0xfd3f0000 0xe000>; no-map; };
+@@ -1455,6 +1456,7 @@ pcie_0: pcie@11920000 {
+ 			interrupt-names = "ctrl", "msi0", "msi1", "msi2", "msi3", "msi4";
+ 			phys = <&pcie_0_phy>;
+ 			phy-names = "pcie";
++			memory-region = <&cp_msi_mem>;
+ 			pinctrl-0 = <&pcie0_clkreq>, <&pcie0_perst>;
+ 			pinctrl-names = "active";
+ 			reset-gpios = <&gph0 0 GPIO_ACTIVE_LOW>;

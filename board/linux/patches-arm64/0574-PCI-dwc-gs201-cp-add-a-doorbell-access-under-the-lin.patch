@@ -1,0 +1,105 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Mon, 2 Nov 2026 13:18:57 -0647
+Subject: [PATCH] PCI: dwc: gs201-cp: add a doorbell access under the link lock
+
+The modem driver writes the doorbell into the modem's BAR window and
+reads it back, retrying every millisecond for up to 100 ms while the
+read returns all ones. It checks the link first, but the modem can ask
+for the link to go down between the check and the access, and the
+retry loop spans that window. Once the PHY is powered down (and on
+gs201 isolated), an access to the window can hang the SoC.
+
+Add gs201_pcie_cp_doorbell(): the write and the read-back under
+cfg_lock, the lock cp_link_down() takes to clear cfg_ep_ok before it
+touches PERST#, the PHY or the isolation, refused once the endpoint is
+unreachable. The access itself is the modem driver's, unchanged, as
+stock does it on both SoCs.
+
+This changes the Pixel 7 Pro too: every doorbell there now goes through
+cfg_lock and is held back while the endpoint is unreachable. That is
+right on gs201 as well, where a read of the modem's window with the link
+powered down hung the SoC (watchdog reset, nothing in pstore). Stock
+serializes the doorbell against a link power-off one level up: Google's
+cpif rings it under mc->pcie_tx_lock in pcie_send_ap2cp_irq()
+(link_device.c), and s5100_poweroff_pcie() (modem_ctrl_s5100.c) takes
+that lock to wait out a doorbell in flight before it powers the link
+off. Here the link-down the CP asks for runs in the controller driver,
+so the lock is the controller's.
+
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ drivers/pci/controller/dwc/pcie-gs201-cp.c | 38 ++++++++++++++++++++++
+ include/linux/soc/google/gs201-pcie-cp.h   |  3 ++
+ 2 files changed, 41 insertions(+)
+
+diff --git a/drivers/pci/controller/dwc/pcie-gs201-cp.c b/drivers/pci/controller/dwc/pcie-gs201-cp.c
+index 30eae683a..1d1cacce4 100644
+--- a/drivers/pci/controller/dwc/pcie-gs201-cp.c
++++ b/drivers/pci/controller/dwc/pcie-gs201-cp.c
+@@ -1619,6 +1619,44 @@ bool gs201_pcie_cp_link_ok(void)
+ }
+ EXPORT_SYMBOL_GPL(gs201_pcie_cp_link_ok);
+ 
++/**
++ * gs201_pcie_cp_doorbell() - write the modem's doorbell and read it back
++ * @addr: the doorbell register in the modem's BAR window (ioremapped)
++ * @val: the interrupt number to ring
++ * @readback: the register's value after the write
++ *
++ * The BAR window is reachable only while the endpoint is (link up, iATU
++ * set), and an access while the PHY is isolated or powered down can hang
++ * the SoC. The modem driver checks the link before it writes, but the CP
++ * can ask for the link to go down between its check and its access, and
++ * its read-back loop on the register (a millisecond per try, up to 100)
++ * spans that window. cfg_lock serializes the access against
++ * cp_link_down(), which clears cfg_ep_ok under it before it touches
++ * PERST#, the PHY or the isolation.
++ *
++ * Return: 0, -ENODEV before probe, -ENOLINK while the endpoint is not
++ * reachable (the caller reserves the doorbell for the next link up).
++ */
++int gs201_pcie_cp_doorbell(void __iomem *addr, u32 val, u32 *readback)
++{
++	struct gs201_pcie_cp *cp = READ_ONCE(gs201_cp);
++	unsigned long flags;
++	int ret = -ENOLINK;
++
++	if (!cp)
++		return -ENODEV;
++	raw_spin_lock_irqsave(&cp->cfg_lock, flags);
++	if (cp->cfg_ep_ok) {
++		writel(val, addr);
++		*readback = readl(addr);
++		ret = 0;
++	}
++	raw_spin_unlock_irqrestore(&cp->cfg_lock, flags);
++
++	return ret;
++}
++EXPORT_SYMBOL_GPL(gs201_pcie_cp_doorbell);
++
+ /**
+  * gs201_pcie_cp_check_msi_addr() - check the modem driver's MSI target
+  * @addr: the MSI page the modem driver expects
+diff --git a/include/linux/soc/google/gs201-pcie-cp.h b/include/linux/soc/google/gs201-pcie-cp.h
+index 015f37993..2e37df02a 100644
+--- a/include/linux/soc/google/gs201-pcie-cp.h
++++ b/include/linux/soc/google/gs201-pcie-cp.h
+@@ -34,6 +34,7 @@ struct gs201_pcie_cp_event {
+ int gs201_pcie_cp_poweron(unsigned int speed);
+ void gs201_pcie_cp_poweroff(void);
+ bool gs201_pcie_cp_link_ok(void);
++int gs201_pcie_cp_doorbell(void __iomem *addr, u32 val, u32 *readback);
+ int gs201_pcie_cp_check_msi_addr(u64 addr);
+ int gs201_pcie_cp_register_queue(irq_handler_t handler, void *ctx, int *irq);
+ void gs201_pcie_cp_set_perst_level(int level);
+@@ -49,6 +50,8 @@ void gs201_pcie_cp_dump(void);
+ static inline int gs201_pcie_cp_poweron(unsigned int speed) { return -ENODEV; }
+ static inline void gs201_pcie_cp_poweroff(void) { }
+ static inline bool gs201_pcie_cp_link_ok(void) { return false; }
++static inline int gs201_pcie_cp_doorbell(void __iomem *addr, u32 val,
++					 u32 *readback) { return -ENODEV; }
+ static inline int gs201_pcie_cp_check_msi_addr(u64 addr) { return -ENODEV; }
+ static inline int gs201_pcie_cp_register_queue(irq_handler_t handler,
+ 					       void *ctx, int *irq)

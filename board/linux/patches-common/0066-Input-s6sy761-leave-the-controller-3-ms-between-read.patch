@@ -1,0 +1,34 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: saiththerobo <the.tom.sharp@gmail.com>
+Date: Tue, 27 Oct 2026 17:08:46 +0000
+Subject: [PATCH] Input: s6sy761 - leave the controller 3 ms between read
+ retries
+
+On raven, typing on the on-screen keyboard made event reads fail all
+three attempts, 1 ms apart, often enough that the controller was reset
+13 times in three minutes (taps lost and doubled). With 3 ms between
+attempts and nothing else changed, the same typing gave no failed read
+and no reset (7.3.0-rc6, g97f09c8cfada, as a module). Debug builds that
+logged each bad reply had hidden it: the logging slowed the retries.
+Google's sec_ts retries 1 ms apart, but on raven this controller needs
+longer after a bad frame.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Signed-off-by: saiththerobo <the.tom.sharp@gmail.com>
+---
+ drivers/input/touchscreen/s6sy761.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/drivers/input/touchscreen/s6sy761.c b/drivers/input/touchscreen/s6sy761.c
+index 7caae88c2..21a3b152d 100644
+--- a/drivers/input/touchscreen/s6sy761.c
++++ b/drivers/input/touchscreen/s6sy761.c
+@@ -339,7 +339,7 @@ static int s6sy761_spi_read(struct s6sy761_data *sdata, u8 reg, u8 *buf, u16 len
+ 		ret = s6sy761_spi_read_once(sdata, reg, buf, len);
+ 		if (!ret)
+ 			break;
+-		usleep_range(1000, 1100);
++		usleep_range(3000, 3100);
+ 	}
+ 	return ret;
+ }

@@ -1,0 +1,128 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: PeterXMR <xmrpeter@proton.me>
+Date: Sun, 1 Nov 2026 17:15:45 +0100
+Subject: [PATCH] arm64: dts: exynos: google: Add Pixel 6a (bluejay)
+ first-light board
+
+Add a first-light board file for the Pixel 6a: oriole's board file with
+bluejay's model and compatible, without oriole's two board-specific
+LDOs. Everything it enables, it enables as oriole's does, through
+gs101-pixel-common.dtsi: the console UART, USB, both cluster watchdogs,
+UFS and its PHY, the S2MPG10/11 regulators, the MAX77759 Type-C
+controller, fuel gauge and PMIC, and the battery EEPROM. The GPU stays
+disabled, and there is no panel or touch node.
+
+bluejay boots the same two gs101 base device trees as oriole and raven:
+Google's bluejay tree builds every bluejay board overlay on
+gs101/gs101-a0.dtb and gs101/gs101-b0.dtb, whose soc_id is 0x09845000
+and 0x09845001. So this DTB carries the B0 value as oriole's does, and
+the image tooling writes the A0 copy from it.
+
+The panel is a 1080x2400 S6E3FC3 variant (samsung,s6e3fc3_6a in
+Google's gs101-bluejay-display.dtsi), oriole's size, so the splash
+carve-out and the simple-framebuffer keep oriole's values. The retail
+board overlay is MP 1.0, board_id 0x20506 and board_rev 0x10000; the
+board dtbo for ABL and the image packing live in the omarchy-mobile
+repository (device/bluejay).
+
+Oriole's ldo14m (avdd18_tcxo) and ldo31m (nfc) are left out. Upstream
+marks both as board specific, and Google's bluejay tree takes both from
+the shared gs101-pmic.dtsi, regulator-always-on there: L14M_AVDD_TCXO,
+and L31M, which gs101-whitefin2-pmic.dtsi (included by bluejay and by
+oriole) renames to L31M_DISP_VDDI. Left undescribed, they stay as the
+bootloader leaves them, as on raven.
+
+Not booted yet: no Pixel 6a has run this tree. Apart from the model,
+the compatible, the LDO block and its regulator include, the file
+matches oriole's, its comments on soc_id and the bootargs included; the
+splash and framebuffer blocks are oriole's text, so its copyright lines
+stay. The only other
+differences between the two boards in postmarketOS's gs101-bluejay.dts
+are ST FTS touch values, for a driver this tree does not have.
+
+Link: https://android.googlesource.com/kernel/devices/google/bluejay/+/refs/tags/android-16.0.0_r0.9/dts/gs101-bluejay-mp1_0.dts
+Link: https://android.googlesource.com/kernel/devices/google/bluejay/+/refs/tags/android-16.0.0_r0.9/dts/gs101-bluejay-display.dtsi
+Link: https://android.googlesource.com/kernel/devices/google/bluejay/+/refs/tags/android-16.0.0_r0.9/dts/Makefile
+Link: https://android.googlesource.com/kernel/devices/google/gs101/+/refs/tags/android-16.0.0_r0.9/dts/gs101-b0.dts
+Link: https://android.googlesource.com/kernel/devices/google/gs101/+/refs/tags/android-16.0.0_r0.9/dts/gs101-pmic.dtsi
+Link: https://gitlab.postmarketos.org/soc/tensor-exynos/linux/-/blob/e8f42849a581/arch/arm64/boot/dts/exynos/google/gs101-bluejay.dts
+Assisted-by: Claude Fable 5.1
+Signed-off-by: PeterXMR <xmrpeter@proton.me>
+---
+ arch/arm64/boot/dts/exynos/google/Makefile    |  2 +
+ .../boot/dts/exynos/google/gs101-bluejay.dts  | 46 +++++++++++++++++++
+ 2 files changed, 48 insertions(+)
+ create mode 100644 arch/arm64/boot/dts/exynos/google/gs101-bluejay.dts
+
+diff --git a/arch/arm64/boot/dts/exynos/google/Makefile b/arch/arm64/boot/dts/exynos/google/Makefile
+index 90969cf84..8e651de7d 100644
+--- a/arch/arm64/boot/dts/exynos/google/Makefile
++++ b/arch/arm64/boot/dts/exynos/google/Makefile
+@@ -1,6 +1,7 @@
+ # SPDX-License-Identifier: GPL-2.0
+ 
+ dtb-$(CONFIG_ARCH_EXYNOS) += \
++	gs101-bluejay.dtb \
+ 	gs101-oriole.dtb \
+ 	gs101-raven.dtb \
+ 	gs201-cheetah.dtb \
+@@ -11,6 +12,7 @@ dtb-$(CONFIG_ARCH_EXYNOS) += \
+ 	zumapro-tegu.dtb
+ 
+ # ABL applies board overlays, so keep symbols for labels
++DTC_FLAGS_gs101-bluejay += -@
+ DTC_FLAGS_gs101-oriole += -@
+ DTC_FLAGS_gs101-raven += -@
+ DTC_FLAGS_gs201-cheetah += -@
+diff --git a/arch/arm64/boot/dts/exynos/google/gs101-bluejay.dts b/arch/arm64/boot/dts/exynos/google/gs101-bluejay.dts
+new file mode 100644
+index 000000000..e74fb3b35
+--- /dev/null
++++ b/arch/arm64/boot/dts/exynos/google/gs101-bluejay.dts
+@@ -0,0 +1,46 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * Bluejay Device Tree
++ *
++ * Copyright 2021-2023 Google LLC
++ * Copyright 2023 Linaro Ltd - <peter.griffin@linaro.org>
++ */
++
++/dts-v1/;
++
++#include "gs101-pixel-common.dtsi"
++
++/ {
++	model = "Bluejay";
++	compatible = "google,gs101-bluejay", "google,gs101";
++
++	/*
++	 * ABL picks the base DTB by soc_id (product id 0x09845000 | major
++	 * revision); the factory vendor_boot carries one per revision. B0 = 1.
++	 */
++	soc_id = <0x09845001 0x0>;
++
++	chosen {
++		/*
++		 * ABL appends its own arguments (console=null among them), so a
++		 * panic is silent: panic=10 reboots instead of hanging. init hands
++		 * over to the Arch root on userdata when it finds one.
++		 */
++		bootargs = "console=tty0 panic=10 clk_ignore_unused pd_ignore_unused rdinit=/init";
++	};
++};
++
++&cont_splash_mem {
++	reg = <0x0 0xfac00000 (1080 * 2400 * 4)>;
++
++	status = "okay";
++};
++
++&framebuffer0 {
++	width = <1080>;
++	height = <2400>;
++	stride = <(1080 * 4)>;
++	format = "a8r8g8b8";
++
++	status = "okay";
++};

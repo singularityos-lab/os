@@ -1,0 +1,148 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Sun, 11 Oct 2026 22:39:18 -0400
+Subject: [PATCH] arm64: dts: exynos: google: gs201: add HSI2 pinctrl and PCIe
+ GEN4A_1
+
+Add the PCIe CLKREQ# and PERST# pins to the HSI2 pin controller, and
+the HSI2 PCIe controller (GEN4A_1, Google's pcie_1) with its PHY.
+Addresses, the interrupt and the PMU and sysreg offsets are those of
+Google's gs201 device tree; the clocks are the CMU_HSI2 gates of the x2
+controller (PCIE_003), its I/A and its PHY.
+
+The interrupt-map numbers INTA..INTD 1..4: the controller's INTx domain
+translates with pci_irqd_intx_xlate(), which takes the values of the
+PCI_INTERRUPT_PIN register and rejects 0, as on other DesignWare hosts
+with this translation (dra7.dtsi).
+
+The soc node now maps up to 0x80000000 so that the PCIe windows at
+0x40000000-0x7fffffff are reachable.
+
+Both PCIe nodes stay disabled: until the HSI2 S2MPU is programmed, a
+device on this link can DMA anywhere in RAM.
+
+Assisted-by: LLM
+Signed-off-by: Derek Ross <derekross@gmail.com>
+---
+ .../boot/dts/exynos/google/gs201-pinctrl.dtsi | 18 +++++
+ arch/arm64/boot/dts/exynos/google/gs201.dtsi  | 73 ++++++++++++++++++-
+ 2 files changed, 90 insertions(+), 1 deletion(-)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/gs201-pinctrl.dtsi b/arch/arm64/boot/dts/exynos/google/gs201-pinctrl.dtsi
+index 4b12ce273..8611f491f 100644
+--- a/arch/arm64/boot/dts/exynos/google/gs201-pinctrl.dtsi
++++ b/arch/arm64/boot/dts/exynos/google/gs201-pinctrl.dtsi
+@@ -526,4 +526,22 @@ gph4: gph4-gpio-bank {
+ 		interrupt-controller;
+ 		#interrupt-cells = <2>;
+ 	};
++
++	pcie1_clkreq: pcie1-clkreq-pins {
++		samsung,pins = "gph2-1";
++		samsung,pin-function = <GS101_PIN_FUNC_2>;
++		samsung,pin-pud = <GS101_PIN_PULL_UP>;
++		samsung,pin-drv = <GS101_PIN_DRV_2_5_MA>;
++		samsung,pin-con-pdn = <GS101_PIN_PDN_PREV>;
++		samsung,pin-pud-pdn = <GS101_PIN_PULL_UP>;
++	};
++
++	pcie1_perst: pcie1-perst-pins {
++		samsung,pins = "gph2-0";
++		samsung,pin-function = <GS101_PIN_FUNC_OUTPUT>;
++		samsung,pin-pud = <GS101_PIN_PULL_NONE>;
++		samsung,pin-drv = <GS101_PIN_DRV_2_5_MA>;
++		samsung,pin-con-pdn = <GS101_PIN_PDN_PREV>;
++		samsung,pin-pud-pdn = <GS101_PIN_PULL_NONE>;
++	};
+ };
+diff --git a/arch/arm64/boot/dts/exynos/google/gs201.dtsi b/arch/arm64/boot/dts/exynos/google/gs201.dtsi
+index 8aea9e06b..b8553497b 100644
+--- a/arch/arm64/boot/dts/exynos/google/gs201.dtsi
++++ b/arch/arm64/boot/dts/exynos/google/gs201.dtsi
+@@ -823,7 +823,8 @@ soc: soc@0 {
+ 		compatible = "simple-bus";
+ 		#address-cells = <1>;
+ 		#size-cells = <1>;
+-		ranges = <0x0 0x0 0x0 0x40000000>;
++		/* Registers below 1 GiB, PCIe windows at 0x40000000-0x7fffffff */
++		ranges = <0x0 0x0 0x0 0x80000000>;
+ 
+ 		/*
+ 		 * Clock controllers. Consumers below still use the fixed-clock
+@@ -1420,6 +1421,76 @@ pinctrl_hsi2: pinctrl@14440000 {
+ 			status = "disabled";
+ 		};
+ 
++		/*
++		 * PCIe GEN4A_1 in HSI2, the Wi-Fi controller on Pixel 7. Google's
++		 * tree calls it pcie_1 (ch-num 1); the modem's GEN4A_0 in HSI1 is
++		 * not described.
++		 *
++		 * Off by default: until the HSI2 S2MPU (DMA firewall) is
++		 * programmed, a device on this link can DMA anywhere in RAM.
++		 */
++		pcie_1: pcie@14520000 {
++			compatible = "google,gs201-pcie";
++			reg = <0x14520000 0x1400>,
++			      <0x14800000 0x301000>,
++			      <0x60ffe000 0x2000>,
++			      <0x14500000 0x1000>;
++			reg-names = "elbi", "dbi", "config", "ia";
++			#address-cells = <3>;
++			#size-cells = <2>;
++			device_type = "pci";
++			ranges = <0x82000000 0x0 0x60000000 0x60000000 0x0 0xff0000>;
++			bus-range = <0x00 0xff>;
++			interrupts = <GIC_SPI 428 IRQ_TYPE_LEVEL_HIGH>;
++			#interrupt-cells = <1>;
++			interrupt-map-mask = <0 0 0 7>;
++			interrupt-map = <0 0 0 1 &pcie_1_intc 1>,
++					<0 0 0 2 &pcie_1_intc 2>,
++					<0 0 0 3 &pcie_1_intc 3>,
++					<0 0 0 4 &pcie_1_intc 4>;
++			clocks = <&cmu_hsi2 CLK_GOUT_HSI2_PCIE_GEN4_1_PCIE_003_G4X2_DWC_PCIE_CTL_INST_0_DBI_ACLK_UG>,
++				 <&cmu_hsi2 CLK_GOUT_HSI2_PCIE_GEN4_1_PCIE_003_G4X2_DWC_PCIE_CTL_INST_0_MSTR_ACLK_UG>,
++				 <&cmu_hsi2 CLK_GOUT_HSI2_PCIE_GEN4_1_PCIE_003_G4X2_DWC_PCIE_CTL_INST_0_SLV_ACLK_UG>,
++				 <&cmu_hsi2 CLK_GOUT_HSI2_PCIE_GEN4_1_PCIE_003_PCIE_SUB_CTRL_INST_0_I_DRIVER_APB_CLK>,
++				 <&cmu_hsi2 CLK_GOUT_HSI2_PCIE_IA_GEN4A_1_I_CLK>,
++				 <&cmu_hsi2 CLK_GOUT_HSI2_QE_PCIE_GEN4A_HSI2_ACLK>,
++				 <&cmu_hsi2 CLK_GOUT_HSI2_QE_PCIE_GEN4A_HSI2_PCLK>;
++			phys = <&pcie_1_phy>;
++			phy-names = "pcie";
++			pinctrl-0 = <&pcie1_clkreq>, <&pcie1_perst>;
++			pinctrl-names = "default";
++			reset-gpios = <&gph2 0 GPIO_ACTIVE_LOW>;
++			samsung,cmu = <&cmu_hsi2>;
++			samsung,sysreg = <&sysreg_hsi2 0x730>;
++			dma-coherent;
++			num-lanes = <1>;
++			max-link-speed = <2>;
++			status = "disabled";
++
++			pcie_1_intc: legacy-interrupt-controller {
++				#address-cells = <0>;
++				interrupt-controller;
++				#interrupt-cells = <1>;
++			};
++		};
++
++		pcie_1_phy: phy@14550000 {
++			compatible = "google,gs201-pcie-phy";
++			reg = <0x14550000 0x2000>,
++			      <0x14540000 0x1000>,
++			      <0x14521400 0x10>,
++			      <0x14560000 0xd000>;
++			reg-names = "pma", "pcs", "rst", "udbg";
++			clocks = <&cmu_hsi2 CLK_GOUT_HSI2_PCIE_GEN4_1_PCIE_003_PCIE_SUB_CTRL_INST_0_PHY_REFCLK_IN>,
++				 <&cmu_hsi2 CLK_GOUT_HSI2_PCIE_GEN4_1_PCS_PMA_INST_0_PHY_UDBG_I_APB_PCLK>,
++				 <&cmu_hsi2 CLK_GOUT_HSI2_PCIE_GEN4_1_PCS_PMA_INST_0_PIPE_PAL_PCIE_INST_0_I_APB_PCLK>,
++				 <&cmu_hsi2 CLK_GOUT_HSI2_PCIE_GEN4_1_PCS_PMA_INST_0_SF_PCIEPHY210X2_LN05LPE_QCH_TM_WRAPPER_INST_0_I_APB_PCLK>,
++				 <&cmu_hsi2 CLK_GOUT_HSI2_AS_APB_PCIEPHY_HSI2_PCLKM>;
++			samsung,pmu-syscon = <&pmu_system_controller 0x3ec4>;
++			#phy-cells = <0>;
++			status = "disabled";
++		};
++
+ 		/*
+ 		 * No gs201 pinctrl driver yet: the UFS reset (gph3-1) and
+ 		 * reference clock output (gph3-0) pins on the HSI2UFS pin

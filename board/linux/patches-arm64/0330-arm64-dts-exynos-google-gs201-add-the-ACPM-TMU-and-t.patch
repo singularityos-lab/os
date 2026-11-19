@@ -1,0 +1,138 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Sat, 31 Oct 2026 20:07:19 -0400
+Subject: [PATCH] arm64: dts: exynos: google: gs201: add the ACPM TMU and
+ thermal zones
+
+Add the ACPM TMU sensor under acpm_ipc and a thermal zone for each of
+the six sensors that gs101 also has (big, mid and little CPU clusters,
+GPU, ISP, TPU), in the order of Google's gs201 tmuctrl ids. The driver
+only reads temperatures and programs no hardware thresholds.
+
+Every zone is critical at 110 C. Stock's own trips are higher: its CPU
+and GPU zones start throttling at 100 C and are "hot" at 120 C (Google's
+gs201-b0.dts). The CPU zones poll every 250 ms, and every 100 ms once a
+passive trip is crossed, as on gs101, where a big cluster burst outran
+slower polling; the cooling maps come with CPU DVFS.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Signed-off-by: Derek Ross <derekross@gmail.com>
+---
+ arch/arm64/boot/dts/exynos/google/gs201.dtsi | 97 ++++++++++++++++++++
+ 1 file changed, 97 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/gs201.dtsi b/arch/arm64/boot/dts/exynos/google/gs201.dtsi
+index e1e6508ec..c7a87a7b0 100644
+--- a/arch/arm64/boot/dts/exynos/google/gs201.dtsi
++++ b/arch/arm64/boot/dts/exynos/google/gs201.dtsi
+@@ -159,6 +159,97 @@ psci {
+ 		method = "smc";
+ 	};
+ 
++	/*
++	 * Zones on the ACPM TMU sensors (0 big, 1 mid, 2 little, 3 GPU, 4 ISP,
++	 * 5 TPU). Every zone is critical at 110 C, below stock's 120 C "hot"
++	 * trips (Google's gs201-b0.dts).
++	 */
++	thermal-zones {
++		big-thermal {
++			polling-delay-passive = <100>;
++			polling-delay = <250>;
++			thermal-sensors = <&acpm_tmu 0>;
++
++			trips {
++				big_crit: big-crit {
++					temperature = <110000>;
++					hysteresis = <0>;
++					type = "critical";
++				};
++			};
++		};
++
++		mid-thermal {
++			polling-delay-passive = <100>;
++			polling-delay = <250>;
++			thermal-sensors = <&acpm_tmu 1>;
++
++			trips {
++				mid_crit: mid-crit {
++					temperature = <110000>;
++					hysteresis = <0>;
++					type = "critical";
++				};
++			};
++		};
++
++		little-thermal {
++			polling-delay-passive = <100>;
++			polling-delay = <250>;
++			thermal-sensors = <&acpm_tmu 2>;
++
++			trips {
++				little_crit: little-crit {
++					temperature = <110000>;
++					hysteresis = <0>;
++					type = "critical";
++				};
++			};
++		};
++
++		gpu-thermal {
++			polling-delay-passive = <250>;
++			polling-delay = <1000>;
++			thermal-sensors = <&acpm_tmu 3>;
++
++			trips {
++				gpu_crit: gpu-crit {
++					temperature = <110000>;
++					hysteresis = <0>;
++					type = "critical";
++				};
++			};
++		};
++
++		isp-thermal {
++			polling-delay-passive = <250>;
++			polling-delay = <1000>;
++			thermal-sensors = <&acpm_tmu 4>;
++
++			trips {
++				isp_crit: isp-crit {
++					temperature = <110000>;
++					hysteresis = <0>;
++					type = "critical";
++				};
++			};
++		};
++
++		tpu-thermal {
++			polling-delay-passive = <250>;
++			polling-delay = <1000>;
++			thermal-sensors = <&acpm_tmu 5>;
++
++			trips {
++				tpu_crit: tpu-crit {
++					temperature = <110000>;
++					hysteresis = <0>;
++					type = "critical";
++				};
++			};
++		};
++	};
++
+ 	timer {
+ 		compatible = "arm,armv8-timer";
+ 		interrupts = <GIC_PPI 13 (GIC_CPU_MASK_SIMPLE(8) | IRQ_TYPE_LEVEL_LOW)>,
+@@ -205,6 +296,12 @@ acpm_ipc: power-management {
+ 			#clock-cells = <1>;
+ 			mboxes = <&ap2apm_mailbox>;
+ 			shmem = <&apm_sram>;
++
++			/* TMU sensors, read through the ACPM firmware (channel 9) */
++			acpm_tmu: thermal-sensor {
++				compatible = "google,gs201-acpm-tmu";
++				#thermal-sensor-cells = <1>;
++			};
+ 		};
+ 	};
+ 

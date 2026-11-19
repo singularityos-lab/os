@@ -1,0 +1,37 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Mon, 12 Oct 2026 17:59:34 -0400
+Subject: [PATCH] ASoC: dt-bindings: cirrus,cs35l41: add
+ cirrus,dsp-no-hibernate
+
+The speaker protection firmware that ships with some phones (CS35L41
+firmware 0x400a4 v0.45.0 on the Pixel 7 Pro) does not acknowledge the
+CSPL pause command and cannot be woken from hibernation. Add a boolean
+that keeps such a DSP out of hibernation while the amplifier idles.
+
+Assisted-by: LLM
+Signed-off-by: Derek Ross <derekross@gmail.com>
+---
+ .../devicetree/bindings/sound/cirrus,cs35l41.yaml        | 9 +++++++++
+ 1 file changed, 9 insertions(+)
+
+diff --git a/Documentation/devicetree/bindings/sound/cirrus,cs35l41.yaml b/Documentation/devicetree/bindings/sound/cirrus,cs35l41.yaml
+index e6cf2ebcd..1388c5d82 100644
+--- a/Documentation/devicetree/bindings/sound/cirrus,cs35l41.yaml
++++ b/Documentation/devicetree/bindings/sound/cirrus,cs35l41.yaml
+@@ -99,6 +99,15 @@ properties:
+     minimum: 0
+     maximum: 3
+ 
++  cirrus,dsp-no-hibernate:
++    description:
++      Boolean which specifies that the DSP firmware must not be put into
++      hibernation while the amplifier is idle. Some speaker protection
++      firmware does not acknowledge the CSPL pause command and cannot be woken
++      from hibernation; with this property the DSP keeps running between
++      streams instead.
++    type: boolean
++
+   cirrus,gpio1-polarity-invert:
+     description:
+       Boolean which specifies whether the GPIO1

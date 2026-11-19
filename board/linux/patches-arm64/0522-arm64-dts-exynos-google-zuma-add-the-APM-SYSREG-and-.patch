@@ -1,0 +1,61 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Lef <me@lefteros.com>
+Date: Wed, 4 Nov 2026 21:25:53 +0200
+Subject: [PATCH] arm64: dts: exynos: google: zuma: add the APM SYSREG and USI1
+ UART
+
+usi_apm1 at 0x155d00c0 with uart18 at 0x155d0000, interrupt 71 (Google's
+zuma-usi.dtsi, IRQ_APM_USI1_UART_INT_ALIVE), on the pattern of zumapro's
+and of USI9 here. Both stay disabled; a board enables them.
+
+Signed-off-by: Lef <me@lefteros.com>
+---
+ arch/arm64/boot/dts/exynos/google/zuma.dtsi | 35 +++++++++++++++++++++
+ 1 file changed, 35 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/zuma.dtsi b/arch/arm64/boot/dts/exynos/google/zuma.dtsi
+index f46ad29ec..bd28448a3 100644
+--- a/arch/arm64/boot/dts/exynos/google/zuma.dtsi
++++ b/arch/arm64/boot/dts/exynos/google/zuma.dtsi
+@@ -602,6 +602,41 @@ cmu_apm: clock-controller@15400000 {
+ 			clock-names = "oscclk";
+ 		};
+ 
++		sysreg_apm: syscon@154204e0 {
++			compatible = "google,zuma-apm-sysreg", "syscon";
++			/* Only the USI mode selectors. */
++			reg = <0x154204e0 0x8>;
++			clocks = <&cmu_apm CLK_GOUT_APM_SYSREG>;
++			status = "disabled";
++		};
++
++		/* The APM's USI1, the UART of the Bluetooth chip on the 8 Pro. */
++		usi_apm1: usi@155d00c0 {
++			compatible = "google,zuma-usi", "samsung,exynos850-usi";
++			reg = <0x155d00c0 0x20>;
++			clocks = <&cmu_apm CLK_GOUT_APM_USI1_UART_PCLK>,
++				 <&cmu_apm CLK_GOUT_APM_USI1_UART_IPCLK>;
++			clock-names = "pclk", "ipclk";
++			samsung,sysreg = <&sysreg_apm 0x4>;
++			samsung,mode = <USI_MODE_UART>;
++			samsung,clkreq-on;
++			#address-cells = <1>;
++			#size-cells = <1>;
++			ranges;
++			status = "disabled";
++
++			uart18: serial@155d0000 {
++				compatible = "google,zuma-uart", "google,gs101-uart";
++				reg = <0x155d0000 0xc0>;
++				interrupts = <GIC_SPI 71 IRQ_TYPE_LEVEL_HIGH>;
++				clocks = <&cmu_apm CLK_GOUT_APM_USI1_UART_PCLK>,
++					 <&cmu_apm CLK_GOUT_APM_USI1_UART_IPCLK>;
++				clock-names = "uart", "clk_uart_baud0";
++				samsung,uart-fifosize = <256>;
++				status = "disabled";
++			};
++		};
++
+ 		/* Writes go through EL3 (SMC), as on gs101. */
+ 		pmu_system_controller: system-controller@15460000 {
+ 			compatible = "google,zuma-pmu";

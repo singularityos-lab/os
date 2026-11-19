@@ -1,0 +1,90 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Brett-Michael Green <brett@bmgvisualtech.com>
+Date: Sat, 31 Oct 2026 12:44:38 -0400
+Subject: [PATCH] clk: samsung: acpm: Add Tensor G3 (zuma) with a paired GPU
+ clock
+
+The ACPM protocol driver creates zuma-acpm-clk for the Tensor G3, but
+clk-acpm had no match for it. Add the zuma variant, built like the
+zumapro one:
+
+- the DVFS domains as clocks. zuma's are zumapro's 17, in the same
+  order (Google's enum acpm_dvfs_id is zuma's), so G3D is 7 and G3DL2
+  is 8, as the Pixel 8 Pro's stock GPU node names them
+  (gpu1_cmu_cal_id 0xb040007, gpu0_cmu_cal_id 0xb040008);
+- a paired gpu clock (17) that moves G3D and G3DL2 together. The
+  Pixel 8 Pro's stock gpu_dvfs_table_v2 is the Pixel 9a's, pair for
+  pair, so zumapro's table is reused, without its 940 MHz level: zuma's
+  gpu_dvfs_max_freq is 890 MHz;
+- zuma_gpu_max_khz, 0 (read-only) by default, as on gs201 and zumapro.
+
+The firmware's DVFS channel is 0, as stock's cal_if node has it.
+
+Assisted-by: LLM
+Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
+---
+ drivers/clk/samsung/clk-acpm.c | 37 ++++++++++++++++++++++++++++++++++
+ 1 file changed, 37 insertions(+)
+
+diff --git a/drivers/clk/samsung/clk-acpm.c b/drivers/clk/samsung/clk-acpm.c
+index 93f4b89b6..14ec89df2 100644
+--- a/drivers/clk/samsung/clk-acpm.c
++++ b/drivers/clk/samsung/clk-acpm.c
+@@ -240,6 +240,7 @@ static const struct acpm_clk_pair zumapro_gpu_pairs[] = {
+ 	{ 807000, 900000 },
+ 	{ 850000, 900000 },
+ 	{ 890000, 900000 },
++	/* zuma's table stops above 890 MHz: keep this level last. */
+ 	{ 940000, 950000 },
+ };
+ 
+@@ -270,6 +271,39 @@ static const struct acpm_clk_driver_data acpm_clk_zumapro = {
+ 	.mbox_chan_id = 0,
+ };
+ 
++/*
++ * Tensor G3 (zuma): the same 17 DVFS domains as zumapro (Google's
++ * enum acpm_dvfs_id is zuma's), and the Pixel 8 Pro's GPU DVFS table (its
++ * stock gpu_dvfs_table_v2) is the 9a's, pair for pair. Stock stops at
++ * 890 MHz (gpu_dvfs_max_freq in Google's zuma-gpu.dtsi), so the 940 MHz
++ * level is left out.
++ */
++static unsigned int zuma_gpu_max_khz;
++module_param(zuma_gpu_max_khz, uint, 0644);
++MODULE_PARM_DESC(zuma_gpu_max_khz,
++		 "zuma: highest GPU shader rate in kHz, 0 = read-only (default)");
++
++static const struct acpm_clk_paired zuma_acpm_paired[] = {
++	{
++		.name = "gpu",
++		.id = 7,	/* G3D: shader cores */
++		.id2 = 8,	/* G3DL2: top level and L2 */
++		.pairs = zumapro_gpu_pairs,
++		.nr_pairs = ARRAY_SIZE(zumapro_gpu_pairs) - 1, /* not 940 MHz */
++		.max_khz = &zuma_gpu_max_khz,
++	},
++};
++
++static const struct acpm_clk_driver_data acpm_clk_zuma = {
++	.clks = zumapro_acpm_clks,
++	.nr_clks = ARRAY_SIZE(zumapro_acpm_clks),
++	.paired = zuma_acpm_paired,
++	.nr_paired = ARRAY_SIZE(zuma_acpm_paired),
++	/* Show the firmware's rate, not the last one asked for. */
++	.flags = CLK_GET_RATE_NOCACHE,
++	.mbox_chan_id = 0,
++};
++
+ static unsigned long acpm_clk_recalc_rate(struct clk_hw *hw,
+ 					  unsigned long parent_rate)
+ {
+@@ -509,6 +543,9 @@ static const struct platform_device_id acpm_clk_id[] = {
+ 	}, {
+ 		.name = "gs201-acpm-clk",
+ 		.driver_data = (kernel_ulong_t)&acpm_clk_gs201,
++	}, {
++		.name = "zuma-acpm-clk",
++		.driver_data = (kernel_ulong_t)&acpm_clk_zuma,
+ 	}, {
+ 		.name = "zumapro-acpm-clk",
+ 		.driver_data = (kernel_ulong_t)&acpm_clk_zumapro,

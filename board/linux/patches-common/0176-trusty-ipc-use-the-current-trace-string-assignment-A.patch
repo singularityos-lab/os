@@ -1,0 +1,28 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Chris Gray <chrisgray70@gmail.com>
+Date: Sun, 8 Nov 2026 17:38:42 -0600
+Subject: [PATCH] trusty: ipc: use the current trace string assignment API
+
+The current trace macro accepts only the field name. Keep the
+integration tree buildable by using that API. This is a build
+compatibility change; no Trusty runtime was exercised on Bluejay.
+
+Assisted-by: LLM
+Signed-off-by: Chris Gray <chrisgray70@gmail.com>
+---
+ drivers/trusty/trusty-ipc-trace.h | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/drivers/trusty/trusty-ipc-trace.h b/drivers/trusty/trusty-ipc-trace.h
+index 60d633828..9ebd9893d 100644
+--- a/drivers/trusty/trusty-ipc-trace.h
++++ b/drivers/trusty/trusty-ipc-trace.h
+@@ -61,7 +61,7 @@ TRACE_EVENT(trusty_ipc_connect,
+ 	),
+ 	TP_fast_assign(
+ 		__entry->chan = chan ? chan->local : ~0U;
+-		__assign_str(port, port);
++		__assign_str(port);
+ 		__entry->state = chan ? chan->state : 0;
+ 	),
+ 	TP_printk("chan=%u port=%s state=%s", __entry->chan, __get_str(port),

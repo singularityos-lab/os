@@ -1,0 +1,567 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Sat, 31 Oct 2026 20:09:03 -0400
+Subject: [PATCH] arm64: dts: exynos: google: gs201: add CPU DVFS and CPU
+ cooling
+
+Run the three CPU clusters on their ACPM DVFS clocks (cpucl0-2) through
+cpufreq-dt, with the CPUs as cooling devices of their thermal zones.
+Until now every core stayed at the bootloader's rate: about 1.2 GHz
+little, 0.9-1.2 GHz mid and 1.0-1.1 GHz big.
+
+- The operating points are the ACPM firmware's own levels, from the ECT
+  the bootloader leaves at 0x90000000, up to each cluster's max-freq in
+  stock's exynos-acme domains (Google's gs201-cpu.dtsi): 300-1803 MHz
+  little (11 levels), 400-2348 MHz mid (15) and 500-2850 MHz big (18).
+  These are also the levels of stock's pixel-em table. The ECT's levels
+  above those maximums are listed in comments and left out, as stock
+  leaves them out. The firmware sets the rail voltages from its fused
+  ASV tables, so there is no opp-microvolt.
+
+- Stock's battery current limiter caps the mid and big clusters at 1999
+  and 2252 MHz while the battery voltage droops (Google's
+  gs201-cloudripper-bcl.dtsi). Without a BCL driver, the levels above
+  those caps (2130-2348 MHz mid, 2401-2850 MHz big) are turbo-mode, so
+  they stay off until boost is enabled in sysfs.
+
+- opp-suspend is stock's resume-freq for each cluster (1197, 1491 and
+  1826 MHz), the level stock's cpufreq driver holds through suspend.
+
+- The dynamic power coefficients are stock's (89, 513 and 757).
+
+- The CPU zones throttle from 75 C, as on gs101: at 75 C the mid and
+  big clusters leave their turbo levels at once, and at 85 C each
+  cluster drops to stock's battery-overcurrent caps (930, 1197 and
+  1426 MHz). Every zone stays critical at 110 C. Stock throttles from
+  100 C.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Signed-off-by: Derek Ross <derekross@gmail.com>
+---
+ arch/arm64/boot/dts/exynos/google/gs201.dtsi | 394 +++++++++++++++++++
+ 1 file changed, 394 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/gs201.dtsi b/arch/arm64/boot/dts/exynos/google/gs201.dtsi
+index c7a87a7b0..bc2375a37 100644
+--- a/arch/arm64/boot/dts/exynos/google/gs201.dtsi
++++ b/arch/arm64/boot/dts/exynos/google/gs201.dtsi
+@@ -9,6 +9,7 @@
+ #include <dt-bindings/interrupt-controller/arm-gic.h>
+ #include <dt-bindings/interrupt-controller/irq.h>
+ #include <dt-bindings/soc/samsung,exynos-usi.h>
++#include <dt-bindings/thermal/thermal.h>
+ 
+ / {
+ 	compatible = "google,gs201";
+@@ -51,65 +52,97 @@ cpu0: cpu@0 {
+ 			device_type = "cpu";
+ 			compatible = "arm,cortex-a55";
+ 			reg = <0x000>;
++			clocks = <&acpm_ipc GS201_CLK_ACPM_DVFS_CPUCL0>;
+ 			enable-method = "psci";
+ 			cpu-idle-states = <&ananke_cpu_sleep>;
+ 			capacity-dmips-mhz = <250>;
++			dynamic-power-coefficient = <89>;
++			operating-points-v2 = <&cpucl0_opp_table>;
++			#cooling-cells = <2>;
+ 		};
+ 		cpu1: cpu@100 {
+ 			device_type = "cpu";
+ 			compatible = "arm,cortex-a55";
+ 			reg = <0x100>;
++			clocks = <&acpm_ipc GS201_CLK_ACPM_DVFS_CPUCL0>;
+ 			enable-method = "psci";
+ 			cpu-idle-states = <&ananke_cpu_sleep>;
+ 			capacity-dmips-mhz = <250>;
++			dynamic-power-coefficient = <89>;
++			operating-points-v2 = <&cpucl0_opp_table>;
++			#cooling-cells = <2>;
+ 		};
+ 		cpu2: cpu@200 {
+ 			device_type = "cpu";
+ 			compatible = "arm,cortex-a55";
+ 			reg = <0x200>;
++			clocks = <&acpm_ipc GS201_CLK_ACPM_DVFS_CPUCL0>;
+ 			enable-method = "psci";
+ 			cpu-idle-states = <&ananke_cpu_sleep>;
+ 			capacity-dmips-mhz = <250>;
++			dynamic-power-coefficient = <89>;
++			operating-points-v2 = <&cpucl0_opp_table>;
++			#cooling-cells = <2>;
+ 		};
+ 		cpu3: cpu@300 {
+ 			device_type = "cpu";
+ 			compatible = "arm,cortex-a55";
+ 			reg = <0x300>;
++			clocks = <&acpm_ipc GS201_CLK_ACPM_DVFS_CPUCL0>;
+ 			enable-method = "psci";
+ 			cpu-idle-states = <&ananke_cpu_sleep>;
+ 			capacity-dmips-mhz = <250>;
++			dynamic-power-coefficient = <89>;
++			operating-points-v2 = <&cpucl0_opp_table>;
++			#cooling-cells = <2>;
+ 		};
+ 		cpu4: cpu@400 {
+ 			device_type = "cpu";
+ 			compatible = "arm,cortex-a78";
+ 			reg = <0x400>;
++			clocks = <&acpm_ipc GS201_CLK_ACPM_DVFS_CPUCL1>;
+ 			enable-method = "psci";
+ 			cpu-idle-states = <&hercules_cpu_sleep>;
+ 			capacity-dmips-mhz = <927>;
++			dynamic-power-coefficient = <513>;
++			operating-points-v2 = <&cpucl1_opp_table>;
++			#cooling-cells = <2>;
+ 		};
+ 		cpu5: cpu@500 {
+ 			device_type = "cpu";
+ 			compatible = "arm,cortex-a78";
+ 			reg = <0x500>;
++			clocks = <&acpm_ipc GS201_CLK_ACPM_DVFS_CPUCL1>;
+ 			enable-method = "psci";
+ 			cpu-idle-states = <&hercules_cpu_sleep>;
+ 			capacity-dmips-mhz = <927>;
++			dynamic-power-coefficient = <513>;
++			operating-points-v2 = <&cpucl1_opp_table>;
++			#cooling-cells = <2>;
+ 		};
+ 		cpu6: cpu@600 {
+ 			device_type = "cpu";
+ 			compatible = "arm,cortex-x1";
+ 			reg = <0x600>;
++			clocks = <&acpm_ipc GS201_CLK_ACPM_DVFS_CPUCL2>;
+ 			enable-method = "psci";
+ 			cpu-idle-states = <&hera_cpu_sleep>;
+ 			capacity-dmips-mhz = <1024>;
++			dynamic-power-coefficient = <757>;
++			operating-points-v2 = <&cpucl2_opp_table>;
++			#cooling-cells = <2>;
+ 		};
+ 		cpu7: cpu@700 {
+ 			device_type = "cpu";
+ 			compatible = "arm,cortex-x1";
+ 			reg = <0x700>;
++			clocks = <&acpm_ipc GS201_CLK_ACPM_DVFS_CPUCL2>;
+ 			enable-method = "psci";
+ 			cpu-idle-states = <&hera_cpu_sleep>;
+ 			capacity-dmips-mhz = <1024>;
++			dynamic-power-coefficient = <757>;
++			operating-points-v2 = <&cpucl2_opp_table>;
++			#cooling-cells = <2>;
+ 		};
+ 		/*
+ 		 * C2: core power-down through PSCI CPU_SUSPEND, with latencies
+@@ -154,6 +187,275 @@ hera_cpu_sleep: cpu-hera-sleep {
+ 		};
+ 	};
+ 
++	/*
++	 * CPU levels: the ACPM firmware's own DVFS levels (the ECT the
++	 * bootloader leaves at 0x90000000; the same lists are stock's
++	 * pixel-em table), up to each cluster's max-freq in stock's
++	 * exynos-acme domains (Google's gs201-cpu.dtsi): 1803 MHz little,
++	 * 2348 MHz mid, 2850 MHz big. The firmware sets the rail voltages
++	 * from its fused ASV tables, so there is no opp-microvolt.
++	 *
++	 * Stock caps the mid and big clusters at 1999 and 2252 MHz whenever
++	 * its battery current limiter (BCL) sees the battery voltage droop
++	 * (freq_qos vdroop1/vdroop2/smpl_gm in Google's
++	 * gs201-cloudripper-bcl.dtsi). There is no BCL driver here, so the
++	 * levels above those caps are turbo-mode: off until boost is enabled
++	 * (/sys/devices/system/cpu/cpufreq/boost). opp-suspend is stock's
++	 * resume-freq, the level stock holds through suspend.
++	 */
++	cpucl0_opp_table: opp-table-0 {
++		compatible = "operating-points-v2";
++		opp-shared;
++
++		opp-300000000 {
++			opp-hz = /bits/ 64 <300000000>;
++			clock-latency-ns = <500000>;
++		};
++
++		opp-574000000 {
++			opp-hz = /bits/ 64 <574000000>;
++			clock-latency-ns = <500000>;
++		};
++
++		opp-738000000 {
++			opp-hz = /bits/ 64 <738000000>;
++			clock-latency-ns = <500000>;
++		};
++
++		opp-930000000 {
++			opp-hz = /bits/ 64 <930000000>;
++			clock-latency-ns = <500000>;
++		};
++
++		opp-1098000000 {
++			opp-hz = /bits/ 64 <1098000000>;
++			clock-latency-ns = <500000>;
++		};
++
++		opp-1197000000 {
++			opp-hz = /bits/ 64 <1197000000>;
++			clock-latency-ns = <500000>;
++			opp-suspend;
++		};
++
++		opp-1328000000 {
++			opp-hz = /bits/ 64 <1328000000>;
++			clock-latency-ns = <500000>;
++		};
++
++		opp-1401000000 {
++			opp-hz = /bits/ 64 <1401000000>;
++			clock-latency-ns = <500000>;
++		};
++
++		opp-1598000000 {
++			opp-hz = /bits/ 64 <1598000000>;
++			clock-latency-ns = <500000>;
++		};
++
++		opp-1704000000 {
++			opp-hz = /bits/ 64 <1704000000>;
++			clock-latency-ns = <500000>;
++		};
++
++		opp-1803000000 {
++			opp-hz = /bits/ 64 <1803000000>;
++			clock-latency-ns = <500000>;
++		};
++
++		/* 1950, 2024, 2098 and 2196 MHz stay off, as on stock. */
++	};
++
++	cpucl1_opp_table: opp-table-1 {
++		compatible = "operating-points-v2";
++		opp-shared;
++
++		opp-400000000 {
++			opp-hz = /bits/ 64 <400000000>;
++			clock-latency-ns = <500000>;
++		};
++
++		opp-553000000 {
++			opp-hz = /bits/ 64 <553000000>;
++			clock-latency-ns = <500000>;
++		};
++
++		opp-696000000 {
++			opp-hz = /bits/ 64 <696000000>;
++			clock-latency-ns = <500000>;
++		};
++
++		opp-799000000 {
++			opp-hz = /bits/ 64 <799000000>;
++			clock-latency-ns = <500000>;
++		};
++
++		opp-910000000 {
++			opp-hz = /bits/ 64 <910000000>;
++			clock-latency-ns = <500000>;
++		};
++
++		opp-1024000000 {
++			opp-hz = /bits/ 64 <1024000000>;
++			clock-latency-ns = <500000>;
++		};
++
++		opp-1197000000 {
++			opp-hz = /bits/ 64 <1197000000>;
++			clock-latency-ns = <500000>;
++		};
++
++		opp-1328000000 {
++			opp-hz = /bits/ 64 <1328000000>;
++			clock-latency-ns = <500000>;
++		};
++
++		opp-1491000000 {
++			opp-hz = /bits/ 64 <1491000000>;
++			clock-latency-ns = <500000>;
++			opp-suspend;
++		};
++
++		opp-1663000000 {
++			opp-hz = /bits/ 64 <1663000000>;
++			clock-latency-ns = <500000>;
++		};
++
++		opp-1836000000 {
++			opp-hz = /bits/ 64 <1836000000>;
++			clock-latency-ns = <500000>;
++		};
++
++		opp-1999000000 {
++			opp-hz = /bits/ 64 <1999000000>;
++			clock-latency-ns = <500000>;
++		};
++
++		opp-2130000000 {
++			opp-hz = /bits/ 64 <2130000000>;
++			clock-latency-ns = <500000>;
++			turbo-mode;
++		};
++
++		opp-2253000000 {
++			opp-hz = /bits/ 64 <2253000000>;
++			clock-latency-ns = <500000>;
++			turbo-mode;
++		};
++
++		opp-2348000000 {
++			opp-hz = /bits/ 64 <2348000000>;
++			clock-latency-ns = <500000>;
++			turbo-mode;
++		};
++
++		/* 2393 and 2466 MHz stay off, as on stock. */
++	};
++
++	cpucl2_opp_table: opp-table-2 {
++		compatible = "operating-points-v2";
++		opp-shared;
++
++		opp-500000000 {
++			opp-hz = /bits/ 64 <500000000>;
++			clock-latency-ns = <500000>;
++		};
++
++		opp-851000000 {
++			opp-hz = /bits/ 64 <851000000>;
++			clock-latency-ns = <500000>;
++		};
++
++		opp-984000000 {
++			opp-hz = /bits/ 64 <984000000>;
++			clock-latency-ns = <500000>;
++		};
++
++		opp-1106000000 {
++			opp-hz = /bits/ 64 <1106000000>;
++			clock-latency-ns = <500000>;
++		};
++
++		opp-1277000000 {
++			opp-hz = /bits/ 64 <1277000000>;
++			clock-latency-ns = <500000>;
++		};
++
++		opp-1426000000 {
++			opp-hz = /bits/ 64 <1426000000>;
++			clock-latency-ns = <500000>;
++		};
++
++		opp-1582000000 {
++			opp-hz = /bits/ 64 <1582000000>;
++			clock-latency-ns = <500000>;
++		};
++
++		opp-1745000000 {
++			opp-hz = /bits/ 64 <1745000000>;
++			clock-latency-ns = <500000>;
++		};
++
++		opp-1826000000 {
++			opp-hz = /bits/ 64 <1826000000>;
++			clock-latency-ns = <500000>;
++			opp-suspend;
++		};
++
++		opp-2048000000 {
++			opp-hz = /bits/ 64 <2048000000>;
++			clock-latency-ns = <500000>;
++		};
++
++		opp-2188000000 {
++			opp-hz = /bits/ 64 <2188000000>;
++			clock-latency-ns = <500000>;
++		};
++
++		opp-2252000000 {
++			opp-hz = /bits/ 64 <2252000000>;
++			clock-latency-ns = <500000>;
++		};
++
++		opp-2401000000 {
++			opp-hz = /bits/ 64 <2401000000>;
++			clock-latency-ns = <500000>;
++			turbo-mode;
++		};
++
++		opp-2507000000 {
++			opp-hz = /bits/ 64 <2507000000>;
++			clock-latency-ns = <500000>;
++			turbo-mode;
++		};
++
++		opp-2630000000 {
++			opp-hz = /bits/ 64 <2630000000>;
++			clock-latency-ns = <500000>;
++			turbo-mode;
++		};
++
++		opp-2704000000 {
++			opp-hz = /bits/ 64 <2704000000>;
++			clock-latency-ns = <500000>;
++			turbo-mode;
++		};
++
++		opp-2802000000 {
++			opp-hz = /bits/ 64 <2802000000>;
++			clock-latency-ns = <500000>;
++			turbo-mode;
++		};
++
++		opp-2850000000 {
++			opp-hz = /bits/ 64 <2850000000>;
++			clock-latency-ns = <500000>;
++			turbo-mode;
++		};
++
++		/* 2950, 3097 and 3195 MHz stay off, as on stock. */
++	};
++
+ 	psci {
+ 		compatible = "arm,psci-1.0";
+ 		method = "smc";
+@@ -163,6 +465,13 @@ psci {
+ 	 * Zones on the ACPM TMU sensors (0 big, 1 mid, 2 little, 3 GPU, 4 ISP,
+ 	 * 5 TPU). Every zone is critical at 110 C, below stock's 120 C "hot"
+ 	 * trips (Google's gs201-b0.dts).
++	 *
++	 * A CPU zone throttles its cluster from 75 C, as gs101 does: at 75 C
++	 * the mid and big clusters leave their turbo levels at once (states 3
++	 * and 6: 1999 and 2252 MHz), then step down; at 85 C each cluster
++	 * drops to stock's battery-overcurrent caps (BATOILO in Google's
++	 * gs201-cloudripper-bcl.dtsi): 930, 1197 and 1426 MHz, states 7, 8
++	 * and 12. Stock throttles from 100 C.
+ 	 */
+ 	thermal-zones {
+ 		big-thermal {
+@@ -171,12 +480,39 @@ big-thermal {
+ 			thermal-sensors = <&acpm_tmu 0>;
+ 
+ 			trips {
++				big_hot: big-hot {
++					temperature = <75000>;
++					hysteresis = <5000>;
++					type = "passive";
++				};
++
++				/* a fast burst outruns step_wise: throttle deep at once */
++				big_hotter: big-hotter {
++					temperature = <85000>;
++					hysteresis = <5000>;
++					type = "passive";
++				};
++
+ 				big_crit: big-crit {
+ 					temperature = <110000>;
+ 					hysteresis = <0>;
+ 					type = "critical";
+ 				};
+ 			};
++
++			cooling-maps {
++				map0 {
++					trip = <&big_hot>;
++					cooling-device = <&cpu6 6 THERMAL_NO_LIMIT>,
++							 <&cpu7 6 THERMAL_NO_LIMIT>;
++				};
++
++				map1 {
++					trip = <&big_hotter>;
++					cooling-device = <&cpu6 12 THERMAL_NO_LIMIT>,
++							 <&cpu7 12 THERMAL_NO_LIMIT>;
++				};
++			};
+ 		};
+ 
+ 		mid-thermal {
+@@ -185,12 +521,39 @@ mid-thermal {
+ 			thermal-sensors = <&acpm_tmu 1>;
+ 
+ 			trips {
++				mid_hot: mid-hot {
++					temperature = <75000>;
++					hysteresis = <5000>;
++					type = "passive";
++				};
++
++				/* a fast burst outruns step_wise: throttle deep at once */
++				mid_hotter: mid-hotter {
++					temperature = <85000>;
++					hysteresis = <5000>;
++					type = "passive";
++				};
++
+ 				mid_crit: mid-crit {
+ 					temperature = <110000>;
+ 					hysteresis = <0>;
+ 					type = "critical";
+ 				};
+ 			};
++
++			cooling-maps {
++				map0 {
++					trip = <&mid_hot>;
++					cooling-device = <&cpu4 3 THERMAL_NO_LIMIT>,
++							 <&cpu5 3 THERMAL_NO_LIMIT>;
++				};
++
++				map1 {
++					trip = <&mid_hotter>;
++					cooling-device = <&cpu4 8 THERMAL_NO_LIMIT>,
++							 <&cpu5 8 THERMAL_NO_LIMIT>;
++				};
++			};
+ 		};
+ 
+ 		little-thermal {
+@@ -199,12 +562,43 @@ little-thermal {
+ 			thermal-sensors = <&acpm_tmu 2>;
+ 
+ 			trips {
++				little_hot: little-hot {
++					temperature = <75000>;
++					hysteresis = <5000>;
++					type = "passive";
++				};
++
++				/* a fast burst outruns step_wise: throttle deep at once */
++				little_hotter: little-hotter {
++					temperature = <85000>;
++					hysteresis = <5000>;
++					type = "passive";
++				};
++
+ 				little_crit: little-crit {
+ 					temperature = <110000>;
+ 					hysteresis = <0>;
+ 					type = "critical";
+ 				};
+ 			};
++
++			cooling-maps {
++				map0 {
++					trip = <&little_hot>;
++					cooling-device = <&cpu0 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
++							 <&cpu1 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
++							 <&cpu2 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
++							 <&cpu3 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
++				};
++
++				map1 {
++					trip = <&little_hotter>;
++					cooling-device = <&cpu0 7 THERMAL_NO_LIMIT>,
++							 <&cpu1 7 THERMAL_NO_LIMIT>,
++							 <&cpu2 7 THERMAL_NO_LIMIT>,
++							 <&cpu3 7 THERMAL_NO_LIMIT>;
++				};
++			};
+ 		};
+ 
+ 		gpu-thermal {

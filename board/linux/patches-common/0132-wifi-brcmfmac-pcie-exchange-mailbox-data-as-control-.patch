@@ -1,0 +1,397 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Mon, 12 Oct 2026 12:54:27 -0400
+Subject: [PATCH] wifi: brcmfmac: pcie: exchange mailbox data as control
+ messages
+
+From shared version 6, Broadcom's driver sends and receives mailbox
+data (D3 inform, D3 ack, deep sleep requests) as control-ring messages
+(MSGBUF_TYPE_H2D_MAILBOX_DATA and D2H_MAILBOX_DATA), unless the firmware
+sets PCIE_SHARED_USE_MAILBOX. The BCM4389 firmware reports shared flags
+0x70050107: version 7, no USE_MAILBOX. It ignores the D3 inform written
+to the TCM mailbox, so every system suspend timed out waiting for the D3
+ack and failed with -EIO, and its D2H mailbox messages were logged as
+unsupported.
+
+Send and receive mailbox data as control messages for such firmware.
+There is no D0 inform on resume; the host-ready doorbell resumes the
+device.
+
+The D3 ack then arrives while the control completion ring is being
+processed. Waking the suspend path at that point lets it set STATE_DOWN
+before the ring's read pointer is written back, and that write is then
+refused. Publish the ack at the end of RX processing, under rx_lock,
+which serialises the interrupt thread and the poll worker.
+
+While at it, fail the suspend at once when the D3 inform can't be sent
+rather than waiting for an ack that can't come, and stop the poll worker
+once the device is in D3.
+
+Assisted-by: LLM
+Signed-off-by: Derek Ross <derekross@gmail.com>
+---
+ .../broadcom/brcm80211/brcmfmac/bus.h         |   9 ++
+ .../broadcom/brcm80211/brcmfmac/msgbuf.c      |  56 ++++++++
+ .../broadcom/brcm80211/brcmfmac/msgbuf.h      |   1 +
+ .../broadcom/brcm80211/brcmfmac/pcie.c        | 121 ++++++++++++++----
+ 4 files changed, 164 insertions(+), 23 deletions(-)
+
+diff --git a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/bus.h b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/bus.h
+index 9371c1489..f41d87dd5 100644
+--- a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/bus.h
++++ b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/bus.h
+@@ -87,6 +87,8 @@ struct brcmf_bus_dcmd {
+  * @get_memdump: obtain device memory dump in provided buffer.
+  * @get_blob: obtain a firmware blob.
+  * @remove: initiate unbind of the device.
++ * @d2h_mb_data: mailbox data the device sent as a control message
++ *	(optional).
+  *
+  * This structure provides an abstract interface towards the
+  * bus specific driver. For control messages to common driver
+@@ -108,6 +110,7 @@ struct brcmf_bus_ops {
+ 	void (*debugfs_create)(struct device *dev);
+ 	int (*reset)(struct device *dev);
+ 	void (*remove)(struct device *dev);
++	void (*d2h_mb_data)(struct device *dev, u32 data);
+ };
+ 
+ 
+@@ -282,6 +285,12 @@ int brcmf_bus_reset(struct brcmf_bus *bus)
+ 	return bus->ops->reset(bus->dev);
+ }
+ 
++static inline void brcmf_bus_d2h_mb_data(struct brcmf_bus *bus, u32 data)
++{
++	if (bus->ops->d2h_mb_data)
++		bus->ops->d2h_mb_data(bus->dev, data);
++}
++
+ static inline void brcmf_bus_remove(struct brcmf_bus *bus)
+ {
+ 	if (!bus->ops->remove) {
+diff --git a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/msgbuf.c b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/msgbuf.c
+index 7f0dab2f1..d91085116 100644
+--- a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/msgbuf.c
++++ b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/msgbuf.c
+@@ -49,6 +49,8 @@
+ #define MSGBUF_TYPE_RX_CMPLT			0x12
+ #define MSGBUF_TYPE_LPBK_DMAXFER		0x13
+ #define MSGBUF_TYPE_LPBK_DMAXFER_CMPLT		0x14
++#define MSGBUF_TYPE_H2D_MAILBOX_DATA		0x23
++#define MSGBUF_TYPE_D2H_MAILBOX_DATA		0x24
+ 
+ #define NR_TX_PKTIDS				2048
+ #define NR_RX_PKTIDS				2048
+@@ -138,6 +140,23 @@ struct msgbuf_completion_hdr {
+ 	__le16				flow_ring_id;
+ };
+ 
++/*
++ * Mailbox data as control messages, for firmware that doesn't use the
++ * shared-memory mailbox (Broadcom's h2d_mailbox_data and d2h_mailbox_data).
++ */
++struct msgbuf_h2d_mailbox_data {
++	struct msgbuf_common_hdr	msg;
++	__le32				mb_data;
++	__le32				rsvd[7];
++};
++
++struct msgbuf_d2h_mailbox_data {
++	struct msgbuf_common_hdr	msg;
++	struct msgbuf_completion_hdr	compl_hdr;
++	__le32				mb_data;
++	__le32				rsvd;
++};
++
+ /* Data struct for the MSGBUF_TYPE_GEN_STATUS */
+ struct msgbuf_gen_status {
+ 	struct msgbuf_common_hdr	msg;
+@@ -1438,6 +1457,7 @@ brcmf_msgbuf_process_flow_ring_delete_response(struct brcmf_msgbuf *msgbuf,
+ static void brcmf_msgbuf_process_msgtype(struct brcmf_msgbuf *msgbuf, void *buf)
+ {
+ 	struct brcmf_pub *drvr = msgbuf->drvr;
++	struct msgbuf_d2h_mailbox_data *mb_data;
+ 	struct msgbuf_common_hdr *msg;
+ 
+ 	msg = (struct msgbuf_common_hdr *)buf;
+@@ -1477,6 +1497,11 @@ static void brcmf_msgbuf_process_msgtype(struct brcmf_msgbuf *msgbuf, void *buf)
+ 		brcmf_dbg(MSGBUF, "MSGBUF_TYPE_RX_CMPLT\n");
+ 		brcmf_msgbuf_process_rx_complete(msgbuf, buf);
+ 		break;
++	case MSGBUF_TYPE_D2H_MAILBOX_DATA:
++		brcmf_dbg(MSGBUF, "MSGBUF_TYPE_D2H_MAILBOX_DATA\n");
++		mb_data = (struct msgbuf_d2h_mailbox_data *)buf;
++		brcmf_bus_d2h_mb_data(drvr->bus_if, le32_to_cpu(mb_data->mb_data));
++		break;
+ 	default:
+ 		bphy_err(drvr, "Unsupported msgtype %d\n", msg->msgtype);
+ 		break;
+@@ -1516,6 +1541,37 @@ static void brcmf_msgbuf_process_rx(struct brcmf_msgbuf *msgbuf,
+ }
+ 
+ 
++/* Mailbox data for the device, sent as a control message. */
++int brcmf_proto_msgbuf_h2d_mb_data(struct device *dev, u32 data)
++{
++	struct brcmf_bus *bus_if = dev_get_drvdata(dev);
++	struct brcmf_pub *drvr = bus_if->drvr;
++	struct msgbuf_h2d_mailbox_data *mb_data;
++	struct brcmf_commonring *commonring;
++	struct brcmf_msgbuf *msgbuf;
++	int err;
++
++	if (!drvr || !drvr->proto || !drvr->proto->pd)
++		return -EAGAIN;
++	msgbuf = (struct brcmf_msgbuf *)drvr->proto->pd;
++
++	commonring = msgbuf->commonrings[BRCMF_H2D_MSGRING_CONTROL_SUBMIT];
++	brcmf_commonring_lock(commonring);
++	mb_data = brcmf_commonring_reserve_for_write(commonring);
++	if (!mb_data) {
++		brcmf_commonring_unlock(commonring);
++		return -ENOMEM;
++	}
++	memset(mb_data, 0, sizeof(*mb_data));
++	mb_data->msg.msgtype = MSGBUF_TYPE_H2D_MAILBOX_DATA;
++	mb_data->mb_data = cpu_to_le32(data);
++	err = brcmf_commonring_write_complete(commonring);
++	brcmf_commonring_unlock(commonring);
++
++	return err;
++}
++
++
+ int brcmf_proto_msgbuf_rx_trigger(struct device *dev)
+ {
+ 	struct brcmf_bus *bus_if = dev_get_drvdata(dev);
+diff --git a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/msgbuf.h b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/msgbuf.h
+index 6a849f4a9..76dd36f6c 100644
+--- a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/msgbuf.h
++++ b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/msgbuf.h
+@@ -29,6 +29,7 @@ struct msgbuf_buf_addr {
+ };
+ 
+ int brcmf_proto_msgbuf_rx_trigger(struct device *dev);
++int brcmf_proto_msgbuf_h2d_mb_data(struct device *dev, u32 data);
+ void brcmf_msgbuf_delete_flowring(struct brcmf_pub *drvr, u16 flowid);
+ int brcmf_proto_msgbuf_attach(struct brcmf_pub *drvr);
+ void brcmf_proto_msgbuf_detach(struct brcmf_pub *drvr);
+diff --git a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/pcie.c b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/pcie.c
+index 666ca1b36..2906d1d92 100644
+--- a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/pcie.c
++++ b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/pcie.c
+@@ -244,6 +244,7 @@ static const struct brcmf_firmware_mapping brcmf_pcie_fwnames[] = {
+ #define BRCMF_PCIE_SHARED_VERSION_MASK		0x00FF
+ #define BRCMF_PCIE_SHARED_DMA_INDEX		0x10000
+ #define BRCMF_PCIE_SHARED_DMA_2B_IDX		0x100000
++#define BRCMF_PCIE_SHARED_USE_MAILBOX		0x2000000
+ #define BRCMF_PCIE_SHARED_HOSTRDY_DB1		0x10000000
+ #define BRCMF_PCIE_SHARED_DAR			0x80000000
+ 
+@@ -388,6 +389,10 @@ struct brcmf_pciedev_info {
+ 	struct brcmf_pcie_shared_info shared;
+ 	wait_queue_head_t mbdata_resp_wait;
+ 	bool mbdata_completed;
++	/* Mailbox data travels as control messages (shared version >= 6). */
++	bool mb_ctrlmsg;
++	/* A D3 ACK arrived as a control message; publish it after RX. */
++	bool d3_ack_pending;
+ 	bool irq_allocated;
+ 	bool wowl_enabled;
+ 	u8 dma_idx_sz;
+@@ -1057,6 +1062,14 @@ brcmf_pcie_send_mb_data(struct brcmf_pciedev_info *devinfo, u32 htod_mb_data)
+ 	u32 cur_htod_mb_data;
+ 	u32 i;
+ 
++	if (devinfo->mb_ctrlmsg) {
++		if (devinfo->state != BRCMFMAC_PCIE_STATE_UP)
++			return -EIO;
++		/* Rings the doorbell through the control ring's callbacks. */
++		return brcmf_proto_msgbuf_h2d_mb_data(&devinfo->pdev->dev,
++						      htod_mb_data);
++	}
++
+ 	shared = &devinfo->shared;
+ 	addr = shared->htod_mb_data_addr;
+ 	cur_htod_mb_data = brcmf_pcie_read_tcm32(devinfo, addr);
+@@ -1086,21 +1099,9 @@ brcmf_pcie_send_mb_data(struct brcmf_pciedev_info *devinfo, u32 htod_mb_data)
+ }
+ 
+ 
+-static void brcmf_pcie_handle_mb_data(struct brcmf_pciedev_info *devinfo)
++static void brcmf_pcie_process_mb_data(struct brcmf_pciedev_info *devinfo,
++				       u32 dtoh_mb_data)
+ {
+-	struct brcmf_pcie_shared_info *shared;
+-	u32 addr;
+-	u32 dtoh_mb_data;
+-
+-	shared = &devinfo->shared;
+-	addr = shared->dtoh_mb_data_addr;
+-	dtoh_mb_data = brcmf_pcie_read_tcm32(devinfo, addr);
+-
+-	if (!dtoh_mb_data)
+-		return;
+-
+-	brcmf_pcie_write_tcm32(devinfo, addr, 0);
+-
+ 	brcmf_dbg(PCIE, "D2H_MB_DATA: 0x%04x\n", dtoh_mb_data);
+ 	if (dtoh_mb_data & BRCMF_D2H_DEV_DS_ENTER_REQ)  {
+ 		brcmf_dbg(PCIE, "D2H_MB_DATA: DEEP SLEEP REQ\n");
+@@ -1111,8 +1112,18 @@ static void brcmf_pcie_handle_mb_data(struct brcmf_pciedev_info *devinfo)
+ 		brcmf_dbg(PCIE, "D2H_MB_DATA: DEEP SLEEP EXIT\n");
+ 	if (dtoh_mb_data & BRCMF_D2H_DEV_D3_ACK) {
+ 		brcmf_dbg(PCIE, "D2H_MB_DATA: D3 ACK\n");
+-		devinfo->mbdata_completed = true;
+-		wake_up(&devinfo->mbdata_resp_wait);
++		if (devinfo->mb_ctrlmsg) {
++			/*
++			 * The message is still being processed: its ring read
++			 * pointer isn't written back yet, and once the waiter
++			 * sets STATE_DOWN that write is refused. Publish the
++			 * ACK once RX processing is done (under rx_lock).
++			 */
++			devinfo->d3_ack_pending = true;
++		} else {
++			WRITE_ONCE(devinfo->mbdata_completed, true);
++			wake_up(&devinfo->mbdata_resp_wait);
++		}
+ 	}
+ 	if (dtoh_mb_data & BRCMF_D2H_DEV_FWHALT) {
+ 		brcmf_dbg(PCIE, "D2H_MB_DATA: FW HALT\n");
+@@ -1121,6 +1132,32 @@ static void brcmf_pcie_handle_mb_data(struct brcmf_pciedev_info *devinfo)
+ }
+ 
+ 
++static void brcmf_pcie_handle_mb_data(struct brcmf_pciedev_info *devinfo)
++{
++	struct brcmf_pcie_shared_info *shared;
++	u32 addr;
++	u32 dtoh_mb_data;
++
++	shared = &devinfo->shared;
++	addr = shared->dtoh_mb_data_addr;
++	dtoh_mb_data = brcmf_pcie_read_tcm32(devinfo, addr);
++
++	if (!dtoh_mb_data)
++		return;
++
++	brcmf_pcie_write_tcm32(devinfo, addr, 0);
++	brcmf_pcie_process_mb_data(devinfo, dtoh_mb_data);
++}
++
++
++static void brcmf_pcie_d2h_mb_data(struct device *dev, u32 data)
++{
++	struct brcmf_bus *bus_if = dev_get_drvdata(dev);
++
++	brcmf_pcie_process_mb_data(bus_if->bus_priv.pcie->devinfo, data);
++}
++
++
+ static void brcmf_pcie_bus_console_init(struct brcmf_pciedev_info *devinfo)
+ {
+ 	struct brcmf_pcie_shared_info *shared;
+@@ -1240,6 +1277,15 @@ static void brcmf_pcie_rx_process(struct brcmf_pciedev_info *devinfo)
+ 	mutex_lock(&devinfo->rx_lock);
+ 	if (devinfo->state == BRCMFMAC_PCIE_STATE_UP)
+ 		brcmf_proto_msgbuf_rx_trigger(&devinfo->pdev->dev);
++	/*
++	 * The rings' read pointers are written back now, so a D3 ACK that
++	 * came as a control message can be published.
++	 */
++	if (devinfo->d3_ack_pending) {
++		devinfo->d3_ack_pending = false;
++		WRITE_ONCE(devinfo->mbdata_completed, true);
++		wake_up(&devinfo->mbdata_resp_wait);
++	}
+ 	mutex_unlock(&devinfo->rx_lock);
+ }
+ 
+@@ -1991,6 +2037,7 @@ static const struct brcmf_bus_ops brcmf_pcie_bus_ops = {
+ 	.get_blob = brcmf_pcie_get_blob,
+ 	.reset = brcmf_pcie_reset,
+ 	.debugfs_create = brcmf_pcie_debugfs_create,
++	.d2h_mb_data = brcmf_pcie_d2h_mb_data,
+ };
+ 
+ 
+@@ -2031,6 +2078,17 @@ brcmf_pcie_init_share_ram_info(struct brcmf_pciedev_info *devinfo,
+ 	shared->version = (u8)(shared->flags & BRCMF_PCIE_SHARED_VERSION_MASK);
+ 	brcmf_dbg(PCIE, "shared flags 0x%08x\n", shared->flags);
+ 
++	/*
++	 * From shared version 6 Broadcom's driver exchanges mailbox data
++	 * (D3 inform and ack, deep sleep) as control messages, unless the
++	 * firmware asks for the shared-memory mailbox. The BCM4389 firmware
++	 * doesn't, and ignores the TCM mailbox.
++	 */
++	devinfo->mb_ctrlmsg = shared->version >= 6 &&
++			      !(shared->flags & BRCMF_PCIE_SHARED_USE_MAILBOX);
++	brcmf_dbg(PCIE, "mailbox data as %s\n",
++		  devinfo->mb_ctrlmsg ? "control messages" : "TCM mailbox");
++
+ 	/* Broadcom's driver rings the DAR doorbells only when the firmware
+ 	 * offers them, and the core's own H2D mailbox registers otherwise.
+ 	 * The BCM4389 firmware does not, and ignores the DAR doorbells.
+@@ -3112,6 +3170,7 @@ static int brcmf_pcie_pm_enter_D3(struct device *dev)
+ {
+ 	struct brcmf_pciedev_info *devinfo;
+ 	struct brcmf_bus *bus;
++	int err;
+ 
+ 	brcmf_dbg(PCIE, "Enter\n");
+ 
+@@ -3121,20 +3180,31 @@ static int brcmf_pcie_pm_enter_D3(struct device *dev)
+ 	brcmf_pcie_fwcon_timer(devinfo, false);
+ 	brcmf_bus_change_state(bus, BRCMF_BUS_DOWN);
+ 
+-	devinfo->mbdata_completed = false;
+-	brcmf_pcie_send_mb_data(devinfo, BRCMF_H2D_HOST_D3_INFORM);
++	WRITE_ONCE(devinfo->mbdata_completed, false);
++	err = brcmf_pcie_send_mb_data(devinfo, BRCMF_H2D_HOST_D3_INFORM);
++	if (err) {
++		brcmf_err(bus, "Failed to send D3 inform: %d\n", err);
++		goto restore;
++	}
+ 
+-	wait_event_timeout(devinfo->mbdata_resp_wait, devinfo->mbdata_completed,
++	wait_event_timeout(devinfo->mbdata_resp_wait,
++			   READ_ONCE(devinfo->mbdata_completed),
+ 			   BRCMF_PCIE_MBDATA_TIMEOUT);
+-	if (!devinfo->mbdata_completed) {
++	if (!READ_ONCE(devinfo->mbdata_completed)) {
+ 		brcmf_err(bus, "Timeout on response for entering D3 substate\n");
+-		brcmf_bus_change_state(bus, BRCMF_BUS_UP);
+-		return -EIO;
++		err = -EIO;
++		goto restore;
+ 	}
+ 
+ 	devinfo->state = BRCMFMAC_PCIE_STATE_DOWN;
++	/* Nothing to poll until resume; the worker would only see DOWN. */
++	cancel_delayed_work_sync(&devinfo->poll_work);
+ 
+ 	return 0;
++
++restore:
++	brcmf_bus_change_state(bus, BRCMF_BUS_UP);
++	return err;
+ }
+ 
+ 
+@@ -3154,7 +3224,12 @@ static int brcmf_pcie_pm_leave_D3(struct device *dev)
+ 	/* Check if device is still up and running, if so we are ready */
+ 	if (brcmf_pcie_read_reg32(devinfo, devinfo->reginfo->intmask) != 0) {
+ 		brcmf_dbg(PCIE, "Try to wakeup device....\n");
+-		if (brcmf_pcie_send_mb_data(devinfo, BRCMF_H2D_HOST_D0_INFORM))
++		/*
++		 * With mailbox data as control messages there is no D0 inform:
++		 * the host-ready doorbell below resumes the device.
++		 */
++		if (!devinfo->mb_ctrlmsg &&
++		    brcmf_pcie_send_mb_data(devinfo, BRCMF_H2D_HOST_D0_INFORM))
+ 			goto cleanup;
+ 		brcmf_dbg(PCIE, "Hot resume, continue....\n");
+ 		devinfo->state = BRCMFMAC_PCIE_STATE_UP;

@@ -1,0 +1,49 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Brett-Michael Green <brett@bmgvisualtech.com>
+Date: Fri, 30 Oct 2026 16:23:42 -0400
+Subject: [PATCH] firmware: samsung: acpm: Add the Tensor G3
+
+zuma's ACPM firmware keeps its channel table at 0xa000 in the APM SRAM,
+as stock's device tree gives it (initdata-base). Add zuma's match data.
+No driver binds its clocks device yet.
+
+Assisted-by: LLM
+Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
+---
+ drivers/firmware/samsung/exynos-acpm.c | 9 +++++++++
+ 1 file changed, 9 insertions(+)
+
+diff --git a/drivers/firmware/samsung/exynos-acpm.c b/drivers/firmware/samsung/exynos-acpm.c
+index cbe830b98..dfac2a004 100644
+--- a/drivers/firmware/samsung/exynos-acpm.c
++++ b/drivers/firmware/samsung/exynos-acpm.c
+@@ -42,6 +42,7 @@
+ 
+ #define ACPM_GS101_INITDATA_BASE	0xa000
+ #define ACPM_GS201_INITDATA_BASE	0xa000
++#define ACPM_ZUMA_INITDATA_BASE		0xa000
+ #define ACPM_ZUMAPRO_INITDATA_BASE	0xa000
+ 
+ /* Sanity limit for the channel count read from SRAM. */
+@@ -981,6 +982,11 @@ static const struct acpm_match_data acpm_gs201 = {
+ 	.acpm_clk_dev_name = "gs201-acpm-clk",
+ };
+ 
++static const struct acpm_match_data acpm_zuma = {
++	.initdata_base = ACPM_ZUMA_INITDATA_BASE,
++	.acpm_clk_dev_name = "zuma-acpm-clk",
++};
++
+ static const struct acpm_match_data acpm_zumapro = {
+ 	.initdata_base = ACPM_ZUMAPRO_INITDATA_BASE,
+ 	.acpm_clk_dev_name = "zumapro-acpm-clk",
+@@ -993,6 +999,9 @@ static const struct of_device_id acpm_match[] = {
+ 	}, {
+ 		.compatible = "google,gs201-acpm-ipc",
+ 		.data = &acpm_gs201,
++	}, {
++		.compatible = "google,zuma-acpm-ipc",
++		.data = &acpm_zuma,
+ 	}, {
+ 		.compatible = "google,zumapro-acpm-ipc",
+ 		.data = &acpm_zumapro,

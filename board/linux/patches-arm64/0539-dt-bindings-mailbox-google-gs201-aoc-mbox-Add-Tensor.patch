@@ -1,0 +1,30 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Sat, 31 Oct 2026 11:17:06 -0643
+Subject: [PATCH] dt-bindings: mailbox: google,gs201-aoc-mbox: Add Tensor G4
+ (zumapro)
+
+The Pixel 9a's AoC mailboxes (Tensor G4, zumapro) have gs201's register
+layout: three of them, A32, F1 and P6, at 0x15200000, 0x15220000 and
+0x15240000 with GIC SPIs 77 to 79, 16 doorbells each way.
+
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ .../devicetree/bindings/mailbox/google,gs201-aoc-mbox.yaml    | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/Documentation/devicetree/bindings/mailbox/google,gs201-aoc-mbox.yaml b/Documentation/devicetree/bindings/mailbox/google,gs201-aoc-mbox.yaml
+index df919aaa4..838c338dd 100644
+--- a/Documentation/devicetree/bindings/mailbox/google,gs201-aoc-mbox.yaml
++++ b/Documentation/devicetree/bindings/mailbox/google,gs201-aoc-mbox.yaml
+@@ -17,7 +17,9 @@ description:
+ 
+ properties:
+   compatible:
+-    const: google,gs201-aoc-mbox
++    enum:
++      - google,gs201-aoc-mbox
++      - google,zumapro-aoc-mbox
+ 
+   reg:
+     maxItems: 1

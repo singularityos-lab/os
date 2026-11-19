@@ -1,0 +1,100 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Thu, 22 Oct 2026 21:08:06 -0700
+Subject: [PATCH] phy: exynos5-usbdrd: Balance underlying UTMI PHY
+ initialization
+
+The Exynos2200-family UTMI callback discards phy_init() failures, so
+the wrapper can report success after its underlying PHY has unwound
+failed regulator, clock or reset setup. Its exit path never calls
+phy_exit(), leaving a successful child's references held across cycles.
+
+Initialize the child from the returning wrapper callback, propagate
+its error and unwind wrapper resources on failure. Balance a successful
+child init in the UTMI exit path before isolating the wrapper. Leave
+other SoC callbacks and PIPE-specific initialization unchanged.
+
+A host-only harness using the exact functions reproduces the original
+dropped error and verifies eight lifecycle cases with this change,
+including child/clock/regulator failures and a NULL optional child.
+ARM64 W=1 and the combined Image/modules link pass. No hardware test
+is claimed.
+
+Fixes: cc52a697f87e ("phy: exynos5-usbdrd: support Exynos USBDRD 3.2 4nm controller")
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ drivers/phy/samsung/phy-exynos5-usbdrd.c | 29 ++++++++++++++++--------
+ 1 file changed, 19 insertions(+), 10 deletions(-)
+
+diff --git a/drivers/phy/samsung/phy-exynos5-usbdrd.c b/drivers/phy/samsung/phy-exynos5-usbdrd.c
+index 74b86628d..fe4703aa1 100644
+--- a/drivers/phy/samsung/phy-exynos5-usbdrd.c
++++ b/drivers/phy/samsung/phy-exynos5-usbdrd.c
+@@ -1403,12 +1403,6 @@ static const struct phy_ops exynos7870_usbdrd_phy_ops = {
+ 	.owner		= THIS_MODULE,
+ };
+ 
+-static void exynos2200_usbdrd_utmi_init(struct exynos5_usbdrd_phy *phy_drd)
+-{
+-	/* Configure non-Samsung IP PHY, responsible for UTMI */
+-	phy_init(phy_drd->hs_phy);
+-}
+-
+ static void exynos2200_usbdrd_link_init(struct exynos5_usbdrd_phy *phy_drd)
+ {
+ 	void __iomem *regs_base = phy_drd->reg_phy;
+@@ -1497,7 +1491,7 @@ static int exynos2200_usbdrd_phy_init(struct phy *phy)
+ 
+ 	ret = clk_bulk_prepare_enable(phy_drd->drv_data->n_clks, phy_drd->clks);
+ 	if (ret)
+-		return ret;
++		goto isolate_phy;
+ 
+ 	/* Set up the link controller */
+ 	exynos2200_usbdrd_link_init(phy_drd);
+@@ -1506,11 +1500,22 @@ static int exynos2200_usbdrd_phy_init(struct phy *phy)
+ 	exynos2200_usbdrd_link_attach_detach_pipe3_phy(inst);
+ 
+ 	/* UTMI or PIPE3 specific init */
+-	inst->phy_cfg->phy_init(phy_drd);
++	if (inst->phy_cfg->id == EXYNOS5_DRDPHY_UTMI)
++		ret = phy_init(phy_drd->hs_phy);
++	else
++		inst->phy_cfg->phy_init(phy_drd);
+ 
+ 	clk_bulk_disable_unprepare(phy_drd->drv_data->n_clks, phy_drd->clks);
++	if (!ret)
++		return 0;
+ 
+-	return 0;
++isolate_phy:
++	exynos5_usbdrd_phy_isol(inst, true);
++	if (inst->phy_cfg->id == EXYNOS5_DRDPHY_UTMI)
++		regulator_bulk_disable(phy_drd->drv_data->n_regulators,
++				       phy_drd->regulators);
++
++	return ret;
+ }
+ 
+ static int exynos2200_usbdrd_phy_exit(struct phy *phy)
+@@ -1541,7 +1546,12 @@ static int exynos2200_usbdrd_phy_exit(struct phy *phy)
+ 	reg &= ~CLKRST_LINK_SW_RST;
+ 	writel(reg, regs_base + EXYNOS2200_DRD_CLKRST);
+ 
++	if (inst->phy_cfg->id == EXYNOS5_DRDPHY_UTMI)
++		ret = phy_exit(phy_drd->hs_phy);
++
+ 	clk_bulk_disable_unprepare(phy_drd->drv_data->n_clks, phy_drd->clks);
++	if (ret)
++		return ret;
+ 
+ 	exynos5_usbdrd_phy_isol(inst, true);
+ 	return regulator_bulk_disable(phy_drd->drv_data->n_regulators,
+@@ -1882,7 +1892,6 @@ static const struct exynos5_usbdrd_phy_config phy_cfg_exynos2200[] = {
+ 	{
+ 		.id		= EXYNOS5_DRDPHY_UTMI,
+ 		.phy_isol	= exynos5_usbdrd_phy_isol,
+-		.phy_init	= exynos2200_usbdrd_utmi_init,
+ 	},
+ };
+ 

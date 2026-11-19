@@ -1,0 +1,89 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Hiroyuki Ikegami <ikegam@mixallow.net>
+Date: Mon, 9 Nov 2026 14:05:00 +0900
+Subject: [PATCH] rtc: s5m: disarm the S2MPG12's WTSR and SMPL restarts at
+ power off
+
+On the Pixel 7 Pro (gs201, S2MPG12), power off restarts the phone.
+The RTC block read on a running phone shows the PMIC's warm-reset
+restart armed:
+
+  0x02 (SMPL) = 0x0e: SMPL_EN 0
+  0x03 (WTSR) = 0x0f: WTSR_EN 1, WTSRT 7, COLDRST_EN 0
+
+With WTSR enabled, the PMIC answers the AP dropping power by powering
+it up again. Google's S2MPG12 RTC driver clears SMPL_EN, WTSR_EN and
+COLDRST_EN in its shutdown callback before every power off, and arms
+them again only for a restart (rtc-s2mpg12.c, s2m_rtc_shutdown()).
+
+Do the same for power off and halt. Restarts are left as they are.
+This changes power off on the S2MPG12 boards: cheetah, lynx and
+panther.
+
+Assisted-by: LLM
+Signed-off-by: Hiroyuki Ikegami <ikegam@mixallow.net>
+---
+ drivers/rtc/rtc-s5m.c           | 31 +++++++++++++++++++++++++++++++
+ include/linux/mfd/samsung/rtc.h |  2 ++
+ 2 files changed, 33 insertions(+)
+
+diff --git a/drivers/rtc/rtc-s5m.c b/drivers/rtc/rtc-s5m.c
+index e38d8b918..dde6d2b81 100644
+--- a/drivers/rtc/rtc-s5m.c
++++ b/drivers/rtc/rtc-s5m.c
+@@ -709,6 +709,36 @@ static int s5m_rtc_restart_s2mpg10(struct sys_off_data *data)
+ 	return ret ? NOTIFY_BAD : NOTIFY_DONE;
+ }
+ 
++/*
++ * The PMIC's warm-reset (WTSR, with its cold-reset follow-up) and sudden
++ * power loss (SMPL) restarts stay armed in the always-on RTC block across
++ * boots. Left on, the PMIC answers the AP's power-off by powering it back
++ * up, so power off turns into a restart. Google's S2MPG12 RTC driver turns
++ * all three off in its shutdown callback before every power off, and arms
++ * them again only for a restart (rtc-s2mpg12.c, s2m_rtc_shutdown()).
++ * Restarts are left alone here: they never needed it on gs201.
++ */
++static void s5m_rtc_shutdown(struct platform_device *pdev)
++{
++	struct s5m_rtc_info *info = platform_get_drvdata(pdev);
++	int ret;
++
++	if (info->device_type != S2MPG12)
++		return;
++
++	if (system_state != SYSTEM_POWER_OFF && system_state != SYSTEM_HALT)
++		return;
++
++	ret = regmap_clear_bits(info->regmap, S2MPG10_RTC_SMPL,
++				S2MPG10_SMPL_EN);
++	if (!ret)
++		ret = regmap_clear_bits(info->regmap, S2MPG10_RTC_WTSR,
++					S2MPG10_WTSR_COLDRST |
++					S2MPG10_WTSR_WTSR_EN);
++	if (ret)
++		dev_err(info->dev, "failed to disarm WTSR/SMPL: %d\n", ret);
++}
++
+ static int s5m_rtc_probe(struct platform_device *pdev)
+ {
+ 	struct sec_pmic_dev *s5m87xx = dev_get_drvdata(pdev->dev.parent);
+@@ -874,6 +904,7 @@ static struct platform_driver s5m_rtc_driver = {
+ 		.pm	= &s5m_rtc_pm_ops,
+ 	},
+ 	.probe		= s5m_rtc_probe,
++	.shutdown	= s5m_rtc_shutdown,
+ 	.id_table	= s5m_rtc_id,
+ };
+ 
+diff --git a/include/linux/mfd/samsung/rtc.h b/include/linux/mfd/samsung/rtc.h
+index 51c4239a1..5dbbbd1f6 100644
+--- a/include/linux/mfd/samsung/rtc.h
++++ b/include/linux/mfd/samsung/rtc.h
+@@ -167,4 +167,6 @@ enum s2mpg10_rtc_reg {
+ #define S2MPG10_WTSR_WTSRT	GENMASK(3, 1)
+ #define S2MPG10_WTSR_WTSR_EN	BIT(0)
+ 
++#define S2MPG10_SMPL_EN		BIT(0)
++
+ #endif /*  __LINUX_MFD_SEC_RTC_H */

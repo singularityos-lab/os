@@ -1,0 +1,67 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: David Heidelberg <david@ixit.cz>
+Date: Thu, 29 Oct 2026 14:39:17 -0700
+Subject: [PATCH] dt-bindings: input: touchscreen: st,stmfts: Introduce STM
+ FTS5
+
+Introduce more recent STM FTS5 touchscreen support.
+
+Signed-off-by: David Heidelberg <david@ixit.cz>
+Reviewed-by: Krzysztof Kozlowski <krzysztof.kozlowski@oss.qualcomm.com>
+Link: https://patch.msgid.link/20260925-stmfts5-v8-3-0fcf49e2c85f@ixit.cz
+Signed-off-by: Dmitry Torokhov <dmitry.torokhov@gmail.com>
+Signed-off-by: quatrixone <quatrix1@gmail.com>
+---
+ .../bindings/input/touchscreen/st,stmfts.yaml | 23 +++++++++++++++----
+ 1 file changed, 19 insertions(+), 4 deletions(-)
+
+diff --git a/Documentation/devicetree/bindings/input/touchscreen/st,stmfts.yaml b/Documentation/devicetree/bindings/input/touchscreen/st,stmfts.yaml
+index 6eb1ad658..113b66ffa 100644
+--- a/Documentation/devicetree/bindings/input/touchscreen/st,stmfts.yaml
++++ b/Documentation/devicetree/bindings/input/touchscreen/st,stmfts.yaml
+@@ -14,12 +14,11 @@ description:
+   functionality. Along with it the user can enable the touchkey which can work
+   as a basic HOME and BACK key for phones.
+ 
+-allOf:
+-  - $ref: touchscreen.yaml#
+-
+ properties:
+   compatible:
+-    const: st,stmfts
++    enum:
++      - st,stmfts
++      - st,stmfts5
+ 
+   reg:
+     maxItems: 1
+@@ -40,6 +39,10 @@ properties:
+   vdd-supply:
+     description: Power supply
+ 
++  mode-switch-gpios:
++    description: Optional switch between touchscreen SLPI and AP mode.
++    maxItems: 1
++
+   reset-gpios:
+     description: Reset GPIO (active-low)
+     maxItems: 1
+@@ -51,6 +54,18 @@ required:
+   - interrupts
+   - vdd-supply
+ 
++allOf:
++  - $ref: touchscreen.yaml#
++  - if:
++      not:
++        properties:
++          compatible:
++            contains:
++              const: st,stmfts5
++    then:
++      properties:
++        mode-switch-gpios: false
++
+ unevaluatedProperties: false
+ 
+ examples:

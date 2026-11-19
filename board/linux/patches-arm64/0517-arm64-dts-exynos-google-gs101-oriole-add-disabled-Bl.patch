@@ -1,0 +1,68 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Garrett lindquist <gr_link@hotmail.com>
+Date: Tue, 3 Nov 2026 16:39:54 -0700
+Subject: [PATCH] arm64: dts: exynos: google: gs101-oriole: add disabled
+ Bluetooth
+
+Describe the BCM4389 on the existing APM USI1 UART, including the pin
+states required when the device is enabled later. The control lines and
+3 Mbaud rate match Raven and Google's common gs101 Bluetooth wiring.
+
+Keep the controller disabled until this kernel and its native CMU_APM
+baud clock path have been qualified on Oriole. Historical bring-up used
+a different dirty kernel and a clock workaround.
+
+Signed-off-by: Garrett lindquist <gr_link@hotmail.com>
+---
+ .../boot/dts/exynos/google/gs101-oriole.dts   | 41 +++++++++++++++++++
+ 1 file changed, 41 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/gs101-oriole.dts b/arch/arm64/boot/dts/exynos/google/gs101-oriole.dts
+index 28a567fc0..6b204aa53 100644
+--- a/arch/arm64/boot/dts/exynos/google/gs101-oriole.dts
++++ b/arch/arm64/boot/dts/exynos/google/gs101-oriole.dts
+@@ -66,3 +66,44 @@ &framebuffer0 {
+ 
+ 	status = "okay";
+ };
++
++/* Keep Bluetooth off until the current kernel has been qualified on Oriole. */
++&serial_apm1 {
++	bluetooth {
++		compatible = "brcm,bcm4389-bt";
++		shutdown-gpios = <&gpp16 2 GPIO_ACTIVE_HIGH>;
++		device-wakeup-gpios = <&gpp14 3 GPIO_ACTIVE_HIGH>;
++		interrupts-extended = <&gpa6 6 IRQ_TYPE_EDGE_RISING>;
++		interrupt-names = "host-wakeup";
++		pinctrl-0 = <&bt_reg_on &bt_dev_wake &bt_host_wake>;
++		pinctrl-names = "default";
++		max-speed = <3000000>;
++		status = "disabled";
++	};
++};
++
++/* Bluetooth control lines match the shared gs101 wiring. */
++&pinctrl_far_alive {
++	bt_host_wake: bt-host-wake-pins {
++		samsung,pins = "gpa6-6";
++		samsung,pin-function = <GS101_PIN_FUNC_EINT>;
++		samsung,pin-pud = <GS101_PIN_PULL_DOWN>;
++		samsung,pin-drv = <GS101_PIN_DRV_2_5_MA>;
++	};
++};
++
++&pinctrl_peric0 {
++	bt_dev_wake: bt-dev-wake-pins {
++		samsung,pins = "gpp14-3";
++		samsung,pin-function = <GS101_PIN_FUNC_OUTPUT>;
++		samsung,pin-pud = <GS101_PIN_PULL_NONE>;
++		samsung,pin-drv = <GS101_PIN_DRV_2_5_MA>;
++	};
++
++	bt_reg_on: bt-reg-on-pins {
++		samsung,pins = "gpp16-2";
++		samsung,pin-function = <GS101_PIN_FUNC_OUTPUT>;
++		samsung,pin-pud = <GS101_PIN_PULL_NONE>;
++		samsung,pin-drv = <GS101_PIN_DRV_2_5_MA>;
++	};
++};

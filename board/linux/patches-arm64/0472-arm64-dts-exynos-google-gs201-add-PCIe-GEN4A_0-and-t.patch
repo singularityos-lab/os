@@ -1,0 +1,123 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Mon, 12 Oct 2026 13:59:15 -0400
+Subject: [PATCH] arm64: dts: exynos: google: gs201: add PCIe GEN4A_0 and the
+ modem MSI page
+
+Describe PCIe GEN4A_0 (pcie@11920000, GIC SPI 388-393), its PHY at
+0x11950000 (PMU isolation 0x3ec0), the HSI1 system registers and the
+CLKREQ#/PERST# pins on gph0, from Google's gs201 device tree. Reserve the
+modem's MSI target page at 0xf6200000 (stock cp_msi_rmem), which was
+plain System RAM so far.
+
+The controller and the PHY stay disabled.
+
+Assisted-by: LLM
+Signed-off-by: Derek Ross <derekross@gmail.com>
+---
+ .../boot/dts/exynos/google/gs201-pinctrl.dtsi | 17 ++++++
+ arch/arm64/boot/dts/exynos/google/gs201.dtsi  | 56 +++++++++++++++++++
+ 2 files changed, 73 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/gs201-pinctrl.dtsi b/arch/arm64/boot/dts/exynos/google/gs201-pinctrl.dtsi
+index 8d9ae7957..9d0b0536d 100644
+--- a/arch/arm64/boot/dts/exynos/google/gs201-pinctrl.dtsi
++++ b/arch/arm64/boot/dts/exynos/google/gs201-pinctrl.dtsi
+@@ -527,6 +527,23 @@ gph1: gph1-gpio-bank {
+ 		#interrupt-cells = <2>;
+ 	};
+ 
++	pcie0_clkreq: pcie0-clkreq-pins {
++		samsung,pins = "gph0-1";
++		samsung,pin-function = <GS101_PIN_FUNC_2>;
++		samsung,pin-pud = <GS101_PIN_PULL_UP>;
++		samsung,pin-drv = <GS101_PIN_DRV_2_5_MA>;
++		samsung,pin-con-pdn = <GS101_PIN_PDN_PREV>;
++		samsung,pin-pud-pdn = <GS101_PIN_PULL_UP>;
++	};
++
++	pcie0_perst: pcie0-perst-pins {
++		samsung,pins = "gph0-0";
++		samsung,pin-function = <GS101_PIN_FUNC_OUTPUT>;
++		samsung,pin-pud = <GS101_PIN_PULL_NONE>;
++		samsung,pin-drv = <GS101_PIN_DRV_2_5_MA>;
++		samsung,pin-con-pdn = <GS101_PIN_PDN_PREV>;
++		samsung,pin-pud-pdn = <GS101_PIN_PULL_NONE>;
++	};
+ };
+ 
+ &pinctrl_hsi2 {
+diff --git a/arch/arm64/boot/dts/exynos/google/gs201.dtsi b/arch/arm64/boot/dts/exynos/google/gs201.dtsi
+index 07ffed7d7..4d8134a5c 100644
+--- a/arch/arm64/boot/dts/exynos/google/gs201.dtsi
++++ b/arch/arm64/boot/dts/exynos/google/gs201.dtsi
+@@ -782,6 +782,7 @@ reserved-memory {
+ 		dss@d8100000 { reg = <0x0 0xd8100000 0x5f20000>; no-map; };
+ 		cp-rmem1@e8000000 { reg = <0x0 0xe8000000 0x2000000>; no-map; };
+ 		cp-rmem@ea400000 { reg = <0x0 0xea400000 0x800000>; no-map; };
++		/* The modem's MSI target (stock cp_msi_rmem) */
+ 		abl@f8800000 { reg = <0x0 0xf8800000 0x2000000>; no-map; };
+ 		/* ABL adds debug_kinfo_reserved@fd3fe000 (one page) after this. */
+ 		debug@fd3f0000 { reg = <0x0 0xfd3f0000 0xe000>; no-map; };
+@@ -1421,6 +1422,61 @@ pinctrl_hsi1: pinctrl@11840000 {
+ 			status = "disabled";
+ 		};
+ 
++		/* No CMU_HSI1 driver yet: the bus clock is not described. */
++		sysreg_hsi1: syscon@11820000 {
++			compatible = "google,gs201-hsi1-sysreg", "syscon";
++			reg = <0x11820000 0x1000>;
++		};
++
++		/*
++		 * PCIe GEN4A_0 in HSI1, the link to the S5300 modem (Google's
++		 * pcie_0, ch-num 0). Two lanes; the outbound iATU belongs to the
++		 * secure monitor. Bring-up driver only (pcie-gs201-cp).
++		 */
++		pcie_0: pcie@11920000 {
++			compatible = "google,gs201-pcie-cp";
++			reg = <0x11920000 0x1400>,
++			      <0x11c00000 0x301000>,
++			      <0x40ffe000 0x2000>,
++			      <0x11900000 0x1000>;
++			reg-names = "elbi", "dbi", "config", "ia";
++			#address-cells = <3>;
++			#size-cells = <2>;
++			device_type = "pci";
++			/* PCI 0x14e00000 = CPU 0x40000000, set up by the secure monitor */
++			ranges = <0x82000000 0x0 0x14e00000 0x40000000 0x0 0xff0000>;
++			bus-range = <0x00 0xff>;
++			interrupts = <GIC_SPI 388 IRQ_TYPE_LEVEL_HIGH>,
++				     <GIC_SPI 389 IRQ_TYPE_LEVEL_HIGH>,
++				     <GIC_SPI 390 IRQ_TYPE_LEVEL_HIGH>,
++				     <GIC_SPI 391 IRQ_TYPE_LEVEL_HIGH>,
++				     <GIC_SPI 392 IRQ_TYPE_LEVEL_HIGH>,
++				     <GIC_SPI 393 IRQ_TYPE_LEVEL_HIGH>;
++			interrupt-names = "ctrl", "msi0", "msi1", "msi2", "msi3", "msi4";
++			phys = <&pcie_0_phy>;
++			phy-names = "pcie";
++			pinctrl-0 = <&pcie0_clkreq>, <&pcie0_perst>;
++			pinctrl-names = "active";
++			reset-gpios = <&gph0 0 GPIO_ACTIVE_LOW>;
++			samsung,pmu-syscon = <&pmu_system_controller 0x3ec0>;
++			samsung,sysreg = <&sysreg_hsi1 0x704>;
++			num-lanes = <2>;
++			max-link-speed = <3>;
++			status = "disabled";
++		};
++
++		pcie_0_phy: phy@11950000 {
++			compatible = "google,gs201-pcie-phy";
++			reg = <0x11950000 0x2000>,
++			      <0x11940000 0x1000>,
++			      <0x11921400 0x10>,
++			      <0x11960000 0xd000>;
++			reg-names = "pma", "pcs", "rst", "udbg";
++			samsung,pmu-syscon = <&pmu_system_controller 0x3ec0>;
++			#phy-cells = <0>;
++			status = "disabled";
++		};
++
+ 		sysreg_hsi2: syscon@14420000 {
+ 			compatible = "google,gs201-hsi2-sysreg", "syscon";
+ 			reg = <0x14420000 0x10000>;

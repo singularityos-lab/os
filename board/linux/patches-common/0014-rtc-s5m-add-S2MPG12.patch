@@ -1,0 +1,120 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Mon, 12 Oct 2026 12:04:02 -0400
+Subject: [PATCH] rtc: s5m: add S2MPG12
+
+The S2MPG12 RTC has the same registers as S2MPG10's, behind the same
+ACPM regmap. Only the pending alarm flag lives elsewhere, in bit 2 of
+the PMIC's STATUS2 register.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ drivers/rtc/rtc-s5m.c | 18 +++++++++++++++++-
+ 1 file changed, 17 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/rtc/rtc-s5m.c b/drivers/rtc/rtc-s5m.c
+index aa706074e..27faa7f6a 100644
+--- a/drivers/rtc/rtc-s5m.c
++++ b/drivers/rtc/rtc-s5m.c
+@@ -16,6 +16,7 @@
+ #include <linux/platform_device.h>
+ #include <linux/mfd/samsung/core.h>
+ #include <linux/mfd/samsung/rtc.h>
++#include <linux/mfd/samsung/s2mpg12.h>
+ #include <linux/mfd/samsung/s2mps14.h>
+ 
+ /*
+@@ -253,6 +254,11 @@ static int s5m_check_pending_alarm_interrupt(struct s5m_rtc_info *info,
+ 		ret = regmap_read(info->regmap, S5M_RTC_STATUS, &val);
+ 		val &= S5M_ALARM0_STATUS;
+ 		break;
++	case S2MPG12:
++		ret = regmap_read(info->s5m87xx->regmap_pmic, S2MPG12_PMIC_STATUS2,
++				  &val);
++		val &= S2MPG12_STATUS2_RTCA0E;
++		break;
+ 	case S2MPG10:
+ 	case S2MPS15X:
+ 	case S2MPS14X:
+@@ -302,6 +308,7 @@ static int s5m8767_rtc_set_alarm_reg(struct s5m_rtc_info *info)
+ 		udr_mask |= S5M_RTC_TIME_EN_MASK;
+ 		break;
+ 	case S2MPG10:
++	case S2MPG12:
+ 	case S2MPS15X:
+ 	case S2MPS14X:
+ 	case S2MPS13X:
+@@ -353,6 +360,7 @@ static int s5m_rtc_read_time(struct device *dev, struct rtc_time *tm)
+ 	switch (info->device_type) {
+ 	case S5M8767X:
+ 	case S2MPG10:
++	case S2MPG12:
+ 	case S2MPS15X:
+ 	case S2MPS14X:
+ 	case S2MPS13X:
+@@ -377,6 +385,7 @@ static int s5m_rtc_set_time(struct device *dev, struct rtc_time *tm)
+ 	switch (info->device_type) {
+ 	case S5M8767X:
+ 	case S2MPG10:
++	case S2MPG12:
+ 	case S2MPS15X:
+ 	case S2MPS14X:
+ 	case S2MPS13X:
+@@ -415,6 +424,7 @@ static int s5m_rtc_read_alarm(struct device *dev, struct rtc_wkalrm *alrm)
+ 	switch (info->device_type) {
+ 	case S5M8767X:
+ 	case S2MPG10:
++	case S2MPG12:
+ 	case S2MPS15X:
+ 	case S2MPS14X:
+ 	case S2MPS13X:
+@@ -454,6 +464,7 @@ static int s5m_rtc_stop_alarm(struct s5m_rtc_info *info)
+ 	switch (info->device_type) {
+ 	case S5M8767X:
+ 	case S2MPG10:
++	case S2MPG12:
+ 	case S2MPS15X:
+ 	case S2MPS14X:
+ 	case S2MPS13X:
+@@ -493,6 +504,7 @@ static int s5m_rtc_start_alarm(struct s5m_rtc_info *info)
+ 	switch (info->device_type) {
+ 	case S5M8767X:
+ 	case S2MPG10:
++	case S2MPG12:
+ 	case S2MPS15X:
+ 	case S2MPS14X:
+ 	case S2MPS13X:
+@@ -531,6 +543,7 @@ static int s5m_rtc_set_alarm(struct device *dev, struct rtc_wkalrm *alrm)
+ 	switch (info->device_type) {
+ 	case S5M8767X:
+ 	case S2MPG10:
++	case S2MPG12:
+ 	case S2MPS15X:
+ 	case S2MPS14X:
+ 	case S2MPS13X:
+@@ -612,6 +625,7 @@ static int s5m8767_rtc_init_reg(struct s5m_rtc_info *info)
+ 		break;
+ 
+ 	case S2MPG10:
++	case S2MPG12:
+ 	case S2MPS15X:
+ 	case S2MPS14X:
+ 	case S2MPS13X:
+@@ -712,7 +726,8 @@ static int s5m_rtc_probe(struct platform_device *pdev)
+ 		if (IS_ERR(info->regmap))
+ 			return dev_err_probe(&pdev->dev, PTR_ERR(info->regmap),
+ 					     "Failed to allocate regmap\n");
+-	} else if (device_type == S2MPG10) {
++	} else if (device_type == S2MPG10 || device_type == S2MPG12) {
++		/* S2MPG12's RTC has the same registers as S2MPG10's */
+ 		info->regs = &s2mpg10_rtc_regs;
+ 	} else {
+ 		return dev_err_probe(&pdev->dev, -ENODEV,
+@@ -809,6 +824,7 @@ static SIMPLE_DEV_PM_OPS(s5m_rtc_pm_ops, s5m_rtc_suspend, s5m_rtc_resume);
+ static const struct platform_device_id s5m_rtc_id[] = {
+ 	{ .name = "s5m-rtc",     .driver_data = S5M8767X },
+ 	{ .name = "s2mpg10-rtc", .driver_data = S2MPG10 },
++	{ .name = "s2mpg12-rtc", .driver_data = S2MPG12 },
+ 	{ .name = "s2mps13-rtc", .driver_data = S2MPS13X },
+ 	{ .name = "s2mps14-rtc", .driver_data = S2MPS14X },
+ 	{ .name = "s2mps15-rtc", .driver_data = S2MPS15X },

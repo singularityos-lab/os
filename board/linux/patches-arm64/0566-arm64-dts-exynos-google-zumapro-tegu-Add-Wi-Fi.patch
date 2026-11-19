@@ -1,0 +1,121 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Sun, 1 Nov 2026 11:12:39 -0647
+Subject: [PATCH] arm64: dts: exynos: google: zumapro-tegu: Add Wi-Fi
+
+The Pixel 9a's BCM4383 sits behind PCIe channel 1. Enable the channel
+and its PHY, give the root port WL_REG_ON (gph3-4) as a fixed regulator
+with the 150 ms the bring-up waited before configuring the PHY, and
+describe the chip with its board type, so brcmfmac picks the board's
+firmware files.
+
+The link runs at Gen2, the chip's own limit (its LnkCap reads 5 GT/s).
+ASPM L0s and L1 stay off on the root port: nothing re-locks the PHY's
+clock and data recovery after L1 on this path (no I/A sequencer), and
+with ASPM on, the link entered L1 and the chip's config space read as
+all ones.
+
+All of the chip's DMA goes through a 16 MiB restricted DMA pool below
+4 GiB, as on the Pixel 7 Pro: the HSI2 System MMU and S2MPU see PCIe and
+UFS on the same VID, so they cannot confine the chip, and the pool at
+least keeps driver bugs away from the rest of RAM.
+
+Tested on the Pixel 9a with the same description applied as an overlay
+to 7.3.0-rc6-omamobile-tegu-s2mpg15-m1-g991042e2eff3-dirty, with
+pcie-gs201 and phy-zuma-pcie as modules: the link trained at Gen2 x1 on
+the first try, the chip used legacy INTx, brcmfmac assigned the pool to
+it and brought up wlan0, and wlan0 joined a network with no ping loss.
+
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ .../boot/dts/exynos/google/zumapro-tegu.dts   | 63 +++++++++++++++++++
+ 1 file changed, 63 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/zumapro-tegu.dts b/arch/arm64/boot/dts/exynos/google/zumapro-tegu.dts
+index f66e00608..a41d6c324 100644
+--- a/arch/arm64/boot/dts/exynos/google/zumapro-tegu.dts
++++ b/arch/arm64/boot/dts/exynos/google/zumapro-tegu.dts
+@@ -147,6 +147,19 @@ ufs_vcc: regulator-ufs-vcc {
+ 		regulator-boot-on;
+ 		regulator-always-on;
+ 	};
++
++	/*
++	 * WL_REG_ON (gph3-4), the Wi-Fi chip's power enable (stock's
++	 * pcie,wlan-gpio), raised 150 ms before the PCIe PHY is configured.
++	 * It is the root port's supply, so the PCI pwrctrl core switches it.
++	 */
++	wlan_reg_on: regulator-wlan-reg-on {
++		compatible = "regulator-fixed";
++		regulator-name = "wlan-reg-on";
++		gpio = <&gph3 4 GPIO_ACTIVE_HIGH>;
++		enable-active-high;
++		startup-delay-us = <150000>;
++	};
+ };
+ 
+ &{/reserved-memory} {
+@@ -169,6 +182,19 @@ display_pool: display-pool {
+ 		alignment = <0x0 0x00200000>;
+ 		alloc-ranges = <0x0 0x98000000 0x06000000>;
+ 	};
++
++	/*
++	 * All of the Wi-Fi chip's DMA buffers come from this pool. It keeps
++	 * driver bugs away from the rest of RAM; it does not confine the
++	 * chip's own firmware, as the HSI2 System MMU and S2MPU see PCIe and
++	 * UFS on the same VID and cannot enforce on it.
++	 */
++	wifi_dma_pool: wifi-dma-pool {
++		compatible = "restricted-dma-pool";
++		size = <0x01000000>;
++		alignment = <0x0 0x00200000>;
++		alloc-ranges = <0x0 0x80000000 0x80000000>;
++	};
+ };
+ 
+ &acpm_ipc {
+@@ -536,6 +562,43 @@ nfc@8 {
+ 	};
+ };
+ 
++/*
++ * Wi-Fi: the BCM4383 on pcie_1, one lane at Gen2, the chip's own limit
++ * (its LnkCap reads 5 GT/s). Its DMA buffers come from wifi_dma_pool.
++ */
++&pcie_1 {
++	max-link-speed = <2>;
++	status = "okay";
++
++	pcie@0,0 {
++		compatible = "pciclass,0604";
++		device_type = "pci";
++		reg = <0x0 0x0 0x0 0x0 0x0>;
++		bus-range = <0x01 0xff>;
++		#address-cells = <3>;
++		#size-cells = <2>;
++		ranges;
++		vpcie3v3-supply = <&wlan_reg_on>;
++		/*
++		 * No I/A sequencer re-locks the PHY after L1: with ASPM on, the
++		 * link entered L1 and config reads of the chip returned all ones.
++		 */
++		aspm-no-l0s;
++		aspm-no-l1;
++
++		wifi@0,0 {
++			compatible = "pci14e4,4449";
++			reg = <0x10000 0x0 0x0 0x0 0x0>;
++			brcm,board-type = "google,zumapro-tegu";
++			memory-region = <&wifi_dma_pool>;
++		};
++	};
++};
++
++&pcie_1_phy {
++	status = "okay";
++};
++
+ &pinctrl_alive {
+ 	status = "okay";
+ 

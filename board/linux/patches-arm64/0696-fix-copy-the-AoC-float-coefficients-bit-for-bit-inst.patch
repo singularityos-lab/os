@@ -1,0 +1,44 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Mirko Brombin <9479903+mirkobrombin@users.noreply.github.com>
+Date: Thu, 19 Nov 2026 12:27:29 +0100
+Subject: [PATCH] fix: copy the AoC float coefficients bit for bit instead of
+ through a float cast
+
+---
+ drivers/soc/google/aoc/alsa/aoc_alsa_hw.c | 8 ++++----
+ 1 file changed, 4 insertions(+), 4 deletions(-)
+
+diff --git a/drivers/soc/google/aoc/alsa/aoc_alsa_hw.c b/drivers/soc/google/aoc/alsa/aoc_alsa_hw.c
+index 82097dfd1..55d0195bf 100644
+--- a/drivers/soc/google/aoc/alsa/aoc_alsa_hw.c
++++ b/drivers/soc/google/aoc/alsa/aoc_alsa_hw.c
+@@ -776,7 +776,7 @@ int aoc_sidetone_eq_set(struct aoc_chip *chip, int biquad_idx, long *val)
+ 	cmd.stage_num = biquad_idx;
+ 	for (i = 0; i < n_params; i++) {
+ 		tmp = (uint32_t)val[i];
+-		cmd.coeffs[i] = *(float *)(&tmp);
++		memcpy(&cmd.coeffs[i], &tmp, sizeof(tmp));
+ 	}
+ 	err = aoc_audio_control(CMD_OUTPUT_CHANNEL, (uint8_t *)&cmd, sizeof(cmd), (uint8_t *)&cmd,
+ 				chip);
+@@ -2585,7 +2585,7 @@ int aoc_mel_rs2_set(struct aoc_chip *chip, long *rs2)
+ 	AocCmdHdrSet(&(cmd.parent), CMD_AUDIO_OUTPUT_MEL_SET_RS2_ID, sizeof(cmd));
+ 
+ 	tmp = (uint32_t)rs2[0];
+-	cmd.rs2_value = *(float *)(&tmp);
++	memcpy(&cmd.rs2_value, &tmp, sizeof(tmp));
+ 
+ 	err = aoc_audio_control(CMD_OUTPUT_CHANNEL, (uint8_t *)&cmd, sizeof(cmd), (uint8_t *)&cmd,
+ 		chip);
+@@ -2623,9 +2623,9 @@ int aoc_compr_offload_playback_rate_set(struct aoc_chip *chip, long *val)
+ 	AocCmdHdrSet(&(cmd.parent), CMD_AUDIO_OUTPUT_DECODER_CFG_SPEED_ID, sizeof(cmd));
+ 
+ 	tmp = (uint32_t)val[0];
+-	cmd.speed = *(float *)(&tmp);
++	memcpy(&cmd.speed, &tmp, sizeof(tmp));
+ 	tmp = (uint32_t)val[1];
+-	cmd.pitch = *(float *)(&tmp);
++	memcpy(&cmd.pitch, &tmp, sizeof(tmp));
+ 	cmd.stretch_mode = (int32_t)val[2];
+ 	cmd.fallback_mode = (int32_t)val[3];
+ 

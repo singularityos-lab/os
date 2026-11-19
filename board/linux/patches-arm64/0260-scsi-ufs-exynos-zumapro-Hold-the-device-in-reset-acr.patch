@@ -1,0 +1,35 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Tue, 27 Oct 2026 11:05:27 -0647
+Subject: [PATCH] scsi: ufs: exynos: zumapro: Hold the device in reset across
+ suspend
+
+gs101 and gs201 drive the UFS device's reset low in their suspend hook
+(gs101_ufs_suspend()), as Google's driver does on zuma, and the host
+enable on resume pulses it high again. zumapro had no suspend hook, so
+the device went into system suspend with its reset released.
+
+On the Pixel 9a one resume in a run of four lost the link: "link
+startup failed 1" through every retry, then
+"ufshcd_host_reset_and_restore: Host init failed", every later read
+failing with DID_ERROR, and the root file system read-only. With the
+reset held low through suspend, as on gs101, 32 s2idle cycles with RTC
+wakes in a row resumed clean.
+
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ drivers/ufs/host/ufs-exynos.c | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/drivers/ufs/host/ufs-exynos.c b/drivers/ufs/host/ufs-exynos.c
+index 2860b1b01..61078ad79 100644
+--- a/drivers/ufs/host/ufs-exynos.c
++++ b/drivers/ufs/host/ufs-exynos.c
+@@ -2558,6 +2558,7 @@ static const struct exynos_ufs_drv_data zumapro_ufs_drvs = {
+ 				  EXYNOS_UFS_OPT_UNGATE_POST_CHANGE,
+ 	.iocc_mask		= UFS_GS101_SHARABLE,
+ 	.drv_init		= zumapro_ufs_drv_init,
++	.suspend		= gs101_ufs_suspend,
+ 	.pre_link		= zumapro_ufs_pre_link,
+ 	.post_link		= zumapro_ufs_post_link,
+ 	.pre_pwr_change		= zumapro_ufs_pre_pwr_change,

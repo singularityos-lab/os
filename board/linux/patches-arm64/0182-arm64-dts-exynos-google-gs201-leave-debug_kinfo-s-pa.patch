@@ -1,0 +1,36 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Mon, 26 Oct 2026 16:20:37 -0400
+Subject: [PATCH] arm64: dts: exynos: google: gs201: leave debug_kinfo's page
+ to ABL
+
+The Pixel bootloader adds debug_kinfo_reserved at 0xfd3fe000 (one page)
+to the tree it boots, and ramoops starts at 0xfd3ff000. Our debug region
+ran to 0xfd400000, so it covered both, and the kernel reported
+"OF: reserved mem: OVERLAP DETECTED!" on every boot. Stock's
+dss_log_reserved at 0xfd3f0000 is 0xe000 long; use the same size.
+
+Both regions are no-map, so nothing that was reserved becomes usable
+memory.
+
+Fixes: e0727e061bcf ("arm64: dts: exynos: google: add gs201 and Pixel 7 Pro (cheetah)")
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Signed-off-by: Derek Ross <derekross@gmail.com>
+---
+ arch/arm64/boot/dts/exynos/google/gs201.dtsi | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/gs201.dtsi b/arch/arm64/boot/dts/exynos/google/gs201.dtsi
+index 58d84a7dc..01c1dcfdb 100644
+--- a/arch/arm64/boot/dts/exynos/google/gs201.dtsi
++++ b/arch/arm64/boot/dts/exynos/google/gs201.dtsi
+@@ -290,7 +290,8 @@ reserved-memory {
+ 		cp-rmem1@e8000000 { reg = <0x0 0xe8000000 0x2000000>; no-map; };
+ 		cp-rmem@ea400000 { reg = <0x0 0xea400000 0x800000>; no-map; };
+ 		abl@f8800000 { reg = <0x0 0xf8800000 0x2000000>; no-map; };
+-		debug@fd3f0000 { reg = <0x0 0xfd3f0000 0x10000>; no-map; };
++		/* ABL adds debug_kinfo_reserved@fd3fe000 (one page) after this. */
++		debug@fd3f0000 { reg = <0x0 0xfd3f0000 0xe000>; no-map; };
+ 		bldr-log@fd800000 { reg = <0x0 0xfd800000 0x100000>; no-map; };
+ 		suspend-diag@fd90c000 { reg = <0x0 0xfd90c000 0x1000>; no-map; };
+ 	};

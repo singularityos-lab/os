@@ -1,0 +1,29 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Sun, 11 Oct 2026 16:32:07 -0400
+Subject: [PATCH] phy: samsung: usbdrd: add Google gs201 USB 3.1 DRD PHY
+ compatible
+
+The gs201 USB DRD PHY has the same IP version and power control offsets
+as gs101, at a different base. Reuse the gs101 data. Verified with
+USB 2.0 gadget mode on a Pixel 7 Pro.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ drivers/phy/samsung/phy-exynos5-usbdrd.c | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/drivers/phy/samsung/phy-exynos5-usbdrd.c b/drivers/phy/samsung/phy-exynos5-usbdrd.c
+index 8711a3b62..8f9841740 100644
+--- a/drivers/phy/samsung/phy-exynos5-usbdrd.c
++++ b/drivers/phy/samsung/phy-exynos5-usbdrd.c
+@@ -2879,6 +2879,9 @@ static const struct of_device_id exynos5_usbdrd_phy_of_match[] = {
+ 	{
+ 		.compatible = "google,gs101-usb31drd-phy",
+ 		.data = &gs101_usbd31rd_phy
++	}, {
++		.compatible = "google,gs201-usb31drd-phy",
++		.data = &gs101_usbd31rd_phy
+ 	}, {
+ 		.compatible = "samsung,exynos2200-usb32drd-phy",
+ 		.data = &exynos2200_usb32drd_phy,

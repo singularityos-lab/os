@@ -1,0 +1,117 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Sun, 11 Oct 2026 22:06:40 -0400
+Subject: [PATCH] dt-bindings: clock: google,gs201: add CMU_DISP and CMU_DPU
+
+The gs201 display pipeline is clocked from two CMUs: CMU_DPU
+(0x1c000000) feeds the DPP/DMA front end (DPUF) and its SysMMUs, and
+CMU_DISP (0x1c200000) feeds the DECON back end (DPUB). Each takes the
+24.576 MHz oscillator and one NOC bus clock from CMU_TOP
+(CLKCMU_DPU_NOC, CLKCMU_DISP_NOC).
+
+Add both compatibles and the clock identifiers.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ .../bindings/clock/google,gs201-clock.yaml    | 21 ++++++++
+ include/dt-bindings/clock/google,gs201.h      | 50 +++++++++++++++++++
+ 2 files changed, 71 insertions(+)
+
+diff --git a/Documentation/devicetree/bindings/clock/google,gs201-clock.yaml b/Documentation/devicetree/bindings/clock/google,gs201-clock.yaml
+index 5d97fea34..fdc34f536 100644
+--- a/Documentation/devicetree/bindings/clock/google,gs201-clock.yaml
++++ b/Documentation/devicetree/bindings/clock/google,gs201-clock.yaml
+@@ -27,6 +27,8 @@ properties:
+   compatible:
+     enum:
+       - google,gs201-cmu-top
++      - google,gs201-cmu-disp
++      - google,gs201-cmu-dpu
+       - google,gs201-cmu-hsi0
+       - google,gs201-cmu-hsi2
+       - google,gs201-cmu-misc
+@@ -80,6 +82,25 @@ allOf:
+ 
+         samsung,sysreg: false
+ 
++  - if:
++      properties:
++        compatible:
++          contains:
++            enum:
++              - google,gs201-cmu-disp
++              - google,gs201-cmu-dpu
++    then:
++      properties:
++        clocks:
++          items:
++            - description: External reference clock (24.576 MHz)
++            - description: Display (DISP) or DPU bus clock (from CMU_TOP)
++
++        clock-names:
++          items:
++            - const: oscclk
++            - const: bus
++
+   - if:
+       properties:
+         compatible:
+diff --git a/include/dt-bindings/clock/google,gs201.h b/include/dt-bindings/clock/google,gs201.h
+index 40ae86ea8..ce2405fd8 100644
+--- a/include/dt-bindings/clock/google,gs201.h
++++ b/include/dt-bindings/clock/google,gs201.h
+@@ -616,4 +616,54 @@
+ #define CLK_GOUT_PERIC1_CLK_PERIC1_USI9_USI_CLK			58
+ #define CLK_GOUT_PERIC1_SYSREG_PERIC1_PCLK			59
+ 
++/* CMU_DISP */
++#define CLK_MOUT_DISP_NOC_USER					1
++#define CLK_DOUT_DISP_NOCP					2
++#define CLK_GOUT_DISP_PCLK					3
++#define CLK_GOUT_DISP_SLH_AXI_MI_P_DISP_I_CLK			4
++#define CLK_GOUT_DISP_AD_APB_DECON_MAIN_PCLKM			5
++#define CLK_GOUT_DISP_DPUB_ACLK_DECON				6
++#define CLK_GOUT_DISP_D_TZPC_DISP_PCLK				7
++#define CLK_GOUT_DISP_GPC_DISP_PCLK				8
++#define CLK_GOUT_DISP_CLK_DISP_NOCD_CLK				9
++#define CLK_GOUT_DISP_CLK_DISP_NOCP_CLK				10
++#define CLK_GOUT_DISP_CLK_DISP_OSCCLK_CLK			11
++#define CLK_GOUT_DISP_SYSREG_DISP_PCLK				12
++
++/* CMU_DPU */
++#define CLK_MOUT_DPU_NOC_USER					1
++#define CLK_DOUT_DPU_NOCP					2
++#define CLK_GOUT_DPU_PCLK					3
++#define CLK_GOUT_DPU_CLK_DPU_OSCCLK_CLK				4
++#define CLK_GOUT_DPU_AD_APB_DPU_DMA_PCLKM			5
++#define CLK_GOUT_DPU_DPUF_ACLK_DMA				6
++#define CLK_GOUT_DPU_DPUF_ACLK_DPP				7
++#define CLK_GOUT_DPU_D_TZPC_DPU_PCLK				8
++#define CLK_GOUT_DPU_GPC_DPU_PCLK				9
++#define CLK_GOUT_DPU_LH_AXI_SI_D0_DPU_I_CLK			10
++#define CLK_GOUT_DPU_LH_AXI_SI_D1_DPU_I_CLK			11
++#define CLK_GOUT_DPU_LH_AXI_SI_D2_DPU_I_CLK			12
++#define CLK_GOUT_DPU_PPMU_DPUD0_ACLK				13
++#define CLK_GOUT_DPU_PPMU_DPUD0_PCLK				14
++#define CLK_GOUT_DPU_PPMU_DPUD1_ACLK				15
++#define CLK_GOUT_DPU_PPMU_DPUD1_PCLK				16
++#define CLK_GOUT_DPU_PPMU_DPUD2_ACLK				17
++#define CLK_GOUT_DPU_PPMU_DPUD2_PCLK				18
++#define CLK_GOUT_DPU_CLK_DPU_NOCD_CLK				19
++#define CLK_GOUT_DPU_CLK_DPU_NOCP_CLK				20
++#define CLK_GOUT_DPU_SLH_AXI_MI_P_DPU_I_CLK			21
++#define CLK_GOUT_DPU_SSMT_DPU0_ACLK				22
++#define CLK_GOUT_DPU_SSMT_DPU0_PCLK				23
++#define CLK_GOUT_DPU_SSMT_DPU1_ACLK				24
++#define CLK_GOUT_DPU_SSMT_DPU1_PCLK				25
++#define CLK_GOUT_DPU_SSMT_DPU2_ACLK				26
++#define CLK_GOUT_DPU_SSMT_DPU2_PCLK				27
++#define CLK_GOUT_DPU_SYSMMU_DPUD0_CLK_S1			28
++#define CLK_GOUT_DPU_SYSMMU_DPUD0_CLK_S2			29
++#define CLK_GOUT_DPU_SYSMMU_DPUD1_CLK_S1			30
++#define CLK_GOUT_DPU_SYSMMU_DPUD1_CLK_S2			31
++#define CLK_GOUT_DPU_SYSMMU_DPUD2_CLK_S1			32
++#define CLK_GOUT_DPU_SYSMMU_DPUD2_CLK_S2			33
++#define CLK_GOUT_DPU_SYSREG_DPU_PCLK				34
++
+ #endif /* _DT_BINDINGS_CLOCK_GOOGLE_GS201_H */

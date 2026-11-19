@@ -1,0 +1,71 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Brett-Michael Green <brett@bmgvisualtech.com>
+Date: Thu, 22 Oct 2026 13:22:55 -0400
+Subject: [PATCH] arm64: dts: exynos: google: zuma-husky: add the boot
+ framebuffer
+
+ABL hands over with its splash still scanned out: on a booted phone
+DPP0's RDMA_BASEADDR_P0 (0x19900040) reads 0xfac00000, as on the Pixel
+7 Pro. Describe it as a simple-framebuffer at the panel's native
+1344x2992 (a8r8g8b8), with a no-map carve-out so the kernel leaves it
+alone, and pick a console font that reads at this density.
+
+The panel is in DSI command mode and ABL leaves DECON0's hardware
+trigger masked (TRIG_CON 0x19470030 reads 0x3070), so frames reach the
+panel only once userspace unmasks it, as on gs201.
+
+Tested on a Pixel 8 Pro: simpledrm binds, and with the trigger unmasked
+the console shows on the panel.
+
+Assisted-by: LLM
+Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
+---
+ .../boot/dts/exynos/google/zuma-husky.dts     | 29 +++++++++++++++----
+ 1 file changed, 24 insertions(+), 5 deletions(-)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/zuma-husky.dts b/arch/arm64/boot/dts/exynos/google/zuma-husky.dts
+index 0e94b7b12..8aa0df30d 100644
+--- a/arch/arm64/boot/dts/exynos/google/zuma-husky.dts
++++ b/arch/arm64/boot/dts/exynos/google/zuma-husky.dts
+@@ -37,17 +37,36 @@ B1_FOPLP {
+ 
+ 	chosen {
+ 		/* ABL requires bootargs to exist; it appends its own after these. */
+-		bootargs = "console=tty0 panic=10 clk_ignore_unused pd_ignore_unused rdinit=/init";
++		bootargs = "console=tty0 fbcon=font:TER16x32 panic=10 clk_ignore_unused pd_ignore_unused rdinit=/init";
+ 		#address-cells = <2>;
+ 		#size-cells = <1>;
+ 		ranges;
+ 
+ 		/*
+-		 * No simple-framebuffer yet: the live tree names no splash
+-		 * carve-out, and the address is read from DPP's RDMA base
+-		 * register on a booted phone before it goes here (as on the
+-		 * Pixel 7 Pro and the Fold), never guessed.
++		 * ABL's splash, still scanned out at handover: DPP0's
++		 * RDMA_BASEADDR_P0 (0x19900040) reads 0xfac00000 on a booted
++		 * phone, as on the Pixel 7 Pro. The panel is DSI command mode,
++		 * so new frames reach it only once DECON0's trigger is unmasked.
+ 		 */
++		framebuffer0: framebuffer {
++			compatible = "simple-framebuffer";
++			memory-region = <&cont_splash_mem>;
++			width = <1344>;
++			height = <2992>;
++			stride = <(1344 * 4)>;
++			format = "a8r8g8b8";
++		};
++	};
++
++	reserved-memory {
++		#address-cells = <2>;
++		#size-cells = <1>;
++		ranges;
++
++		cont_splash_mem: splash@fac00000 {
++			reg = <0x0 0xfac00000 (1344 * 2992 * 4)>;
++			no-map;
++		};
+ 	};
+ };
+ 

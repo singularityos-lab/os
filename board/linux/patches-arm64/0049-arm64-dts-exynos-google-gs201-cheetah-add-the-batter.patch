@@ -1,0 +1,93 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Sun, 11 Oct 2026 23:42:48 -0400
+Subject: [PATCH] arm64: dts: exynos: google: gs201-cheetah: add the battery
+ and its gauge model
+
+Describe the 4926 mAh battery and give the fuel gauge the ModelGauge m5
+model that the stock kernel loads for the pack with a 1 kOhm ID
+resistor. RelaxCfg and FilterCfg take the values stock writes over the
+model at boot.
+
+With the model, the gauge measures the battery thermistor and its
+capacity unit becomes 2 mAh (TaskPeriod 0x2d00).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ .../boot/dts/exynos/google/gs201-cheetah.dts  | 56 +++++++++++++++++++
+ 1 file changed, 56 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts b/arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts
+index 84bd555f3..74e21b121 100644
+--- a/arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts
++++ b/arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts
+@@ -47,6 +47,14 @@ framebuffer0: framebuffer@fac00000 {
+ 		};
+ 	};
+ 
++	battery: battery {
++		compatible = "simple-battery";
++		charge-full-design-microamp-hours = <4926000>;
++		/* Google's fv-max-uv; VEmpty of the gauge model */
++		voltage-max-design-microvolt = <4450000>;
++		voltage-min-design-microvolt = <3300000>;
++	};
++
+ 	gpio-keys {
+ 		compatible = "gpio-keys";
+ 		pinctrl-0 = <&key_voldown>, <&key_volup>, <&key_power>;
+@@ -262,6 +270,54 @@ fuel-gauge@36 {
+ 		pinctrl-names = "default";
+ 		/* maxim,rsense-default = <500> (10 uOhm units) in Google's tree */
+ 		shunt-resistor-micro-ohms = <5000>;
++		monitored-battery = <&battery>;
++
++		/*
++		 * Battery model for the pack with a 1 kOhm ID resistor, the one
++		 * this phone has (stock: "device battery RID: 1 kohm"). From
++		 * Google's gs201-cheetah-battery-data.dtsi (cos-a1-1k, model
++		 * version 1), except RelaxCfg 0x143b and FilterCfg 0xc613, the
++		 * values stock writes over the model's at boot (r_regval_1720x,
++		 * filtercfg-default). TaskPeriod 0x2d00 makes one capacity LSB
++		 * 2 mAh with 5 mOhm: DesignCap 0x09c5 = 5002 mAh.
++		 */
++		maxim,fg-model = /bits/ 16 <
++			0xa4e0 0xb750 0xb8a0 0xba60 0xbc10 0xbdd0 0xbf30 0xc070
++			0xc1e0 0xc4b0 0xc7f0 0xcd80 0xd130 0xd4e0 0xd920 0xdca0
++			0x0120 0x1240 0x0c00 0x12a0 0x1400 0x1700 0x1060 0x0fd0
++			0x07e0 0x07f0 0x07c0 0x06d0 0x06c0 0x06f0 0x0640 0x0640
++			0x0200 0x0200 0x0200 0x0200 0x0200 0x0200 0x0200 0x0200
++			0x0200 0x0200 0x0200 0x0200 0x0200 0x0200 0x0200 0x0200
++		>;
++		maxim,fg-params = /bits/ 16 <
++			0xf060	/* IAvgEmpty */
++			0x143b	/* RelaxCfg */
++			0x260e	/* LearnCfg */
++			0x4217	/* Config: external thermistor, TEx clear */
++			0x0090	/* Config2 */
++			0x5f00	/* FullSOCThr */
++			0x09c5	/* FullCapRep */
++			0x09c5	/* DesignCap */
++			0x3200	/* dPAcc */
++			0x0271	/* dQAcc */
++			0x09c5	/* FullCapNom */
++			0xa561	/* VEmpty */
++			0x2080	/* QRTable00 */
++			0x0e80	/* QRTable10 */
++			0x0580	/* QRTable20 */
++			0x0480	/* QRTable30 */
++			0x0770	/* RComp0 */
++			0x2202	/* TempCo */
++			0x0628	/* IChgTerm */
++			0xed51	/* TGain */
++			0x1eba	/* TOff */
++			0x0014	/* Curve */
++			0x3870	/* MiscCfg */
++			0x1900	/* AtRate */
++			0x2241	/* ConvgCfg */
++			0xc613	/* FilterCfg */
++			0x2d00	/* TaskPeriod */
++		>;
+ 	};
+ 
+ 	pmic@66 {

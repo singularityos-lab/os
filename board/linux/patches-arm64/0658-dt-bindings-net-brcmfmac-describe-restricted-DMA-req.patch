@@ -1,0 +1,62 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Chris Gray <chrisgray70@gmail.com>
+Date: Wed, 11 Nov 2026 12:20:03 -0600
+Subject: [PATCH] dt-bindings: net: brcmfmac: describe restricted DMA
+ requirements
+
+Describe an endpoint that requires verified restricted DMA attachment,
+its qualified maximum packet buffer and the bootloader's ASCII MAC ABI.
+The pool itself supplies its address and size through memory-region.
+No new property changes an existing board unless its DT opts in.
+
+Assisted-by: LLM
+Signed-off-by: Chris Gray <chrisgray70@gmail.com>
+---
+ .../net/wireless/brcm,bcm4329-fmac.yaml       | 27 +++++++++++++++++++
+ 1 file changed, 27 insertions(+)
+
+diff --git a/Documentation/devicetree/bindings/net/wireless/brcm,bcm4329-fmac.yaml b/Documentation/devicetree/bindings/net/wireless/brcm,bcm4329-fmac.yaml
+index be1765aa4..c4d11ce4f 100644
+--- a/Documentation/devicetree/bindings/net/wireless/brcm,bcm4329-fmac.yaml
++++ b/Documentation/devicetree/bindings/net/wireless/brcm,bcm4329-fmac.yaml
+@@ -17,6 +17,12 @@ description:
+ 
+ allOf:
+   - $ref: /schemas/net/wireless/wireless-controller.yaml#
++  - if:
++      required:
++        - brcm,requires-restricted-dma
++    then:
++      required:
++        - memory-region
+ 
+ properties:
+   compatible:
+@@ -126,6 +132,27 @@ properties:
+       NVRAM. This would normally be filled in by the bootloader from platform
+       configuration data.
+ 
++  brcm,requires-restricted-dma:
++    type: boolean
++    description:
++      The PCIe endpoint has no qualified IOMMU isolation. Require an attached,
++      non-expanding restricted DMA pool wholly addressable with a 32-bit DMA
++      mask before allowing bus mastering. The pool geometry comes from the
++      memory-region reference, not a board-specific address in the driver.
++
++  brcm,max-dma-buffer-size:
++    $ref: /schemas/types.yaml#/definitions/uint32
++    minimum: 2048
++    maximum: 65536
++    description: Maximum packet buffer size qualified for the restricted pool.
++
++  brcm,mac-address-from-chosen:
++    type: boolean
++    description:
++      The bootloader publishes the provisioned WLAN MAC as an ASCII string
++      in /chosen/config/wlan_mac1, in colon-separated or twelve-hex-digit form.
++      Read that value instead of a binary MAC property on the endpoint.
++
+   memory-region:
+     maxItems: 1
+     description: A restricted-dma-pool region that all DMA of a PCIe device

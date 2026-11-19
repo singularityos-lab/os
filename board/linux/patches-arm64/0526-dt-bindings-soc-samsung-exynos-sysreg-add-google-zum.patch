@@ -1,0 +1,34 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Lef <me@lefteros.com>
+Date: Fri, 6 Nov 2026 06:50:26 +0200
+Subject: [PATCH] dt-bindings: soc: samsung: exynos-sysreg: add
+ google,zuma-peric0-sysreg
+
+The sysreg of the Tensor G3's PERIC0 block, which holds the USI mode
+selectors; the Pixel 8 Pro's rear flash LED bus (USI14) needs it.
+
+Signed-off-by: Lef <me@lefteros.com>
+---
+ .../devicetree/bindings/soc/samsung/samsung,exynos-sysreg.yaml  | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/Documentation/devicetree/bindings/soc/samsung/samsung,exynos-sysreg.yaml b/Documentation/devicetree/bindings/soc/samsung/samsung,exynos-sysreg.yaml
+index b5a944604..6b5892fe9 100644
+--- a/Documentation/devicetree/bindings/soc/samsung/samsung,exynos-sysreg.yaml
++++ b/Documentation/devicetree/bindings/soc/samsung/samsung,exynos-sysreg.yaml
+@@ -30,6 +30,7 @@ properties:
+               - google,gs201-vgpio2ap-sysreg
+               - google,zuma-apm-sysreg
+               - google,zuma-hsi0-sysreg
++              - google,zuma-peric0-sysreg
+               - google,zuma-peric1-sysreg
+               - google,zuma-ufs-sysreg
+               - google,zumapro-apm-sysreg
+@@ -120,6 +121,7 @@ allOf:
+               - google,gs201-peric0-sysreg
+               - google,gs201-peric1-sysreg
+               - google,zuma-apm-sysreg
++              - google,zuma-peric0-sysreg
+               - google,zuma-peric1-sysreg
+               - google,zumapro-apm-sysreg
+               - google,zumapro-hsi0-sysreg

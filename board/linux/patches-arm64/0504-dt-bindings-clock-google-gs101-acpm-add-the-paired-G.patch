@@ -1,0 +1,32 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: saiththerobo <the.tom.sharp@gmail.com>
+Date: Wed, 4 Nov 2026 07:56:06 +0000
+Subject: [PATCH] dt-bindings: clock: google,gs101-acpm: add the paired GPU
+ clock
+
+The Mali-G78 in gs101 is clocked from two ACPM DVFS domains, G3D for the
+shader cores and G3DL2 for the top level and L2, which have to move
+together. Add an ID for a clock that sets both, after the 14 DVFS
+domains, as gs201 has GS201_CLK_ACPM_GPU.
+
+Assisted-by: Claude Opus 5.5
+Signed-off-by: saiththerobo <the.tom.sharp@gmail.com>
+---
+ include/dt-bindings/clock/google,gs101-acpm.h | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+diff --git a/include/dt-bindings/clock/google,gs101-acpm.h b/include/dt-bindings/clock/google,gs101-acpm.h
+index e2ba89e09..0153c652b 100644
+--- a/include/dt-bindings/clock/google,gs101-acpm.h
++++ b/include/dt-bindings/clock/google,gs101-acpm.h
+@@ -23,4 +23,10 @@
+ #define GS101_CLK_ACPM_DVFS_DISP			12
+ #define GS101_CLK_ACPM_DVFS_BO				13
+ 
++/*
++ * The GPU as one clock: its rate is the shader (G3D) rate, and setting it
++ * also moves the top/L2 domain (G3DL2) to the level paired with it.
++ */
++#define GS101_CLK_ACPM_GPU				14
++
+ #endif /* _DT_BINDINGS_CLOCK_GOOGLE_GS101_ACPM_H */

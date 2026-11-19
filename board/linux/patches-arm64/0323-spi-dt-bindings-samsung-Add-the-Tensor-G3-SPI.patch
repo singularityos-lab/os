@@ -1,0 +1,26 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Brett-Michael Green <brett@bmgvisualtech.com>
+Date: Fri, 30 Oct 2026 16:34:34 -0400
+Subject: [PATCH] spi: dt-bindings: samsung: Add the Tensor G3 SPI
+
+zuma's (Tensor G3) SPI controllers are gs101-style, as on Tensor G4.
+Document zuma's compatible with gs101's as the fallback.
+
+Assisted-by: LLM
+Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
+---
+ Documentation/devicetree/bindings/spi/samsung,spi.yaml | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/Documentation/devicetree/bindings/spi/samsung,spi.yaml b/Documentation/devicetree/bindings/spi/samsung,spi.yaml
+index 2cc3ba134..7feee66b2 100644
+--- a/Documentation/devicetree/bindings/spi/samsung,spi.yaml
++++ b/Documentation/devicetree/bindings/spi/samsung,spi.yaml
+@@ -33,6 +33,7 @@ properties:
+       - items:
+           - enum:
+               - google,gs201-spi
++              - google,zuma-spi
+               - google,zumapro-spi
+           - const: google,gs101-spi
+       - const: samsung,exynos7-spi

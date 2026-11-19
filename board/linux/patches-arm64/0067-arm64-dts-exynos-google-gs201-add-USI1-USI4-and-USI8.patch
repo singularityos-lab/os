@@ -1,0 +1,223 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Wed, 14 Oct 2026 21:05:05 -0400
+Subject: [PATCH] arm64: dts: exynos: google: gs201: add USI1-USI4 and USI8
+ with their I2C buses
+
+Add the PERIC0 USI1, USI2, USI3, USI4 and USI8 blocks with their HSI2C
+controllers and bus pins, as in Google's gs201 device tree: the
+interrupts, the USI and HSI2C clocks of CMU_PERIC0 and the sysreg
+offsets that select each USI's mode.
+
+On the Pixel 7 Pro, USI1-USI4 are the I2C buses of the main, front,
+ultrawide and telephoto camera modules (stock pulls their lines up
+while it transfers, as the pin settings here do), and USI8 carries the
+camera PMIC. All stay disabled.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ .../boot/dts/exynos/google/gs201-pinctrl.dtsi |  39 +++++
+ arch/arm64/boot/dts/exynos/google/gs201.dtsi  | 140 ++++++++++++++++++
+ 2 files changed, 179 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/gs201-pinctrl.dtsi b/arch/arm64/boot/dts/exynos/google/gs201-pinctrl.dtsi
+index d8d653177..55734625e 100644
+--- a/arch/arm64/boot/dts/exynos/google/gs201-pinctrl.dtsi
++++ b/arch/arm64/boot/dts/exynos/google/gs201-pinctrl.dtsi
+@@ -344,6 +344,45 @@ gpp19: gpp19-gpio-bank {
+ 		#interrupt-cells = <2>;
+ 	};
+ 
++	/* Camera I2C (main module); stock pulls the lines up while it transfers */
++	hsi2c1_bus: hsi2c1-bus-pins {
++		samsung,pins = "gpp2-0", "gpp2-1";
++		samsung,pin-function = <GS101_PIN_FUNC_3>;
++		samsung,pin-pud = <GS101_PIN_PULL_UP>;
++		samsung,pin-drv = <GS101_PIN_DRV_2_5_MA>;
++	};
++
++	/* Camera I2C (front module); stock pulls the lines up while it transfers */
++	hsi2c2_bus: hsi2c2-bus-pins {
++		samsung,pins = "gpp4-0", "gpp4-1";
++		samsung,pin-function = <GS101_PIN_FUNC_3>;
++		samsung,pin-pud = <GS101_PIN_PULL_UP>;
++		samsung,pin-drv = <GS101_PIN_DRV_2_5_MA>;
++	};
++
++	/* Camera I2C (ultrawide module); stock pulls the lines up while it transfers */
++	hsi2c3_bus: hsi2c3-bus-pins {
++		samsung,pins = "gpp6-0", "gpp6-1";
++		samsung,pin-function = <GS101_PIN_FUNC_3>;
++		samsung,pin-pud = <GS101_PIN_PULL_UP>;
++		samsung,pin-drv = <GS101_PIN_DRV_2_5_MA>;
++	};
++
++	/* Camera I2C (telephoto module); stock pulls the lines up while it transfers */
++	hsi2c4_bus: hsi2c4-bus-pins {
++		samsung,pins = "gpp8-0", "gpp8-1";
++		samsung,pin-function = <GS101_PIN_FUNC_3>;
++		samsung,pin-pud = <GS101_PIN_PULL_UP>;
++		samsung,pin-drv = <GS101_PIN_DRV_2_5_MA>;
++	};
++
++	hsi2c8_bus: hsi2c8-bus-pins {
++		samsung,pins = "gpp16-0", "gpp16-1";
++		samsung,pin-function = <GS101_PIN_FUNC_3>;
++		samsung,pin-pud = <GS101_PIN_PULL_NONE>;
++		samsung,pin-drv = <GS101_PIN_DRV_2_5_MA>;
++	};
++
+ };
+ 
+ &pinctrl_peric1 {
+diff --git a/arch/arm64/boot/dts/exynos/google/gs201.dtsi b/arch/arm64/boot/dts/exynos/google/gs201.dtsi
+index b6f7a6456..bc99e2398 100644
+--- a/arch/arm64/boot/dts/exynos/google/gs201.dtsi
++++ b/arch/arm64/boot/dts/exynos/google/gs201.dtsi
+@@ -311,6 +311,146 @@ pinctrl_peric0: pinctrl@10840000 {
+ 			status = "disabled";
+ 		};
+ 
++		usi1: usi@109000c0 {
++			compatible = "google,gs201-usi", "samsung,exynos850-usi";
++			reg = <0x109000c0 0x20>;
++			ranges;
++			#address-cells = <1>;
++			#size-cells = <1>;
++			clocks = <&cmu_peric0 CLK_GOUT_PERIC0_USI1_USI_PCLK>,
++				 <&cmu_peric0 CLK_GOUT_PERIC0_USI1_USI_IPCLK>;
++			clock-names = "pclk", "ipclk";
++			samsung,sysreg = <&sysreg_peric0 0x1000>;
++			status = "disabled";
++
++			hsi2c_1: i2c@10900000 {
++				compatible = "google,gs201-hsi2c",
++					     "samsung,exynosautov9-hsi2c";
++				reg = <0x10900000 0xc0>;
++				#address-cells = <1>;
++				#size-cells = <0>;
++				clocks = <&cmu_peric0 CLK_GOUT_PERIC0_USI1_USI_IPCLK>,
++					 <&cmu_peric0 CLK_GOUT_PERIC0_USI1_USI_PCLK>;
++				clock-names = "hsi2c", "hsi2c_pclk";
++				interrupts = <GIC_SPI 674 IRQ_TYPE_LEVEL_HIGH>;
++				pinctrl-0 = <&hsi2c1_bus>;
++				pinctrl-names = "default";
++				status = "disabled";
++			};
++		};
++
++		usi2: usi@109100c0 {
++			compatible = "google,gs201-usi", "samsung,exynos850-usi";
++			reg = <0x109100c0 0x20>;
++			ranges;
++			#address-cells = <1>;
++			#size-cells = <1>;
++			clocks = <&cmu_peric0 CLK_GOUT_PERIC0_USI2_USI_PCLK>,
++				 <&cmu_peric0 CLK_GOUT_PERIC0_USI2_USI_IPCLK>;
++			clock-names = "pclk", "ipclk";
++			samsung,sysreg = <&sysreg_peric0 0x1004>;
++			status = "disabled";
++
++			hsi2c_2: i2c@10910000 {
++				compatible = "google,gs201-hsi2c",
++					     "samsung,exynosautov9-hsi2c";
++				reg = <0x10910000 0xc0>;
++				#address-cells = <1>;
++				#size-cells = <0>;
++				clocks = <&cmu_peric0 CLK_GOUT_PERIC0_USI2_USI_IPCLK>,
++					 <&cmu_peric0 CLK_GOUT_PERIC0_USI2_USI_PCLK>;
++				clock-names = "hsi2c", "hsi2c_pclk";
++				interrupts = <GIC_SPI 675 IRQ_TYPE_LEVEL_HIGH>;
++				pinctrl-0 = <&hsi2c2_bus>;
++				pinctrl-names = "default";
++				status = "disabled";
++			};
++		};
++
++		usi3: usi@109200c0 {
++			compatible = "google,gs201-usi", "samsung,exynos850-usi";
++			reg = <0x109200c0 0x20>;
++			ranges;
++			#address-cells = <1>;
++			#size-cells = <1>;
++			clocks = <&cmu_peric0 CLK_GOUT_PERIC0_USI3_USI_PCLK>,
++				 <&cmu_peric0 CLK_GOUT_PERIC0_USI3_USI_IPCLK>;
++			clock-names = "pclk", "ipclk";
++			samsung,sysreg = <&sysreg_peric0 0x1008>;
++			status = "disabled";
++
++			hsi2c_3: i2c@10920000 {
++				compatible = "google,gs201-hsi2c",
++					     "samsung,exynosautov9-hsi2c";
++				reg = <0x10920000 0xc0>;
++				#address-cells = <1>;
++				#size-cells = <0>;
++				clocks = <&cmu_peric0 CLK_GOUT_PERIC0_USI3_USI_IPCLK>,
++					 <&cmu_peric0 CLK_GOUT_PERIC0_USI3_USI_PCLK>;
++				clock-names = "hsi2c", "hsi2c_pclk";
++				interrupts = <GIC_SPI 676 IRQ_TYPE_LEVEL_HIGH>;
++				pinctrl-0 = <&hsi2c3_bus>;
++				pinctrl-names = "default";
++				status = "disabled";
++			};
++		};
++
++		usi4: usi@109300c0 {
++			compatible = "google,gs201-usi", "samsung,exynos850-usi";
++			reg = <0x109300c0 0x20>;
++			ranges;
++			#address-cells = <1>;
++			#size-cells = <1>;
++			clocks = <&cmu_peric0 CLK_GOUT_PERIC0_USI4_USI_PCLK>,
++				 <&cmu_peric0 CLK_GOUT_PERIC0_USI4_USI_IPCLK>;
++			clock-names = "pclk", "ipclk";
++			samsung,sysreg = <&sysreg_peric0 0x100c>;
++			status = "disabled";
++
++			hsi2c_4: i2c@10930000 {
++				compatible = "google,gs201-hsi2c",
++					     "samsung,exynosautov9-hsi2c";
++				reg = <0x10930000 0xc0>;
++				#address-cells = <1>;
++				#size-cells = <0>;
++				clocks = <&cmu_peric0 CLK_GOUT_PERIC0_USI4_USI_IPCLK>,
++					 <&cmu_peric0 CLK_GOUT_PERIC0_USI4_USI_PCLK>;
++				clock-names = "hsi2c", "hsi2c_pclk";
++				interrupts = <GIC_SPI 677 IRQ_TYPE_LEVEL_HIGH>;
++				pinctrl-0 = <&hsi2c4_bus>;
++				pinctrl-names = "default";
++				status = "disabled";
++			};
++		};
++
++		usi8: usi@109700c0 {
++			compatible = "google,gs201-usi", "samsung,exynos850-usi";
++			reg = <0x109700c0 0x20>;
++			ranges;
++			#address-cells = <1>;
++			#size-cells = <1>;
++			clocks = <&cmu_peric0 CLK_GOUT_PERIC0_USI8_USI_PCLK>,
++				 <&cmu_peric0 CLK_GOUT_PERIC0_USI8_USI_IPCLK>;
++			clock-names = "pclk", "ipclk";
++			samsung,sysreg = <&sysreg_peric0 0x101c>;
++			status = "disabled";
++
++			hsi2c_8: i2c@10970000 {
++				compatible = "google,gs201-hsi2c",
++					     "samsung,exynosautov9-hsi2c";
++				reg = <0x10970000 0xc0>;
++				#address-cells = <1>;
++				#size-cells = <0>;
++				clocks = <&cmu_peric0 CLK_GOUT_PERIC0_USI8_USI_IPCLK>,
++					 <&cmu_peric0 CLK_GOUT_PERIC0_USI8_USI_PCLK>;
++				clock-names = "hsi2c", "hsi2c_pclk";
++				interrupts = <GIC_SPI 681 IRQ_TYPE_LEVEL_HIGH>;
++				pinctrl-0 = <&hsi2c8_bus>;
++				pinctrl-names = "default";
++				status = "disabled";
++			};
++		};
++
+ 		cmu_peric1: clock-controller@10c00000 {
+ 			compatible = "google,gs201-cmu-peric1";
+ 			reg = <0x10c00000 0x10000>;

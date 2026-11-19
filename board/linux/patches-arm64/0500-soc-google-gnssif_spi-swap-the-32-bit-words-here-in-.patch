@@ -1,0 +1,187 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Sun, 1 Nov 2026 18:39:07 -0647
+Subject: [PATCH] soc: google: gnssif_spi: swap the 32-bit words here, in
+ 64-byte transfers
+
+Google's gnss_spi sends 32-bit words in one transfer per call, and
+relies on Google's SPI controller driver for two things this kernel's
+spi-s3c64xx does not do:
+
+- The board's SPI 21 node has swap-mode = <1>, for which Google's
+  driver programs the controller's SWAP_CFG to swap the bytes and
+  half-words of each word on TX and RX, so the bytes go on the wire in
+  memory order. spi-s3c64xx shifts a 32-bit word out most significant
+  byte first, which on a little-endian CPU reverses every group of
+  four bytes. Swap each word in gnss_spi instead, on the way out and on
+  the way in, and give the caller its TX buffer back unswapped. Every
+  transfer is a whole number of words (gnssif rounds writes up to 4
+  bytes and reads 64), so an odd size is refused.
+- The core's data comes in 64-byte blocks, and reads are one block per
+  transfer. spi-s3c64xx moves a transfer that fills the 64-byte FIFO in
+  one piece on zumapro, but cuts a longer one into 60-byte pieces. Send
+  writes as one message of transfers of 64 bytes at most, as the reads
+  are.
+
+On the Pixel 9a (MODEM-PLAN G3, 2026-10-30, the bring-up driver of
+linux-omarchy-mobile#137 with these two settings, SPI mode 0, stock's
+feedback delay 0 and the controller driving chip select) the receiver
+got its position fix: in a session by a window 54 of 56 GGA sentences
+had a fix, with 10 satellites, HDOP 1.2, and no CHPP checksum error,
+ACK timeout or permanent failure. That boot had no swap mode in the
+controller, which a bring-up patch also tried with the same result, so
+neither the device tree nor spi-s3c64xx needs one. The palmtop has run
+this setting since.
+
+8-bit words would put the bytes in memory order too, but they have not
+been tried since the SPI flush fix ("spi: s3c64xx: turn the channels off
+before clearing the packet count") that ended the link's bit slips, so
+this keeps stock's word size. The bring-up's module parameters for the
+word size, the transfer size and the SPI mode are not carried over:
+these are fixed, and the mode and clock come from the device tree.
+
+Link: https://github.com/derekross/linux-omarchy-mobile/pull/137
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ drivers/soc/google/gnssif_spi/gnss_spi.c | 90 ++++++++++++++++--------
+ drivers/soc/google/gnssif_spi/gnss_spi.h |  2 +
+ 2 files changed, 63 insertions(+), 29 deletions(-)
+
+diff --git a/drivers/soc/google/gnssif_spi/gnss_spi.c b/drivers/soc/google/gnssif_spi/gnss_spi.c
+index dd88cd4c5..8e47f1315 100644
+--- a/drivers/soc/google/gnssif_spi/gnss_spi.c
++++ b/drivers/soc/google/gnssif_spi/gnss_spi.c
+@@ -10,6 +10,8 @@
+ #include <linux/of.h>
+ #include <linux/of_platform.h>
+ #include <linux/platform_device.h>
++#include <linux/slab.h>
++#include <linux/swab.h>
+ 
+ #include "include/gnss.h"
+ #include "gnss_spi.h"
+@@ -23,52 +25,82 @@ bool gnss_spi_bound(void)
+ }
+ EXPORT_SYMBOL_GPL(gnss_spi_bound);
+ 
+-int gnss_spi_send(char *buff, unsigned int size, char *rx_buff)
++/*
++ * Swap the bytes of each 32-bit word. Google's SPI controller driver
++ * sends GNSS's 32-bit words in its swap mode (swap-mode in the board's
++ * device tree: bytes and half-words swapped on TX and RX), which puts
++ * them on the wire in memory order. spi-s3c64xx has no swap mode and
++ * shifts each word out most significant byte first, so swap here.
++ */
++static void gnss_spi_swab(char *buf, unsigned int size)
+ {
+-	int ret = 0;
+-	struct spi_message msg;
+-	struct spi_transfer tx;
++	u32 *w = (u32 *)buf;
++	unsigned int i;
+ 
+-	if (!gnss_spi_bound())
+-		return -ENODEV;
+-
+-	memset(&tx, 0, sizeof(struct spi_transfer));
+-	spi_message_init(&msg);
+-	tx.len = size;
+-	tx.tx_buf = buff;
+-	tx.bits_per_word = SPI_BITS_PER_WORD;
+-	if (rx_buff)
+-		tx.rx_buf = rx_buff;
+-	spi_message_add_tail(&tx, &msg);
+-	ret = spi_sync(gnss_if.spi, &msg);
+-	if (ret < 0)
+-		gif_err("spi_sync() error:%d\n", ret);
+-
+-	return ret;
++	for (i = 0; i < size / 4; i++)
++		w[i] = swab32(w[i]);
+ }
+-EXPORT_SYMBOL_GPL(gnss_spi_send);
+ 
+-int gnss_spi_recv(char *buff, unsigned int size)
++/*
++ * One message of transfers of GNSS_SPI_BLOCK bytes at most. The core's
++ * data comes in 64-byte blocks, and Google's driver reads one block per
++ * transfer. spi-s3c64xx moves a transfer that fills its 64-byte FIFO in
++ * one piece, but cuts a longer one into 60-byte pieces, and on the Pixel
++ * 9a the cuts lost data; so writes go in blocks too.
++ */
++static int gnss_spi_xfer(char *tx_buf, char *rx_buf, unsigned int size)
+ {
+-	int ret = 0;
++	unsigned int n = DIV_ROUND_UP(size, GNSS_SPI_BLOCK);
++	struct spi_transfer *t;
+ 	struct spi_message msg;
+-	struct spi_transfer rx;
++	unsigned int i, off;
++	int ret;
+ 
+ 	if (!gnss_spi_bound())
+ 		return -ENODEV;
++	if (!size || size % sizeof(u32))
++		return -EINVAL;
++
++	t = kcalloc(n, sizeof(*t), GFP_KERNEL);
++	if (!t)
++		return -ENOMEM;
++
++	if (tx_buf)
++		gnss_spi_swab(tx_buf, size);
+ 
+-	memset(&rx, 0, sizeof(struct spi_transfer));
+-	rx.len = size;
+-	rx.rx_buf = buff;
+-	rx.bits_per_word = SPI_BITS_PER_WORD;
+ 	spi_message_init(&msg);
+-	spi_message_add_tail(&rx, &msg);
++	for (i = 0, off = 0; i < n; i++, off += GNSS_SPI_BLOCK) {
++		t[i].len = min(size - off, GNSS_SPI_BLOCK);
++		t[i].tx_buf = tx_buf ? tx_buf + off : NULL;
++		t[i].rx_buf = rx_buf ? rx_buf + off : NULL;
++		t[i].bits_per_word = SPI_BITS_PER_WORD;
++		spi_message_add_tail(&t[i], &msg);
++	}
++
+ 	ret = spi_sync(gnss_if.spi, &msg);
+ 	if (ret < 0)
+ 		gif_err("spi_sync() error:%d\n", ret);
+ 
++	/* Give the caller its buffer back as it was. */
++	if (tx_buf)
++		gnss_spi_swab(tx_buf, size);
++	if (rx_buf && !ret)
++		gnss_spi_swab(rx_buf, size);
++
++	kfree(t);
++
+ 	return ret;
++}
++
++int gnss_spi_send(char *buff, unsigned int size, char *rx_buff)
++{
++	return gnss_spi_xfer(buff, rx_buff, size);
++}
++EXPORT_SYMBOL_GPL(gnss_spi_send);
+ 
++int gnss_spi_recv(char *buff, unsigned int size)
++{
++	return gnss_spi_xfer(NULL, buff, size);
+ }
+ EXPORT_SYMBOL_GPL(gnss_spi_recv);
+ 
+diff --git a/drivers/soc/google/gnssif_spi/gnss_spi.h b/drivers/soc/google/gnssif_spi/gnss_spi.h
+index a3d41fbaa..e10067c0b 100644
+--- a/drivers/soc/google/gnssif_spi/gnss_spi.h
++++ b/drivers/soc/google/gnssif_spi/gnss_spi.h
+@@ -14,6 +14,8 @@
+ #define MAX_SPI_RX_SIZE	SZ_2K
+ #define DEFAULT_SPI_TX_SIZE	SZ_4K
+ #define SPI_BITS_PER_WORD	32
++/* the core's block, and the FIFO depth of the SPI controller it is on */
++#define GNSS_SPI_BLOCK		64U
+ 
+ struct gnss_spi {
+ 	struct spi_device *spi;

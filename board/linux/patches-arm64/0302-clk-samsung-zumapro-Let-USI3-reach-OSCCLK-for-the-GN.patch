@@ -1,0 +1,54 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Thu, 29 Oct 2026 09:04:33 -0647
+Subject: [PATCH] clk: samsung: zumapro: Let USI3 reach OSCCLK for the GNSS SPI
+
+The Pixel 9a's GNSS SPI (SPI21 on HSI0 USI3) asks for 12.5 MHz, but the
+USI3 mux is read-only on the 399.36 MHz parent and its 4-bit divider
+stops at /16, so the IP clock is 24.96 MHz and the bus runs at 6.24 MHz,
+twice what stock uses. Google's clock table makes the 12 MHz setting
+from OSCCLK / 2 (cmucal-vclklut.c, div_clk_hsi0_usix_12mhz_lut_params).
+Let the rate request reach the mux (nMUX, so the clock framework may
+reparent) and pass it up through the divider and the source gate; the
+framework then picks OSCCLK and /2, 12.288 MHz, a 3.072 MHz bus. USI2
+(the touchscreen) is unchanged.
+
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ drivers/clk/samsung/clk-zumapro.c | 9 ++++-----
+ 1 file changed, 4 insertions(+), 5 deletions(-)
+
+diff --git a/drivers/clk/samsung/clk-zumapro.c b/drivers/clk/samsung/clk-zumapro.c
+index 8ffb0e505..2db80e4f4 100644
+--- a/drivers/clk/samsung/clk-zumapro.c
++++ b/drivers/clk/samsung/clk-zumapro.c
+@@ -642,9 +642,8 @@ static const struct samsung_mux_clock hsi0_muxes[] __initconst = {
+ 	MUX_F(CLK_MOUT_HSI0_USI2_LOCAL, "zumapro_mout_hsi0_usi2_local",
+ 	      mout_hsi0_usi2_local_parents,
+ 	      0x101c, 0, 1, 0, CLK_MUX_READ_ONLY),
+-	MUX_F(CLK_MOUT_HSI0_USI3_LOCAL, "zumapro_mout_hsi0_usi3_local",
+-	      mout_hsi0_usi3_local_parents,
+-	      0x1020, 0, 1, 0, CLK_MUX_READ_ONLY),
++	nMUX(CLK_MOUT_HSI0_USI3_LOCAL, "zumapro_mout_hsi0_usi3_local",
++	     mout_hsi0_usi3_local_parents, 0x1020, 0, 1),
+ };
+ 
+ static const struct samsung_div_clock hsi0_dividers[] __initconst = {
+@@ -655,7 +654,7 @@ static const struct samsung_div_clock hsi0_dividers[] __initconst = {
+ 	DIV_F(CLK_DOUT_HSI0_USI2, "zumapro_dout_hsi0_usi2", "zumapro_gout_hsi0_usi2_source",
+ 	      0x181c, 0, 4, 0, 0),
+ 	DIV_F(CLK_DOUT_HSI0_USI3, "zumapro_dout_hsi0_usi3", "zumapro_gout_hsi0_usi3_source",
+-	      0x1820, 0, 4, 0, 0),
++	      0x1820, 0, 4, CLK_SET_RATE_PARENT, 0),
+ };
+ 
+ static const struct samsung_gate_clock hsi0_gates[] __initconst = {
+@@ -668,7 +667,7 @@ static const struct samsung_gate_clock hsi0_gates[] __initconst = {
+ 	     0x2100, 21, CLK_IGNORE_UNUSED, 0),
+ 	GATE(CLK_GOUT_HSI0_USI3_SOURCE, "zumapro_gout_hsi0_usi3_source",
+ 	     "zumapro_mout_hsi0_usi3_local",
+-	     0x2124, 21, CLK_IGNORE_UNUSED, 0),
++	     0x2124, 21, CLK_IGNORE_UNUSED | CLK_SET_RATE_PARENT, 0),
+ 	GATE(CLK_GOUT_HSI0_USI3_IP, "zumapro_gout_hsi0_usi3_ip", "zumapro_dout_hsi0_usi3",
+ 	     0x2104, 21, CLK_IGNORE_UNUSED | CLK_SET_RATE_PARENT, 0),
+ 	GATE(CLK_GOUT_HSI0_USI3_PCLK, "zumapro_gout_hsi0_usi3_pclk", "zumapro_mout_hsi0_noc_local",

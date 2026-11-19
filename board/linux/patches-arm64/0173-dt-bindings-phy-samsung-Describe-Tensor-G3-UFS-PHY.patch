@@ -1,0 +1,48 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Brett-Michael Green <brett@bmgvisualtech.com>
+Date: Sat, 24 Oct 2026 12:22:33 -0400
+Subject: [PATCH] dt-bindings: phy: samsung: Describe Tensor G3 UFS PHY
+
+zuma (Tensor G3) and zumapro (Tensor G4) take their UFS PHY tables from
+the same calibration source in Google's GPL driver (drivers/ufs/zuma/),
+and the PHY's calibration-done register and PMU isolation offset
+(0x3ec0) are the same, so describe zuma's PHY with zumapro's as the
+fallback.
+
+Assisted-by: LLM
+Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
+---
+ .../bindings/phy/samsung,ufs-phy.yaml         | 20 +++++++++++--------
+ 1 file changed, 12 insertions(+), 8 deletions(-)
+
+diff --git a/Documentation/devicetree/bindings/phy/samsung,ufs-phy.yaml b/Documentation/devicetree/bindings/phy/samsung,ufs-phy.yaml
+index 686937a3c..83ad0a570 100644
+--- a/Documentation/devicetree/bindings/phy/samsung,ufs-phy.yaml
++++ b/Documentation/devicetree/bindings/phy/samsung,ufs-phy.yaml
+@@ -14,14 +14,18 @@ properties:
+     const: 0
+ 
+   compatible:
+-    enum:
+-      - google,gs101-ufs-phy
+-      - google,gs201-ufs-phy
+-      - google,zumapro-ufs-phy
+-      - samsung,exynos7-ufs-phy
+-      - samsung,exynosautov9-ufs-phy
+-      - samsung,exynosautov920-ufs-phy
+-      - tesla,fsd-ufs-phy
++    oneOf:
++      - enum:
++          - google,gs101-ufs-phy
++          - google,gs201-ufs-phy
++          - google,zumapro-ufs-phy
++          - samsung,exynos7-ufs-phy
++          - samsung,exynosautov9-ufs-phy
++          - samsung,exynosautov920-ufs-phy
++          - tesla,fsd-ufs-phy
++      - items:
++          - const: google,zuma-ufs-phy
++          - const: google,zumapro-ufs-phy
+ 
+   reg:
+     maxItems: 1

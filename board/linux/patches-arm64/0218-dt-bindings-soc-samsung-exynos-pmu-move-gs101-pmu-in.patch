@@ -1,0 +1,160 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Andr=C3=A9=20Draszik?= <andre.draszik@linaro.org>
+Date: Wed, 18 Mar 2026 11:54:00 -0400
+Subject: [PATCH] dt-bindings: soc: samsung: exynos-pmu: move gs101-pmu into
+ separate binding
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The gs101-pmu binding is going to acquire various additional (pattern)
+properties that don't apply to other PMUs supported by this binding.
+
+To enable this, move google,gs101-pmu into a separate binding.
+
+Reviewed-by: Rob Herring (Arm) <robh@kernel.org>
+Signed-off-by: André Draszik <andre.draszik@linaro.org>
+Link: https://lore.kernel.org/r/20260318-gs101-pd-v8-3-241523460b10@linaro.org
+[omamobile: our base also lists google,zuma-pmu here, kept in
+ exynos-pmu.yaml; the gs101 reboot-mode restriction that upstream since
+ added to exynos-pmu.yaml moves into google,gs101-pmu.yaml]
+Signed-off-by: saiththerobo <the.tom.sharp@gmail.com>
+---
+ .../bindings/soc/google/google,gs101-pmu.yaml | 60 +++++++++++++++++++
+ .../bindings/soc/samsung/exynos-pmu.yaml      | 29 +--------
+ MAINTAINERS                                   |  1 +
+ 3 files changed, 62 insertions(+), 28 deletions(-)
+ create mode 100644 Documentation/devicetree/bindings/soc/google/google,gs101-pmu.yaml
+
+diff --git a/Documentation/devicetree/bindings/soc/google/google,gs101-pmu.yaml b/Documentation/devicetree/bindings/soc/google/google,gs101-pmu.yaml
+new file mode 100644
+index 000000000..0fe4521a3
+--- /dev/null
++++ b/Documentation/devicetree/bindings/soc/google/google,gs101-pmu.yaml
+@@ -0,0 +1,60 @@
++# SPDX-License-Identifier: GPL-2.0-only OR BSD-2-Clause
++%YAML 1.2
++---
++$id: http://devicetree.org/schemas/soc/google/google,gs101-pmu.yaml#
++$schema: http://devicetree.org/meta-schemas/core.yaml#
++
++title: Google GS101 Power Management Unit (PMU)
++
++maintainers:
++  - André Draszik <andre.draszik@linaro.org>
++
++properties:
++  compatible:
++    const: google,gs101-pmu
++
++  reg:
++    maxItems: 1
++
++  reboot-mode:
++    $ref: /schemas/power/reset/syscon-reboot-mode.yaml
++    type: object
++    description:
++      Reboot mode to alter bootloader behavior for the next boot
++    patternProperties:
++      # Negative look-ahead to disallow unsupported modes. The '$' has to be
++      # part of lookahead group to work, instead of trailing outside of ().
++      "^mode-(?!(bootloader$|charge$|dm-verity-device-corrupted$|fastboot$|reboot-ab-update$|recovery$)|rescue$|shutdown-thermal$|shutdown-thermal-battery$)": false
++
++  syscon-poweroff:
++    $ref: /schemas/power/reset/syscon-poweroff.yaml#
++    type: object
++    description:
++      Node for power off method
++
++  syscon-reboot:
++    $ref: /schemas/power/reset/syscon-reboot.yaml#
++    type: object
++    description:
++      Node for reboot method
++
++  google,pmu-intr-gen-syscon:
++    $ref: /schemas/types.yaml#/definitions/phandle
++    description:
++      Phandle to PMU interrupt generation interface.
++
++required:
++  - compatible
++  - reg
++  - google,pmu-intr-gen-syscon
++
++additionalProperties: false
++
++examples:
++  - |
++    system-controller@17460000 {
++        compatible = "google,gs101-pmu";
++        reg = <0x17460000 0x10000>;
++
++        google,pmu-intr-gen-syscon = <&pmu_intr_gen>;
++    };
+diff --git a/Documentation/devicetree/bindings/soc/samsung/exynos-pmu.yaml b/Documentation/devicetree/bindings/soc/samsung/exynos-pmu.yaml
+index 7aedd2e7c..99a9471bd 100644
+--- a/Documentation/devicetree/bindings/soc/samsung/exynos-pmu.yaml
++++ b/Documentation/devicetree/bindings/soc/samsung/exynos-pmu.yaml
+@@ -12,9 +12,7 @@ maintainers:
+ properties:
+   compatible:
+     oneOf:
+-      - enum:
+-          - google,gs101-pmu
+-          - google,zuma-pmu
++      - const: google,zuma-pmu
+       - items:
+           - const: google,gs201-pmu
+           - const: google,gs101-pmu
+@@ -117,11 +115,6 @@ properties:
+     description:
+       Node for reboot method
+ 
+-  google,pmu-intr-gen-syscon:
+-    $ref: /schemas/types.yaml#/definitions/phandle
+-    description:
+-      Phandle to PMU interrupt generation interface.
+-
+ required:
+   - compatible
+   - reg
+@@ -197,26 +190,6 @@ allOf:
+             # part of lookahead group to work, instead of trailing outside of ().
+             "^mode-(?!(bootloader$|download$|fastboot$|recovery$))": false
+ 
+-  - if:
+-      properties:
+-        compatible:
+-          contains:
+-            enum:
+-              - google,gs101-pmu
+-    then:
+-      properties:
+-        reboot-mode:
+-          patternProperties:
+-            # Negative look-ahead to disallow unsupported modes. The '$' has to be
+-            # part of lookahead group to work, instead of trailing outside of ().
+-            "^mode-(?!(bootloader$|charge$|dm-verity-device-corrupted$|fastboot$|reboot-ab-update$|recovery$)|rescue$|shutdown-thermal$|shutdown-thermal-battery$)": false
+-
+-      required:
+-        - google,pmu-intr-gen-syscon
+-    else:
+-      properties:
+-        google,pmu-intr-gen-syscon: false
+-
+ examples:
+   - |
+     #include <dt-bindings/clock/exynos5250.h>
+diff --git a/MAINTAINERS b/MAINTAINERS
+index 12210c09c..8a5eef8c2 100644
+--- a/MAINTAINERS
++++ b/MAINTAINERS
+@@ -11161,6 +11161,7 @@ F:	Documentation/devicetree/bindings/clock/google,gs201-clock.yaml
+ F:	Documentation/devicetree/bindings/clock/google,zumapro*
+ F:	Documentation/devicetree/bindings/phy/google,lga-usb-phy.yaml
+ F:	Documentation/devicetree/bindings/soc/google/google,gs101-dtzpc.yaml
++F:	Documentation/devicetree/bindings/soc/google/google,gs101-pmu.yaml
+ F:	Documentation/devicetree/bindings/soc/google/google,gs101-pmu-intr-gen.yaml
+ F:	Documentation/devicetree/bindings/usb/google,lga-dwc3.yaml
+ F:	arch/arm64/boot/dts/exynos/google/

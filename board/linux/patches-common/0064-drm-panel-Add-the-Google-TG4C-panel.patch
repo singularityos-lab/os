@@ -1,0 +1,366 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Tue, 27 Oct 2026 12:05:24 -0647
+Subject: [PATCH] drm/panel: Add the Google TG4C panel
+
+Add a driver for the Google Pixel 9a's TG4C command-mode AMOLED panel.
+The bootloader powers the panel, initialises it and leaves it running
+at 60 Hz; the driver takes it over as it is, as the S6E3HC4 driver does,
+and never resets it or touches its supplies:
+
+ - sleep in and out around a power cycle of the display pipeline,
+   keeping the panel's registers;
+ - 60 and 120 Hz through drm_panel_set_refresh_rate() (0x2f 0x02 and
+   0x2f 0x00, Google's tg4c_change_frequency());
+ - the brightness as a DCS backlight over Google's normal range, levels
+   1 to 3628 (up to 1200 nits), with Google's default of 1829. The
+   levels above 3628 are high brightness mode and are left for a later
+   control of their own.
+
+Command sequences, modes and sizes from Google's MIT-licensed panel
+driver.
+
+Tested on the Pixel 9a (7.3.0-rc6-omamobile-tegu-s2mpg15-m1, this file
+at blob 19c89b162a5e, which used 4095 as maximum and default) with
+gs-dsim-cmd and gs-decon: the desktop runs at 120 Hz, DPMS off puts the
+panel to sleep and DPMS on wakes it, and the brightness follows the
+backlight across its range. This version changes only the brightness
+range and default and the physical size, and drops an unused flag.
+
+Link: https://android.googlesource.com/kernel/google-modules/display/panels/tegu/+/e3a801fb038fdd1bbaec36d387f27bd99f10757a/panel-gs-tg4c.c
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ MAINTAINERS                               |   6 +
+ drivers/gpu/drm/panel/Kconfig             |  12 +
+ drivers/gpu/drm/panel/Makefile            |   1 +
+ drivers/gpu/drm/panel/panel-google-tg4c.c | 269 ++++++++++++++++++++++
+ 4 files changed, 288 insertions(+)
+ create mode 100644 drivers/gpu/drm/panel/panel-google-tg4c.c
+
+diff --git a/MAINTAINERS b/MAINTAINERS
+index 9b42349d3..24944fe74 100644
+--- a/MAINTAINERS
++++ b/MAINTAINERS
+@@ -8149,6 +8149,12 @@ T:	git https://gitlab.freedesktop.org/drm/misc/kernel.git
+ F:	drivers/gpu/drm/gud/
+ F:	include/drm/gud.h
+ 
++DRM DRIVER FOR GOOGLE TG4C PANELS
++M:	W4HO <87742609+W4HO-ham@users.noreply.github.com>
++S:	Maintained
++F:	Documentation/devicetree/bindings/display/panel/google,tg4c.yaml
++F:	drivers/gpu/drm/panel/panel-google-tg4c.c
++
+ DRM DRIVER FOR GRAIN MEDIA GM12U320 PROJECTORS
+ M:	Hans de Goede <hansg@kernel.org>
+ S:	Maintained
+diff --git a/drivers/gpu/drm/panel/Kconfig b/drivers/gpu/drm/panel/Kconfig
+index e77a48b57..5d667d014 100644
+--- a/drivers/gpu/drm/panel/Kconfig
++++ b/drivers/gpu/drm/panel/Kconfig
+@@ -198,6 +198,18 @@ config DRM_PANEL_DSI_CM
+ 	  DRM panel driver for DSI command mode panels with support for
+ 	  embedded and external backlights.
+ 
++config DRM_PANEL_GOOGLE_TG4C
++	tristate "Google TG4C DSI command mode panel"
++	depends on OF
++	depends on DRM_MIPI_DSI
++	depends on BACKLIGHT_CLASS_DEVICE
++	help
++	  Say Y or M here if you want to enable support for the Google
++	  TG4C 1080x2424 command-mode AMOLED panel, found in the Google
++	  Pixel 9a. The driver takes over the panel the bootloader left
++	  running, switches it between 60 and 120 Hz, puts it to sleep and
++	  exposes its brightness as a backlight.
++
+ config DRM_PANEL_LVDS
+ 	tristate "Generic LVDS panel driver"
+ 	depends on OF
+diff --git a/drivers/gpu/drm/panel/Makefile b/drivers/gpu/drm/panel/Makefile
+index 83beb2645..cbf10d7d4 100644
+--- a/drivers/gpu/drm/panel/Makefile
++++ b/drivers/gpu/drm/panel/Makefile
+@@ -13,6 +13,7 @@ obj-$(CONFIG_DRM_PANEL_BOE_TV101WUM_NL6) += panel-boe-tv101wum-nl6.o
+ obj-$(CONFIG_DRM_PANEL_CHIPONE_ICNA35XX) += panel-chipone-icna35xx.o
+ obj-$(CONFIG_DRM_PANEL_CHIPWEALTH_CH13726A) += panel-chipwealth-ch13726a.o
+ obj-$(CONFIG_DRM_PANEL_DSI_CM) += panel-dsi-cm.o
++obj-$(CONFIG_DRM_PANEL_GOOGLE_TG4C) += panel-google-tg4c.o
+ obj-$(CONFIG_DRM_PANEL_LVDS) += panel-lvds.o
+ obj-$(CONFIG_DRM_PANEL_SIMPLE) += panel-simple.o
+ obj-$(CONFIG_DRM_PANEL_EDP) += panel-edp.o
+diff --git a/drivers/gpu/drm/panel/panel-google-tg4c.c b/drivers/gpu/drm/panel/panel-google-tg4c.c
+new file mode 100644
+index 000000000..f95631840
+--- /dev/null
++++ b/drivers/gpu/drm/panel/panel-google-tg4c.c
+@@ -0,0 +1,269 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * Google TG4C DSI command-mode AMOLED panel (Google Pixel 9a)
++ *
++ * Command sequences from Google's MIT-licensed panel driver
++ * (google-modules/display/panels/tegu/panel-gs-tg4c.c).
++ *
++ * The bootloader powers the panel on, initialises it and leaves it running
++ * at 60 Hz. The driver takes it over as it is and never resets it or
++ * touches its supplies: it puts it to sleep and wakes it (sleep in/out,
++ * the panel keeps its registers), switches it between 60 and 120 Hz and
++ * sets its brightness. A panel without the bootloader's initialisation is
++ * not handled.
++ */
++
++#include <linux/backlight.h>
++#include <linux/mod_devicetable.h>
++#include <linux/module.h>
++#include <linux/mutex.h>
++
++#include <video/mipi_display.h>
++
++#include <drm/drm_connector.h>
++#include <drm/drm_mipi_dsi.h>
++#include <drm/drm_modes.h>
++#include <drm/drm_panel.h>
++
++/*
++ * Google's normal range, up to 1200 nits; the levels above it are high
++ * brightness mode and are left alone.
++ */
++#define TG4C_MAX_BRIGHTNESS	3628
++#define TG4C_DEFAULT_BRIGHTNESS	1829
++
++struct tg4c {
++	struct drm_panel panel;
++	struct mipi_dsi_device *dsi;
++	/* serialises commands from the panel and backlight paths */
++	struct mutex lock;
++	/* out of sleep: commands and frames reach the panel */
++	bool awake;
++};
++
++static inline struct tg4c *to_tg4c(struct drm_panel *panel)
++{
++	return container_of(panel, struct tg4c, panel);
++}
++
++static void tg4c_write_rate(struct mipi_dsi_multi_context *ctx, unsigned int hz)
++{
++	if (hz == 120)
++		mipi_dsi_dcs_write_seq_multi(ctx, 0x2f, 0x00);
++	else
++		mipi_dsi_dcs_write_seq_multi(ctx, 0x2f, 0x02);
++}
++
++static int tg4c_prepare(struct drm_panel *panel)
++{
++	struct tg4c *ctx = to_tg4c(panel);
++	struct mipi_dsi_multi_context dsi_ctx = { .dsi = ctx->dsi };
++
++	guard(mutex)(&ctx->lock);
++	if (ctx->awake)
++		return 0;
++	mipi_dsi_dcs_exit_sleep_mode_multi(&dsi_ctx);
++	mipi_dsi_msleep(&dsi_ctx, 120);
++	/* the DSI host wakes the link at 60 Hz */
++	tg4c_write_rate(&dsi_ctx, 60);
++	if (!dsi_ctx.accum_err)
++		ctx->awake = true;
++
++	return dsi_ctx.accum_err;
++}
++
++static int tg4c_enable(struct drm_panel *panel)
++{
++	struct tg4c *ctx = to_tg4c(panel);
++	struct mipi_dsi_multi_context dsi_ctx = { .dsi = ctx->dsi };
++
++	guard(mutex)(&ctx->lock);
++	mipi_dsi_dcs_set_display_on_multi(&dsi_ctx);
++
++	return dsi_ctx.accum_err;
++}
++
++static int tg4c_disable(struct drm_panel *panel)
++{
++	struct tg4c *ctx = to_tg4c(panel);
++	struct mipi_dsi_multi_context dsi_ctx = { .dsi = ctx->dsi };
++
++	guard(mutex)(&ctx->lock);
++	mipi_dsi_dcs_set_display_off_multi(&dsi_ctx);
++	mipi_dsi_msleep(&dsi_ctx, 100);
++
++	return dsi_ctx.accum_err;
++}
++
++static int tg4c_unprepare(struct drm_panel *panel)
++{
++	struct tg4c *ctx = to_tg4c(panel);
++	struct mipi_dsi_multi_context dsi_ctx = { .dsi = ctx->dsi };
++
++	guard(mutex)(&ctx->lock);
++	mipi_dsi_dcs_enter_sleep_mode_multi(&dsi_ctx);
++	mipi_dsi_msleep(&dsi_ctx, 120);
++	if (!dsi_ctx.accum_err)
++		ctx->awake = false;
++
++	return dsi_ctx.accum_err;
++}
++
++static int tg4c_set_refresh_rate(struct drm_panel *panel, unsigned int hz)
++{
++	struct tg4c *ctx = to_tg4c(panel);
++	struct mipi_dsi_multi_context dsi_ctx = { .dsi = ctx->dsi };
++
++	if (hz != 60 && hz != 120)
++		return -EINVAL;
++
++	guard(mutex)(&ctx->lock);
++	if (!ctx->awake)
++		return -ENODEV;
++	tg4c_write_rate(&dsi_ctx, hz);
++
++	return dsi_ctx.accum_err;
++}
++
++#define TG4C_MODE(hz, flags) {						\
++	.clock = (1080 + 32 + 12 + 16) * (2424 + 12 + 4 + 15) * (hz) / 1000, \
++	.hdisplay = 1080,						\
++	.hsync_start = 1080 + 32,					\
++	.hsync_end = 1080 + 32 + 12,					\
++	.htotal = 1080 + 32 + 12 + 16,					\
++	.vdisplay = 2424,						\
++	.vsync_start = 2424 + 12,					\
++	.vsync_end = 2424 + 12 + 4,					\
++	.vtotal = 2424 + 12 + 4 + 15,					\
++	.width_mm = 64,							\
++	.height_mm = 145,						\
++	.type = DRM_MODE_TYPE_DRIVER | (flags),				\
++}
++
++/* Google's tg4c modes: 60 Hz (preferred, the bootloader's) and 120 Hz */
++static const struct drm_display_mode tg4c_modes[] = {
++	TG4C_MODE(60, DRM_MODE_TYPE_PREFERRED),
++	TG4C_MODE(120, 0),
++};
++
++static int tg4c_get_modes(struct drm_panel *panel, struct drm_connector *connector)
++{
++	int i;
++
++	for (i = 0; i < ARRAY_SIZE(tg4c_modes); i++) {
++		struct drm_display_mode *mode;
++
++		mode = drm_mode_duplicate(connector->dev, &tg4c_modes[i]);
++		if (!mode)
++			return i;
++		drm_mode_set_name(mode);
++		drm_mode_probed_add(connector, mode);
++	}
++
++	return i;
++}
++
++static const struct drm_panel_funcs tg4c_panel_funcs = {
++	.prepare = tg4c_prepare,
++	.enable = tg4c_enable,
++	.disable = tg4c_disable,
++	.unprepare = tg4c_unprepare,
++	.get_modes = tg4c_get_modes,
++	.set_refresh_rate = tg4c_set_refresh_rate,
++};
++
++static int tg4c_bl_update_status(struct backlight_device *bl)
++{
++	struct tg4c *ctx = bl_get_data(bl);
++	u16 brightness = backlight_get_brightness(bl);
++
++	guard(mutex)(&ctx->lock);
++	/* asleep: the level is kept and sent with the next update */
++	if (!ctx->awake)
++		return 0;
++
++	return mipi_dsi_dcs_set_display_brightness_large(ctx->dsi, brightness);
++}
++
++static const struct backlight_ops tg4c_bl_ops = {
++	.update_status = tg4c_bl_update_status,
++};
++
++static int tg4c_probe(struct mipi_dsi_device *dsi)
++{
++	struct device *dev = &dsi->dev;
++	struct backlight_properties props = {
++		.type = BACKLIGHT_RAW,
++		.brightness = TG4C_DEFAULT_BRIGHTNESS,
++		.max_brightness = TG4C_MAX_BRIGHTNESS,
++		.scale = BACKLIGHT_SCALE_NON_LINEAR,
++	};
++	struct backlight_device *bl;
++	struct tg4c *ctx;
++	int ret;
++
++	ctx = devm_drm_panel_alloc(dev, struct tg4c, panel, &tg4c_panel_funcs,
++				   DRM_MODE_CONNECTOR_DSI);
++	if (IS_ERR(ctx))
++		return PTR_ERR(ctx);
++
++	ret = devm_mutex_init(dev, &ctx->lock);
++	if (ret)
++		return ret;
++
++	ctx->dsi = dsi;
++	mipi_dsi_set_drvdata(dsi, ctx);
++
++	dsi->lanes = 4;
++	dsi->format = MIPI_DSI_FMT_RGB888;
++	dsi->mode_flags = MIPI_DSI_CLOCK_NON_CONTINUOUS;
++
++	/* the bootloader left it out of sleep with the display on */
++	ctx->awake = true;
++	ctx->panel.prepared = true;
++	ctx->panel.enabled = true;
++	ctx->panel.prepare_prev_first = true;
++
++	bl = devm_backlight_device_register(dev, dev_name(dev), dev, ctx,
++					    &tg4c_bl_ops, &props);
++	if (IS_ERR(bl))
++		return dev_err_probe(dev, PTR_ERR(bl), "failed to register backlight\n");
++	ctx->panel.backlight = bl;
++
++	drm_panel_add(&ctx->panel);
++
++	ret = mipi_dsi_attach(dsi);
++	if (ret < 0) {
++		drm_panel_remove(&ctx->panel);
++		return dev_err_probe(dev, ret, "failed to attach to DSI host\n");
++	}
++
++	return 0;
++}
++
++static void tg4c_remove(struct mipi_dsi_device *dsi)
++{
++	struct tg4c *ctx = mipi_dsi_get_drvdata(dsi);
++
++	mipi_dsi_detach(dsi);
++	drm_panel_remove(&ctx->panel);
++}
++
++static const struct of_device_id tg4c_of_match[] = {
++	{ .compatible = "google,tg4c" },
++	{ /* sentinel */ }
++};
++MODULE_DEVICE_TABLE(of, tg4c_of_match);
++
++static struct mipi_dsi_driver tg4c_driver = {
++	.probe = tg4c_probe,
++	.remove = tg4c_remove,
++	.driver = {
++		.name = "panel-google-tg4c",
++		.of_match_table = tg4c_of_match,
++	},
++};
++module_mipi_dsi_driver(tg4c_driver);
++
++MODULE_DESCRIPTION("Google TG4C DSI command mode panel");
++MODULE_LICENSE("GPL");

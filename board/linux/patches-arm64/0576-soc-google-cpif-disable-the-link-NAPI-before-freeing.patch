@@ -1,0 +1,42 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Mon, 2 Nov 2026 16:16:02 -0647
+Subject: [PATCH] soc: google: cpif: disable the link NAPI before freeing its
+ netdev on error
+
+create_link_device() adds and enables the NAPI context on its dummy
+netdev right after allocating it, but its error path only calls
+free_netdev(). free_netdev() deletes the still enabled NAPI context and
+trips the "Make sure NAPI is disabled" warning in
+__netif_napi_del_locked():
+
+  WARNING: net/core/dev.c:7794 at __netif_napi_del_locked+0xb0/0x100
+   free_netdev+0xdc/0x208
+   create_link_device+0x86c/0x984 [cpif]
+   cpif_probe+0x26c/0x79c [cpif]
+
+Seen on the Pixel 9a when pktproc_create() refused the device tree.
+The NAPI context is added whenever the dummy netdev exists, so disable
+it there before freeing the netdev.
+
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ drivers/soc/google/cpif/link_device.c | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/soc/google/cpif/link_device.c b/drivers/soc/google/cpif/link_device.c
+index 86dfab96c..01d7fd80f 100644
+--- a/drivers/soc/google/cpif/link_device.c
++++ b/drivers/soc/google/cpif/link_device.c
+@@ -4415,8 +4415,10 @@ struct link_device *create_link_device(struct platform_device *pdev, u32 link_ty
+ 	return ld;
+ 
+ error:
+-	if (mld->dummy_net)
++	if (mld->dummy_net) {
++		napi_disable(&mld->mld_napi);
+ 		free_netdev(mld->dummy_net);
++	}
+ 	kfree(mld);
+ 	mif_err("xxx\n");
+ 	return NULL;

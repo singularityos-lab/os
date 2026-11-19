@@ -1,0 +1,26 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: DarekM <149845949+aninmucek@users.noreply.github.com>
+Date: Mon, 2 Nov 2026 21:08:14 +0000
+Subject: [PATCH] dt-bindings: arm: google: Add Pixel 8a (akita)
+
+The Pixel 8a (akita) is a zuma (Tensor G3) board like the Pixel 8 Pro
+(husky). Add its compatible to the zuma board list.
+
+Assisted-by: Claude Opus 5.5
+Signed-off-by: DarekM <149845949+aninmucek@users.noreply.github.com>
+---
+ Documentation/devicetree/bindings/arm/google.yaml | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/Documentation/devicetree/bindings/arm/google.yaml b/Documentation/devicetree/bindings/arm/google.yaml
+index 1f5258ae2..087c6cdbe 100644
+--- a/Documentation/devicetree/bindings/arm/google.yaml
++++ b/Documentation/devicetree/bindings/arm/google.yaml
+@@ -52,6 +52,7 @@ properties:
+       - description: Google Tensor G3 (zuma) boards
+         items:
+           - enum:
++              - google,zuma-akita
+               - google,zuma-husky
+           - const: google,zuma
+       - description: Google Tensor G4 (zumapro) boards

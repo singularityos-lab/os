@@ -1,0 +1,86 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Thu, 22 Oct 2026 16:18:53 -0700
+Subject: [PATCH] phy: samsung-ufs: Propagate isolation errors and unwind
+ failed power-on
+
+Return PMU isolation failures instead of continuing into a potentially
+isolated PHY. If clock enabling or calibration fails, undo the clock and
+isolation state acquired by power_on. Return power_off isolation errors
+to the caller as well. Keep the register access through the existing
+regmap route; do not add raw PMU accesses.
+
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ drivers/phy/samsung/phy-samsung-ufs.c | 20 ++++++++++++++------
+ drivers/phy/samsung/phy-samsung-ufs.h |  7 +++----
+ 2 files changed, 17 insertions(+), 10 deletions(-)
+
+diff --git a/drivers/phy/samsung/phy-samsung-ufs.c b/drivers/phy/samsung/phy-samsung-ufs.c
+index 34e56fead..985297457 100644
+--- a/drivers/phy/samsung/phy-samsung-ufs.c
++++ b/drivers/phy/samsung/phy-samsung-ufs.c
+@@ -176,20 +176,30 @@ static int samsung_ufs_phy_power_on(struct phy *phy)
+ 	struct samsung_ufs_phy *ss_phy = get_samsung_ufs_phy(phy);
+ 	int ret;
+ 
+-	samsung_ufs_phy_ctrl_isol(ss_phy, false);
++	ret = samsung_ufs_phy_ctrl_isol(ss_phy, false);
++	if (ret)
++		return ret;
+ 
+ 	ret = clk_bulk_prepare_enable(ss_phy->drvdata->num_clks, ss_phy->clks);
+ 	if (ret) {
+ 		dev_err(ss_phy->dev, "failed to enable ufs phy clocks\n");
+-		return ret;
++		goto isolate;
+ 	}
+ 
+ 	if (ss_phy->ufs_phy_state == CFG_PRE_INIT) {
+ 		ret = samsung_ufs_phy_calibrate(phy);
+-		if (ret)
++		if (ret) {
+ 			dev_err(ss_phy->dev, "ufs phy calibration failed\n");
++			goto disable_clks;
++		}
+ 	}
+ 
++	return 0;
++
++disable_clks:
++	clk_bulk_disable_unprepare(ss_phy->drvdata->num_clks, ss_phy->clks);
++isolate:
++	samsung_ufs_phy_ctrl_isol(ss_phy, true);
+ 	return ret;
+ }
+ 
+@@ -199,9 +209,7 @@ static int samsung_ufs_phy_power_off(struct phy *phy)
+ 
+ 	clk_bulk_disable_unprepare(ss_phy->drvdata->num_clks, ss_phy->clks);
+ 
+-	samsung_ufs_phy_ctrl_isol(ss_phy, true);
+-
+-	return 0;
++	return samsung_ufs_phy_ctrl_isol(ss_phy, true);
+ }
+ 
+ static int samsung_ufs_phy_set_mode(struct phy *generic_phy,
+diff --git a/drivers/phy/samsung/phy-samsung-ufs.h b/drivers/phy/samsung/phy-samsung-ufs.h
+index 29ad14045..a084dc7cc 100644
+--- a/drivers/phy/samsung/phy-samsung-ufs.h
++++ b/drivers/phy/samsung/phy-samsung-ufs.h
+@@ -142,11 +142,10 @@ static inline struct samsung_ufs_phy *get_samsung_ufs_phy(struct phy *phy)
+ 	return (struct samsung_ufs_phy *)phy_get_drvdata(phy);
+ }
+ 
+-static inline void samsung_ufs_phy_ctrl_isol(
+-		struct samsung_ufs_phy *phy, u32 isol)
++static inline int samsung_ufs_phy_ctrl_isol(struct samsung_ufs_phy *phy, u32 isol)
+ {
+-	regmap_update_bits(phy->reg_pmu, phy->isol.offset,
+-			   phy->isol.mask, isol ? 0 : phy->isol.en);
++	return regmap_update_bits(phy->reg_pmu, phy->isol.offset,
++				  phy->isol.mask, isol ? 0 : phy->isol.en);
+ }
+ 
+ int samsung_ufs_phy_wait_for_lock_acq(struct phy *phy, u8 lane);

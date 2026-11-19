@@ -1,0 +1,244 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: saiththerobo <the.tom.sharp@gmail.com>
+Date: Wed, 14 Oct 2026 22:18:19 +0100
+Subject: [PATCH] arm64: dts: exynos: gs101: thermal zones and CPU cooling
+
+Add the ACPM TMU sensor (disabled), a thermal zone per sensor, and the
+CPUs' #cooling-cells so cpufreq-dt registers them as cooling devices.
+Each CPU cluster throttles from 85 C (passive, 5 C hysteresis) through
+its own cooling map; every zone is critical at 110 C, below the
+firmware's hardware trips.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Signed-off-by: saiththerobo <the.tom.sharp@gmail.com>
+---
+ arch/arm64/boot/dts/exynos/google/gs101.dtsi | 146 +++++++++++++++++++
+ 1 file changed, 146 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/gs101.dtsi b/arch/arm64/boot/dts/exynos/google/gs101.dtsi
+index 9cfb4de7a..9a0f45530 100644
+--- a/arch/arm64/boot/dts/exynos/google/gs101.dtsi
++++ b/arch/arm64/boot/dts/exynos/google/gs101.dtsi
+@@ -11,6 +11,7 @@
+ #include <dt-bindings/gpio/gpio.h>
+ #include <dt-bindings/interrupt-controller/arm-gic.h>
+ #include <dt-bindings/soc/samsung,exynos-usi.h>
++#include <dt-bindings/thermal/thermal.h>
+ 
+ / {
+ 	compatible = "google,gs101";
+@@ -84,6 +85,7 @@ cpu0: cpu@0 {
+ 			capacity-dmips-mhz = <250>;
+ 			dynamic-power-coefficient = <70>;
+ 			operating-points-v2 = <&cpucl0_opp_table>;
++			#cooling-cells = <2>;
+ 		};
+ 
+ 		cpu1: cpu@100 {
+@@ -96,6 +98,7 @@ cpu1: cpu@100 {
+ 			capacity-dmips-mhz = <250>;
+ 			dynamic-power-coefficient = <70>;
+ 			operating-points-v2 = <&cpucl0_opp_table>;
++			#cooling-cells = <2>;
+ 		};
+ 
+ 		cpu2: cpu@200 {
+@@ -108,6 +111,7 @@ cpu2: cpu@200 {
+ 			capacity-dmips-mhz = <250>;
+ 			dynamic-power-coefficient = <70>;
+ 			operating-points-v2 = <&cpucl0_opp_table>;
++			#cooling-cells = <2>;
+ 		};
+ 
+ 		cpu3: cpu@300 {
+@@ -120,6 +124,7 @@ cpu3: cpu@300 {
+ 			capacity-dmips-mhz = <250>;
+ 			dynamic-power-coefficient = <70>;
+ 			operating-points-v2 = <&cpucl0_opp_table>;
++			#cooling-cells = <2>;
+ 		};
+ 
+ 		cpu4: cpu@400 {
+@@ -132,6 +137,7 @@ cpu4: cpu@400 {
+ 			capacity-dmips-mhz = <620>;
+ 			dynamic-power-coefficient = <284>;
+ 			operating-points-v2 = <&cpucl1_opp_table>;
++			#cooling-cells = <2>;
+ 		};
+ 
+ 		cpu5: cpu@500 {
+@@ -144,6 +150,7 @@ cpu5: cpu@500 {
+ 			capacity-dmips-mhz = <620>;
+ 			dynamic-power-coefficient = <284>;
+ 			operating-points-v2 = <&cpucl1_opp_table>;
++			#cooling-cells = <2>;
+ 		};
+ 
+ 		cpu6: cpu@600 {
+@@ -156,6 +163,7 @@ cpu6: cpu@600 {
+ 			capacity-dmips-mhz = <1024>;
+ 			dynamic-power-coefficient = <650>;
+ 			operating-points-v2 = <&cpucl2_opp_table>;
++			#cooling-cells = <2>;
+ 		};
+ 
+ 		cpu7: cpu@700 {
+@@ -168,6 +176,7 @@ cpu7: cpu@700 {
+ 			capacity-dmips-mhz = <1024>;
+ 			dynamic-power-coefficient = <650>;
+ 			operating-points-v2 = <&cpucl2_opp_table>;
++			#cooling-cells = <2>;
+ 		};
+ 
+ 		idle-states {
+@@ -494,6 +503,13 @@ acpm_ipc: power-management {
+ 			#clock-cells = <1>;
+ 			mboxes = <&ap2apm_mailbox>;
+ 			shmem = <&apm_sram>;
++
++			/* TMU sensors, read through the ACPM firmware (channel 9) */
++			acpm_tmu: thermal-sensor {
++				compatible = "google,gs101-acpm-tmu";
++				#thermal-sensor-cells = <1>;
++				status = "disabled";
++			};
+ 		};
+ 	};
+ 
+@@ -2087,6 +2103,136 @@ apm_sram: sram@2039000 {
+ 		ranges = <0x0 0x0 0x2039000 0x40000>;
+ 	};
+ 
++	thermal-zones {
++		big-thermal {
++			polling-delay-passive = <250>;
++			polling-delay = <1000>;
++			thermal-sensors = <&acpm_tmu 0>;
++
++			trips {
++				big_hot: big-hot {
++					temperature = <85000>;
++					hysteresis = <5000>;
++					type = "passive";
++				};
++
++				big_crit: big-crit {
++					temperature = <110000>;
++					hysteresis = <0>;
++					type = "critical";
++				};
++			};
++
++			cooling-maps {
++				map0 {
++					trip = <&big_hot>;
++					cooling-device = <&cpu6 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
++							 <&cpu7 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
++				};
++			};
++		};
++
++		mid-thermal {
++			polling-delay-passive = <250>;
++			polling-delay = <1000>;
++			thermal-sensors = <&acpm_tmu 1>;
++
++			trips {
++				mid_hot: mid-hot {
++					temperature = <85000>;
++					hysteresis = <5000>;
++					type = "passive";
++				};
++
++				mid_crit: mid-crit {
++					temperature = <110000>;
++					hysteresis = <0>;
++					type = "critical";
++				};
++			};
++
++			cooling-maps {
++				map0 {
++					trip = <&mid_hot>;
++					cooling-device = <&cpu4 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
++							 <&cpu5 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
++				};
++			};
++		};
++
++		little-thermal {
++			polling-delay-passive = <250>;
++			polling-delay = <1000>;
++			thermal-sensors = <&acpm_tmu 2>;
++
++			trips {
++				little_hot: little-hot {
++					temperature = <85000>;
++					hysteresis = <5000>;
++					type = "passive";
++				};
++
++				little_crit: little-crit {
++					temperature = <110000>;
++					hysteresis = <0>;
++					type = "critical";
++				};
++			};
++
++			cooling-maps {
++				map0 {
++					trip = <&little_hot>;
++					cooling-device = <&cpu0 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
++							 <&cpu1 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
++							 <&cpu2 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
++							 <&cpu3 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
++				};
++			};
++		};
++
++		gpu-thermal {
++			polling-delay-passive = <250>;
++			polling-delay = <1000>;
++			thermal-sensors = <&acpm_tmu 3>;
++
++			trips {
++				gpu_crit: gpu-crit {
++					temperature = <110000>;
++					hysteresis = <0>;
++					type = "critical";
++				};
++			};
++		};
++
++		isp-thermal {
++			polling-delay-passive = <250>;
++			polling-delay = <1000>;
++			thermal-sensors = <&acpm_tmu 4>;
++
++			trips {
++				isp_crit: isp-crit {
++					temperature = <110000>;
++					hysteresis = <0>;
++					type = "critical";
++				};
++			};
++		};
++
++		tpu-thermal {
++			polling-delay-passive = <250>;
++			polling-delay = <1000>;
++			thermal-sensors = <&acpm_tmu 5>;
++
++			trips {
++				tpu_crit: tpu-crit {
++					temperature = <110000>;
++					hysteresis = <0>;
++					type = "critical";
++				};
++			};
++		};
++	};
++
+ 	timer {
+ 		compatible = "arm,armv8-timer";
+ 		interrupts =

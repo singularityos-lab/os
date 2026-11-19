@@ -1,0 +1,67 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Lef <me@lefteros.com>
+Date: Sat, 7 Nov 2026 11:53:54 +0200
+Subject: [PATCH] arm64: dts: exynos: google: zuma-husky: add the S2MPG15
+ sub-PMIC with the GNSS supplies, disabled
+
+The Pixel 8 Pro's GNSS receiver is fed by three LDOs of the S2MPG15
+sub-PMIC (Google's L9S_GNSS_CORE, L10S_GNSS_RF and L11S_GNSS_AUX), which
+stock leaves always on. Add the sub-PMIC as pmic-2 under the ACPM node,
+status "disabled", with only those three rails and stock's voltage
+ranges, as the 7 Pro does for its S2MPG13. The ACPM channel the driver
+uses (2, speedy 1) is the one Google's zuma device tree gives
+s2mpg15mfd.
+
+Disabled, so nothing changes at boot; the GNSS node that takes these
+supplies comes separately. Built, not booted.
+
+Signed-off-by: Lef <me@lefteros.com>
+---
+ .../boot/dts/exynos/google/zuma-husky.dts     | 34 +++++++++++++++++++
+ 1 file changed, 34 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/zuma-husky.dts b/arch/arm64/boot/dts/exynos/google/zuma-husky.dts
+index b822ba307..5af39d62d 100644
+--- a/arch/arm64/boot/dts/exynos/google/zuma-husky.dts
++++ b/arch/arm64/boot/dts/exynos/google/zuma-husky.dts
+@@ -205,6 +205,40 @@ touch_vdd: ldo25m {
+ 			};
+ 		};
+ 	};
++
++	/*
++	 * The sub PMIC (S2MPG15), for the GNSS receiver's three rails. On
++	 * stock these are always on, which is why the ranges below are stock's
++	 * and nothing sets a voltage at probe: the GNSS driver will switch
++	 * them. Only these rails are described; every other rail of the chip
++	 * is left as the bootloader set it. No interrupt. Disabled until it
++	 * has been tried on the phone.
++	 */
++	pmic-2 {
++		compatible = "samsung,s2mpg15-pmic";
++		status = "disabled";
++
++		regulators {
++			/* L9S_GNSS_CORE, L10S_GNSS_RF and L11S_GNSS_AUX. */
++			ldo9s: ldo9s {
++				regulator-name = "vdd_gnss_core";
++				regulator-min-microvolt = <725000>;
++				regulator-max-microvolt = <1300000>;
++			};
++
++			ldo10s: ldo10s {
++				regulator-name = "vdd_gnss_rf";
++				regulator-min-microvolt = <1600000>;
++				regulator-max-microvolt = <1950000>;
++			};
++
++			ldo11s: ldo11s {
++				regulator-name = "vdd_gnss_aux";
++				regulator-min-microvolt = <1600000>;
++				regulator-max-microvolt = <1950000>;
++			};
++		};
++	};
+ };
+ 
+ /*

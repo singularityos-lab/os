@@ -1,0 +1,35 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Mon, 12 Oct 2026 19:29:44 -0400
+Subject: [PATCH] nfc: core: don't discover secure elements when the device
+ failed to come up
+
+nfc_dev_up() called the driver's discover_se() even when dev_up() had just
+failed. For NCI drivers that sends NFCEE_DISCOVER to a controller that is
+known not to answer: one more full command timeout, then a misleading
+"SE discovery failed" on top of the real error. Stop after a failed
+dev_up().
+
+Assisted-by: LLM
+Signed-off-by: Derek Ross <derekross@gmail.com>
+---
+ net/nfc/core.c | 6 ++++--
+ 1 file changed, 4 insertions(+), 2 deletions(-)
+
+diff --git a/net/nfc/core.c b/net/nfc/core.c
+index 56a3cf684..af0325881 100644
+--- a/net/nfc/core.c
++++ b/net/nfc/core.c
+@@ -117,8 +117,10 @@ int nfc_dev_up(struct nfc_dev *dev)
+ 	if (dev->ops->dev_up)
+ 		rc = dev->ops->dev_up(dev);
+ 
+-	if (!rc)
+-		dev->dev_up = true;
++	if (rc)
++		goto error;
++
++	dev->dev_up = true;
+ 
+ 	/* We have to enable the device before discovering SEs */
+ 	if (dev->ops->discover_se && dev->ops->discover_se(dev))

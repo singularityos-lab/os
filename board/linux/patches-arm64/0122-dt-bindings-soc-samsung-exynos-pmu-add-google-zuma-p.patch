@@ -1,0 +1,28 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Brett-Michael Green <brett@bmgvisualtech.com>
+Date: Thu, 22 Oct 2026 12:43:01 -0400
+Subject: [PATCH] dt-bindings: soc: samsung: exynos-pmu: add google,zuma-pmu
+
+zuma (Tensor G3) has gs101's PMU arrangement: PMU_ALIVE is writable only
+from EL3. Add its compatible on its own: the register map differs from
+gs101's, and it needs no pmu-intr-gen syscon for now (no CPU idle or
+hotplug support yet).
+
+Assisted-by: LLM
+Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
+---
+ Documentation/devicetree/bindings/soc/samsung/exynos-pmu.yaml | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/Documentation/devicetree/bindings/soc/samsung/exynos-pmu.yaml b/Documentation/devicetree/bindings/soc/samsung/exynos-pmu.yaml
+index 5bd39876e..14caf5bdc 100644
+--- a/Documentation/devicetree/bindings/soc/samsung/exynos-pmu.yaml
++++ b/Documentation/devicetree/bindings/soc/samsung/exynos-pmu.yaml
+@@ -14,6 +14,7 @@ properties:
+     oneOf:
+       - enum:
+           - google,gs101-pmu
++          - google,zuma-pmu
+       - items:
+           - enum:
+               - samsung,exynos3250-pmu

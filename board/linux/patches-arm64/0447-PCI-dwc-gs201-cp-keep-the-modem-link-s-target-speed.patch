@@ -1,0 +1,60 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Tue, 13 Oct 2026 12:21:47 -0400
+Subject: [PATCH] PCI: dwc: gs201-cp: keep the modem link's target speed
+
+The modem's ROM trains at Gen1 and only the modem driver moves the link
+to Gen3, with a new link up once the boot loader runs. At enumeration
+the PCI core finds the root port's 2.5GT/s target and lifts it
+(pcie_failed_link_retrain(): "removing 2.5GT/s downstream link speed
+restriction", seen in M3.1 and in the first modem boot), then retrains
+the link under the ROM. Google's 6.1 kernel has no such quirk.
+
+Keep the root port's Target Link Speed at what link_up set when the
+core writes Link Control 2. The core's retrain then stays at Gen1.
+
+Assisted-by: LLM
+Signed-off-by: Derek Ross <derekross@gmail.com>
+---
+ drivers/pci/controller/dwc/pcie-gs201-cp.c | 14 ++++++++++++++
+ 1 file changed, 14 insertions(+)
+
+diff --git a/drivers/pci/controller/dwc/pcie-gs201-cp.c b/drivers/pci/controller/dwc/pcie-gs201-cp.c
+index 14d8861ed..65dd2fe4b 100644
+--- a/drivers/pci/controller/dwc/pcie-gs201-cp.c
++++ b/drivers/pci/controller/dwc/pcie-gs201-cp.c
+@@ -217,6 +217,8 @@ struct gs201_pcie_cp {
+ 	bool cfg_root_ok;		/* root port (DBI) accessible */
+ 	bool cfg_ep_ok;			/* endpoint reachable (link up, ATU set) */
+ 	u32 num_lanes;
++	u8 exp_cap;			/* root port's PCIe capability */
++	u16 speed;			/* target link speed of the last link_up */
+ 	bool cp_powered;
+ 	bool phy_inited;
+ 	bool phy_on;
+@@ -390,6 +392,8 @@ static void cp_setup_dbi(struct gs201_pcie_cp *cp, unsigned int speed)
+ 		val &= ~PCI_EXP_LNKCTL2_TLS;
+ 		val |= speed;
+ 		dw_pcie_writel_dbi(pci, cap + PCI_EXP_LNKCTL2, val);
++		cp->exp_cap = cap;
++		cp->speed = speed;
+ 
+ 		val = dw_pcie_readl_dbi(pci, cap + PCI_EXP_DEVCTL2);
+ 		val &= ~PCI_EXP_DEVCTL2_COMP_TIMEOUT;
+@@ -467,6 +471,16 @@ static int cp_cfg_write(struct pci_bus *bus, unsigned int devfn, int where,
+ 	unsigned long flags;
+ 	int ret;
+ 
++	/*
++	 * The modem's ROM link must stay at Gen1 until the modem driver asks
++	 * for Gen3 with a new link up. The PCI core lifts a 2.5GT/s target
++	 * speed it finds at enumeration (pcie_failed_link_retrain()) and
++	 * retrains; keep the root port's target at what link_up set.
++	 */
++	if (pci_is_root_bus(bus) && cp->exp_cap && size >= 2 &&
++	    where == cp->exp_cap + PCI_EXP_LNKCTL2)
++		val = (val & ~PCI_EXP_LNKCTL2_TLS) | cp->speed;
++
+ 	raw_spin_lock_irqsave(&cp->cfg_lock, flags);
+ 	ret = pci_generic_config_write(bus, devfn, where, size, val);
+ 	raw_spin_unlock_irqrestore(&cp->cfg_lock, flags);

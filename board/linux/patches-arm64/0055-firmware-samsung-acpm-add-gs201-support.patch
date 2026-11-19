@@ -1,0 +1,52 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Sun, 11 Oct 2026 23:59:39 -0400
+Subject: [PATCH] firmware: samsung: acpm: add gs201 support
+
+Google's ACPM driver for gs201 is the same source as for gs101: it finds
+the firmware framework data at SRAM offset 0xa000 (initdata-base in
+Google's gs201.dtsi), reads the AP channel count (ipc_ap_max) and the
+channel table (ipc_channels) from it, and uses the same channel layout
+and message format. Only the addresses differ: the AP2APM mailbox is at
+0x18210000 and the APM SRAM at 0x18500000 (0x48000 bytes), which come
+from the device tree.
+
+Add the gs201 match data. Its clocks device is "gs201-acpm-clk", since
+gs201 adds a paired GPU clock to the gs101 DVFS domains.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ drivers/firmware/samsung/exynos-acpm.c | 9 +++++++++
+ 1 file changed, 9 insertions(+)
+
+diff --git a/drivers/firmware/samsung/exynos-acpm.c b/drivers/firmware/samsung/exynos-acpm.c
+index d2061f313..ea5b7c8bd 100644
+--- a/drivers/firmware/samsung/exynos-acpm.c
++++ b/drivers/firmware/samsung/exynos-acpm.c
+@@ -40,6 +40,7 @@
+ #define ACPM_TX_TIMEOUT_US		500000
+ 
+ #define ACPM_GS101_INITDATA_BASE	0xa000
++#define ACPM_GS201_INITDATA_BASE	0xa000
+ 
+ /* Sanity limit for the channel count read from SRAM. */
+ #define ACPM_MAX_CHANS			64
+@@ -925,10 +926,18 @@ static const struct acpm_match_data acpm_gs101 = {
+ 	.acpm_clk_dev_name = "gs101-acpm-clk",
+ };
+ 
++static const struct acpm_match_data acpm_gs201 = {
++	.initdata_base = ACPM_GS201_INITDATA_BASE,
++	.acpm_clk_dev_name = "gs201-acpm-clk",
++};
++
+ static const struct of_device_id acpm_match[] = {
+ 	{
+ 		.compatible = "google,gs101-acpm-ipc",
+ 		.data = &acpm_gs101,
++	}, {
++		.compatible = "google,gs201-acpm-ipc",
++		.data = &acpm_gs201,
+ 	},
+ 	{},
+ };

@@ -1,0 +1,224 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Brett-Michael Green <brett@bmgvisualtech.com>
+Date: Fri, 30 Oct 2026 16:36:41 -0400
+Subject: [PATCH] arm64: dts: exynos: google: zuma: add the CUSTOM_ALIVE and
+ PERIC1 pin controllers
+
+Add the CUSTOM_ALIVE controller at 0x15060000 (gpn0-gpn9, one wake-up
+interrupt each, SPI 0 to 9) and PERIC1 at 0x10c40000 (gpp19-gpp24, SPI
+649), with the banks and interrupts of stock's live device tree, as
+controllers 1 and 12 of the driver's zuma data. CUSTOM_ALIVE's bus clock
+comes from CMU_APM; PERIC1 takes the bus-clock stand-in, as PERIC0 does.
+
+The touchscreen's attention line is on gpn0 and its reset on gpp21.
+
+Assisted-by: LLM
+Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
+---
+ .../boot/dts/exynos/google/zuma-pinctrl.dtsi  | 136 ++++++++++++++++++
+ arch/arm64/boot/dts/exynos/google/zuma.dtsi   |  22 +++
+ 2 files changed, 158 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/zuma-pinctrl.dtsi b/arch/arm64/boot/dts/exynos/google/zuma-pinctrl.dtsi
+index 724ef9591..508c1171d 100644
+--- a/arch/arm64/boot/dts/exynos/google/zuma-pinctrl.dtsi
++++ b/arch/arm64/boot/dts/exynos/google/zuma-pinctrl.dtsi
+@@ -160,6 +160,98 @@ key_volup: key-volup-pins {
+ 	};
+ };
+ 
++&pinctrl_custom_alive {
++	gpn0: gpn0-gpio-bank {
++		gpio-controller;
++		#gpio-cells = <2>;
++		interrupt-controller;
++		#interrupt-cells = <2>;
++		interrupt-parent = <&gic>;
++		interrupts = <GIC_SPI 0 IRQ_TYPE_LEVEL_HIGH>;
++	};
++
++	gpn1: gpn1-gpio-bank {
++		gpio-controller;
++		#gpio-cells = <2>;
++		interrupt-controller;
++		#interrupt-cells = <2>;
++		interrupt-parent = <&gic>;
++		interrupts = <GIC_SPI 1 IRQ_TYPE_LEVEL_HIGH>;
++	};
++
++	gpn2: gpn2-gpio-bank {
++		gpio-controller;
++		#gpio-cells = <2>;
++		interrupt-controller;
++		#interrupt-cells = <2>;
++		interrupt-parent = <&gic>;
++		interrupts = <GIC_SPI 2 IRQ_TYPE_LEVEL_HIGH>;
++	};
++
++	gpn3: gpn3-gpio-bank {
++		gpio-controller;
++		#gpio-cells = <2>;
++		interrupt-controller;
++		#interrupt-cells = <2>;
++		interrupt-parent = <&gic>;
++		interrupts = <GIC_SPI 3 IRQ_TYPE_LEVEL_HIGH>;
++	};
++
++	gpn4: gpn4-gpio-bank {
++		gpio-controller;
++		#gpio-cells = <2>;
++		interrupt-controller;
++		#interrupt-cells = <2>;
++		interrupt-parent = <&gic>;
++		interrupts = <GIC_SPI 4 IRQ_TYPE_LEVEL_HIGH>;
++	};
++
++	gpn5: gpn5-gpio-bank {
++		gpio-controller;
++		#gpio-cells = <2>;
++		interrupt-controller;
++		#interrupt-cells = <2>;
++		interrupt-parent = <&gic>;
++		interrupts = <GIC_SPI 5 IRQ_TYPE_LEVEL_HIGH>;
++	};
++
++	gpn6: gpn6-gpio-bank {
++		gpio-controller;
++		#gpio-cells = <2>;
++		interrupt-controller;
++		#interrupt-cells = <2>;
++		interrupt-parent = <&gic>;
++		interrupts = <GIC_SPI 6 IRQ_TYPE_LEVEL_HIGH>;
++	};
++
++	gpn7: gpn7-gpio-bank {
++		gpio-controller;
++		#gpio-cells = <2>;
++		interrupt-controller;
++		#interrupt-cells = <2>;
++		interrupt-parent = <&gic>;
++		interrupts = <GIC_SPI 7 IRQ_TYPE_LEVEL_HIGH>;
++	};
++
++	gpn8: gpn8-gpio-bank {
++		gpio-controller;
++		#gpio-cells = <2>;
++		interrupt-controller;
++		#interrupt-cells = <2>;
++		interrupt-parent = <&gic>;
++		interrupts = <GIC_SPI 8 IRQ_TYPE_LEVEL_HIGH>;
++	};
++
++	gpn9: gpn9-gpio-bank {
++		gpio-controller;
++		#gpio-cells = <2>;
++		interrupt-controller;
++		#interrupt-cells = <2>;
++		interrupt-parent = <&gic>;
++		interrupts = <GIC_SPI 9 IRQ_TYPE_LEVEL_HIGH>;
++	};
++};
++
+ &pinctrl_peric0 {
+ 	gpp0: gpp0-gpio-bank {
+ 		gpio-controller;
+@@ -288,6 +380,50 @@ gpp16: gpp16-gpio-bank {
+ 	};
+ };
+ 
++&pinctrl_peric1 {
++	gpp19: gpp19-gpio-bank {
++		gpio-controller;
++		#gpio-cells = <2>;
++		interrupt-controller;
++		#interrupt-cells = <2>;
++	};
++
++	gpp20: gpp20-gpio-bank {
++		gpio-controller;
++		#gpio-cells = <2>;
++		interrupt-controller;
++		#interrupt-cells = <2>;
++	};
++
++	gpp21: gpp21-gpio-bank {
++		gpio-controller;
++		#gpio-cells = <2>;
++		interrupt-controller;
++		#interrupt-cells = <2>;
++	};
++
++	gpp24: gpp24-gpio-bank {
++		gpio-controller;
++		#gpio-cells = <2>;
++		interrupt-controller;
++		#interrupt-cells = <2>;
++	};
++
++	gpp22: gpp22-gpio-bank {
++		gpio-controller;
++		#gpio-cells = <2>;
++		interrupt-controller;
++		#interrupt-cells = <2>;
++	};
++
++	gpp23: gpp23-gpio-bank {
++		gpio-controller;
++		#gpio-cells = <2>;
++		interrupt-controller;
++		#interrupt-cells = <2>;
++	};
++};
++
+ &pinctrl_hsi2ufs {
+ 	gph5: gph5-gpio-bank {
+ 		gpio-controller;
+diff --git a/arch/arm64/boot/dts/exynos/google/zuma.dtsi b/arch/arm64/boot/dts/exynos/google/zuma.dtsi
+index d5d71ee26..043ce2c91 100644
+--- a/arch/arm64/boot/dts/exynos/google/zuma.dtsi
++++ b/arch/arm64/boot/dts/exynos/google/zuma.dtsi
+@@ -24,8 +24,10 @@ / {
+ 	/* The pin controllers are numbered as in Tensor G4's driver data. */
+ 	aliases {
+ 		pinctrl0 = &pinctrl_gpio_alive;
++		pinctrl1 = &pinctrl_custom_alive;
+ 		pinctrl10 = &pinctrl_hsi2ufs;
+ 		pinctrl11 = &pinctrl_peric0;
++		pinctrl12 = &pinctrl_peric1;
+ 	};
+ 
+ 	/*
+@@ -344,6 +346,14 @@ pinctrl_peric0: pinctrl@10840000 {
+ 			interrupts = <GIC_SPI 634 IRQ_TYPE_LEVEL_HIGH>;
+ 		};
+ 
++		pinctrl_peric1: pinctrl@10c40000 {
++			compatible = "google,zuma-pinctrl";
++			reg = <0x10c40000 0x1000>;
++			clocks = <&clk_gpio_stub>;
++			clock-names = "pclk";
++			interrupts = <GIC_SPI 649 IRQ_TYPE_LEVEL_HIGH>;
++		};
++
+ 		cmu_hsi0: clock-controller@11000000 {
+ 			compatible = "google,zuma-cmu-hsi0";
+ 			reg = <0x11000000 0x8000>;
+@@ -448,6 +458,18 @@ ufs_0_phy: phy@13204000 {
+ 			status = "disabled";
+ 		};
+ 
++		pinctrl_custom_alive: pinctrl@15060000 {
++			compatible = "google,zuma-pinctrl";
++			reg = <0x15060000 0x1000>;
++			clocks = <&cmu_apm CLK_GOUT_APM_GPIO_CUSTOM_ALIVE>;
++			clock-names = "pclk";
++
++			wakeup-interrupt-controller {
++				compatible = "google,zuma-wakeup-eint",
++					     "google,zumapro-wakeup-eint";
++			};
++		};
++
+ 		ap2apm_mailbox: mailbox@15110000 {
+ 			compatible = "google,zuma-mbox", "google,gs101-mbox";
+ 			reg = <0x15110000 0x1000>;

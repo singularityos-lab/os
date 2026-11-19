@@ -1,0 +1,810 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Sat, 31 Oct 2026 11:19:22 -0643
+Subject: [PATCH] soc: google: aoc: Add Tensor G4 (zumapro)
+
+The Pixel 9a's AoC takes gs201's firmware protocol, with these
+differences, kept in per-SoC match data:
+
+- Its authenticated firmware owns the AoC's memory protection: the GSA
+  authenticates the image with the S2MPU and System MMU untouched, so
+  the driver neither maps nor writes them.
+- The PCU, GPIO and doorbell blocks sit at 0x1400000, 0x1c00000 and
+  0x1f004/0x1f008 in the AoC's address space, from Google's zumapro
+  AoC device tree.
+- The chip type is the product id's low byte, and the main revision is
+  in it too, not in the 0x10 word.
+- The firmware image is named by firmware-name; a zumapro node must
+  have it, and the board id and revision.
+- The sensors' 1.8 V and 3.3 V are two named supplies, turned on in
+  that order at probe and off in reverse (aoc_sensor_power.c).
+- Without force-vnom in the DT the firmware gets forced VNOM off. gs201
+  keeps getting it on, as it always has (dt_property() returns
+  DT_PROPERTY_NOT_FOUND, not 0, for a missing property).
+
+The firmware path is hardened where a zumapro failure could otherwise
+go wrong without a way back: the image is copied only while the GSA
+reports the AoC inactive and the power request is acknowledged, a
+failed copy stops the load, the authentication header stays allocated
+(the GSA may still read it after a timeout), a second submission in the
+same boot is refused, and a watchdog or AP reset leaves the AoC down
+for a reboot rather than dumping or restarting it, since the image is
+locked once authenticated. "google,gnss-type" replaces the unprefixed
+"gnss-type", which no gs201 DT sets.
+
+Booted on the Pixel 9a:
+7.3.0-rc6-omamobile-tegu-s2mpg15-m1-g991042e2eff3-dirty runs this
+driver with bring-up parameters on top (startup tracing, a boot
+parameter readback, a gate on power request writes, left at "write").
+With it the AoC authenticates, starts and reaches its 93 services and
+stays up; seven fresh boots in a row passed, with speaker and
+microphone audio through the AoC sound card and the AoC's sensors on
+D-Bus.
+
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ drivers/soc/google/Kconfig                |   2 +-
+ drivers/soc/google/aoc/Makefile           |   3 +-
+ drivers/soc/google/aoc/aoc.c              | 312 +++++++++++++++++-----
+ drivers/soc/google/aoc/aoc.h              |  25 ++
+ drivers/soc/google/aoc/aoc_sensor_power.c | 117 ++++++++
+ drivers/soc/google/aoc/aoc_sensor_power.h |  23 ++
+ drivers/soc/google/aoc/aoc_v1.c           |  12 +
+ 7 files changed, 418 insertions(+), 76 deletions(-)
+ create mode 100644 drivers/soc/google/aoc/aoc_sensor_power.c
+ create mode 100644 drivers/soc/google/aoc/aoc_sensor_power.h
+
+diff --git a/drivers/soc/google/Kconfig b/drivers/soc/google/Kconfig
+index 7fb05aefa..66fb8c26f 100644
+--- a/drivers/soc/google/Kconfig
++++ b/drivers/soc/google/Kconfig
+@@ -74,7 +74,7 @@ config GS201_AOC
+ 	  Google's AoC core driver, ported: loads and authenticates the AoC
+ 	  firmware through the GSA, starts it, and exposes its services on the
+ 	  AoC bus. Firmware loading is triggered from sysfs (firmware), not at
+-	  probe.
++	  probe. Supports gs201 and zumapro (Tensor G4).
+ 
+ config GS201_AOC_CHAR
+ 	tristate "gs201 AoC service character devices"
+diff --git a/drivers/soc/google/aoc/Makefile b/drivers/soc/google/aoc/Makefile
+index 064ecbf6c..462602ac8 100644
+--- a/drivers/soc/google/aoc/Makefile
++++ b/drivers/soc/google/aoc/Makefile
+@@ -4,6 +4,7 @@ ccflags-y += -I$(src)
+ 
+ obj-$(CONFIG_GS201_AOC_MBOX)	+= mailbox-wc.o
+ obj-$(CONFIG_GS201_AOC)		+= aoc_core.o
+-aoc_core-y := aoc.o aoc_ipc_core.o aoc_firmware.o aoc_service_core.o aoc_v1.o
++aoc_core-y := aoc.o aoc_ipc_core.o aoc_firmware.o aoc_service_core.o aoc_v1.o \
++	      aoc_sensor_power.o
+ obj-$(CONFIG_GS201_AOC_CHAR)	+= aoc_char_dev.o aoc_channel_dev.o
+ obj-y				+= alsa/
+diff --git a/drivers/soc/google/aoc/aoc.c b/drivers/soc/google/aoc/aoc.c
+index 8fd393c08..264ecaa5d 100644
+--- a/drivers/soc/google/aoc/aoc.c
++++ b/drivers/soc/google/aoc/aoc.c
+@@ -25,6 +25,7 @@
+ #include <linux/module.h>
+ #include <linux/moduleparam.h>
+ #include <linux/of.h>
++#include <linux/of_device.h>
+ #include <linux/of_address.h>
+ #include <linux/of_irq.h>
+ #include <linux/of_platform.h>
+@@ -87,6 +88,7 @@ static struct platform_device sscd_dev = { .name = "aoc-sscd",
+ 
+ static void *aoc_sram_virt_mapping;
+ static void __iomem *aoc_chipid_virt;
++static const struct aoc_soc_data *aoc_chipid_soc;
+ 
+ /* gs-chipid.c, gs201 variant: product, type, revision for the firmware */
+ u32 gs_chipid_get_product_id(void)
+@@ -101,18 +103,22 @@ u32 gs_chipid_get_type(void)
+ 	if (!aoc_chipid_virt)
+ 		return 0;
+ 	r0 = readl(aoc_chipid_virt);
++	if (!aoc_chipid_soc->merge_subrevision_into_type)
++		return r0 & 0xff;
+ 	r10 = readl(aoc_chipid_virt + 0x10);
+ 	return (r0 | ((r10 & 0x00f00000) >> 20)) & 0xff;
+ }
+ 
+ u32 gs_chipid_get_revision(void)
+ {
+-	u32 r10;
++	u32 r10, main;
+ 
+ 	if (!aoc_chipid_virt)
+ 		return 0;
++	main = readl(aoc_chipid_virt + aoc_chipid_soc->chipid_main_reg);
+ 	r10 = readl(aoc_chipid_virt + 0x10);
+-	return (((r10 >> 20) & 0xf) << 4) | ((r10 >> 16) & 0xf);
++	return (((main >> aoc_chipid_soc->chipid_main_shift) & 0xf) << 4) |
++		((r10 >> 16) & 0xf);
+ }
+ static void *aoc_dram_virt_mapping;
+ 
+@@ -490,33 +496,46 @@ static u32 aoc_board_config_parse(struct device_node *node, u32 *board_id, u32 *
+ }
+ 
+ static int aoc_fw_authenticate(struct aoc_prvdata *prvdata,
+-			       const struct firmware *fw) {
+-
+-	int rc;
++			       const struct firmware *fw)
++{
+ 	dma_addr_t header_dma_addr;
+ 	void *header_vaddr;
++	int rc;
+ 
+-	/* Allocate coherent memory for the image header */
+-	header_vaddr = dma_alloc_coherent(prvdata->gsa_dev, AOC_AUTH_HEADER_SIZE,
+-					  &header_dma_addr, GFP_KERNEL);
+-	if (!header_vaddr) {
+-		dev_err(prvdata->dev, "Failed to allocate coherent memory for header\n");
+-		rc = -ENOMEM;
+-		goto err_alloc;
++	if (prvdata->soc->firmware_managed_mmu && prvdata->firmware_submitted)
++		return -EALREADY;
++
++	/* The managed path keeps DMA storage alive even after a timeout. */
++	if (prvdata->soc->firmware_managed_mmu) {
++		header_vaddr = prvdata->auth_header_virt;
++		if (!header_vaddr) {
++			header_vaddr = dmam_alloc_coherent(prvdata->gsa_dev,
++							   AOC_AUTH_HEADER_SIZE,
++							   &prvdata->auth_header_dma,
++							   GFP_KERNEL);
++			prvdata->auth_header_virt = header_vaddr;
++		}
++		header_dma_addr = prvdata->auth_header_dma;
++	} else {
++		header_vaddr = dma_alloc_coherent(prvdata->gsa_dev,
++						  AOC_AUTH_HEADER_SIZE,
++						  &header_dma_addr, GFP_KERNEL);
+ 	}
++	if (!header_vaddr)
++		return -ENOMEM;
+ 
+ 	memcpy(header_vaddr, fw->data, AOC_AUTH_HEADER_SIZE);
+-
++	/* Publish the coherent authentication header before the mailbox request. */
++	dma_wmb();
++	prvdata->firmware_submitted = true;
+ 	rc = gsa_load_aoc_fw_image(prvdata->gsa_dev, header_dma_addr,
+ 				   prvdata->dram_resource.start + AOC_BINARY_DRAM_OFFSET);
+-	if (rc) {
++	if (rc)
+ 		dev_err(prvdata->dev, "GSA authentication failed: %d\n", rc);
+-		goto err_auth;
+-	}
+ 
+-err_auth:
+-err_alloc:
+-	dma_free_coherent(prvdata->gsa_dev, AOC_AUTH_HEADER_SIZE, header_vaddr, header_dma_addr);
++	if (!prvdata->soc->firmware_managed_mmu)
++		dma_free_coherent(prvdata->gsa_dev, AOC_AUTH_HEADER_SIZE,
++				  header_vaddr, header_dma_addr);
+ 	return rc;
+ }
+ 
+@@ -529,7 +548,9 @@ static void aoc_fw_callback(const struct firmware *fw, void *ctx)
+ 	u32 carveout_base = prvdata->dram_resource.start;
+ 	u32 carveout_size = prvdata->dram_size;
+ 	u32 dt_force_vnom = dt_property(prvdata->dev->of_node, "force-vnom");
+-	u32 force_vnom = ((dt_force_vnom != 0) || (prvdata->force_voltage_nominal != 0)) ? 1 : 0;
++	u32 force_vnom = prvdata->force_voltage_nominal ||
++			 (dt_force_vnom == DT_PROPERTY_NOT_FOUND ?
++			  prvdata->soc->force_vnom_default : dt_force_vnom != 0);
+ 	u32 disable_mm = prvdata->disable_monitor_mode;
+ 	u32 enable_uart = prvdata->enable_uart_tx;
+ 	u32 force_speaker_ultrasonic = prvdata->force_speaker_ultrasonic;
+@@ -540,7 +561,7 @@ static void aoc_fw_callback(const struct firmware *fw, void *ctx)
+ 	u32 chip_revision = gs_chipid_get_revision();
+ 	u32 chip_type = gs_chipid_get_type();
+ 	u32 chip_product_id = gs_chipid_get_product_id();
+-	u32 dt_gnss_type = dt_property(prvdata->dev->of_node, "gnss-type");
++	u32 dt_gnss_type = dt_property(prvdata->dev->of_node, "google,gnss-type");
+ 	u32 gnss_type = dt_gnss_type == DT_PROPERTY_NOT_FOUND ? 0 : dt_gnss_type;
+ 	u32 dt_wifi_chip = dt_property(prvdata->dev->of_node, "wifi-chip");
+ 	u32 wifi_chip = dt_wifi_chip == DT_PROPERTY_NOT_FOUND ? 0 : dt_wifi_chip;
+@@ -586,7 +607,11 @@ static void aoc_fw_callback(const struct firmware *fw, void *ctx)
+ 		return;
+ 	}
+ 
+-	aoc_board_config_parse(prvdata->dev->of_node, &board_id, &board_rev);
++	if (aoc_board_config_parse(prvdata->dev->of_node, &board_id, &board_rev) &&
++	    prvdata->soc->firmware_managed_mmu) {
++		dev_err(dev, "no google,board-id or google,board-rev\n");
++		goto free_fw;
++	}
+ 
+ 	if (!fw) {
+ 		dev_err(dev, "Failed to load AoC firmware image\n");
+@@ -660,10 +685,26 @@ static void aoc_fw_callback(const struct firmware *fw, void *ctx)
+ 
+ 	aoc_control = aoc_dram_translate(prvdata, ipc_offset);
+ 
++	if (prvdata->soc->firmware_managed_mmu) {
++		int state = gsa_send_aoc_cmd(prvdata->gsa_dev, GSA_AOC_GET_STATE);
++
++		if (state != GSA_AOC_STATE_INACTIVE || prvdata->firmware_submitted) {
++			dev_err(dev, "refusing firmware copy: secure state %d\n", state);
++			goto free_fw;
++		}
++		if (wait_for_aoc_status(prvdata, true)) {
++			dev_err(dev, "firmware-owned power request is not acknowledged\n");
++			goto free_fw;
++		}
++	}
++
+ 	{
+ 		bool commit_rc = _aoc_fw_commit(fw, aoc_dram_virt_mapping + AOC_BINARY_DRAM_OFFSET);
+ 		if (!commit_rc) {
+ 			dev_err(dev, "FW commit failed!\n");
++			/* gs201 carries on to authentication, as before */
++			if (prvdata->soc->firmware_managed_mmu)
++				goto free_fw;
+ 		}
+ 	}
+ 
+@@ -682,14 +723,17 @@ static void aoc_fw_callback(const struct firmware *fw, void *ctx)
+ 			dev_err(dev, "no aoc_req acknowledge\n");
+ 			goto free_fw;
+ 		}
+-		dev_info(dev, "AoC S2MPU CTRL0 %#x, opening\n",
+-			 readl(prvdata->s2mpu_virt + AOC_S2MPU_CTRL0));
+-		writel(0, prvdata->s2mpu_virt + AOC_S2MPU_CTRL0);
+-		rc = aoc_configure_iommu(prvdata, fw);
+-		if (rc) {
+-			dev_err(dev, "System MMU setup failed: %d\n", rc);
+-			goto free_fw;
++		if (!prvdata->soc->firmware_managed_mmu) {
++			dev_info(dev, "AoC S2MPU CTRL0 %#x, opening\n",
++				 readl(prvdata->s2mpu_virt + AOC_S2MPU_CTRL0));
++			writel(0, prvdata->s2mpu_virt + AOC_S2MPU_CTRL0);
++			rc = aoc_configure_iommu(prvdata, fw);
++			if (rc) {
++				dev_err(dev, "System MMU setup failed: %d\n", rc);
++				goto free_fw;
++			}
+ 		}
++
+ 		rc = aoc_fw_authenticate(prvdata, fw);
+ 		if (rc) {
+ 			dev_err(dev, "GSA: FW authentication failed: %d\n", rc);
+@@ -1119,6 +1163,18 @@ static ssize_t sensor_power_enable_store(struct device *dev,
+ 	struct aoc_prvdata *prvdata = dev_get_drvdata(dev);
+ 	int val;
+ 
++	if (prvdata->soc->ordered_sensor_supplies) {
++		int ret = kstrtoint(buf, 10, &val);
++
++		if (ret)
++			return ret;
++		/* Once the firmware is submitted, only a reboot cycles the rails */
++		if (prvdata->firmware_submitted)
++			return -EBUSY;
++		ret = aoc_sensor_power_set(&prvdata->sensor_power, !!val);
++		return ret ? ret : count;
++	}
++
+ 	if (kstrtoint(buf, 10, &val) == 0) {
+ 		dev_info(prvdata->dev,"sensor_power_enable %d", val);
+ 		configure_sensor_regulator(prvdata, !!val);
+@@ -1159,10 +1215,35 @@ static int aoc_platform_probe(struct platform_device *dev);
+ static void aoc_platform_remove(struct platform_device *dev);
+ static void aoc_platform_shutdown(struct platform_device *dev);
+ 
++static const struct aoc_soc_data gs201_aoc_data = {
++	.merge_subrevision_into_type = true,
++	/* What a gs201 node without "force-vnom" has always passed */
++	.force_vnom_default = true,
++	.chipid_main_reg = 0x10,
++	.chipid_main_shift = 20,
++	.pcu_base = 0xa00000,
++	.gpio_base = 0xd70000,
++	.pcu_db_set = 0xd004,
++	.pcu_db_clear = 0xd008,
++};
++
++static const struct aoc_soc_data zumapro_aoc_data = {
++	.ordered_sensor_supplies = true,
++	.firmware_managed_mmu = true,
++	.chipid_main_reg = 0,
++	.chipid_main_shift = 0,
++	.pcu_base = 0x1400000,
++	.gpio_base = 0x1c00000,
++	.pcu_db_set = 0x1f004,
++	.pcu_db_clear = 0x1f008,
++};
++
+ static const struct of_device_id aoc_match[] = {
+ 	{
+ 		.compatible = "google,gs201-aoc",
++		.data = &gs201_aoc_data,
+ 	},
++	{ .compatible = "google,zumapro-aoc", .data = &zumapro_aoc_data },
+ 	{},
+ };
+ MODULE_DEVICE_TABLE(of, aoc_match);
+@@ -1472,6 +1553,7 @@ static bool configure_sensor_regulator(struct aoc_prvdata *prvdata, bool enable)
+ {
+ 	bool check_enabled;
+ 	int i;
++
+ 	if (enable) {
+ 		check_enabled = true;
+ 		for (i = 0; i < prvdata->sensor_power_count; i++) {
+@@ -1577,6 +1659,27 @@ void reset_sensor_power(struct aoc_prvdata *prvdata, bool is_init)
+ 	int count;
+ 	bool success;
+ 
++	if (prvdata->soc->ordered_sensor_supplies) {
++		int ret;
++
++		if (prvdata->firmware_submitted) {
++			dev_err(prvdata->dev, "sensor rails stay on while the firmware runs\n");
++			return;
++		}
++		if (!is_init) {
++			ret = aoc_sensor_power_set(&prvdata->sensor_power, false);
++			if (ret) {
++				dev_err(prvdata->dev, "sensor power off failed: %d\n", ret);
++				return;
++			}
++			msleep(150);
++		}
++		ret = aoc_sensor_power_set(&prvdata->sensor_power, true);
++		if (ret)
++			dev_err(prvdata->dev, "sensor power on failed: %d\n", ret);
++		return;
++	}
++
+ 	if (prvdata->sensor_power_count == 0) {
+ 		return;
+ 	}
+@@ -1790,8 +1893,7 @@ static void aoc_watchdog(struct work_struct *work)
+ 	struct aoc_ramdump_header *ramdump_header =
+ 		(struct aoc_ramdump_header *)((unsigned long)prvdata->dram_virt +
+ 					      RAMDUMP_HEADER_OFFSET);
+-	struct wakeup_source *ws =
+-		wakeup_source_register(prvdata->dev, dev_name(prvdata->dev));
++	struct wakeup_source *ws;
+ 	unsigned long ramdump_timeout;
+ 	unsigned long carveout_paddr_from_aoc;
+ 	unsigned long carveout_vaddr_from_aoc;
+@@ -1808,6 +1910,18 @@ static void aoc_watchdog(struct work_struct *work)
+ 	bool ap_triggered_reset, valid_magic;
+ 	struct aoc_section_header *crash_info_section;
+ 
++	/* Firmware-managed: no ramdump and no restart; a reboot recovers */
++	if (prvdata->soc->firmware_managed_mmu) {
++		mutex_lock(&aoc_service_lock);
++		aoc_state = AOC_STATE_SSR;
++		mutex_unlock(&aoc_service_lock);
++		dev_err(prvdata->dev,
++			"DSP fault; ordinary reboot required (%s)\n",
++			prvdata->ap_triggered_reset ? "AP request" : "DSP watchdog");
++		return;
++	}
++	ws = wakeup_source_register(prvdata->dev, dev_name(prvdata->dev));
++
+ 	/* If we're already in SSR state, do nothing. */
+ 	mutex_lock(&aoc_service_lock);
+ 	if (aoc_state == AOC_STATE_SSR) {
+@@ -2497,15 +2611,34 @@ long aoc_unlocked_ioctl_handle_ion_fd(unsigned int cmd, unsigned long arg)
+  * pcu-db-set/clr-offset, cp-aperture-start/end-offset, clock-divider);
+  * the mailbox channel count is that of the mboxes property.
+  */
++static int aoc_read_firmware_name(struct aoc_prvdata *p,
++				  struct device_node *node)
++{
++	const char *name;
++	int ret;
++
++	ret = of_property_read_string(node, "firmware-name", &name);
++	if (ret) {
++		if (p->soc->firmware_managed_mmu)
++			return ret;
++		name = default_firmware;
++	}
++	if (!*name)
++		return -EINVAL;
++	if (strscpy(p->firmware_name, name, sizeof(p->firmware_name)) < 0)
++		return -E2BIG;
++	return 0;
++}
++
+ static int platform_probe_parse_dt(struct device *dev, struct device_node *aoc_node)
+ {
+ 	struct aoc_prvdata *prvdata = platform_get_drvdata(aoc_platform_device);
+ 	int n;
+ 
+-	prvdata->aoc_pcu_base = 0xa00000;
+-	prvdata->aoc_gpio_base = 0xd70000;
+-	prvdata->aoc_pcu_db_set_offset = 0xd004;
+-	prvdata->aoc_pcu_db_clr_offset = 0xd008;
++	prvdata->aoc_pcu_base = prvdata->soc->pcu_base;
++	prvdata->aoc_gpio_base = prvdata->soc->gpio_base;
++	prvdata->aoc_pcu_db_set_offset = prvdata->soc->pcu_db_set;
++	prvdata->aoc_pcu_db_clr_offset = prvdata->soc->pcu_db_clear;
+ 	prvdata->aoc_cp_aperture_start_offset = 0x7fdf80;
+ 	prvdata->aoc_cp_aperture_end_offset = 0x7fffff;
+ 	prvdata->aoc_clock_divider = 1;
+@@ -2537,16 +2670,26 @@ static int aoc_platform_probe(struct platform_device *pdev)
+ 		rc = -EEXIST;
+ 		goto err_platform_not_null;
+ 	}
+-	aoc_platform_device = pdev;
+-
+ 	aoc_node = dev->of_node;
+-	mem_node = of_parse_phandle(aoc_node, "memory-region", 0);
+ 
+ 	prvdata = devm_kzalloc(dev, sizeof(*prvdata), GFP_KERNEL);
+ 	if (!prvdata) {
+ 		rc = -ENOMEM;
+ 		goto err_failed_prvdata_alloc;
+ 	}
++	prvdata->soc = of_device_get_match_data(dev);
++	if (!prvdata->soc) {
++		rc = -ENODEV;
++		goto err_failed_prvdata_alloc;
++	}
++	prvdata->dev = dev;
++	if (prvdata->soc->ordered_sensor_supplies) {
++		rc = aoc_sensor_power_init(dev, &prvdata->sensor_power);
++		if (rc)
++			return rc;
++	}
++	aoc_platform_device = pdev;
++	mem_node = of_parse_phandle(aoc_node, "memory-region", 0);
+ 	platform_set_drvdata(pdev, prvdata);
+ 
+ 	if (platform_probe_parse_dt(dev, aoc_node) < 0) {
+@@ -2619,8 +2762,9 @@ static int aoc_platform_probe(struct platform_device *pdev)
+ 	}
+ 
+ 
+-	strscpy(prvdata->firmware_name, default_firmware,
+-		sizeof(prvdata->firmware_name));
++	rc = aoc_read_firmware_name(prvdata, aoc_node);
++	if (rc)
++		goto err_mem_resources;
+ 
+ 	rc = allocate_mailbox_channels(prvdata);
+ 	if (rc) {
+@@ -2635,28 +2779,37 @@ static int aoc_platform_probe(struct platform_device *pdev)
+ 	if (ret < 0)
+ 		goto err_watchdog_irq;
+ 
+-	/* The System MMU's fault interrupts belong to gs201-aoc-sysmmu */
+ 	prvdata->iommu_nonsecure_irq = 0;
+ 	prvdata->iommu_secure_irq = 0;
+-	prvdata->mmu = aoc_sysmmu_get(dev);
+-	if (IS_ERR(prvdata->mmu)) {
+-		rc = PTR_ERR(prvdata->mmu);
+-		goto err_watchdog_iommu_irq;
++	/* The System MMU's fault interrupts belong to gs201-aoc-sysmmu */
++	if (!prvdata->soc->firmware_managed_mmu) {
++		prvdata->mmu = aoc_sysmmu_get(dev);
++		if (IS_ERR(prvdata->mmu)) {
++			rc = PTR_ERR(prvdata->mmu);
++			goto err_watchdog_iommu_irq;
++		}
++		ret = devm_add_action_or_reset(dev, release_sysmmu, prvdata->mmu);
++		if (ret) {
++			rc = ret;
++			goto err_watchdog_iommu_irq;
++		}
+ 	}
+-	ret = devm_add_action_or_reset(dev, release_sysmmu, prvdata->mmu);
+-	if (ret) {
+-		rc = ret;
+-		goto err_watchdog_iommu_irq;
++	if (!prvdata->soc->firmware_managed_mmu) {
++		prvdata->s2mpu_virt =
++			devm_platform_ioremap_resource_byname(pdev, "s2mpu");
++		if (IS_ERR(prvdata->s2mpu_virt)) {
++			rc = PTR_ERR(prvdata->s2mpu_virt);
++			goto err_watchdog_iommu_irq;
++		}
+ 	}
+-
+-	/* In BLK_AOC: only touched once aoc_req is acknowledged */
+-	prvdata->s2mpu_virt = devm_platform_ioremap_resource_byname(pdev, "s2mpu");
+-	prvdata->chipid_virt = devm_platform_ioremap_resource_byname(pdev, "chipid");
+-	if (IS_ERR(prvdata->s2mpu_virt) || IS_ERR(prvdata->chipid_virt)) {
+-		rc = -ENOMEM;
++	prvdata->chipid_virt =
++		devm_platform_ioremap_resource_byname(pdev, "chipid");
++	if (IS_ERR(prvdata->chipid_virt)) {
++		rc = PTR_ERR(prvdata->chipid_virt);
+ 		goto err_watchdog_iommu_irq;
+ 	}
+ 	aoc_chipid_virt = prvdata->chipid_virt;
++	aoc_chipid_soc = prvdata->soc;
+ 
+ 	pr_notice("found aoc with interrupt:%d dram:%pR\n", aoc_irq,
+ 		  &prvdata->dram_resource);
+@@ -2711,30 +2864,41 @@ static int aoc_platform_probe(struct platform_device *pdev)
+ 		return -ENOMEM;
+ 	}
+ 
+-	prvdata->sensor_power_count = of_property_count_strings(aoc_node, "sensor_power_list");
+-	if (prvdata->sensor_power_count > MAX_SENSOR_POWER_NUM) {
+-		pr_warn("sensor power count %i is larger than available number.",
+-			prvdata->sensor_power_count);
+-		prvdata->sensor_power_count = MAX_SENSOR_POWER_NUM;
+-	} else if (prvdata->sensor_power_count < 0) {
+-		pr_err("unsupported sensor power list, err = %i.", prvdata->sensor_power_count);
+-		prvdata->sensor_power_count = 0;
+-	}
++	if (prvdata->soc->ordered_sensor_supplies) {
++		rc = aoc_sensor_power_set(&prvdata->sensor_power, true);
++		if (rc) {
++			dev_err(dev, "failed to enable sensor supplies: %d\n", rc);
++			goto err_sram_dram_map;
++		}
++	} else {
++		prvdata->sensor_power_count =
++			of_property_count_strings(aoc_node, "sensor_power_list");
++		if (prvdata->sensor_power_count > MAX_SENSOR_POWER_NUM) {
++			pr_warn("sensor power count %i is larger than available number.",
++				prvdata->sensor_power_count);
++			prvdata->sensor_power_count = MAX_SENSOR_POWER_NUM;
++		} else if (prvdata->sensor_power_count < 0) {
++			pr_err("unsupported sensor power list, err = %i.",
++			       prvdata->sensor_power_count);
++			prvdata->sensor_power_count = 0;
++		}
+ 
+-	ret = of_property_read_string_array(aoc_node, "sensor_power_list",
+-					    (const char**)&prvdata->sensor_power_list,
+-					    prvdata->sensor_power_count);
++		ret = of_property_read_string_array(aoc_node, "sensor_power_list",
++						    (const char **)&prvdata->sensor_power_list,
++						    prvdata->sensor_power_count);
+ 
+-	for (i = 0; i < prvdata->sensor_power_count; i++) {
+-		prvdata->sensor_regulator[i] =
++		for (i = 0; i < prvdata->sensor_power_count; i++) {
++			prvdata->sensor_regulator[i] =
+ 				devm_regulator_get_exclusive(dev, prvdata->sensor_power_list[i]);
+-		if (IS_ERR_OR_NULL(prvdata->sensor_regulator[i])) {
+-			prvdata->sensor_regulator[i] = NULL;
+-			pr_err("failed to get %s regulator.", prvdata->sensor_power_list[i]);
++			if (IS_ERR_OR_NULL(prvdata->sensor_regulator[i])) {
++				prvdata->sensor_regulator[i] = NULL;
++				pr_err("failed to get %s regulator.",
++				       prvdata->sensor_power_list[i]);
++			}
+ 		}
+-	}
+ 
+-	reset_sensor_power(prvdata, true);
++		reset_sensor_power(prvdata, true);
++	}
+ 
+ 	aoc_parse_dmic_power(prvdata, aoc_node);
+ 	configure_dmic_regulator(prvdata, true);
+diff --git a/drivers/soc/google/aoc/aoc.h b/drivers/soc/google/aoc/aoc.h
+index 8900499bf..0d09b3d08 100644
+--- a/drivers/soc/google/aoc/aoc.h
++++ b/drivers/soc/google/aoc/aoc.h
+@@ -20,6 +20,7 @@
+ #include <linux/timer.h>
+ #include "aoc-compat.h"
+ #include "aoc_ipc_core.h"
++#include "aoc_sensor_power.h"
+ 
+ /* TODO: Remove internal calls, or promote to "public" */
+ #include "aoc_ipc_core_internal.h"
+@@ -90,7 +91,31 @@ struct aoc_service_dev {
+ typedef int (*aoc_map_handler)(u32 handle, phys_addr_t p, size_t size,
+ 				bool mapped, void *ctx);
+ 
++/*
++ * What differs between Tensor generations: where the AoC's PCU and GPIO
++ * blocks sit in its address space, the chip id layout, the sensor supplies,
++ * whether Linux sets up the AoC's S2MPU and System MMU or the authenticated
++ * firmware owns its protection, and the forced-VNOM default.
++ */
++struct aoc_soc_data {
++	bool ordered_sensor_supplies;
++	bool firmware_managed_mmu;
++	bool merge_subrevision_into_type;
++	bool force_vnom_default;
++	u32 chipid_main_reg;
++	u32 chipid_main_shift;
++	u32 pcu_base;
++	u32 gpio_base;
++	u32 pcu_db_set;
++	u32 pcu_db_clear;
++};
++
+ struct aoc_prvdata {
++	struct aoc_sensor_power sensor_power;
++	const struct aoc_soc_data *soc;
++	bool firmware_submitted;
++	void *auth_header_virt;
++	dma_addr_t auth_header_dma;
+ 	struct mbox_slot *mbox_channels;
+ 	struct dentry *debugfs;
+ 	struct aoc_service_dev **services;
+diff --git a/drivers/soc/google/aoc/aoc_sensor_power.c b/drivers/soc/google/aoc/aoc_sensor_power.c
+new file mode 100644
+index 000000000..02726dc53
+--- /dev/null
++++ b/drivers/soc/google/aoc/aoc_sensor_power.c
+@@ -0,0 +1,117 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/* Ordered ownership of the sensor supplies used by the Zumapro AoC. */
++
++#include <linux/bitops.h>
++#include <linux/device.h>
++#include <linux/err.h>
++#include <linux/property.h>
++#include <linux/regulator/consumer.h>
++
++#include "aoc_sensor_power.h"
++
++static const char * const aoc_sensor_supply_names[AOC_SENSOR_SUPPLIES] = {
++	"sensor-1v8", "sensor-3v3",
++};
++
++/* Stop if a higher rail cannot be disabled: do not remove its lower rail. */
++static int aoc_sensor_power_disable(struct aoc_sensor_power *power,
++				    unsigned long mask)
++{
++	int i, ret;
++
++	for (i = AOC_SENSOR_SUPPLIES - 1; i >= 0; i--) {
++		if (!(power->enabled & mask & BIT(i)))
++			continue;
++		ret = regulator_disable(power->supplies[i]);
++		if (ret)
++			return ret;
++		power->enabled &= ~BIT(i);
++	}
++
++	return 0;
++}
++
++int aoc_sensor_power_set(struct aoc_sensor_power *power, bool enable)
++{
++	unsigned long added = 0;
++	int i, ret, rollback;
++
++	mutex_lock(&power->lock);
++	if (!enable) {
++		ret = aoc_sensor_power_disable(power, GENMASK(AOC_SENSOR_SUPPLIES - 1, 0));
++		goto out;
++	}
++
++	/* Individual enables retain each provider's settling delay and order. */
++	for (i = 0; i < AOC_SENSOR_SUPPLIES; i++) {
++		if (power->enabled & BIT(i)) {
++			ret = regulator_is_enabled(power->supplies[i]);
++			if (ret <= 0) {
++				if (!ret)
++					ret = -EIO;
++				goto undo;
++			}
++			continue;
++		}
++		ret = regulator_is_enabled(power->supplies[i]);
++		if (ret < 0)
++			goto undo;
++		/* Normal get starts with no consumer vote, even if hardware is on. */
++		ret = regulator_enable(power->supplies[i]);
++		if (ret)
++			goto undo;
++		power->enabled |= BIT(i);
++		added |= BIT(i);
++		ret = regulator_is_enabled(power->supplies[i]);
++		if (ret <= 0) {
++			if (!ret)
++				ret = -EIO;
++			goto undo;
++		}
++	}
++	ret = 0;
++	goto out;
++
++undo:
++	rollback = aoc_sensor_power_disable(power, added);
++	if (rollback)
++		dev_err(power->dev, "sensor supply rollback failed: %d\n", rollback);
++out:
++	mutex_unlock(&power->lock);
++	return ret;
++}
++
++static void aoc_sensor_power_release(void *data)
++{
++	struct aoc_sensor_power *power = data;
++	int ret;
++
++	ret = aoc_sensor_power_set(power, false);
++	if (ret)
++		dev_err(power->dev, "sensor supply release failed: %d\n", ret);
++}
++
++int aoc_sensor_power_init(struct device *dev, struct aoc_sensor_power *power)
++{
++	int i;
++
++	power->dev = dev;
++	mutex_init(&power->lock);
++	/* Both suppliers must exist before any AoC probe side effects. */
++	if (!device_property_present(dev, "sensor-1v8-supply") ||
++	    !device_property_present(dev, "sensor-3v3-supply"))
++		return dev_err_probe(dev, -EINVAL, "both sensor supplies are required\n");
++
++	for (i = 0; i < AOC_SENSOR_SUPPLIES; i++) {
++		/* Optional-get rejects a missing supplier instead of using a dummy. */
++		power->supplies[i] =
++			devm_regulator_get_optional(dev, aoc_sensor_supply_names[i]);
++		if (IS_ERR(power->supplies[i]))
++			return dev_err_probe(dev, PTR_ERR(power->supplies[i]),
++					     "failed to get %s supply\n",
++					     aoc_sensor_supply_names[i]);
++	}
++
++	/* Registered last, so owned votes are dropped before the handles. */
++	return devm_add_action_or_reset(dev, aoc_sensor_power_release, power);
++}
+diff --git a/drivers/soc/google/aoc/aoc_sensor_power.h b/drivers/soc/google/aoc/aoc_sensor_power.h
+new file mode 100644
+index 000000000..c6015c581
+--- /dev/null
++++ b/drivers/soc/google/aoc/aoc_sensor_power.h
+@@ -0,0 +1,23 @@
++/* SPDX-License-Identifier: GPL-2.0-only */
++#ifndef AOC_SENSOR_POWER_H
++#define AOC_SENSOR_POWER_H
++
++#include <linux/mutex.h>
++
++struct device;
++struct regulator;
++
++#define AOC_SENSOR_SUPPLIES 2
++
++struct aoc_sensor_power {
++	struct device *dev;
++	struct regulator *supplies[AOC_SENSOR_SUPPLIES];
++	/* Serializes the consumer votes and their power sequence. */
++	struct mutex lock;
++	unsigned long enabled;
++};
++
++int aoc_sensor_power_init(struct device *dev, struct aoc_sensor_power *power);
++int aoc_sensor_power_set(struct aoc_sensor_power *power, bool enable);
++
++#endif
+diff --git a/drivers/soc/google/aoc/aoc_v1.c b/drivers/soc/google/aoc/aoc_v1.c
+index f45f91f4d..c3470208e 100644
+--- a/drivers/soc/google/aoc/aoc_v1.c
++++ b/drivers/soc/google/aoc/aoc_v1.c
+@@ -253,6 +253,18 @@ EXPORT_SYMBOL_GPL(trigger_aoc_ramdump);
+ 
+ static irqreturn_t watchdog_int_handler(int irq, void *dev)
+ {
++	struct aoc_prvdata *prvdata = dev_get_drvdata(dev);
++
++	/*
++	 * Firmware-managed AoCs (zumapro) are not restarted: keep the fault
++	 * for the watchdog work and don't take the interrupt again.
++	 */
++	if (prvdata->soc->firmware_managed_mmu) {
++		disable_irq_nosync(irq);
++		dev_err(dev, "AoC watchdog interrupt\n");
++		schedule_work(&prvdata->watchdog_work);
++		return IRQ_HANDLED;
++	}
+ 	trigger_aoc_ssr(false, NULL);
+ 	return IRQ_HANDLED;
+ }

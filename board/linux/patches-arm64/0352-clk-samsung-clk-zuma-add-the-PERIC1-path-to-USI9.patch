@@ -1,0 +1,91 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Lef <me@lefteros.com>
+Date: Sun, 1 Nov 2026 14:59:59 +0200
+Subject: [PATCH] clk: samsung: clk-zuma: add the PERIC1 path to USI9
+
+USI9 is the I2C bus (hsi2c_9) of the Pixel 8 Pro's battery pack EEPROM,
+which holds the battery ID that picks the fuel gauge model. It is on
+CMU_PERIC1 like USI11, and firmware sets it up the same way: the user
+mux and the divider are read-only, and Linux turns on the three gates.
+
+The offsets are from Google's cmucal tables, each next to the USI11 one
+that already works: the user mux at 0x690 (USI11: 0x640, bit 4, parents
+the oscillator and the PERIC1 IP clock), the divider at 0x1824 (USI11:
+0x1810, bits 0 to 3), and the IPCLK, PCLK and RSTNSYNC gates at 0x2070,
+0x2074 and 0x20a0, bit 21 (USI11: 0x2048, 0x204c, 0x2094). The PCLK gate
+hangs off the PERIC1 NoC like USI11's, the other two off the divider.
+
+Tested on a Pixel 8 Pro with the board commit and the two device tree
+commits on top: the bus clocks were on and the EEPROM answered.
+
+Signed-off-by: Lef <me@lefteros.com>
+Assisted-by: LLM
+---
+ drivers/clk/samsung/clk-zuma.c | 25 +++++++++++++++++++------
+ 1 file changed, 19 insertions(+), 6 deletions(-)
+
+diff --git a/drivers/clk/samsung/clk-zuma.c b/drivers/clk/samsung/clk-zuma.c
+index 962f2ae8e..8e7b12f59 100644
+--- a/drivers/clk/samsung/clk-zuma.c
++++ b/drivers/clk/samsung/clk-zuma.c
+@@ -242,26 +242,33 @@ static const struct samsung_cmu_info hsi0_cmu __initconst = {
+ };
+ 
+ /*
+- * CMU_PERIC1, 0x10c00000. Firmware sets it up: the user muxes and the USI11
+- * divider are read-only, and the GPIO and sysreg gates are read-only gates.
+- * USI11 is the I2C bus of the MAX77759 gauge, charger and Type-C controller
+- * and the MAX77729 PMIC. Its gates are the ones Linux turns on, as for the
+- * Pixel 9a's USI10; their auto/manual mode is left as firmware set it.
++ * CMU_PERIC1, 0x10c00000. Firmware sets it up: the user muxes and the USI9 and
++ * USI11 dividers are read-only, and the GPIO and sysreg gates are read-only
++ * gates. USI11 is the I2C bus of the MAX77759 gauge, charger and Type-C
++ * controller and the MAX77759 PMIC; USI9 is the I2C bus of the battery pack's
++ * EEPROM. Their gates are the ones Linux turns on, as for the Pixel 9a's
++ * USI10; their auto/manual mode is left as firmware set it.
+  */
+ PNAME(mout_peric1_noc_user_parents) = { "oscclk", "zuma_dout_peric1_noc" };
+ PNAME(mout_peric1_usi11_user_parents) = { "oscclk", "zuma_dout_peric1_ip" };
++PNAME(mout_peric1_usi9_user_parents) = { "oscclk", "zuma_dout_peric1_ip" };
+ 
+ static const struct samsung_mux_clock peric1_muxes[] __initconst = {
+ 	MUX_F(CLK_MOUT_PERIC1_NOC_USER, "zuma_mout_peric1_noc_user",
+ 	      mout_peric1_noc_user_parents, 0x610, 4, 1, 0, CLK_MUX_READ_ONLY),
+ 	MUX_F(CLK_MOUT_PERIC1_USI11_USER, "zuma_mout_peric1_usi11_user",
+ 	      mout_peric1_usi11_user_parents, 0x640, 4, 1, 0, CLK_MUX_READ_ONLY),
++	MUX_F(CLK_MOUT_PERIC1_USI9_USER, "zuma_mout_peric1_usi9_user",
++	      mout_peric1_usi9_user_parents, 0x690, 4, 1, 0, CLK_MUX_READ_ONLY),
+ };
+ 
+ static const struct samsung_div_clock peric1_dividers[] __initconst = {
+ 	DIV_F(CLK_DOUT_PERIC1_USI11, "zuma_dout_peric1_usi11",
+ 	      "zuma_mout_peric1_usi11_user", 0x1810, 0, 4, 0,
+ 	      CLK_DIVIDER_READ_ONLY),
++	DIV_F(CLK_DOUT_PERIC1_USI9, "zuma_dout_peric1_usi9",
++	      "zuma_mout_peric1_usi9_user", 0x1824, 0, 4, 0,
++	      CLK_DIVIDER_READ_ONLY),
+ };
+ 
+ static const struct samsung_gate_clock peric1_ro_gates[] __initconst = {
+@@ -278,6 +285,12 @@ static const struct samsung_gate_clock peric1_gates[] __initconst = {
+ 	     "zuma_mout_peric1_noc_user", 0x204c, 21, 0, 0),
+ 	GATE(CLK_GOUT_PERIC1_USI11_RSTNSYNC, "zuma_gout_peric1_usi11_rstnsync",
+ 	     "zuma_dout_peric1_usi11", 0x2094, 21, 0, 0),
++	GATE(CLK_GOUT_PERIC1_USI9_IPCLK, "zuma_gout_peric1_usi9_ipclk",
++	     "zuma_dout_peric1_usi9", 0x2070, 21, 0, 0),
++	GATE(CLK_GOUT_PERIC1_USI9_PCLK, "zuma_gout_peric1_usi9_pclk",
++	     "zuma_mout_peric1_noc_user", 0x2074, 21, 0, 0),
++	GATE(CLK_GOUT_PERIC1_USI9_RSTNSYNC, "zuma_gout_peric1_usi9_rstnsync",
++	     "zuma_dout_peric1_usi9", 0x20a0, 21, 0, 0),
+ };
+ 
+ static const struct samsung_cmu_info peric1_cmu __initconst = {
+@@ -289,7 +302,7 @@ static const struct samsung_cmu_info peric1_cmu __initconst = {
+ 	.nr_ro_gate_clks = ARRAY_SIZE(peric1_ro_gates),
+ 	.gate_clks = peric1_gates,
+ 	.nr_gate_clks = ARRAY_SIZE(peric1_gates),
+-	.nr_clk_ids = CLK_GOUT_PERIC1_USI11_RSTNSYNC + 1,
++	.nr_clk_ids = CLK_GOUT_PERIC1_USI9_RSTNSYNC + 1,
+ 	.clk_name = "bus",
+ };
+ 

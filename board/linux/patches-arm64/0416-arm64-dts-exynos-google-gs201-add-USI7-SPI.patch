@@ -1,0 +1,80 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Mon, 12 Oct 2026 09:47:34 -0400
+Subject: [PATCH] arm64: dts: exynos: google: gs201: add USI7 SPI
+
+Add PERIC0 USI7 (system register offset 0x1018, GIC SPI 680) with its
+SPI controller and the gpp14 bus pins, as found in the stock device
+tree. Pixel 7 Pro has its two speaker amplifiers on this bus. Disabled
+until a board enables it.
+
+Assisted-by: LLM
+Signed-off-by: Derek Ross <derekross@gmail.com>
+---
+ .../boot/dts/exynos/google/gs201-pinctrl.dtsi | 14 ++++++++++
+ arch/arm64/boot/dts/exynos/google/gs201.dtsi  | 27 +++++++++++++++++++
+ 2 files changed, 41 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/gs201-pinctrl.dtsi b/arch/arm64/boot/dts/exynos/google/gs201-pinctrl.dtsi
+index 774de1b8f..4b12ce273 100644
+--- a/arch/arm64/boot/dts/exynos/google/gs201-pinctrl.dtsi
++++ b/arch/arm64/boot/dts/exynos/google/gs201-pinctrl.dtsi
+@@ -351,6 +351,20 @@ gpp19: gpp19-gpio-bank {
+ 		#interrupt-cells = <2>;
+ 	};
+ 
++	spi7_bus: spi7-bus-pins {
++		samsung,pins = "gpp14-0", "gpp14-1";
++		samsung,pin-function = <GS101_PIN_FUNC_3>;
++		samsung,pin-pud = <GS101_PIN_PULL_NONE>;
++		samsung,pin-drv = <GS101_PIN_DRV_5_MA>;
++	};
++
++	spi7_miso: spi7-miso-pins {
++		samsung,pins = "gpp14-2";
++		samsung,pin-function = <GS101_PIN_FUNC_3>;
++		samsung,pin-pud = <GS101_PIN_PULL_DOWN>;
++		samsung,pin-drv = <GS101_PIN_DRV_2_5_MA>;
++	};
++
+ 	/* Camera I2C (main module); stock pulls the lines up while it transfers */
+ 	hsi2c1_bus: hsi2c1-bus-pins {
+ 		samsung,pins = "gpp2-0", "gpp2-1";
+diff --git a/arch/arm64/boot/dts/exynos/google/gs201.dtsi b/arch/arm64/boot/dts/exynos/google/gs201.dtsi
+index 402ceaa00..8aea9e06b 100644
+--- a/arch/arm64/boot/dts/exynos/google/gs201.dtsi
++++ b/arch/arm64/boot/dts/exynos/google/gs201.dtsi
+@@ -1018,6 +1018,33 @@ spi_6: spi@10950000 {
+ 			};
+ 		};
+ 
++		usi7: usi@109600c0 {
++			compatible = "google,gs201-usi", "samsung,exynos850-usi";
++			reg = <0x109600c0 0x20>;
++			ranges;
++			#address-cells = <1>;
++			#size-cells = <1>;
++			clocks = <&cmu_peric0 CLK_GOUT_PERIC0_USI7_USI_PCLK>,
++				 <&cmu_peric0 CLK_GOUT_PERIC0_USI7_USI_IPCLK>;
++			clock-names = "pclk", "ipclk";
++			samsung,sysreg = <&sysreg_peric0 0x1018>;
++			status = "disabled";
++
++			spi_7: spi@10960000 {
++				compatible = "google,gs201-spi", "google,gs101-spi";
++				reg = <0x10960000 0x30>;
++				#address-cells = <1>;
++				#size-cells = <0>;
++				clocks = <&cmu_peric0 CLK_GOUT_PERIC0_USI7_USI_PCLK>,
++					 <&cmu_peric0 CLK_GOUT_PERIC0_USI7_USI_IPCLK>;
++				clock-names = "spi", "spi_busclk0";
++				interrupts = <GIC_SPI 680 IRQ_TYPE_LEVEL_HIGH>;
++				pinctrl-0 = <&spi7_bus &spi7_miso>;
++				pinctrl-names = "default";
++				status = "disabled";
++			};
++		};
++
+ 		usi8: usi@109700c0 {
+ 			compatible = "google,gs201-usi", "samsung,exynos850-usi";
+ 			reg = <0x109700c0 0x20>;

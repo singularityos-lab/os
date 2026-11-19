@@ -1,0 +1,41 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Mon, 12 Oct 2026 18:42:52 -0400
+Subject: [PATCH] dt-bindings: PCI: google,gs201-pcie-cp: let the modem driver
+ own the lines
+
+The "modem" child describes the S5300's power, reset and handshake lines
+so that the link driver can power the modem for bring-up without a modem
+driver. Once the modem driver (Google's CPIF, ported) runs, it drives
+the same lines from its own node, and a line must have one owner.
+
+Say that the child is absent or disabled in that case, and allow its
+status property.
+
+Assisted-by: LLM
+Signed-off-by: Derek Ross <derekross@gmail.com>
+---
+ .../devicetree/bindings/pci/google,gs201-pcie-cp.yaml      | 7 ++++++-
+ 1 file changed, 6 insertions(+), 1 deletion(-)
+
+diff --git a/Documentation/devicetree/bindings/pci/google,gs201-pcie-cp.yaml b/Documentation/devicetree/bindings/pci/google,gs201-pcie-cp.yaml
+index c3e58c9cf..f27f839ba 100644
+--- a/Documentation/devicetree/bindings/pci/google,gs201-pcie-cp.yaml
++++ b/Documentation/devicetree/bindings/pci/google,gs201-pcie-cp.yaml
+@@ -104,10 +104,15 @@ properties:
+   modem:
+     type: object
+     additionalProperties: false
+-    description: The modem's power, reset and handshake lines (raw levels).
++    description:
++      The modem's power, reset and handshake lines (raw levels), for
++      driving the modem without its own driver. When the modem driver
++      describes the lines in its own node instead, this node is absent or
++      disabled, so that each line has one owner.
+     properties:
+       compatible:
+         const: samsung,s5300-modem
++      status: true
+       ap2cp-pda-active-gpios:
+         maxItems: 1
+       ap2cp-cp-pwr-on-gpios:

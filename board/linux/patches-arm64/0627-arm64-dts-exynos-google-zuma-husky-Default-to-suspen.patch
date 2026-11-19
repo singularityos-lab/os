@@ -1,0 +1,44 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Colin Lundholm <265166644+gitColinX@users.noreply.github.com>
+Date: Wed, 11 Nov 2026 12:07:28 -0700
+Subject: [PATCH] arm64: dts: exynos: google: zuma-husky: Default to
+ suspend-to-idle
+
+The firmware advertises PSCI SYSTEM_SUSPEND, so the kernel offers deep
+sleep and makes it the default: /sys/power/mem_sleep reads
+"s2idle [deep]" on the Pixel 8 Pro. Linux has no zuma sleep sequence
+yet, so a deep suspend does not wake: on a Pixel 8 Pro (G1MNW) whose
+battery ran low, upower asked for a suspend, the log ends at
+"PM: suspend entry (deep)" and the phone stayed down until it was
+restarted. Pass mem_sleep_default=s2idle, as the Pixel 8a does, so a
+suspend that names no state stays in s2idle. The omamobile-device-husky
+package asks systemd for s2idle since 0.1.10; this covers anything that
+writes "mem" directly, rtcwake -m mem among them.
+
+Not booted yet with this line; the same argument is on the Pixel 8a,
+the Pixel 7 Pro, the Pixel 7 and the Pixel 9a.
+
+Suggested-by: Derek Ross <derekross@gmail.com>
+Co-Authored-By: Claude Fable 5.2 <noreply@anthropic.com>
+Signed-off-by: Colin Lundholm <265166644+gitColinX@users.noreply.github.com>
+---
+ arch/arm64/boot/dts/exynos/google/zuma-husky.dts | 5 ++++-
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/zuma-husky.dts b/arch/arm64/boot/dts/exynos/google/zuma-husky.dts
+index 130fe8683..1cc364743 100644
+--- a/arch/arm64/boot/dts/exynos/google/zuma-husky.dts
++++ b/arch/arm64/boot/dts/exynos/google/zuma-husky.dts
+@@ -93,8 +93,11 @@ chosen {
+ 		 * hang that never panics lasts until someone holds Power and
+ 		 * Volume Up: panic on soft and hard lockups and on RCU stalls,
+ 		 * so that panic=10 resets the phone by itself.
++		 * mem_sleep_default=s2idle: the firmware offers PSCI system
++		 * suspend, so "mem" would otherwise mean "deep", which needs a
++		 * PMU sleep sequence the kernel doesn't have yet.
+ 		 */
+-		bootargs = "console=tty0 fbcon=font:TER16x32 reboot=warm panic=10 softlockup_panic=1 nmi_watchdog=panic sysctl.kernel.panic_on_rcu_stall=1 clk_ignore_unused pd_ignore_unused rdinit=/init";
++		bootargs = "console=tty0 fbcon=font:TER16x32 reboot=warm panic=10 softlockup_panic=1 nmi_watchdog=panic sysctl.kernel.panic_on_rcu_stall=1 clk_ignore_unused pd_ignore_unused rdinit=/init mem_sleep_default=s2idle";
+ 		#address-cells = <2>;
+ 		#size-cells = <1>;
+ 		ranges;

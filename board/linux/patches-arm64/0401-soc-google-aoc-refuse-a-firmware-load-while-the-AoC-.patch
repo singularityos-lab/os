@@ -1,0 +1,38 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Mon, 12 Oct 2026 16:04:51 -0400
+Subject: [PATCH] soc: google: aoc: refuse a firmware load while the AoC runs
+
+Writing the firmware attribute of a running AoC takes it offline and
+asks the GSA to load the image again, which the GSA refuses while the
+AoC runs (-EBUSY); this port cannot reset the AoC, so every service is
+gone until a reboot. Refuse the write unless the AoC is offline.
+
+Assisted-by: LLM
+Signed-off-by: Derek Ross <derekross@gmail.com>
+---
+ drivers/soc/google/aoc/aoc.c | 11 +++++++++++
+ 1 file changed, 11 insertions(+)
+
+diff --git a/drivers/soc/google/aoc/aoc.c b/drivers/soc/google/aoc/aoc.c
+index 3366def0d..e2a5e5aec 100644
+--- a/drivers/soc/google/aoc/aoc.c
++++ b/drivers/soc/google/aoc/aoc.c
+@@ -988,6 +988,17 @@ static ssize_t firmware_store(struct device *dev, struct device_attribute *attr,
+ 		return -EINVAL;
+ 	}
+ 
++	/*
++	 * The GSA loads and authenticates the AoC image only while the AoC is
++	 * stopped, and this port cannot reset the AoC (no ACPM AoC reset), so a
++	 * second load would only take the running AoC down. Refuse it.
++	 */
++	if (aoc_state != AOC_STATE_OFFLINE) {
++		dev_err(dev, "AoC already started (state %d); reboot to load firmware again\n",
++			aoc_state);
++		return -EBUSY;
++	}
++
+ 	/* Strip whitespace (including \n) */
+ 	trimmed = strim(buffer);
+ 

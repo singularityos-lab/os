@@ -1,0 +1,113 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Wed, 14 Oct 2026 21:05:26 -0400
+Subject: [PATCH] arm64: dts: exynos: google: gs201-cheetah: enable the haptics
+ and the flash LED
+
+Describe the CS40L26A haptics driver at 0x43 on USI8 I2C (interrupt
+gpa8-1, reset gpp24-3) with the stock boost and actuator values
+(Google's gs201-cs40l26a-config.dtsi), and the LM3644TT flash LED
+driver at 0x63 on USI15 I2C (HWEN gpp8-2) as a white torch, capped at
+50 mA per channel.
+
+Both have been tested on the phone: the CS40L26 runs its firmware and
+vibrates through feedbackd, and the LM3644 lights the rear flash in
+torch mode. Enable USI15 and its I2C bus with them.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ .../boot/dts/exynos/google/gs201-cheetah.dts  | 67 ++++++++++++++++++-
+ 1 file changed, 65 insertions(+), 2 deletions(-)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts b/arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts
+index 8a87ffc50..dec6fa6de 100644
+--- a/arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts
++++ b/arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts
+@@ -6,6 +6,7 @@
+ /dts-v1/;
+ 
+ #include <dt-bindings/input/input.h>
++#include <dt-bindings/leds/common.h>
+ #include <dt-bindings/media/video-interfaces.h>
+ #include <dt-bindings/soc/samsung,exynos-usi.h>
+ #include <dt-bindings/usb/pd.h>
+@@ -489,8 +490,10 @@ gpio {
+ };
+ 
+ /*
+- * PERIC0 USI8 (Google's I2C bus 8) carries the camera PMIC; its bus pins
+- * are on PERIC0 (gpp16-0/1).
++ * Haptics: Cirrus Logic CS40L26A at 0x43 on PERIC0 USI8 (Google's I2C bus
++ * 8), INTb on gpa8-1, RESET on gpp24-3. Boost and actuator values are the
++ * stock ones (Google's gs201-cs40l26a-config.dtsi). Tested on the phone
++ * (HAPTICS-TORCH-PLAN.md H1-H4). The bus pins are on PERIC0 (gpp16-0/1).
+  */
+ &pinctrl_peric0 {
+ 	status = "okay";
+@@ -504,6 +507,66 @@ &usi8 {
+ &hsi2c_8 {
+ 	clock-frequency = <400000>;
+ 	status = "okay";
++
++	haptics: haptic-driver@43 {
++		compatible = "cirrus,cs40l26a";
++		reg = <0x43>;
++		interrupts-extended = <&gpa8 1 IRQ_TYPE_LEVEL_LOW>;
++		reset-gpios = <&gpp24 3 GPIO_ACTIVE_LOW>;
++		pinctrl-0 = <&hapt_amp_irq &hapt_amp_rst>;
++		pinctrl-names = "default";
++		cirrus,boost-peak-microamp = <2500000>;
++		cirrus,boost-ctl-microvolt = <11000000>;
++		cirrus,lra-f0-hz = <145>;
++		cirrus,lra-redc-micro-ohms = <13000000>;
++	};
++};
++
++/*
++ * Rear flash LED: TI LM3644TT at 0x63 on PERIC1 USI15 (Google's I2C bus 15,
++ * shared with the camera EEPROM), HWEN on gpp8-2. Stock drives it from the
++ * camera HAL through LWIS. Torch only; the cap here is our own bring-up
++ * limit, not a stock value. Tested on the phone (T1-T4).
++ */
++&usi15 {
++	samsung,mode = <USI_MODE_I2C>;
++	status = "okay";
++};
++
++&hsi2c_15 {
++	clock-frequency = <400000>;
++	status = "okay";
++
++	led-controller@63 {
++		compatible = "ti,lm3644";
++		reg = <0x63>;
++		enable-gpios = <&gpp8 2 GPIO_ACTIVE_HIGH>;
++
++		led {
++			function = LED_FUNCTION_TORCH;
++			color = <LED_COLOR_ID_WHITE>;
++			led-sources = <1 2>;
++			led-max-microamp = <50000>;
++		};
++	};
++};
++
++&pinctrl_far_alive {
++	hapt_amp_irq: hapt-amp-irq-pins {
++		samsung,pins = "gpa8-1";
++		samsung,pin-function = <GS101_PIN_FUNC_EINT>;
++		samsung,pin-pud = <GS101_PIN_PULL_NONE>;
++		samsung,pin-drv = <GS101_PIN_DRV_2_5_MA>;
++	};
++};
++
++&pinctrl_peric1 {
++	hapt_amp_rst: hapt-amp-rst-pins {
++		samsung,pins = "gpp24-3";
++		samsung,pin-function = <GS101_PIN_FUNC_OUTPUT>;
++		samsung,pin-pud = <GS101_PIN_PULL_NONE>;
++		samsung,pin-drv = <GS101_PIN_DRV_2_5_MA>;
++	};
+ };
+ 
+ &pinctrl_gpio_alive {

@@ -1,0 +1,90 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Mon, 12 Oct 2026 19:29:46 -0400
+Subject: [PATCH] clk: samsung: exynos-clkout: let bring-up pick the GS101 pad
+ polarity
+
+Google's sources disagree on PAD_CTRL_CLKOUTn bit 0: st21nfc.c sets it
+while the NFC device is open, the cal-if clkout code clears it to enable
+the clock. Add a writable parameter, gs101_pad_en_active_low, read at
+every enable, disable and is_enabled, so both can be tried in one boot,
+and pr_debug() the register after each change (a regmap read).
+
+Bring-up only: drop the parameter once a board settles the polarity.
+
+Assisted-by: LLM
+Signed-off-by: Derek Ross <derekross@gmail.com>
+---
+ drivers/clk/samsung/clk-exynos-clkout.c | 37 +++++++++++++++++++++----
+ 1 file changed, 32 insertions(+), 5 deletions(-)
+
+diff --git a/drivers/clk/samsung/clk-exynos-clkout.c b/drivers/clk/samsung/clk-exynos-clkout.c
+index 73f9fa56c..5239033b4 100644
+--- a/drivers/clk/samsung/clk-exynos-clkout.c
++++ b/drivers/clk/samsung/clk-exynos-clkout.c
+@@ -49,6 +49,27 @@ struct exynos_clkout_pad {
+ 
+ #define to_exynos_clkout_pad(_hw) container_of(_hw, struct exynos_clkout_pad, hw)
+ 
++/*
++ * Google's sources disagree on bit 0: the NFC driver sets it to run the
++ * clock, the clock framework code clears it. Until a board proves one,
++ * let bring-up pick at run time.
++ */
++static bool gs101_pad_en_active_low;
++module_param(gs101_pad_en_active_low, bool, 0644);
++MODULE_PARM_DESC(gs101_pad_en_active_low,
++		 "GS101/GS201 CLKOUT pads run with bit 0 clear (default: set)");
++
++static void exynos_clkout_pad_trace(struct exynos_clkout_pad *pad,
++				    const char *what)
++{
++	unsigned int val = 0;
++	int ret;
++
++	ret = regmap_read(pad->regmap, pad->reg, &val);
++	pr_debug("%s: %s, PAD_CTRL 0x%x = 0x%08x (%d)\n",
++		 clk_hw_get_name(&pad->hw), what, pad->reg, val, ret);
++}
++
+ struct exynos_clkout {
+ 	struct clk_gate gate;
+ 	struct clk_mux mux;
+@@ -143,18 +164,24 @@ static int exynos_clkout_match_parent_dev(struct device *dev,
+ static int exynos_clkout_pad_enable(struct clk_hw *hw)
+ {
+ 	struct exynos_clkout_pad *pad = to_exynos_clkout_pad(hw);
++	int ret;
+ 
+ 	/* Select the TCXO and drive it onto the pad. */
+-	return regmap_update_bits(pad->regmap, pad->reg,
+-				  GS101_CLKOUT_SEL_MASK | GS101_CLKOUT_EN,
+-				  GS101_CLKOUT_EN);
++	ret = regmap_update_bits(pad->regmap, pad->reg,
++				 GS101_CLKOUT_SEL_MASK | GS101_CLKOUT_EN,
++				 gs101_pad_en_active_low ? 0 : GS101_CLKOUT_EN);
++	exynos_clkout_pad_trace(pad, "enable");
++
++	return ret;
+ }
+ 
+ static void exynos_clkout_pad_disable(struct clk_hw *hw)
+ {
+ 	struct exynos_clkout_pad *pad = to_exynos_clkout_pad(hw);
+ 
+-	regmap_clear_bits(pad->regmap, pad->reg, GS101_CLKOUT_EN);
++	regmap_update_bits(pad->regmap, pad->reg, GS101_CLKOUT_EN,
++			   gs101_pad_en_active_low ? GS101_CLKOUT_EN : 0);
++	exynos_clkout_pad_trace(pad, "disable");
+ }
+ 
+ static int exynos_clkout_pad_is_enabled(struct clk_hw *hw)
+@@ -165,7 +192,7 @@ static int exynos_clkout_pad_is_enabled(struct clk_hw *hw)
+ 	if (regmap_read(pad->regmap, pad->reg, &val))
+ 		return 0;
+ 
+-	return !!(val & GS101_CLKOUT_EN);
++	return !!(val & GS101_CLKOUT_EN) != gs101_pad_en_active_low;
+ }
+ 
+ static const struct clk_ops exynos_clkout_pad_ops = {

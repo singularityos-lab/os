@@ -1,0 +1,1371 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Tue, 27 Oct 2026 09:53:53 -0647
+Subject: [PATCH] arm64: dts: exynos: google: Add the Tensor G4 SoC
+
+Add zumapro.dtsi, the Tensor G4 SoC as far as Linux drives it today: the
+CPUs, PSCI, the timer and GIC, every CMU with a driver (TOP, MISC, APM,
+HSI0, HSI1, HSI2, PERIC0, PERIC1, G3D), the eight pin controllers and
+their banks, the system registers the USIs and UFS use, the PMU with its
+reboot mode, both cluster watchdogs, the APM mailbox and SRAM for ACPM,
+UFS and its PHY, the USB 2.0 path (dwc3, the USB 3.2 DRD PHY wrapper and
+the eUSB2 PHY), the USIs behind the cameras', battery's, haptics', NFC's,
+touchscreen's and GNSS's buses, the Bluetooth UART, DECON and the Mali
+GPU. Everything a board doesn't need is left disabled; zumapro-tegu.dts
+turns on what the Pixel 9a uses.
+
+zumapro-reserved-memory.dtsi carries the fixed firmware regions from
+Google's GPL zumapro tree, the xhci pools of zuma-usb.dtsi (which
+zumapro-usb.dtsi includes), and two small gaps next to them that the
+earlier bring-up kept reserved; they stay reserved until shown unused.
+
+Addresses, interrupts and bank layouts come from Google's GPL zumapro
+device tree; clock ids and parents from the Tensor G4 clock driver.
+
+Link: https://android.googlesource.com/kernel/devices/google/zumapro/+/8831630eee2ad095b85ed452944e6353940966a5/dts/zumapro.dtsi
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ .../google/zumapro-reserved-memory.dtsi       |  196 +++
+ .../arm64/boot/dts/exynos/google/zumapro.dtsi | 1130 +++++++++++++++++
+ 2 files changed, 1326 insertions(+)
+ create mode 100644 arch/arm64/boot/dts/exynos/google/zumapro-reserved-memory.dtsi
+ create mode 100644 arch/arm64/boot/dts/exynos/google/zumapro.dtsi
+
+diff --git a/arch/arm64/boot/dts/exynos/google/zumapro-reserved-memory.dtsi b/arch/arm64/boot/dts/exynos/google/zumapro-reserved-memory.dtsi
+new file mode 100644
+index 000000000..66157671c
+--- /dev/null
++++ b/arch/arm64/boot/dts/exynos/google/zumapro-reserved-memory.dtsi
+@@ -0,0 +1,196 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * Google Tensor G4 firmware memory reservations.
++ *
++ * Copyright 2023 Google LLC.
++ *
++ * Fixed ranges from Google's GPL zumapro tree, plus two gaps next to them
++ * that stay reserved until they're shown to be unused. The bootloader adds
++ * its own secure ranges; the board file adds the splash screen.
++ */
++
++/ {
++	reserved-memory {
++		#address-cells = <2>;
++		#size-cells = <1>;
++		ranges;
++
++		xhci_dma_buffer: xhci-dma-buffer@17bb5000 {
++			reg = <0x0 0x17bb5000 0x0000b000>;
++			no-map;
++		};
++
++		xhci_dma: xhci-dma@17bc0000 {
++			reg = <0x0 0x17bc0000 0x00040000>;
++			no-map;
++		};
++
++		cp_aoc_rmem: cp-aoc@197fd000 {
++			reg = <0x0 0x197fd000 0x00003000>;
++			no-map;
++		};
++
++		ect_binary: ect@90000000 {
++			reg = <0x0 0x90000000 0x00060000>;
++			no-map;
++		};
++
++		gsa_reserved_protected: gsa@90200000 {
++			reg = <0x0 0x90200000 0x003ff000>;
++			no-map;
++		};
++
++		gsa_reserved_log: gsa-log@905ff000 {
++			reg = <0x0 0x905ff000 0x00001000>;
++			no-map;
++		};
++
++		gxp_scratchpad_reserved: gxp-scratchpad@91300000 {
++			reg = <0x0 0x91300000 0x00060000>;
++			no-map;
++		};
++
++		iif_wait_table_reserved: iif-wait-table@91360000 {
++			reg = <0x0 0x91360000 0x00020000>;
++			no-map;
++		};
++
++		iif_signal_table_reserved: iif-signal-table@91380000 {
++			reg = <0x0 0x91380000 0x00020000>;
++			no-map;
++		};
++
++		/* Not in Google's list; kept reserved until shown unused. */
++		gxp_gap_reserved: gxp-gap@913a0000 {
++			reg = <0x0 0x913a0000 0x00060000>;
++			no-map;
++		};
++
++		gxp_secure_data_reserved: gxp-secure-data@91400000 {
++			reg = <0x0 0x91400000 0x00900000>;
++			no-map;
++		};
++
++		gxp_fw_reserved: gxp-fw@91d00000 {
++			reg = <0x0 0x91d00000 0x00300000>;
++			no-map;
++		};
++
++		gxp_mcu_fw_reserved: gxp-mcu-fw@92000000 {
++			reg = <0x0 0x92000000 0x00400000>;
++			no-map;
++		};
++
++		tpu_fw_reserved: tpu-fw@92e00000 {
++			reg = <0x0 0x92e00000 0x01200000>;
++			no-map;
++		};
++
++		aoc_reserved: aoc@94000000 {
++			reg = <0x0 0x94000000 0x03000000>;
++			no-map;
++		};
++
++		xhci_dma_dram: xhci-dma-dram@97000000 {
++			reg = <0x0 0x97000000 0x00400000>;
++			no-map;
++		};
++
++		seclog_reserved: seclog@c3000000 {
++			reg = <0x0 0xc3000000 0x00080000>;
++			no-map;
++		};
++
++		dss_header: dss-header@d8100000 {
++			reg = <0x0 0xd8100000 0x00010000>;
++			no-map;
++		};
++
++		dss_kevents: dss-kevents@d8110000 {
++			reg = <0x0 0xd8110000 0x00700000>;
++			no-map;
++		};
++
++		dss_s2d: dss-s2d@d8810000 {
++			reg = <0x0 0xd8810000 0x01800000>;
++			no-map;
++		};
++
++		dss_array_reset: dss-array-reset@da010000 {
++			reg = <0x0 0xda010000 0x00a00000>;
++			no-map;
++		};
++
++		dss_array_panic: dss-array-panic@daa10000 {
++			reg = <0x0 0xdaa10000 0x00a00000>;
++			no-map;
++		};
++
++		dss_slcdump: dss-slcdump@db410000 {
++			reg = <0x0 0xdb410000 0x01100000>;
++			no-map;
++		};
++
++		dss_preslcdump: dss-preslcdump@dc510000 {
++			reg = <0x0 0xdc510000 0x01100000>;
++			no-map;
++		};
++
++		dss_bcm: dss-bcm@dd610000 {
++			reg = <0x0 0xdd610000 0x00400000>;
++			no-map;
++		};
++
++		dss_itmon: dss-itmon@dda10000 {
++			reg = <0x0 0xdda10000 0x00010000>;
++			no-map;
++		};
++
++		dss_s2d_extract: dss-s2d-extract@dda20000 {
++			reg = <0x0 0xdda20000 0x00600000>;
++			no-map;
++		};
++
++		cp_rmem_1: cp-extra@e8000000 {
++			reg = <0x0 0xe8000000 0x02000000>;
++			no-map;
++		};
++
++		cp_rmem: cp@ea400000 {
++			reg = <0x0 0xea400000 0x00c00000>;
++			no-map;
++		};
++
++		cp_msi_rmem: cp-msi@f6200000 {
++			reg = <0x0 0xf6200000 0x00001000>;
++			no-map;
++		};
++
++		dss_log_reserved: dss-log@fd3f0000 {
++			reg = <0x0 0xfd3f0000 0x0000e000>;
++			no-map;
++		};
++
++		debug_kinfo_reserved: debug_kinfo_reserved@fd3fe000 {
++			reg = <0x0 0xfd3fe000 0x00001000>;
++			no-map;
++		};
++
++		/* Reserve only; the pstore consumer is not enabled yet. */
++		ramoops_reserved: ramoops@fd3ff000 {
++			reg = <0x0 0xfd3ff000 0x00400000>;
++			no-map;
++		};
++
++		/* Not in Google's list; kept reserved until shown unused. */
++		debug_tail_reserved: debug-tail@fd7ff000 {
++			reg = <0x0 0xfd7ff000 0x00001000>;
++			no-map;
++		};
++
++		bldr_log_reserved: bldr-log@fd800000 {
++			reg = <0x0 0xfd800000 0x00100000>;
++			no-map;
++		};
++	};
++};
+diff --git a/arch/arm64/boot/dts/exynos/google/zumapro.dtsi b/arch/arm64/boot/dts/exynos/google/zumapro.dtsi
+new file mode 100644
+index 000000000..10b018b18
+--- /dev/null
++++ b/arch/arm64/boot/dts/exynos/google/zumapro.dtsi
+@@ -0,0 +1,1130 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * Google Tensor G4 (Zumapro) core description.
++ *
++ * Copyright 2022-2023 Google LLC.
++ * Copyright (C) 2022 Samsung Electronics Co., Ltd.
++ */
++
++#include <dt-bindings/clock/google,zumapro.h>
++#include <dt-bindings/interrupt-controller/arm-gic.h>
++#include <dt-bindings/soc/samsung,exynos-usi.h>
++
++/ {
++	compatible = "google,zumapro";
++	#address-cells = <2>;
++	#size-cells = <1>;
++	interrupt-parent = <&gic>;
++
++	aliases {
++		pinctrl0 = &pinctrl_alive;
++		pinctrl1 = &pinctrl_custom_alive;
++		pinctrl2 = &pinctrl_far_alive;
++		pinctrl8 = &pinctrl_hsi1;
++		pinctrl9 = &pinctrl_hsi2;
++		pinctrl10 = &pinctrl_hsi2ufs;
++		pinctrl11 = &pinctrl_peric0;
++		pinctrl12 = &pinctrl_peric1;
++	};
++
++	/* ABL applies its debug-policy overlay to these nodes. */
++	ect { };
++
++	dpm: dpm { };
++
++	/*
++	 * Targets of ABL's debug-policy overlay. Keep these driverless and
++	 * separate from reserved-memory: disabling a log consumer must not
++	 * release its firmware-owned memory to the allocator.
++	 */
++	dpm-stubs {
++		itmon: itmon {
++			status = "disabled";
++		};
++
++		log_arrdumppanic: log-array-panic {
++			status = "disabled";
++		};
++
++		log_bcm: log-bcm {
++			status = "disabled";
++		};
++
++		log_preslcdump: log-preslcdump {
++			status = "disabled";
++		};
++
++		log_slcdump: log-slcdump {
++			status = "disabled";
++		};
++	};
++
++	cpus {
++		#address-cells = <1>;
++		#size-cells = <0>;
++
++		cpu-map {
++			cluster0 {
++				core0 {
++					cpu = <&cpu0>;
++				};
++
++				core1 {
++					cpu = <&cpu1>;
++				};
++
++				core2 {
++					cpu = <&cpu2>;
++				};
++
++				core3 {
++					cpu = <&cpu3>;
++				};
++
++				core4 {
++					cpu = <&cpu4>;
++				};
++
++				core5 {
++					cpu = <&cpu5>;
++				};
++
++				core6 {
++					cpu = <&cpu6>;
++				};
++
++				core7 {
++					cpu = <&cpu7>;
++				};
++			};
++		};
++
++		cpu0: cpu@0 {
++			device_type = "cpu";
++			compatible = "arm,cortex-a520";
++			reg = <0x000>;
++			enable-method = "psci";
++		};
++
++		cpu1: cpu@100 {
++			device_type = "cpu";
++			compatible = "arm,cortex-a520";
++			reg = <0x100>;
++			enable-method = "psci";
++		};
++
++		cpu2: cpu@200 {
++			device_type = "cpu";
++			compatible = "arm,cortex-a520";
++			reg = <0x200>;
++			enable-method = "psci";
++		};
++
++		cpu3: cpu@300 {
++			device_type = "cpu";
++			compatible = "arm,cortex-a520";
++			reg = <0x300>;
++			enable-method = "psci";
++		};
++
++		cpu4: cpu@400 {
++			device_type = "cpu";
++			compatible = "arm,cortex-a720";
++			reg = <0x400>;
++			enable-method = "psci";
++		};
++
++		cpu5: cpu@500 {
++			device_type = "cpu";
++			compatible = "arm,cortex-a720";
++			reg = <0x500>;
++			enable-method = "psci";
++		};
++
++		cpu6: cpu@600 {
++			device_type = "cpu";
++			compatible = "arm,cortex-a720";
++			reg = <0x600>;
++			enable-method = "psci";
++		};
++
++		cpu7: cpu@700 {
++			device_type = "cpu";
++			compatible = "arm,cortex-x4";
++			reg = <0x700>;
++			enable-method = "psci";
++		};
++	};
++
++	oscclk: clock-oscclk {
++		compatible = "fixed-clock";
++		#clock-cells = <0>;
++		clock-frequency = <24576000>;
++		clock-output-names = "oscclk";
++	};
++
++	/* The GPL PHY calibration uses a 38.4 MHz reference configuration. */
++	ufs_ref_clk: clock-ufs-ref {
++		compatible = "fixed-clock";
++		#clock-cells = <0>;
++		clock-frequency = <38400000>;
++		clock-output-names = "ufs-ref";
++	};
++
++	/* The CAL's nominal rates for HSI0's two board inputs. */
++	hsi0_alt: clock-hsi0-alt {
++		compatible = "fixed-clock";
++		#clock-cells = <0>;
++		clock-frequency = <213000000>;
++		clock-output-names = "hsi0-alt";
++	};
++
++	hsi0_tcxo: clock-hsi0-tcxo {
++		compatible = "fixed-clock";
++		#clock-cells = <0>;
++		clock-frequency = <26000000>;
++		clock-output-names = "hsi0-tcxo";
++	};
++
++	/* The CAL's nominal I_CLK_HSI1_ALT rate. */
++	hsi1_alt: clock-hsi1-alt {
++		compatible = "fixed-clock";
++		#clock-cells = <0>;
++		clock-frequency = <400000000>;
++		clock-output-names = "hsi1-alt";
++	};
++
++	psci {
++		compatible = "arm,psci-1.0";
++		method = "smc";
++	};
++
++	timer {
++		compatible = "arm,armv8-timer";
++		interrupts = <GIC_PPI 13 IRQ_TYPE_LEVEL_LOW>,
++			     <GIC_PPI 14 IRQ_TYPE_LEVEL_LOW>,
++			     <GIC_PPI 11 IRQ_TYPE_LEVEL_LOW>,
++			     <GIC_PPI 10 IRQ_TYPE_LEVEL_LOW>;
++	};
++
++	firmware {
++		acpm_ipc: power-management {
++			compatible = "google,zumapro-acpm-ipc";
++			#clock-cells = <1>;
++			mboxes = <&ap2apm_mailbox>;
++			shmem = <&apm_sram>;
++			status = "disabled";
++		};
++	};
++
++	soc: soc {
++		compatible = "simple-bus";
++		#address-cells = <2>;
++		#size-cells = <1>;
++		ranges;
++
++		cmu_misc: clock-controller@10010000 {
++			compatible = "google,zumapro-cmu-misc";
++			reg = <0x0 0x10010000 0x8000>;
++			#clock-cells = <1>;
++			clocks = <&oscclk>, <&cmu_top CLK_DOUT_MISC_NOC>;
++			clock-names = "oscclk", "bus";
++			status = "disabled";
++		};
++
++		watchdog_cl0: watchdog@10060000 {
++			compatible = "google,zumapro-wdt", "google,zuma-wdt";
++			reg = <0x0 0x10060000 0x100>;
++			interrupts = <GIC_SPI 767 IRQ_TYPE_LEVEL_HIGH>;
++			clocks = <&cmu_misc CLK_GOUT_WDT_CLUSTER0>, <&oscclk>;
++			clock-names = "watchdog", "watchdog_src";
++			timeout-sec = <30>;
++			samsung,syscon-phandle = <&pmu_system_controller>;
++			samsung,cluster-index = <0>;
++			status = "disabled";
++		};
++
++		watchdog_cl1: watchdog@10070000 {
++			compatible = "google,zumapro-wdt", "google,zuma-wdt";
++			reg = <0x0 0x10070000 0x100>;
++			interrupts = <GIC_SPI 768 IRQ_TYPE_LEVEL_HIGH>;
++			clocks = <&cmu_misc CLK_GOUT_WDT_CLUSTER1>, <&oscclk>;
++			clock-names = "watchdog", "watchdog_src";
++			timeout-sec = <30>;
++			samsung,syscon-phandle = <&pmu_system_controller>;
++			samsung,cluster-index = <1>;
++			status = "disabled";
++		};
++
++		gic: interrupt-controller@10400000 {
++			compatible = "arm,gic-v3";
++			#interrupt-cells = <3>;
++			#address-cells = <0>;
++			interrupt-controller;
++			reg = <0x0 0x10400000 0x10000>,
++			      <0x0 0x10440000 0x200000>;
++			interrupts = <GIC_PPI 9 IRQ_TYPE_LEVEL_HIGH>;
++		};
++
++		cmu_peric0: clock-controller@10800000 {
++			compatible = "google,zumapro-cmu-peric0";
++			reg = <0x0 0x10800000 0x8000>;
++			#clock-cells = <1>;
++			clocks = <&oscclk>, <&cmu_top CLK_DOUT_PERIC0_NOC>,
++				 <&cmu_top CLK_DOUT_PERIC0_IP>;
++			clock-names = "oscclk", "bus", "ip";
++			status = "disabled";
++		};
++
++		sysreg_peric0: syscon@10821000 {
++			compatible = "google,zumapro-peric0-sysreg", "syscon";
++			reg = <0x0 0x10821000 0x1000>;
++			clocks = <&cmu_peric0 CLK_GOUT_PERIC0_SYSREG>;
++			status = "disabled";
++		};
++
++		pinctrl_peric0: pinctrl@10840000 {
++			compatible = "google,zumapro-pinctrl";
++			reg = <0x0 0x10840000 0x1000>;
++			clocks = <&cmu_peric0 CLK_GOUT_GPIO_PERIC0>;
++			clock-names = "pclk";
++			status = "disabled";
++
++			gpp0: gpp0-gpio-bank {
++				gpio-controller;
++				#gpio-cells = <2>;
++			};
++
++			gpp1: gpp1-gpio-bank {
++				gpio-controller;
++				#gpio-cells = <2>;
++			};
++
++			gpp2: gpp2-gpio-bank {
++				gpio-controller;
++				#gpio-cells = <2>;
++			};
++
++			gpp3: gpp3-gpio-bank {
++				gpio-controller;
++				#gpio-cells = <2>;
++			};
++
++			gpp4: gpp4-gpio-bank {
++				gpio-controller;
++				#gpio-cells = <2>;
++			};
++
++			gpp5: gpp5-gpio-bank {
++				gpio-controller;
++				#gpio-cells = <2>;
++			};
++
++			gpp6: gpp6-gpio-bank {
++				gpio-controller;
++				#gpio-cells = <2>;
++			};
++
++			gpp7: gpp7-gpio-bank {
++				gpio-controller;
++				#gpio-cells = <2>;
++			};
++
++			gpp8: gpp8-gpio-bank {
++				gpio-controller;
++				#gpio-cells = <2>;
++			};
++
++			gpp9: gpp9-gpio-bank {
++				gpio-controller;
++				#gpio-cells = <2>;
++			};
++
++			gpp10: gpp10-gpio-bank {
++				gpio-controller;
++				#gpio-cells = <2>;
++			};
++
++			gpp11: gpp11-gpio-bank {
++				gpio-controller;
++				#gpio-cells = <2>;
++			};
++
++			gpp12: gpp12-gpio-bank {
++				gpio-controller;
++				#gpio-cells = <2>;
++			};
++
++			gpp13: gpp13-gpio-bank {
++				gpio-controller;
++				#gpio-cells = <2>;
++			};
++
++			gpp14: gpp14-gpio-bank {
++				gpio-controller;
++				#gpio-cells = <2>;
++			};
++
++			gpp15: gpp15-gpio-bank {
++				gpio-controller;
++				#gpio-cells = <2>;
++			};
++
++			gpp17: gpp17-gpio-bank {
++				gpio-controller;
++				#gpio-cells = <2>;
++			};
++
++			gpp16: gpp16-gpio-bank {
++				gpio-controller;
++				#gpio-cells = <2>;
++			};
++		};
++
++		usi2: usi@108900c0 {
++			compatible = "google,zumapro-usi", "samsung,exynos850-usi";
++			reg = <0x0 0x108900c0 0x20>;
++			clocks = <&cmu_peric0 CLK_GOUT_PERIC0_USI2_PCLK>,
++				 <&cmu_peric0 CLK_GOUT_PERIC0_USI2_IPCLK>;
++			clock-names = "pclk", "ipclk";
++			samsung,sysreg = <&sysreg_peric0 0x4>;
++			samsung,mode = <USI_MODE_I2C>;
++			#address-cells = <1>;
++			#size-cells = <1>;
++			ranges = <0x10890000 0x0 0x10890000 0x1000>;
++			status = "disabled";
++
++			hsi2c2: i2c@10890000 {
++				compatible = "google,zumapro-hsi2c",
++					     "samsung,exynosautov9-hsi2c";
++				reg = <0x10890000 0xc0>;
++				interrupts = <GIC_SPI 643 IRQ_TYPE_LEVEL_HIGH>;
++				clocks = <&cmu_peric0 CLK_GOUT_PERIC0_USI2_IPCLK>,
++					 <&cmu_peric0 CLK_GOUT_PERIC0_USI2_PCLK>;
++				clock-names = "hsi2c", "hsi2c_pclk";
++				#address-cells = <1>;
++				#size-cells = <0>;
++				status = "disabled";
++			};
++		};
++
++		usi3: usi@108a00c0 {
++			compatible = "google,zumapro-usi", "samsung,exynos850-usi";
++			reg = <0x0 0x108a00c0 0x20>;
++			clocks = <&cmu_peric0 CLK_GOUT_PERIC0_USI3_PCLK>,
++				 <&cmu_peric0 CLK_GOUT_PERIC0_USI3_IPCLK>;
++			clock-names = "pclk", "ipclk";
++			samsung,sysreg = <&sysreg_peric0 0x8>;
++			samsung,mode = <USI_MODE_I2C>;
++			#address-cells = <1>;
++			#size-cells = <1>;
++			ranges = <0x108a0000 0x0 0x108a0000 0x1000>;
++			status = "disabled";
++
++			hsi2c3: i2c@108a0000 {
++				compatible = "google,zumapro-hsi2c",
++					     "samsung,exynosautov9-hsi2c";
++				reg = <0x108a0000 0xc0>;
++				interrupts = <GIC_SPI 644 IRQ_TYPE_LEVEL_HIGH>;
++				clocks = <&cmu_peric0 CLK_GOUT_PERIC0_USI3_IPCLK>,
++					 <&cmu_peric0 CLK_GOUT_PERIC0_USI3_PCLK>;
++				clock-names = "hsi2c", "hsi2c_pclk";
++				#address-cells = <1>;
++				#size-cells = <0>;
++				status = "disabled";
++			};
++		};
++
++		usi4: usi@108b00c0 {
++			compatible = "google,zumapro-usi", "samsung,exynos850-usi";
++			reg = <0x0 0x108b00c0 0x20>;
++			clocks = <&cmu_peric0 CLK_GOUT_PERIC0_USI4_PCLK>,
++				 <&cmu_peric0 CLK_GOUT_PERIC0_USI4_IPCLK>;
++			clock-names = "pclk", "ipclk";
++			samsung,sysreg = <&sysreg_peric0 0xc>;
++			samsung,mode = <USI_MODE_I2C>;
++			#address-cells = <1>;
++			#size-cells = <1>;
++			ranges = <0x108b0000 0x0 0x108b0000 0x1000>;
++			status = "disabled";
++
++			hsi2c4: i2c@108b0000 {
++				compatible = "google,zumapro-hsi2c",
++					     "samsung,exynosautov9-hsi2c";
++				reg = <0x108b0000 0xc0>;
++				interrupts = <GIC_SPI 645 IRQ_TYPE_LEVEL_HIGH>;
++				clocks = <&cmu_peric0 CLK_GOUT_PERIC0_USI4_IPCLK>,
++					 <&cmu_peric0 CLK_GOUT_PERIC0_USI4_PCLK>;
++				clock-names = "hsi2c", "hsi2c_pclk";
++				#address-cells = <1>;
++				#size-cells = <0>;
++				status = "disabled";
++			};
++		};
++
++		usi5: usi@108c00c0 {
++			compatible = "google,zumapro-usi", "samsung,exynos850-usi";
++			reg = <0x0 0x108c00c0 0x20>;
++			clocks = <&cmu_peric0 CLK_GOUT_PERIC0_USI5_PCLK>,
++				 <&cmu_peric0 CLK_GOUT_PERIC0_USI5_IPCLK>;
++			clock-names = "pclk", "ipclk";
++			samsung,sysreg = <&sysreg_peric0 0x10>;
++			samsung,mode = <USI_MODE_I2C>;
++			#address-cells = <1>;
++			#size-cells = <1>;
++			ranges = <0x108c0000 0x0 0x108c0000 0x1000>;
++			status = "disabled";
++
++			hsi2c5: i2c@108c0000 {
++				compatible = "google,zumapro-hsi2c",
++					     "samsung,exynosautov9-hsi2c";
++				reg = <0x108c0000 0xc0>;
++				interrupts = <GIC_SPI 646 IRQ_TYPE_LEVEL_HIGH>;
++				clocks = <&cmu_peric0 CLK_GOUT_PERIC0_USI5_IPCLK>,
++					 <&cmu_peric0 CLK_GOUT_PERIC0_USI5_PCLK>;
++				clock-names = "hsi2c", "hsi2c_pclk";
++				#address-cells = <1>;
++				#size-cells = <0>;
++				status = "disabled";
++			};
++		};
++
++		usi6: usi@108d00c0 {
++			compatible = "google,zumapro-usi", "samsung,exynos850-usi";
++			reg = <0x0 0x108d00c0 0x20>;
++			clocks = <&cmu_peric0 CLK_GOUT_PERIC0_USI6_PCLK>,
++				 <&cmu_peric0 CLK_GOUT_PERIC0_USI6_IPCLK>;
++			clock-names = "pclk", "ipclk";
++			samsung,sysreg = <&sysreg_peric0 0x14>;
++			samsung,mode = <USI_MODE_I2C>;
++			#address-cells = <1>;
++			#size-cells = <1>;
++			ranges = <0x108d0000 0x0 0x108d0000 0x1000>;
++			status = "disabled";
++
++			hsi2c6: i2c@108d0000 {
++				compatible = "google,zumapro-hsi2c",
++					     "samsung,exynosautov9-hsi2c";
++				reg = <0x108d0000 0xc0>;
++				interrupts = <GIC_SPI 647 IRQ_TYPE_LEVEL_HIGH>;
++				clocks = <&cmu_peric0 CLK_GOUT_PERIC0_USI6_IPCLK>,
++					 <&cmu_peric0 CLK_GOUT_PERIC0_USI6_PCLK>;
++				clock-names = "hsi2c", "hsi2c_pclk";
++				#address-cells = <1>;
++				#size-cells = <0>;
++				status = "disabled";
++			};
++		};
++
++		cmu_peric1: clock-controller@10c00000 {
++			compatible = "google,zumapro-cmu-peric1";
++			reg = <0x0 0x10c00000 0x8000>;
++			#clock-cells = <1>;
++			clocks = <&oscclk>, <&cmu_top CLK_DOUT_PERIC1_NOC>,
++				 <&cmu_top CLK_DOUT_PERIC1_IP>;
++			clock-names = "oscclk", "bus", "ip";
++			status = "disabled";
++		};
++
++		sysreg_peric1: syscon@10c21000 {
++			compatible = "google,zumapro-peric1-sysreg", "syscon";
++			reg = <0x0 0x10c21000 0x1000>;
++			clocks = <&cmu_peric1 CLK_GOUT_PERIC1_SYSREG>;
++			status = "disabled";
++		};
++
++		pinctrl_peric1: pinctrl@10c40000 {
++			compatible = "google,zumapro-pinctrl";
++			reg = <0x0 0x10c40000 0x1000>;
++			clocks = <&cmu_peric1 CLK_GOUT_GPIO_PERIC1>;
++			clock-names = "pclk";
++			status = "disabled";
++
++			gpp19: gpp19-gpio-bank {
++				gpio-controller;
++				#gpio-cells = <2>;
++			};
++
++			gpp20: gpp20-gpio-bank {
++				gpio-controller;
++				#gpio-cells = <2>;
++			};
++
++			gpp21: gpp21-gpio-bank {
++				gpio-controller;
++				#gpio-cells = <2>;
++			};
++
++			gpp24: gpp24-gpio-bank {
++				gpio-controller;
++				#gpio-cells = <2>;
++			};
++
++			gpp22: gpp22-gpio-bank {
++				gpio-controller;
++				#gpio-cells = <2>;
++			};
++
++			gpp23: gpp23-gpio-bank {
++				gpio-controller;
++				#gpio-cells = <2>;
++			};
++		};
++
++		usi9: usi@10c900c0 {
++			compatible = "google,zumapro-usi", "samsung,exynos850-usi";
++			reg = <0x0 0x10c900c0 0x20>;
++			clocks = <&cmu_peric1 CLK_GOUT_PERIC1_USI9_PCLK>,
++				 <&cmu_peric1 CLK_GOUT_PERIC1_USI9_IPCLK>;
++			clock-names = "pclk", "ipclk";
++			samsung,sysreg = <&sysreg_peric1 0x4>;
++			samsung,mode = <USI_MODE_I2C>;
++			#address-cells = <1>;
++			#size-cells = <1>;
++			ranges = <0x10c90000 0x0 0x10c90000 0x1000>;
++			status = "disabled";
++
++			hsi2c9: i2c@10c90000 {
++				compatible = "google,zumapro-hsi2c",
++					     "samsung,exynosautov9-hsi2c";
++				reg = <0x10c90000 0xc0>;
++				interrupts = <GIC_SPI 657 IRQ_TYPE_LEVEL_HIGH>;
++				clocks = <&cmu_peric1 CLK_GOUT_PERIC1_USI9_IPCLK>,
++					 <&cmu_peric1 CLK_GOUT_PERIC1_USI9_PCLK>;
++				clock-names = "hsi2c", "hsi2c_pclk";
++				#address-cells = <1>;
++				#size-cells = <0>;
++				status = "disabled";
++			};
++		};
++
++		cmu_hsi0: clock-controller@11000000 {
++			compatible = "google,zumapro-cmu-hsi0";
++			reg = <0x0 0x11000000 0x8000>;
++			#clock-cells = <1>;
++			clocks = <&oscclk>, <&cmu_top CLK_DOUT_HSI0_NOC>,
++				 <&cmu_top CLK_DOUT_HSI0_PERI>,
++				 <&hsi0_alt>, <&hsi0_tcxo>;
++			clock-names = "oscclk", "bus", "peri", "alt", "tcxo";
++			status = "disabled";
++		};
++
++		sysreg_hsi0: syscon@11020000 {
++			compatible = "google,zumapro-hsi0-sysreg", "syscon";
++			reg = <0x0 0x11020000 0x10000>;
++			clocks = <&cmu_hsi0 CLK_GOUT_HSI0_SYSREG>;
++			status = "disabled";
++		};
++
++		usbdrd_phy: phy@11100000 {
++			compatible = "google,zumapro-usb32drd-phy",
++				     "google,zuma-usb32drd-phy";
++			reg = <0x0 0x11100000 0x200>;
++			#phy-cells = <1>;
++			clocks = <&cmu_hsi0 CLK_GOUT_HSI0_USB_SUBCTL>;
++			clock-names = "phy";
++			phys = <&usb_hsphy>;
++			phy-names = "hs";
++			samsung,pmu-syscon = <&pmu_system_controller>;
++			status = "disabled";
++		};
++
++		usb_hsphy: phy@11110000 {
++			compatible = "google,zumapro-eusb2-phy",
++				     "samsung,exynos2200-eusb2-phy";
++			reg = <0x0 0x11110000 0x200>;
++			#phy-cells = <0>;
++			clocks = <&cmu_hsi0 CLK_GOUT_HSI0_EUSB_REF>,
++				 <&cmu_hsi0 CLK_GOUT_HSI0_EUSB_BUS>,
++				 <&cmu_hsi0 CLK_GOUT_HSI0_EUSB_CTRL>;
++			clock-names = "ref", "bus", "ctrl";
++			status = "disabled";
++		};
++
++		usi2_hsi0: usi@111d00c0 {
++			compatible = "google,zumapro-usi", "samsung,exynos850-usi";
++			reg = <0x0 0x111d00c0 0x20>;
++			clocks = <&cmu_hsi0 CLK_GOUT_HSI0_USI2_PCLK>,
++				 <&cmu_hsi0 CLK_GOUT_HSI0_USI2_IP>;
++			clock-names = "pclk", "ipclk";
++			samsung,sysreg = <&sysreg_hsi0 0x101c>;
++			samsung,mode = <USI_MODE_SPI>;
++			#address-cells = <1>;
++			#size-cells = <1>;
++			ranges = <0x111d0000 0x0 0x111d0000 0x1000>;
++			status = "disabled";
++
++			spi20: spi@111d0000 {
++				compatible = "google,zumapro-spi", "google,gs101-spi";
++				/* USI control starts at 0xc0; do not claim it twice. */
++				reg = <0x111d0000 0xc0>;
++				interrupts = <GIC_SPI 408 IRQ_TYPE_LEVEL_HIGH>;
++				clocks = <&cmu_hsi0 CLK_GOUT_HSI0_USI2_PCLK>,
++					 <&cmu_hsi0 CLK_GOUT_HSI0_USI2_IP>;
++				clock-names = "spi", "spi_busclk0";
++				#address-cells = <1>;
++				#size-cells = <0>;
++				status = "disabled";
++			};
++		};
++
++		usi3_hsi0: usi@111e00c0 {
++			compatible = "google,zumapro-usi", "samsung,exynos850-usi";
++			reg = <0x0 0x111e00c0 0x20>;
++			clocks = <&cmu_hsi0 CLK_GOUT_HSI0_USI3_PCLK>,
++				 <&cmu_hsi0 CLK_GOUT_HSI0_USI3_IP>;
++			clock-names = "pclk", "ipclk";
++			samsung,sysreg = <&sysreg_hsi0 0x1020>;
++			samsung,mode = <USI_MODE_SPI>;
++			#address-cells = <1>;
++			#size-cells = <1>;
++			ranges = <0x111e0000 0x0 0x111e0000 0x1000>;
++			status = "disabled";
++
++			spi21: spi@111e0000 {
++				compatible = "google,zumapro-spi", "google,gs101-spi";
++				/* USI control starts at 0xc0; do not claim it twice. */
++				reg = <0x111e0000 0xc0>;
++				interrupts = <GIC_SPI 409 IRQ_TYPE_LEVEL_HIGH>;
++				clocks = <&cmu_hsi0 CLK_GOUT_HSI0_USI3_PCLK>,
++					 <&cmu_hsi0 CLK_GOUT_HSI0_USI3_IP>;
++				clock-names = "spi", "spi_busclk0";
++				#address-cells = <1>;
++				#size-cells = <0>;
++				status = "disabled";
++			};
++		};
++
++		usb: usb@11210000 {
++			compatible = "snps,dwc3";
++			reg = <0x0 0x11210000 0x10000>;
++			interrupts = <GIC_SPI 402 IRQ_TYPE_LEVEL_HIGH>;
++			clocks = <&cmu_hsi0 CLK_GOUT_HSI0_USB_LINK>,
++				 <&cmu_hsi0 CLK_MOUT_HSI0_USB20_REF>,
++				 <&cmu_hsi0 CLK_GOUT_HSI0_USB_SUSPEND>;
++			clock-names = "bus_early", "ref", "suspend";
++			phys = <&usbdrd_phy 0>;
++			phy-names = "usb2-phy";
++			status = "disabled";
++		};
++
++		/* The bootloader leaves HSI1 powered; there's no power domain yet. */
++		cmu_hsi1: clock-controller@12000000 {
++			compatible = "google,zumapro-cmu-hsi1";
++			reg = <0x0 0x12000000 0x8000>;
++			#clock-cells = <1>;
++			clocks = <&oscclk>, <&cmu_top CLK_DOUT_HSI1_NOC>,
++				 <&hsi1_alt>;
++			clock-names = "oscclk", "bus", "alt";
++			status = "disabled";
++		};
++
++		pinctrl_hsi1: pinctrl@12040000 {
++			compatible = "google,zumapro-pinctrl";
++			reg = <0x0 0x12040000 0x1000>;
++			clocks = <&cmu_hsi1 CLK_GOUT_GPIO_HSI1>;
++			clock-names = "pclk";
++			status = "disabled";
++
++			gph0: gph0-gpio-bank {
++				gpio-controller;
++				#gpio-cells = <2>;
++			};
++
++			gph1: gph1-gpio-bank {
++				gpio-controller;
++				#gpio-cells = <2>;
++			};
++
++			gph2: gph2-gpio-bank {
++				gpio-controller;
++				#gpio-cells = <2>;
++			};
++		};
++
++		cmu_hsi2: clock-controller@13000000 {
++			compatible = "google,zumapro-cmu-hsi2";
++			reg = <0x0 0x13000000 0x8000>;
++			#clock-cells = <1>;
++			clocks = <&oscclk>, <&cmu_top CLK_DOUT_HSI2_NOC>,
++				 <&cmu_top CLK_DOUT_HSI2_UFS>,
++				 <&cmu_top CLK_DOUT_HSI2_PCIE>;
++			clock-names = "oscclk", "bus", "ufs", "pcie";
++			status = "disabled";
++		};
++
++		sysreg_ufs: syscon@13020000 {
++			compatible = "google,zumapro-ufs-sysreg", "syscon";
++			reg = <0x0 0x13020000 0x1000>;
++			clocks = <&cmu_hsi2 CLK_GOUT_SYSREG_HSI2>;
++			status = "disabled";
++		};
++
++		pinctrl_hsi2: pinctrl@13040000 {
++			compatible = "google,zumapro-pinctrl";
++			reg = <0x0 0x13040000 0x1000>;
++			clocks = <&cmu_hsi2 CLK_GOUT_GPIO_HSI2>;
++			clock-names = "pclk";
++			status = "disabled";
++
++			gph3: gph3-gpio-bank {
++				gpio-controller;
++				#gpio-cells = <2>;
++			};
++
++			gph4: gph4-gpio-bank {
++				gpio-controller;
++				#gpio-cells = <2>;
++			};
++		};
++
++		pinctrl_hsi2ufs: pinctrl@13060000 {
++			compatible = "google,zumapro-pinctrl";
++			reg = <0x0 0x13060000 0x1000>;
++			clocks = <&cmu_hsi2 CLK_GOUT_GPIO_HSI2UFS>;
++			clock-names = "pclk";
++			status = "disabled";
++
++			gph5: gph5-gpio-bank {
++				gpio-controller;
++				#gpio-cells = <2>;
++			};
++
++			ufs_reset: ufs-reset-pins {
++				samsung,pins = "gph5-1";
++				samsung,pin-function = <2>;
++				samsung,pin-pud = <0>;
++				samsung,pin-con-pdn = <3>;
++				samsung,pin-pud-pdn = <0>;
++			};
++
++			ufs_refclk: ufs-refclk-pins {
++				samsung,pins = "gph5-0";
++				samsung,pin-function = <2>;
++				samsung,pin-pud = <0>;
++				samsung,pin-con-pdn = <3>;
++				samsung,pin-pud-pdn = <0>;
++				samsung,pin-drv = <2>;
++			};
++		};
++
++		ufs: ufs@13200000 {
++			compatible = "google,zumapro-ufs";
++			reg = <0x0 0x13200000 0x200>,
++			      <0x0 0x13201100 0x2000>,
++			      <0x0 0x13280000 0x8000>,
++			      <0x0 0x132a0000 0xa014>;
++			reg-names = "hci", "vs_hci", "unipro", "ufsp";
++			interrupts = <GIC_SPI 466 IRQ_TYPE_LEVEL_HIGH>;
++			clocks = <&cmu_hsi2 CLK_GOUT_UFS_ACLK>,
++				 <&cmu_hsi2 CLK_GOUT_UFS_UNIPRO>,
++				 <&cmu_hsi2 CLK_GOUT_UFS_FMP>,
++				 <&cmu_hsi2 CLK_GOUT_QE_UFS_ACLK>,
++				 <&cmu_hsi2 CLK_GOUT_QE_UFS_PCLK>,
++				 <&cmu_hsi2 CLK_GOUT_SYSREG_HSI2>;
++			clock-names = "core_clk", "sclk_unipro_main", "fmp",
++				      "aclk", "pclk", "sysreg";
++			freq-table-hz = <0 0>, <0 0>, <0 0>, <0 0>, <0 0>, <0 0>;
++			phys = <&ufs_phy>;
++			phy-names = "ufs-phy";
++			samsung,sysreg = <&sysreg_ufs 0x710>;
++			pinctrl-names = "default";
++			pinctrl-0 = <&ufs_reset>, <&ufs_refclk>;
++			lanes-per-direction = <2>;
++			dma-coherent;
++			status = "disabled";
++		};
++
++		ufs_phy: phy@13204000 {
++			compatible = "google,zumapro-ufs-phy";
++			reg = <0x0 0x13204000 0x4000>;
++			reg-names = "phy-pma";
++			samsung,pmu-syscon = <&pmu_system_controller>;
++			#phy-cells = <0>;
++			clocks = <&ufs_ref_clk>;
++			clock-names = "ref_clk";
++			status = "disabled";
++		};
++
++		pinctrl_custom_alive: pinctrl@15060000 {
++			compatible = "google,zumapro-pinctrl";
++			reg = <0x0 0x15060000 0x1000>;
++			clocks = <&cmu_apm CLK_GOUT_APM_GPIO_CUSTOM_ALIVE>;
++			clock-names = "pclk";
++			status = "disabled";
++
++			wakeup-interrupt-controller {
++				compatible = "google,zumapro-wakeup-eint";
++			};
++
++			gpn0: gpn0-gpio-bank {
++				gpio-controller;
++				#gpio-cells = <2>;
++			};
++
++			gpn1: gpn1-gpio-bank {
++				gpio-controller;
++				#gpio-cells = <2>;
++			};
++
++			gpn2: gpn2-gpio-bank {
++				gpio-controller;
++				#gpio-cells = <2>;
++			};
++
++			gpn3: gpn3-gpio-bank {
++				gpio-controller;
++				#gpio-cells = <2>;
++			};
++
++			gpn4: gpn4-gpio-bank {
++				gpio-controller;
++				#gpio-cells = <2>;
++			};
++
++			gpn5: gpn5-gpio-bank {
++				gpio-controller;
++				#gpio-cells = <2>;
++			};
++
++			gpn6: gpn6-gpio-bank {
++				gpio-controller;
++				#gpio-cells = <2>;
++			};
++
++			gpn7: gpn7-gpio-bank {
++				gpio-controller;
++				#gpio-cells = <2>;
++			};
++
++			gpn8: gpn8-gpio-bank {
++				gpio-controller;
++				#gpio-cells = <2>;
++			};
++
++			gpn9: gpn9-gpio-bank {
++				gpio-controller;
++				#gpio-cells = <2>;
++			};
++		};
++
++		ap2apm_mailbox: mailbox@15110000 {
++			compatible = "google,zumapro-mbox", "google,gs101-mbox";
++			reg = <0x0 0x15110000 0x1000>;
++			clocks = <&cmu_apm CLK_GOUT_APM_MAILBOX_AP>;
++			clock-names = "pclk";
++			interrupts = <GIC_SPI 80 IRQ_TYPE_LEVEL_HIGH>;
++			#mbox-cells = <0>;
++			status = "disabled";
++		};
++
++		cmu_apm: clock-controller@15400000 {
++			compatible = "google,zumapro-cmu-apm";
++			reg = <0x0 0x15400000 0x8000>;
++			#clock-cells = <1>;
++			clocks = <&oscclk>;
++			clock-names = "oscclk";
++			status = "disabled";
++		};
++
++		sysreg_apm: syscon@154204e0 {
++			compatible = "google,zumapro-apm-sysreg", "syscon";
++			/* Only the USI mode selectors. */
++			reg = <0x0 0x154204e0 0x8>;
++			clocks = <&cmu_apm CLK_GOUT_APM_SYSREG>;
++			status = "disabled";
++		};
++
++		pmu_system_controller: system-controller@15460000 {
++			compatible = "google,zumapro-pmu", "google,zuma-pmu";
++			reg = <0x0 0x15460000 0x10000>;
++			status = "disabled";
++
++			reboot_mode: reboot-mode {
++				compatible = "syscon-reboot-mode";
++				offset = <0x0810>;
++				mode-normal = <0x00>;
++				mode-bootloader = <0xfc>;
++				status = "disabled";
++			};
++		};
++
++		pinctrl_alive: pinctrl@154d0000 {
++			compatible = "google,zumapro-pinctrl";
++			reg = <0x0 0x154d0000 0x1000>;
++			clocks = <&cmu_apm CLK_GOUT_APM_GPIO_ALIVE>;
++			clock-names = "pclk";
++			status = "disabled";
++
++			wakeup-interrupt-controller {
++				compatible = "google,zumapro-wakeup-eint";
++			};
++
++			gpa0: gpa0-gpio-bank {
++				gpio-controller;
++				#gpio-cells = <2>;
++			};
++
++			gpa1: gpa1-gpio-bank {
++				gpio-controller;
++				#gpio-cells = <2>;
++			};
++
++			gpa2: gpa2-gpio-bank {
++				gpio-controller;
++				#gpio-cells = <2>;
++			};
++
++			gpa3: gpa3-gpio-bank {
++				gpio-controller;
++				#gpio-cells = <2>;
++			};
++
++			gpa4: gpa4-gpio-bank {
++				gpio-controller;
++				#gpio-cells = <2>;
++			};
++
++			gpa6: gpa6-gpio-bank {
++				gpio-controller;
++				#gpio-cells = <2>;
++			};
++
++			gpa7: gpa7-gpio-bank {
++				gpio-controller;
++				#gpio-cells = <2>;
++			};
++
++			gpa8: gpa8-gpio-bank {
++				gpio-controller;
++				#gpio-cells = <2>;
++			};
++
++			gpa9: gpa9-gpio-bank {
++				gpio-controller;
++				#gpio-cells = <2>;
++			};
++
++			gpa10: gpa10-gpio-bank {
++				gpio-controller;
++				#gpio-cells = <2>;
++			};
++
++			gpa11: gpa11-gpio-bank {
++				gpio-controller;
++				#gpio-cells = <2>;
++			};
++
++			gpa12: gpa12-gpio-bank {
++				gpio-controller;
++				#gpio-cells = <2>;
++			};
++		};
++
++		pinctrl_far_alive: pinctrl@154e0000 {
++			compatible = "google,zumapro-pinctrl";
++			reg = <0x0 0x154e0000 0x1000>;
++			clocks = <&cmu_apm CLK_GOUT_APM_GPIO_FAR_ALIVE>;
++			clock-names = "pclk";
++			status = "disabled";
++
++			wakeup-interrupt-controller {
++				compatible = "google,zumapro-wakeup-eint";
++			};
++
++			gpa5: gpa5-gpio-bank {
++				gpio-controller;
++				#gpio-cells = <2>;
++			};
++		};
++
++		usi_apm1: usi@155d00c0 {
++			compatible = "google,zumapro-usi", "samsung,exynos850-usi";
++			reg = <0x0 0x155d00c0 0x20>;
++			clocks = <&cmu_apm CLK_GOUT_APM_USI1_UART_PCLK>,
++				 <&cmu_apm CLK_GOUT_APM_USI1_UART_IPCLK>;
++			clock-names = "pclk", "ipclk";
++			samsung,sysreg = <&sysreg_apm 0x4>;
++			samsung,mode = <USI_MODE_UART>;
++			samsung,clkreq-on;
++			#address-cells = <1>;
++			#size-cells = <1>;
++			ranges = <0x155d0000 0x0 0x155d0000 0x1000>;
++			status = "disabled";
++
++			uart18: serial@155d0000 {
++				compatible = "google,zumapro-uart", "google,gs101-uart";
++				reg = <0x155d0000 0xc0>;
++				interrupts = <GIC_SPI 71 IRQ_TYPE_LEVEL_HIGH>;
++				clocks = <&cmu_apm CLK_GOUT_APM_USI1_UART_PCLK>,
++					 <&cmu_apm CLK_GOUT_APM_USI1_UART_IPCLK>;
++				clock-names = "uart", "clk_uart_baud0";
++				samsung,uart-fifosize = <256>;
++				status = "disabled";
++			};
++		};
++
++		apm_sram: sram@15700000 {
++			compatible = "mmio-sram";
++			reg = <0x0 0x15700000 0x58000>;
++			clocks = <&cmu_apm CLK_GOUT_APM_INTMEM_ACLK>;
++			#address-cells = <1>;
++			#size-cells = <1>;
++			ranges = <0x0 0x0 0x15700000 0x58000>;
++			no-memory-wc;
++			status = "disabled";
++
++			/* The APM firmware's window, as one block. */
++			firmware-sram@0 {
++				reg = <0x0 0x58000>;
++			};
++		};
++
++		/* Scans out what the bootloader set up; no panel or clock control. */
++		decon0: display-controller@19470000 {
++			compatible = "google,zumapro-decon";
++			reg = <0x0 0x19470000 0x2000>, <0x0 0x19900000 0x1000>;
++			reg-names = "main", "dma";
++			interrupts = <GIC_SPI 243 IRQ_TYPE_LEVEL_HIGH>,
++				     <GIC_SPI 242 IRQ_TYPE_LEVEL_HIGH>,
++				     <GIC_SPI 241 IRQ_TYPE_LEVEL_HIGH>;
++			interrupt-names = "frame_start", "frame_done", "extra";
++			status = "disabled";
++		};
++
++		/* The bootloader leaves G3D powered; there's no power domain yet. */
++		cmu_g3d: clock-controller@1ee00000 {
++			compatible = "google,zumapro-cmu-g3d";
++			reg = <0x0 0x1ee00000 0x8000>;
++			#clock-cells = <1>;
++			clocks = <&oscclk>, <&cmu_top CLK_DOUT_G3D_NOCD>,
++				 <&cmu_top CLK_DOUT_G3D_GLB>,
++				 <&cmu_top CLK_DOUT_G3D_SWITCH>;
++			clock-names = "oscclk", "bus", "glb", "switch";
++			status = "disabled";
++		};
++
++		gpu: gpu@1f000000 {
++			compatible = "google,zumapro-mali", "arm,mali-valhall-csf";
++			reg = <0x0 0x1f000000 0x480000>;
++			interrupts = <GIC_SPI 347 IRQ_TYPE_LEVEL_HIGH>,
++				     <GIC_SPI 348 IRQ_TYPE_LEVEL_HIGH>,
++				     <GIC_SPI 346 IRQ_TYPE_LEVEL_HIGH>;
++			interrupt-names = "job", "mmu", "gpu";
++			clocks = <&cmu_g3d CLK_GOUT_G3D_CORE>,
++				 <&cmu_g3d CLK_GOUT_G3D_COREGROUP>,
++				 <&cmu_g3d CLK_GOUT_G3D_STACKS>;
++			clock-names = "core", "coregroup", "stacks";
++			status = "disabled";
++		};
++
++		cmu_top: clock-controller@26040000 {
++			compatible = "google,zumapro-cmu-top";
++			reg = <0x0 0x26040000 0x8000>;
++			#clock-cells = <1>;
++			clocks = <&oscclk>;
++			clock-names = "oscclk";
++			status = "disabled";
++		};
++	};
++};

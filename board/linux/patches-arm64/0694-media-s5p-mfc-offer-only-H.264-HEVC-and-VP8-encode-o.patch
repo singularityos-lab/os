@@ -1,0 +1,42 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?=C3=81ngel=20Ren=C3=A9?=
+ <17342133+angelrenefm@users.noreply.github.com>
+Date: Sat, 14 Nov 2026 19:29:02 +0100
+Subject: [PATCH] media: s5p-mfc: offer only H.264, HEVC and VP8 encode on MFC
+ v15
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+On the Pixel 7 the MFC v15 firmware takes MPEG-4 and H.263 encode
+sessions but they do not work: FFmpeg's h263_v4l2m2m fails, and
+mpeg4_v4l2m2m writes a stream with no decodable frame. Do not offer
+them on v15, as for the decoder.
+
+Assisted-by: LLM
+Signed-off-by: Ángel René <17342133+angelrenefm@users.noreply.github.com>
+---
+ drivers/media/platform/samsung/s5p-mfc/s5p_mfc_enc.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_enc.c b/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_enc.c
+index a8fde6456..2c8bcf6f5 100644
+--- a/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_enc.c
++++ b/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_enc.c
+@@ -92,14 +92,14 @@ static const struct s5p_mfc_fmt formats[] = {
+ 		.codec_mode	= S5P_MFC_CODEC_MPEG4_ENC,
+ 		.type		= MFC_FMT_ENC,
+ 		.num_planes	= 1,
+-		.versions	= MFC_V5PLUS_BITS,
++		.versions	= MFC_V5PLUS_BITS & ~MFC_V15_BIT,
+ 	},
+ 	{
+ 		.fourcc		= V4L2_PIX_FMT_H263,
+ 		.codec_mode	= S5P_MFC_CODEC_H263_ENC,
+ 		.type		= MFC_FMT_ENC,
+ 		.num_planes	= 1,
+-		.versions	= MFC_V5PLUS_BITS,
++		.versions	= MFC_V5PLUS_BITS & ~MFC_V15_BIT,
+ 	},
+ 	{
+ 		.fourcc		= V4L2_PIX_FMT_VP8,

@@ -1,0 +1,59 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Brett-Michael Green <brett@bmgvisualtech.com>
+Date: Sat, 31 Oct 2026 07:50:09 -0400
+Subject: [PATCH] Input: salixp: stop at the scan echo, and wait up to stock's
+ 2.5 s
+
+The Pixel 8 Pro's FTM5 firmware first reports a forced calibration
+(status 43 05 01) after the scan command, then echoes the command about
+60 ms after it was sent, past the 50 ms window. Probe then failed with
+"turning sensing on".
+
+Wait up to 2.5 s, as stock's checkEcho does (TIEMOUT_ECHO), and stop
+polling once the echo arrives, so the longer window costs nothing when
+the firmware answers promptly.
+
+Assisted-by: LLM
+Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
+---
+ drivers/input/touchscreen/salixp.c | 13 ++++++++-----
+ 1 file changed, 8 insertions(+), 5 deletions(-)
+
+diff --git a/drivers/input/touchscreen/salixp.c b/drivers/input/touchscreen/salixp.c
+index c1752a858..f7c665d96 100644
+--- a/drivers/input/touchscreen/salixp.c
++++ b/drivers/input/touchscreen/salixp.c
+@@ -97,7 +97,7 @@
+ #define SALIXP_SCAN_ALL		0xff
+ #define SALIXP_EVT_STATUS	0x43
+ #define SALIXP_ECHO_TYPE	0x01
+-#define SALIXP_ECHO_MS		50
++#define SALIXP_ECHO_MS		2500
+ #define SALIXP_TOUCH_POLL_MS	10
+ #define SALIXP_TOUCH_LOG_MAX	8
+ #define SALIXP_CS_DELAY_US	10
+@@ -431,9 +431,11 @@ static int salixp_poll_cx(struct salixp *ts)
+  * and address 0x20000000, the same prefix as the flash commands, so
+  * this does not send it. The echo is 0x43 0x01 followed by the
+  * command. Stock treats a missing echo as failure after retries
+- * (ftsIO.c:523-547). This sends the scan command once and fails
+- * probe if the echo does not arrive. It does not send it again.
+- * No interrupt is requested.
++ * (ftsIO.c:523-547), waiting up to 2.5 s for it (TIEMOUT_ECHO in
++ * ftsCore.c:330). Husky's firmware reports a forced calibration
++ * first and echoes about 60 ms after the command. This sends the
++ * scan command once, stops at the echo and fails probe if it does
++ * not arrive. It does not send it again. No interrupt is requested.
+  */
+ static int salixp_sense_on(struct salixp *ts)
+ {
+@@ -460,7 +462,8 @@ static int salixp_sense_on(struct salixp *ts)
+ 		return ret;
+ 
+ 	deadline = ktime_add_ms(ktime_get(), SALIXP_ECHO_MS);
+-	while (ktime_before(ktime_get(), deadline) && n < SALIXP_POLL_MAX_EVT) {
++	while (!echo && ktime_before(ktime_get(), deadline) &&
++	       n < SALIXP_POLL_MAX_EVT) {
+ 		ret = salixp_read_fifo(ts, event);
+ 		if (ret)
+ 			return ret;

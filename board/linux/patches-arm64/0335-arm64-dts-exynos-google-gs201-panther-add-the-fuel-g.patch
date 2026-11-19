@@ -1,0 +1,110 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Alejandro Garcia <skipper.pelygro@gmail.com>
+Date: Sat, 31 Oct 2026 17:12:43 -0700
+Subject: [PATCH] arm64: dts: exynos: google: gs201-panther: add the fuel gauge
+ and the battery
+
+Describe the MAX77759's fuel gauge at 0x36 on USI13, as on the Pixel 7
+Pro: interrupt on gpa9-3, low, with a pull-up, and the 5 mOhm sense
+resistor, all as in the Pixel 7's live device tree. The battery takes
+the live tree's values: 4277 mAh (google,chg-battery-capacity), 4.45 V
+maximum (google,fv-max-uv) and 3.3 V empty (VEmpty of its gauge
+models).
+
+There is no battery model yet, so the gauge reports from its default
+one: voltage and current are measured, while the capacity, the
+percentage and the temperature are approximate. Without a model the
+driver writes only the gauge's alert settings.
+
+Tested on a Pixel 7 from slot B (7.3.0-rc6), with the touchscreen, GPU,
+haptics and USB rescue: max17042_battery binds to 1-0036 and registers
+max170xx_battery, reading 4.33 V, 99 % and Charging on the cable, with
+no I2C errors and no interrupts on gpa9-3. upower and the shell show the
+battery. With the cable out for a minute, btop showed a discharge of
+about 1.3 W from it; after the replug it read Charging again. As
+expected with no model, the temperature stays at 22.0 C and charge_full
+is the default model's.
+
+Assisted-by: Claude Opus 5.5
+Signed-off-by: Alejandro Garcia <skipper.pelygro@gmail.com>
+---
+ .../boot/dts/exynos/google/gs201-panther.dts  | 38 ++++++++++++++++++-
+ 1 file changed, 36 insertions(+), 2 deletions(-)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/gs201-panther.dts b/arch/arm64/boot/dts/exynos/google/gs201-panther.dts
+index 6fef68870..a3008a7da 100644
+--- a/arch/arm64/boot/dts/exynos/google/gs201-panther.dts
++++ b/arch/arm64/boot/dts/exynos/google/gs201-panther.dts
+@@ -5,7 +5,8 @@
+  * USB (NCM + ACM), the cluster watchdogs from gs201.dtsi, a
+  * simple-framebuffer on the buffer ABL leaves DPP0 scanning out, UFS, the
+  * three keys, the touchscreen with its rails on the main PMIC, the GPU, the
+- * haptics and the MAX77759's I2C bus. The panel driver stays disabled.
++ * haptics and the MAX77759's I2C bus with its fuel gauge. The panel driver
++ * stays disabled.
+  */
+ 
+ /dts-v1/;
+@@ -48,6 +49,15 @@ framebuffer0: framebuffer@fac00000 {
+ 		};
+ 	};
+ 
++	battery: battery {
++		compatible = "simple-battery";
++		/* google,chg-battery-capacity in the live tree */
++		charge-full-design-microamp-hours = <4277000>;
++		/* google,fv-max-uv; VEmpty of the live tree's gauge models */
++		voltage-max-design-microvolt = <4450000>;
++		voltage-min-design-microvolt = <3300000>;
++	};
++
+ 	/* The same pins as cheetah's (Google's gs201-common.dtsi). */
+ 	gpio-keys {
+ 		compatible = "gpio-keys";
+@@ -176,7 +186,7 @@ &ufs_0_phy {
+ /*
+  * MAX77759 (charger, Type-C port controller, fuel gauge) on USI13, as on
+  * the Pixel 7 Pro: TCPC 0x25, PMIC 0x66, fuel gauge 0x36, charger 0x69,
+- * bus pins gpp25-0/1. Its devices are not described yet: the Type-C port
++ * bus pins gpp25-0/1. Only the fuel gauge is described: the Type-C port
+  * controller would take over VBUS and the data role from the forced-VBUS
+  * setup the USB PHY uses, and the USB link is our only way into the phone.
+  */
+@@ -188,6 +198,21 @@ &usi13 {
+ &hsi2c_13 {
+ 	clock-frequency = <400000>;
+ 	status = "okay";
++
++	/*
++	 * No battery model yet: the gauge reports from its default one, so
++	 * the capacity and the temperature are approximate.
++	 */
++	fuel-gauge@36 {
++		compatible = "maxim,max77759-fg";
++		reg = <0x36>;
++		interrupts-extended = <&gpa9 3 IRQ_TYPE_LEVEL_LOW>;
++		pinctrl-0 = <&if_pmic_fg_int>;
++		pinctrl-names = "default";
++		/* maxim,rsense-default = <500> (10 uOhm units) in the live tree */
++		shunt-resistor-micro-ohms = <5000>;
++		monitored-battery = <&battery>;
++	};
+ };
+ 
+ /*
+@@ -206,6 +231,15 @@ hapt_amp_irq: hapt-amp-irq-pins {
+ 	};
+ };
+ 
++&pinctrl_gpio_alive {
++	if_pmic_fg_int: if-pmic-fg-int-pins {
++		samsung,pins = "gpa9-3";
++		samsung,pin-function = <GS101_PIN_FUNC_EINT>;
++		samsung,pin-pud = <GS101_PIN_PULL_UP>;
++		samsung,pin-drv = <GS101_PIN_DRV_2_5_MA>;
++	};
++};
++
+ &pinctrl_peric0 {
+ 	status = "okay";
+ };

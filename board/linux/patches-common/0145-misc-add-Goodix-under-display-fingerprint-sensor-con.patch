@@ -1,0 +1,561 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Mon, 12 Oct 2026 01:34:20 -0400
+Subject: [PATCH] misc: add Goodix under-display fingerprint sensor control
+
+On the Pixel 7 Pro the Goodix optical sensor is captured and matched by a
+Trusty application; Linux owns only its supply, reset and interrupt. The
+vendor fingerprint HAL drives these through the interface of Goodix's GPL
+gf_spi driver (Google's goodixfp module), which this driver provides:
+/dev/goodix_fp with the GF_IOC_* ioctls, a one-byte event on netlink
+protocol 25 for each sensor interrupt, sent to the process that last
+wrote to the socket, and a goodix_fingerprint input device for the keys
+the HAL injects.
+
+Unlike the vendor driver, the supply is switched here (enabled on first
+open, disabled on last close, with the sensor held in reset while
+unpowered): on this phone the bootloader leaves it off, and the vendor
+kernel only had it on because the regulator was marked always-on.
+
+Assisted-by: LLM
+Signed-off-by: Derek Ross <derekross@gmail.com>
+---
+ drivers/misc/Kconfig     |  13 ++
+ drivers/misc/Makefile    |   1 +
+ drivers/misc/goodix-fp.c | 491 +++++++++++++++++++++++++++++++++++++++
+ 3 files changed, 505 insertions(+)
+ create mode 100644 drivers/misc/goodix-fp.c
+
+diff --git a/drivers/misc/Kconfig b/drivers/misc/Kconfig
+index 386003197..ae1b8b469 100644
+--- a/drivers/misc/Kconfig
++++ b/drivers/misc/Kconfig
+@@ -229,6 +229,19 @@ config GEHC_ACHC
+ 	  To compile this driver as a module, choose M here: the
+ 	  module will be called gehc-achc.
+ 
++config GOODIX_FP
++	tristate "Goodix under-display fingerprint sensor (AP side)"
++	depends on OF && NET && INPUT
++	help
++	  Power, reset and interrupt handling for Goodix optical under-display
++	  fingerprint sensors whose bus is owned by a trusted application in
++	  the secure world, as on the Google Pixel 7 Pro. Provides the
++	  /dev/goodix_fp device and netlink interrupt events that the vendor
++	  fingerprint HAL uses.
++
++	  To compile this driver as a module, choose M here: the module will be
++	  called goodix-fp.
++
+ config HI6421V600_IRQ
+ 	tristate "HiSilicon Hi6421v600 IRQ and powerkey"
+ 	depends on OF
+diff --git a/drivers/misc/Makefile b/drivers/misc/Makefile
+index b64a76f1c..a8a6386c0 100644
+--- a/drivers/misc/Makefile
++++ b/drivers/misc/Makefile
+@@ -54,6 +54,7 @@ obj-$(CONFIG_PVPANIC)   	+= pvpanic/
+ obj-$(CONFIG_UACCE)		+= uacce/
+ obj-$(CONFIG_XILINX_SDFEC)	+= xilinx_sdfec.o
+ obj-$(CONFIG_NTSYNC)		+= ntsync.o
++obj-$(CONFIG_GOODIX_FP)		+= goodix-fp.o
+ obj-$(CONFIG_HI6421V600_IRQ)	+= hi6421v600-irq.o
+ obj-$(CONFIG_OPEN_DICE)		+= open-dice.o
+ obj-$(CONFIG_GP_PCI1XXXX)	+= mchp_pci1xxxx/
+diff --git a/drivers/misc/goodix-fp.c b/drivers/misc/goodix-fp.c
+new file mode 100644
+index 000000000..59c68e75c
+--- /dev/null
++++ b/drivers/misc/goodix-fp.c
+@@ -0,0 +1,491 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * Goodix under-display fingerprint sensor: application processor side
++ *
++ * On the Google Pixel 7 Pro the Goodix optical sensor ("G7") is driven by a
++ * trusted application in Trusty: the secure world owns the SPI bus, loads the
++ * sensor firmware, captures and matches. Linux only owns the sensor's power
++ * rail, its reset line and its interrupt line. This driver exposes those to
++ * the vendor fingerprint HAL with the interface of Goodix's GPL "gf_spi"
++ * driver (Google's goodixfp module), which the HAL expects:
++ *
++ *  - /dev/goodix_fp, with the GF_IOC_* ioctls (reset, IRQ enable/disable;
++ *    the clock and power ioctls are accepted and ignored, as in the vendor
++ *    driver on this phone),
++ *  - a netlink socket on protocol 25 that sends a one-byte GF_NET_EVENT_IRQ
++ *    message to the last process that wrote to it, for every rising edge of
++ *    the sensor interrupt,
++ *  - a "goodix_fingerprint" input device for the key events the HAL injects.
++ *
++ * Unlike the vendor driver, the supply is switched here: it is enabled on the
++ * first open and disabled on the last close, with the sensor held in reset
++ * whenever it is unpowered.
++ *
++ * The netlink socket lives in the initial network namespace only, so the HAL
++ * must not run in a separate network namespace.
++ */
++
++#include <linux/cdev.h>
++#include <linux/compat.h>
++#include <linux/delay.h>
++#include <linux/fs.h>
++#include <linux/gpio/consumer.h>
++#include <linux/input.h>
++#include <linux/interrupt.h>
++#include <linux/ioctl.h>
++#include <linux/miscdevice.h>
++#include <linux/mod_devicetable.h>
++#include <linux/module.h>
++#include <linux/mutex.h>
++#include <linux/netlink.h>
++#include <linux/platform_device.h>
++#include <linux/pm_wakeup.h>
++#include <linux/regulator/consumer.h>
++#include <linux/skbuff.h>
++#include <linux/uaccess.h>
++#include <net/net_namespace.h>
++#include <net/sock.h>
++
++#define GFP_DEV_NAME		"goodix_fp"
++#define GFP_INPUT_NAME		"goodix_fingerprint"
++
++/* Netlink protocol the HAL binds to (unused by mainline). */
++#define GFP_NETLINK_PROTO	25
++#define GFP_NET_EVENT_IRQ	1
++#define GFP_NETLINK_MSG_SIZE	32
++
++#define GFP_WAKE_HOLD_MS	500
++
++/* Userspace ABI of the vendor driver (gf_spi.h) */
++struct gfp_key {
++	u32 key;	/* enum gf_key_event */
++	u32 value;	/* 1 down, 0 up */
++};
++
++struct gfp_chip_info {
++	u8 vendor_id;
++	u8 mode;
++	u8 operation;
++	u8 reserved[5];
++};
++
++#define GF_IOC_MAGIC		'g'
++#define GF_IOC_INIT		_IOR(GF_IOC_MAGIC, 0, u8)
++#define GF_IOC_EXIT		_IO(GF_IOC_MAGIC, 1)
++#define GF_IOC_RESET		_IO(GF_IOC_MAGIC, 2)
++#define GF_IOC_ENABLE_IRQ	_IO(GF_IOC_MAGIC, 3)
++#define GF_IOC_DISABLE_IRQ	_IO(GF_IOC_MAGIC, 4)
++#define GF_IOC_ENABLE_SPI_CLK	_IOW(GF_IOC_MAGIC, 5, u32)
++#define GF_IOC_DISABLE_SPI_CLK	_IO(GF_IOC_MAGIC, 6)
++#define GF_IOC_ENABLE_POWER	_IO(GF_IOC_MAGIC, 7)
++#define GF_IOC_DISABLE_POWER	_IO(GF_IOC_MAGIC, 8)
++#define GF_IOC_INPUT_KEY_EVENT	_IOW(GF_IOC_MAGIC, 9, struct gfp_key)
++#define GF_IOC_ENTER_SLEEP_MODE	_IO(GF_IOC_MAGIC, 10)
++#define GF_IOC_GET_FW_INFO	_IOR(GF_IOC_MAGIC, 11, u8)
++#define GF_IOC_REMOVE		_IO(GF_IOC_MAGIC, 12)
++#define GF_IOC_CHIP_INFO	_IOW(GF_IOC_MAGIC, 13, struct gfp_chip_info)
++#define GF_IOC_NAV_EVENT	_IOW(GF_IOC_MAGIC, 14, u32)
++
++/* enum gf_key_event */
++#define GF_KEY_HOME		1
++#define GF_KEY_POWER		2
++#define GF_KEY_CAMERA		5
++
++/* Delays around reset, as the vendor driver: 10 ms on open, 3 ms on ioctl. */
++#define GFP_RESET_OPEN_MS	10
++#define GFP_RESET_IOCTL_MS	3
++/* Settling time after the supply comes up, before reset is released. */
++#define GFP_POWER_SETTLE_US	5000
++
++struct gfp {
++	struct device *dev;
++	struct miscdevice misc;
++	struct input_dev *input;
++	struct gpio_desc *reset;
++	struct regulator *vdd;
++	struct sock *nl_sk;
++	u32 nl_portid;		/* 0: nobody listening */
++	struct mutex lock;	/* users, irq_enabled, powered */
++	unsigned int users;
++	bool irq_enabled;
++	bool powered;
++	int irq;
++};
++
++static bool ignore_supply;
++module_param(ignore_supply, bool, 0444);
++MODULE_PARM_DESC(ignore_supply,
++		 "Do not switch the sensor supply (it is managed elsewhere)");
++
++/* One sensor per phone; the netlink input callback has no context pointer. */
++static struct gfp *gfp_dev;
++static DEFINE_SPINLOCK(gfp_nl_lock);
++
++static void gfp_nl_input(struct sk_buff *skb)
++{
++	const struct nlmsghdr *nlh;
++
++	if (skb->len < NLMSG_HDRLEN)
++		return;
++	nlh = nlmsg_hdr(skb);
++	if (nlh->nlmsg_len < NLMSG_HDRLEN || skb->len < nlh->nlmsg_len)
++		return;
++
++	/* The HAL sends any message once to register its port. */
++	spin_lock_bh(&gfp_nl_lock);
++	if (gfp_dev)
++		gfp_dev->nl_portid = NETLINK_CB(skb).portid;
++	spin_unlock_bh(&gfp_nl_lock);
++}
++
++static void gfp_nl_send(struct gfp *gfp, u8 event)
++{
++	struct nlmsghdr *nlh;
++	struct sk_buff *skb;
++	u32 portid;
++
++	spin_lock_bh(&gfp_nl_lock);
++	portid = gfp->nl_portid;
++	spin_unlock_bh(&gfp_nl_lock);
++	if (!portid)
++		return;
++
++	skb = nlmsg_new(GFP_NETLINK_MSG_SIZE, GFP_KERNEL);
++	if (!skb)
++		return;
++	nlh = nlmsg_put(skb, 0, 0, 0, GFP_NETLINK_MSG_SIZE, 0);
++	if (!nlh) {
++		kfree_skb(skb);
++		return;
++	}
++	memset(nlmsg_data(nlh), 0, GFP_NETLINK_MSG_SIZE);
++	*(u8 *)nlmsg_data(nlh) = event;
++
++	if (netlink_unicast(gfp->nl_sk, skb, portid, MSG_DONTWAIT) < 0)
++		dev_dbg(gfp->dev, "netlink event %u not delivered\n", event);
++}
++
++static irqreturn_t gfp_irq_thread(int irq, void *data)
++{
++	struct gfp *gfp = data;
++
++	pm_wakeup_dev_event(gfp->dev, GFP_WAKE_HOLD_MS, false);
++	gfp_nl_send(gfp, GFP_NET_EVENT_IRQ);
++
++	return IRQ_HANDLED;
++}
++
++/* reset is active low in the DT: 1 holds the sensor in reset */
++static void gfp_reset(struct gfp *gfp, unsigned int delay_ms)
++{
++	gpiod_set_value_cansleep(gfp->reset, 1);
++	usleep_range(delay_ms * 1000, delay_ms * 1000 + 500);
++	gpiod_set_value_cansleep(gfp->reset, 0);
++	usleep_range(delay_ms * 1000, delay_ms * 1000 + 500);
++}
++
++static int gfp_power_on(struct gfp *gfp)
++{
++	int ret;
++
++	if (gfp->powered)
++		return 0;
++
++	if (gfp->vdd && !ignore_supply) {
++		dev_info(gfp->dev, "enabling sensor supply\n");
++		ret = regulator_enable(gfp->vdd);
++		if (ret) {
++			dev_err(gfp->dev, "failed to enable supply: %d\n", ret);
++			return ret;
++		}
++		usleep_range(GFP_POWER_SETTLE_US, GFP_POWER_SETTLE_US + 1000);
++	}
++	gfp->powered = true;
++
++	return 0;
++}
++
++static void gfp_power_off(struct gfp *gfp)
++{
++	if (!gfp->powered)
++		return;
++
++	gpiod_set_value_cansleep(gfp->reset, 1);
++	if (gfp->vdd && !ignore_supply) {
++		dev_info(gfp->dev, "disabling sensor supply\n");
++		regulator_disable(gfp->vdd);
++	}
++	gfp->powered = false;
++}
++
++static void gfp_irq_enable(struct gfp *gfp, bool enable)
++{
++	if (gfp->irq_enabled == enable)
++		return;
++
++	if (enable) {
++		enable_irq(gfp->irq);
++		enable_irq_wake(gfp->irq);
++	} else {
++		disable_irq_wake(gfp->irq);
++		disable_irq(gfp->irq);
++	}
++	gfp->irq_enabled = enable;
++}
++
++static void gfp_report_key(struct gfp *gfp, const struct gfp_key *key)
++{
++	unsigned int code;
++
++	switch (key->key) {
++	case GF_KEY_HOME:
++		input_report_key(gfp->input, KEY_HOME, !!key->value);
++		input_sync(gfp->input);
++		return;
++	case GF_KEY_POWER:
++		code = KEY_POWER;
++		break;
++	case GF_KEY_CAMERA:
++		code = KEY_CAMERA;
++		break;
++	default:
++		return;
++	}
++
++	/* power and camera: a single press on key down, as the vendor driver */
++	if (key->value) {
++		input_report_key(gfp->input, code, 1);
++		input_sync(gfp->input);
++		input_report_key(gfp->input, code, 0);
++		input_sync(gfp->input);
++	}
++}
++
++static long gfp_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
++{
++	struct gfp *gfp = container_of(file->private_data, struct gfp, misc);
++	void __user *uarg = (void __user *)arg;
++	u8 proto = GFP_NETLINK_PROTO;
++	struct gfp_chip_info info;
++	struct gfp_key key;
++	long ret = 0;
++
++	if (_IOC_TYPE(cmd) != GF_IOC_MAGIC)
++		return -ENOTTY;
++
++	mutex_lock(&gfp->lock);
++	switch (cmd) {
++	case GF_IOC_INIT:
++		if (copy_to_user(uarg, &proto, sizeof(proto)))
++			ret = -EFAULT;
++		break;
++	case GF_IOC_RESET:
++		gfp_reset(gfp, GFP_RESET_IOCTL_MS);
++		break;
++	case GF_IOC_ENABLE_IRQ:
++		gfp_irq_enable(gfp, true);
++		break;
++	case GF_IOC_DISABLE_IRQ:
++		gfp_irq_enable(gfp, false);
++		break;
++	case GF_IOC_INPUT_KEY_EVENT:
++		if (copy_from_user(&key, uarg, sizeof(key))) {
++			ret = -EFAULT;
++			break;
++		}
++		gfp_report_key(gfp, &key);
++		break;
++	case GF_IOC_CHIP_INFO:
++		if (copy_from_user(&info, uarg, sizeof(info))) {
++			ret = -EFAULT;
++			break;
++		}
++		dev_info(gfp->dev, "chip: vendor 0x%02x mode 0x%02x op 0x%02x\n",
++			 info.vendor_id, info.mode, info.operation);
++		break;
++	case GF_IOC_EXIT:
++	case GF_IOC_ENABLE_SPI_CLK:	/* the secure world owns the SPI clock */
++	case GF_IOC_DISABLE_SPI_CLK:
++	case GF_IOC_ENABLE_POWER:	/* power follows open/close */
++	case GF_IOC_DISABLE_POWER:
++	case GF_IOC_ENTER_SLEEP_MODE:
++	case GF_IOC_GET_FW_INFO:
++	case GF_IOC_REMOVE:
++	case GF_IOC_NAV_EVENT:		/* no navigation gestures on UDFPS */
++		break;
++	default:
++		ret = -ENOTTY;
++		break;
++	}
++	mutex_unlock(&gfp->lock);
++
++	return ret;
++}
++
++static int gfp_open(struct inode *inode, struct file *file)
++{
++	struct gfp *gfp = container_of(file->private_data, struct gfp, misc);
++	int ret = 0;
++
++	mutex_lock(&gfp->lock);
++	if (!gfp->users) {
++		ret = gfp_power_on(gfp);
++		if (ret)
++			goto out;
++		gfp_irq_enable(gfp, true);
++	}
++	gfp->users++;
++	/* every open resets the sensor, as the HAL expects */
++	gfp_reset(gfp, GFP_RESET_OPEN_MS);
++out:
++	mutex_unlock(&gfp->lock);
++
++	return ret ?: stream_open(inode, file);
++}
++
++static int gfp_release(struct inode *inode, struct file *file)
++{
++	struct gfp *gfp = container_of(file->private_data, struct gfp, misc);
++
++	mutex_lock(&gfp->lock);
++	if (!--gfp->users) {
++		gfp_irq_enable(gfp, false);
++		gfp_power_off(gfp);
++	}
++	mutex_unlock(&gfp->lock);
++
++	return 0;
++}
++
++static const struct file_operations gfp_fops = {
++	.owner = THIS_MODULE,
++	.open = gfp_open,
++	.release = gfp_release,
++	.unlocked_ioctl = gfp_ioctl,
++	.compat_ioctl = compat_ptr_ioctl,
++};
++
++static const unsigned int gfp_keys[] = { KEY_HOME, KEY_POWER, KEY_CAMERA };
++
++static void gfp_nl_release(void *data)
++{
++	struct gfp *gfp = data;
++
++	spin_lock_bh(&gfp_nl_lock);
++	gfp_dev = NULL;
++	spin_unlock_bh(&gfp_nl_lock);
++	netlink_kernel_release(gfp->nl_sk);
++}
++
++static void gfp_misc_deregister(void *data)
++{
++	misc_deregister(data);
++}
++
++static int gfp_probe(struct platform_device *pdev)
++{
++	struct netlink_kernel_cfg nl_cfg = { .input = gfp_nl_input };
++	struct device *dev = &pdev->dev;
++	struct gfp *gfp;
++	unsigned int i;
++	int ret;
++
++	if (gfp_dev)
++		return dev_err_probe(dev, -EBUSY, "only one sensor is supported\n");
++
++	gfp = devm_kzalloc(dev, sizeof(*gfp), GFP_KERNEL);
++	if (!gfp)
++		return -ENOMEM;
++	gfp->dev = dev;
++	mutex_init(&gfp->lock);
++
++	/* Held in reset until the first open powers the sensor. */
++	gfp->reset = devm_gpiod_get(dev, "reset", GPIOD_OUT_HIGH);
++	if (IS_ERR(gfp->reset))
++		return dev_err_probe(dev, PTR_ERR(gfp->reset),
++				     "failed to get reset GPIO\n");
++
++	gfp->vdd = devm_regulator_get_optional(dev, "vdd");
++	if (IS_ERR(gfp->vdd)) {
++		ret = PTR_ERR(gfp->vdd);
++		if (ret != -ENODEV)
++			return dev_err_probe(dev, ret, "failed to get vdd supply\n");
++		gfp->vdd = NULL;
++		dev_warn(dev, "no vdd supply: the sensor rail must be switched on elsewhere\n");
++	}
++
++	gfp->irq = platform_get_irq(pdev, 0);
++	if (gfp->irq < 0)
++		return gfp->irq;
++	ret = devm_request_threaded_irq(dev, gfp->irq, NULL, gfp_irq_thread,
++					IRQF_ONESHOT | IRQF_NO_AUTOEN,
++					"goodix-fp", gfp);
++	if (ret)
++		return dev_err_probe(dev, ret, "failed to request IRQ\n");
++
++	ret = devm_device_init_wakeup(dev);
++	if (ret)
++		return ret;
++
++	gfp->input = devm_input_allocate_device(dev);
++	if (!gfp->input)
++		return -ENOMEM;
++	gfp->input->name = GFP_INPUT_NAME;
++	for (i = 0; i < ARRAY_SIZE(gfp_keys); i++)
++		input_set_capability(gfp->input, EV_KEY, gfp_keys[i]);
++	ret = input_register_device(gfp->input);
++	if (ret)
++		return ret;
++
++	gfp->nl_sk = netlink_kernel_create(&init_net, GFP_NETLINK_PROTO, &nl_cfg);
++	if (!gfp->nl_sk)
++		return dev_err_probe(dev, -ENOMEM,
++				     "failed to create netlink socket %d\n",
++				     GFP_NETLINK_PROTO);
++	spin_lock_bh(&gfp_nl_lock);
++	gfp_dev = gfp;
++	spin_unlock_bh(&gfp_nl_lock);
++	ret = devm_add_action_or_reset(dev, gfp_nl_release, gfp);
++	if (ret)
++		return ret;
++
++	gfp->misc.minor = MISC_DYNAMIC_MINOR;
++	gfp->misc.name = GFP_DEV_NAME;
++	gfp->misc.fops = &gfp_fops;
++	gfp->misc.parent = dev;
++	ret = misc_register(&gfp->misc);
++	if (ret)
++		return ret;
++	ret = devm_add_action_or_reset(dev, gfp_misc_deregister, &gfp->misc);
++	if (ret)
++		return ret;
++
++	dev_info(dev, "irq %d, supply %s, netlink %d\n", gfp->irq,
++		 gfp->vdd ? (ignore_supply ? "ignored" : "switched") : "none",
++		 GFP_NETLINK_PROTO);
++
++	return 0;
++}
++
++static const struct of_device_id gfp_of_match[] = {
++	{ .compatible = "goodix,g7-udfps" },
++	{ /* sentinel */ }
++};
++MODULE_DEVICE_TABLE(of, gfp_of_match);
++
++static struct platform_driver gfp_driver = {
++	.probe = gfp_probe,
++	.driver = {
++		.name = "goodix-fp",
++		.of_match_table = gfp_of_match,
++		/*
++		 * An open /dev/goodix_fp pins the module but not the device;
++		 * unbinding under an open file would free its state.
++		 */
++		.suppress_bind_attrs = true,
++	},
++};
++module_platform_driver(gfp_driver);
++
++MODULE_DESCRIPTION("Goodix under-display fingerprint sensor (AP side)");
++MODULE_LICENSE("GPL");

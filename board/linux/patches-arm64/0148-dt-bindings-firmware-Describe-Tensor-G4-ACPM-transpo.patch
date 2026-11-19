@@ -1,0 +1,82 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Thu, 22 Oct 2026 20:23:08 -0700
+Subject: [PATCH] dt-bindings: firmware: Describe Tensor G4 ACPM transport
+
+Add the Tensor G4 ACPM compatible and its main S2MPG14 PMIC child.
+Keep the existing gs101 and gs201 child constraints unchanged.
+
+Stock zumapro has an S2MPG15 sub-PMIC. Leave its child properties
+unconstrained until the dedicated schema exists; a driver supporting
+only the main PMIC must not exclude that hardware from the binding.
+No board nodes are added.
+
+Link: https://android.googlesource.com/kernel/devices/google/zumapro/+/8831630eee2ad095b85ed452944e6353940966a5/dts/zumapro-pmic.dtsi
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ .../firmware/google,gs101-acpm-ipc.yaml       | 25 +++++++++++++------
+ 1 file changed, 18 insertions(+), 7 deletions(-)
+
+diff --git a/Documentation/devicetree/bindings/firmware/google,gs101-acpm-ipc.yaml b/Documentation/devicetree/bindings/firmware/google,gs101-acpm-ipc.yaml
+index fba187245..908037b6b 100644
+--- a/Documentation/devicetree/bindings/firmware/google,gs101-acpm-ipc.yaml
++++ b/Documentation/devicetree/bindings/firmware/google,gs101-acpm-ipc.yaml
+@@ -25,6 +25,7 @@ properties:
+     enum:
+       - google,gs101-acpm-ipc
+       - google,gs201-acpm-ipc
++      - google,zumapro-acpm-ipc
+ 
+   "#clock-cells":
+     const: 1
+@@ -58,18 +59,13 @@ properties:
+         enum:
+           - samsung,s2mpg10-pmic
+           - samsung,s2mpg12-pmic
++          - samsung,s2mpg14-pmic
+ 
+   pmic-2:
+     description: Child node describing the sub PMIC.
+     type: object
+     additionalProperties: true
+ 
+-    properties:
+-      compatible:
+-        enum:
+-          - samsung,s2mpg11-pmic
+-          - samsung,s2mpg13-pmic
+-
+   shmem:
+     description:
+       List of phandle pointing to the shared memory (SHM) area. The memory
+@@ -84,6 +80,17 @@ required:
+   - shmem
+ 
+ allOf:
++  - if:
++      properties:
++        compatible:
++          const: google,zumapro-acpm-ipc
++    then:
++      properties:
++        pmic: false
++        pmic-1:
++          properties:
++            compatible:
++              const: samsung,s2mpg14-pmic
+   - if:
+       properties:
+         compatible:
+@@ -99,7 +106,11 @@ allOf:
+           properties:
+             compatible:
+               const: samsung,s2mpg13-pmic
+-    else:
++  - if:
++      properties:
++        compatible:
++          const: google,gs101-acpm-ipc
++    then:
+       properties:
+         pmic-1:
+           properties:

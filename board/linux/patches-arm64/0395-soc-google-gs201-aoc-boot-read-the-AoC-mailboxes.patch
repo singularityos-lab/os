@@ -1,0 +1,128 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Mon, 12 Oct 2026 13:43:14 -0400
+Subject: [PATCH] soc: google: gs201-aoc-boot: read the AoC mailboxes
+
+Add a read-only view of the three AoC mailboxes, AP side, with the
+register layout of Google's mailbox-wc driver: the interrupt masks and
+raw status in both directions (INTSR1 shows the doorbells the AoC rang)
+and the eight shared registers. Each mailbox is announced in the log
+before it is read. diag_mbox=1 adds them to the start diagnostics.
+
+Assisted-by: LLM
+Signed-off-by: Derek Ross <derekross@gmail.com>
+---
+ drivers/soc/google/gs201-aoc-boot.c | 55 +++++++++++++++++++++++++++++
+ 1 file changed, 55 insertions(+)
+
+diff --git a/drivers/soc/google/gs201-aoc-boot.c b/drivers/soc/google/gs201-aoc-boot.c
+index 4e1547049..70572413c 100644
+--- a/drivers/soc/google/gs201-aoc-boot.c
++++ b/drivers/soc/google/gs201-aoc-boot.c
+@@ -30,6 +30,8 @@
+  *            start of the IPC area
+  *   pcu      the A32 reset control and revision, only with diag_pcu=1 (the
+  *            read aborted on cheetah with the AoC in reset)
++ *   mbox     the three AoC mailboxes, AP side: doorbells the AoC rang and
++ *            the shared registers (also around start with diag_mbox=1)
+  *
+  * Around start and release reset the kernel log gets the S2MPU, the System
+  * MMU and the IPC area (the PCU and the breadcrumbs with diag_pcu and
+@@ -144,6 +146,10 @@ static bool diag_ramdump;
+ module_param(diag_ramdump, bool, 0644);
+ MODULE_PARM_DESC(diag_ramdump, "Read the ramdump header (carve-out + 32 MiB) in the start diagnostics");
+ 
++static bool diag_mbox;
++module_param(diag_mbox, bool, 0644);
++MODULE_PARM_DESC(diag_mbox, "Read the three AoC mailboxes in the start diagnostics");
++
+ static bool reapply = true;
+ module_param(reapply, bool, 0644);
+ MODULE_PARM_DESC(reapply, "Before start, put back an AoC S2MPU or System MMU setting a block reset cleared");
+@@ -225,6 +231,7 @@ struct aoc_boot {
+ 	void __iomem *s2mpu;
+ 	void __iomem *chipid;
+ 	void __iomem *pcu;	/* optional, in BLK_AOC */
++	void __iomem *mbox[3];	/* optional: AoC <-> AP mailboxes (A32, F1, P6) */
+ 	int wdt_irq;		/* optional: the AoC watchdog */
+ 	bool wdt_on;
+ 	phys_addr_t dram_base;
+@@ -327,9 +334,45 @@ static void aoc_diag(struct aoc_boot *ab, const char *when)
+ 			 readl(ipc + 16), readl(ipc + 20));
+ }
+ 
++/*
++ * The AoC mailboxes, AP side (mailbox-wc.c): which doorbells the AoC rang
++ * (INTSR1, masked by INTMR1) and the shared registers it left. Read only.
++ */
++static const char * const aoc_mbox_names[] = { "a32", "f1", "p6" };
++
++static void aoc_diag_mbox(struct aoc_boot *ab, const char *when)
++{
++	unsigned int i;
++
++	for (i = 0; i < ARRAY_SIZE(ab->mbox); i++) {
++		void __iomem *b = ab->mbox[i];
++
++		if (!b)
++			continue;
++		dev_info(ab->dev, "%s: about to read mailbox %s\n", when,
++			 aoc_mbox_names[i]);
++		dev_info(ab->dev, "%s: mbox %s intmr0 %#x intsr0 %#x intmr1 %#x intsr1 %#x sr %08x %08x %08x %08x %08x %08x %08x %08x\n",
++			 when, aoc_mbox_names[i], readl(b + 0x28), readl(b + 0x2c),
++			 readl(b + 0x48), readl(b + 0x4c), readl(b + 0x80),
++			 readl(b + 0x84), readl(b + 0x88), readl(b + 0x8c),
++			 readl(b + 0x90), readl(b + 0x94), readl(b + 0x98),
++			 readl(b + 0x9c));
++	}
++}
++
++static int aoc_mbox_show(struct seq_file *s, void *unused)
++{
++	aoc_diag_mbox(s->private, "mbox");
++	seq_puts(s, "see the kernel log\n");
++	return 0;
++}
++DEFINE_SHOW_ATTRIBUTE(aoc_mbox);
++
+ /* The optional groups; called without the lock held */
+ static void aoc_diag_extra(struct aoc_boot *ab, const char *when)
+ {
++	if (diag_mbox)
++		aoc_diag_mbox(ab, when);
+ 	aoc_diag_pcu(ab, when);
+ 	if (diag_ramdump)
+ 		aoc_diag_ramdump(ab, when);
+@@ -874,6 +917,7 @@ static int aoc_boot_probe(struct platform_device *pdev)
+ 	struct reserved_mem *rmem;
+ 	struct device_node *np;
+ 	struct aoc_boot *ab;
++	unsigned int i;
+ 	int ret;
+ 
+ 	ab = devm_kzalloc(dev, sizeof(*ab), GFP_KERNEL);
+@@ -898,6 +942,16 @@ static int aoc_boot_probe(struct platform_device *pdev)
+ 		if (IS_ERR(ab->pcu))
+ 			return PTR_ERR(ab->pcu);
+ 	}
++	for (i = 0; i < ARRAY_SIZE(ab->mbox); i++) {
++		char name[16];
++
++		snprintf(name, sizeof(name), "mbox-%s", aoc_mbox_names[i]);
++		if (!platform_get_resource_byname(pdev, IORESOURCE_MEM, name))
++			continue;
++		ab->mbox[i] = devm_platform_ioremap_resource_byname(pdev, name);
++		if (IS_ERR(ab->mbox[i]))
++			return PTR_ERR(ab->mbox[i]);
++	}
+ 	ab->wdt_irq = platform_get_irq_byname_optional(pdev, "watchdog");
+ 	if (ab->wdt_irq > 0) {
+ 		ret = devm_request_irq(dev, ab->wdt_irq, aoc_wdt_irq,
+@@ -948,6 +1002,7 @@ static int aoc_boot_probe(struct platform_device *pdev)
+ 	debugfs_create_file("cmd", 0200, ab->debugfs, ab, &aoc_rawcmd_fops);
+ 	debugfs_create_file("ramdump", 0400, ab->debugfs, ab, &aoc_ramdump_fops);
+ 	debugfs_create_file("pcu", 0400, ab->debugfs, ab, &aoc_pcu_fops);
++	debugfs_create_file("mbox", 0400, ab->debugfs, ab, &aoc_mbox_fops);
+ 
+ 	dev_info(dev, "ready: carve-out %pa + %#zx, nothing touched\n",
+ 		 &ab->dram_base, ab->dram_size);

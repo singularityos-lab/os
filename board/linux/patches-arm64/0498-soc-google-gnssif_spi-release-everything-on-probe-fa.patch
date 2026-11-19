@@ -1,0 +1,420 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Sun, 1 Nov 2026 18:37:29 -0647
+Subject: [PATCH] soc: google: gnssif_spi: release everything on probe failure
+ and remove
+
+Google's gnssif leaves most of what it sets up behind:
+
+- Every create_*_device() returns NULL on failure and the probe returns
+  -ENOMEM, so an -EPROBE_DEFER from the GPIO lookup is lost. On the
+  Pixel 9a the core's request line is on GPA5 of the FAR_ALIVE pin
+  controller, which can bind after this driver; the driver would then
+  never bind. Return the error and pass it on with dev_err_probe().
+- A failure after the interrupt is requested frees the control data
+  with the handler still installed, and the probe's last message
+  dereferences pdata, which is NULL when the node is missing.
+- The work queue, the wakeup source and the character device are never
+  released, on a failed probe or on remove, so after rmmod
+  /dev/gnss_ipc points at freed memory. remove() does not stop the read
+  work either, which enables the interrupt again when it ends.
+- gif_disable_irq_sync() takes the interrupt's lock without disabling
+  interrupts, and the handler takes the same lock (through
+  gif_disable_irq_nosync()): a deadlock if the interrupt arrives on that
+  CPU.
+
+Use devm for the interrupt (and its wake setting), the work queue (an
+ordered one, the current form of Google's unbound queue with one active
+work item), the wakeup source and the character device. In remove(),
+disable the interrupt, wait for the read work, and disable it again
+before devm releases the rest. The coredump attribute moves to the
+driver's dev_groups. Take the lock with interrupts disabled in
+gif_disable_irq_sync(). Suppress the bind attributes, as gnss_spi
+already does: the module can't be removed while the GNSS daemon holds
+/dev/gnss_ipc open, but a manual unbind could.
+
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ .../soc/google/gnssif_spi/gnss_io_device.c    | 30 ++++++++--
+ .../google/gnssif_spi/gnss_keplerctl_device.c | 29 ++++++----
+ .../soc/google/gnssif_spi/gnss_link_device.c  | 11 ++--
+ drivers/soc/google/gnssif_spi/gnss_main.c     | 58 +++++++++----------
+ drivers/soc/google/gnssif_spi/gnss_utils.c    | 17 +++---
+ drivers/soc/google/gnssif_spi/gnss_utils.h    |  3 +-
+ 6 files changed, 87 insertions(+), 61 deletions(-)
+
+diff --git a/drivers/soc/google/gnssif_spi/gnss_io_device.c b/drivers/soc/google/gnssif_spi/gnss_io_device.c
+index 6852c6bfb..0bbd224c7 100644
+--- a/drivers/soc/google/gnssif_spi/gnss_io_device.c
++++ b/drivers/soc/google/gnssif_spi/gnss_io_device.c
+@@ -193,6 +193,19 @@ static const struct file_operations misc_io_fops = {
+ 	.read = misc_read,
+ };
+ 
++static void gnss_wlock_unregister(void *data)
++{
++	gnssif_wlock_unregister(data);
++}
++
++static void gnss_misc_deregister(void *data)
++{
++	struct io_device *iod = data;
++
++	misc_deregister(&iod->miscdev);
++	skb_queue_purge(&iod->sk_rx_q);
++}
++
+ static int init_io_device(struct io_device *iod, struct device *dev)
+ {
+ 	int ret = 0;
+@@ -213,14 +226,22 @@ static int init_io_device(struct io_device *iod, struct device *dev)
+ 		gif_err("%s: wakeup_source_register fail\n", iod->name);
+ 		return -EINVAL;
+ 	}
++	ret = devm_add_action_or_reset(dev, gnss_wlock_unregister, iod->ws);
++	if (ret)
++		return ret;
+ 
+ 	ret = misc_register(&iod->miscdev);
+-	if (ret)
++	if (ret) {
+ 		gif_err("%s: ERR! misc_register failed\n", iod->name);
++		return ret;
++	}
++	ret = devm_add_action_or_reset(dev, gnss_misc_deregister, iod);
++	if (ret)
++		return ret;
+ 
+ 	gif_info("---\n");
+ 
+-	return ret;
++	return 0;
+ }
+ 
+ struct io_device *create_io_device(struct platform_device *pdev,
+@@ -234,7 +255,7 @@ struct io_device *create_io_device(struct platform_device *pdev,
+ 	iod = devm_kzalloc(dev, sizeof(struct io_device), GFP_KERNEL);
+ 	if (!iod) {
+ 		gif_err("iod is NULL\n");
+-		return NULL;
++		return ERR_PTR(-ENOMEM);
+ 	}
+ 
+ 	iod->name = pdata->node_name;
+@@ -248,9 +269,8 @@ struct io_device *create_io_device(struct platform_device *pdev,
+ 
+ 	ret = init_io_device(iod, dev);
+ 	if (ret) {
+-		devm_kfree(dev, iod);
+ 		gif_err("init_io_device fail (%d)\n", ret);
+-		return NULL;
++		return ERR_PTR(ret);
+ 	}
+ 
+ 	gif_info("---\n");
+diff --git a/drivers/soc/google/gnssif_spi/gnss_keplerctl_device.c b/drivers/soc/google/gnssif_spi/gnss_keplerctl_device.c
+index 397985600..0288031b6 100644
+--- a/drivers/soc/google/gnssif_spi/gnss_keplerctl_device.c
++++ b/drivers/soc/google/gnssif_spi/gnss_keplerctl_device.c
+@@ -51,6 +51,13 @@ static int kepler_betp_int_status(struct gnss_ctl *gc)
+ 	return gpiod_get_value(gc->gpio_ap2gnss_spi.desc);
+ }
+ 
++static void gnss_disable_irq_wake(void *data)
++{
++	struct gnss_ctl *gc = data;
++
++	disable_irq_wake(gc->irq_gnss2ap_spi.num);
++}
++
+ static void gnss_set_ops(struct gnss_ctl *gc)
+ {
+ 	gc->ops.gnss_spi_status = kepler_spi_status;
+@@ -84,7 +91,7 @@ static int init_ctl_device(struct gnss_ctl *gc, struct gnss_pdata *pdata)
+ 	gif_configure_irq(&gc->irq_gnss2ap_spi, gc->irq_gnss2ap_spi.num,
+ 			"kepler_spi_irq_handler", IRQF_TRIGGER_HIGH | IRQF_NO_AUTOEN);
+ 
+-	ret = gif_request_irq(&gc->irq_gnss2ap_spi, kepler_spi_irq_handler, gc);
++	ret = gif_request_irq(gc->dev, &gc->irq_gnss2ap_spi, kepler_spi_irq_handler, gc);
+ 	if (ret) {
+ 		gif_err("Request irq fail - kepler_spi_irq_handler(%d)\n", ret);
+ 		return ret;
+@@ -92,8 +99,13 @@ static int init_ctl_device(struct gnss_ctl *gc, struct gnss_pdata *pdata)
+ 
+ 	/* Without a wake source GNSS still works; it can't wake the AP. */
+ 	ret = enable_irq_wake(gc->irq_gnss2ap_spi.num);
+-	if (ret)
++	if (ret) {
+ 		gif_err("Failed to enable wakeup_source - enable_irq_wake(%d)\n", ret);
++	} else {
++		ret = devm_add_action_or_reset(gc->dev, gnss_disable_irq_wake, gc);
++		if (ret)
++			return ret;
++	}
+ 
+ 	/* The line starts low, as Google's driver sets it. */
+ 	gc->gpio_ap2gnss_spi.label = "AP2GNSS_SPI";
+@@ -101,7 +113,7 @@ static int init_ctl_device(struct gnss_ctl *gc, struct gnss_pdata *pdata)
+ 	if (IS_ERR(gc->gpio_ap2gnss_spi.desc)) {
+ 		ret = PTR_ERR(gc->gpio_ap2gnss_spi.desc);
+ 		gif_err("Can't get ap2gnss-spi-gpios (%d)\n", ret);
+-		goto free_gpio_irq;
++		return ret;
+ 	}
+ 
+ 	init_completion(&gc->gnss_rdy_cmpl);
+@@ -111,12 +123,6 @@ static int init_ctl_device(struct gnss_ctl *gc, struct gnss_pdata *pdata)
+ 	atomic_set(&gc->rx_in_progress, 0);
+ 
+ 	return 0;
+-
+-free_gpio_irq:
+-	free_irq(gc->irq_gnss2ap_spi.num, gc);
+-
+-	return ret;
+-
+ }
+ 
+ struct gnss_ctl *create_ctl_device(struct platform_device *pdev)
+@@ -128,7 +134,7 @@ struct gnss_ctl *create_ctl_device(struct platform_device *pdev)
+ 
+ 	gc = devm_kzalloc(dev, sizeof(struct gnss_ctl), GFP_KERNEL);
+ 	if (!gc)
+-		return NULL;
++		return ERR_PTR(-ENOMEM);
+ 	gc->dev = dev;
+ 	gc->pdata = pdata;
+ 	gc->name = pdata->name;
+@@ -137,8 +143,7 @@ struct gnss_ctl *create_ctl_device(struct platform_device *pdev)
+ 	if (ret) {
+ 		gif_err("%s: init_ctl_device fail (err %d)\n",
+ 				pdata->name, ret);
+-		devm_kfree(dev, gc);
+-		return NULL;
++		return ERR_PTR(ret);
+ 	}
+ 
+ 	return gc;
+diff --git a/drivers/soc/google/gnssif_spi/gnss_link_device.c b/drivers/soc/google/gnssif_spi/gnss_link_device.c
+index fca0798a6..1d402ffba 100644
+--- a/drivers/soc/google/gnssif_spi/gnss_link_device.c
++++ b/drivers/soc/google/gnssif_spi/gnss_link_device.c
+@@ -215,13 +215,13 @@ struct link_device *create_link_device(struct platform_device *pdev)
+ 	pdata = (struct gnss_pdata *)dev->platform_data;
+ 	if (!pdata) {
+ 		gif_err("ERR! gnss == NULL\n");
+-		return NULL;
++		return ERR_PTR(-EINVAL);
+ 	}
+ 
+ 	ld = devm_kzalloc(dev, sizeof(struct link_device), GFP_KERNEL);
+ 	if (!ld) {
+ 		gif_err("ERR! link device kzalloc fail\n");
+-		return NULL;
++		return ERR_PTR(-ENOMEM);
+ 	}
+ 
+ 	ld->pdata = pdata;
+@@ -231,16 +231,15 @@ struct link_device *create_link_device(struct platform_device *pdev)
+ 	ld->max_spi_rx_size = MAX_SPI_RX_SIZE;
+ 	ld->spi_tx_size = DEFAULT_SPI_TX_SIZE;
+ 
+-	ld->rx_wq = alloc_workqueue("gnss_spi_wq",
+-					__WQ_LEGACY | WQ_MEM_RECLAIM | WQ_UNBOUND, 1);
++	/* Google's: unbound, one work item at a time */
++	ld->rx_wq = devm_alloc_ordered_workqueue(dev, "gnss_spi_wq", WQ_MEM_RECLAIM);
+ 	if (!ld->rx_wq) {
+ 		gif_err("alloc_workqueue() error\n");
+-		goto exit;
++		return ERR_PTR(-ENOMEM);
+ 	}
+ 	INIT_DELAYED_WORK(&ld->rx_dwork, rx_work);
+ 
+ 	gif_info("---\n");
+ 
+-exit:
+ 	return ld;
+ }
+diff --git a/drivers/soc/google/gnssif_spi/gnss_main.c b/drivers/soc/google/gnssif_spi/gnss_main.c
+index 0d0dd279c..5c0bb8179 100644
+--- a/drivers/soc/google/gnssif_spi/gnss_main.c
++++ b/drivers/soc/google/gnssif_spi/gnss_main.c
+@@ -69,6 +69,12 @@ static ssize_t coredump_store(struct device *dev, struct device_attribute *attr,
+ 
+ static DEVICE_ATTR_WO(coredump);
+ 
++static struct attribute *gnss_attrs[] = {
++	&dev_attr_coredump.attr,
++	NULL
++};
++ATTRIBUTE_GROUPS(gnss);
++
+ static int parse_dt_common_pdata(struct device_node *np, struct gnss_pdata *pdata)
+ {
+ 	/*
+@@ -115,14 +121,18 @@ static struct gnss_pdata *gnss_if_parse_dt_pdata(struct device *dev)
+ static void gnss_remove(struct platform_device *pdev)
+ {
+ 	struct gnss_ctl *gc = platform_get_drvdata(pdev);
++	struct link_device *ld = gc->iod->ld;
+ 
++	/*
++	 * The read work enables the interrupt again when it ends, so stop it
++	 * before the interrupt is disabled for good. devm then releases the
++	 * device node, the work queue and the interrupt.
++	 */
++	gif_disable_irq_sync(&gc->irq_gnss2ap_spi);
++	cancel_delayed_work_sync(&ld->rx_dwork);
+ 	gif_disable_irq_sync(&gc->irq_gnss2ap_spi);
+ 
+ 	gpiod_set_value(gc->gpio_ap2gnss_spi.desc, 0);
+-
+-	free_irq(gc->irq_gnss2ap_spi.num, gc);
+-
+-	device_remove_file(&pdev->dev, &dev_attr_coredump);
+ }
+ 
+ static int gnss_probe(struct platform_device *pdev)
+@@ -139,7 +149,7 @@ static int gnss_probe(struct platform_device *pdev)
+ 
+ 	if (!dev->of_node) {
+ 		gif_err("No DT data!\n");
+-		goto probe_fail;
++		return -ENODEV;
+ 	}
+ 
+ 	pdata = gnss_if_parse_dt_pdata(dev);
+@@ -148,46 +158,32 @@ static int gnss_probe(struct platform_device *pdev)
+ 		return PTR_ERR(pdata);
+ 	}
+ 
++	/* The lines' controller may come later: keep -EPROBE_DEFER. */
+ 	gc = create_ctl_device(pdev);
+-	if (!gc) {
+-		gif_err("%s: Could not create gc\n", pdata->name);
+-		goto probe_fail;
+-	}
++	if (IS_ERR(gc))
++		return dev_err_probe(dev, PTR_ERR(gc), "%s: Could not create gc\n",
++				     pdata->name);
+ 
+ 	ld = create_link_device(pdev);
+-	if (!ld) {
+-		gif_err("%s: Could not create ld\n", pdata->name);
+-		goto free_gc;
+-	}
++	if (IS_ERR(ld))
++		return dev_err_probe(dev, PTR_ERR(ld), "%s: Could not create ld\n",
++				     pdata->name);
+ 
+ 	ld->gc = gc;
+ 
+ 	iod = create_io_device(pdev, ld, gc, pdata);
+-	if (!iod) {
+-		gif_err("%s: Could not create iod\n", pdata->name);
+-		goto free_ld;
+-	}
++	if (IS_ERR(iod))
++		return dev_err_probe(dev, PTR_ERR(iod), "%s: Could not create iod\n",
++				     pdata->name);
+ 
+ 	platform_set_drvdata(pdev, gc);
+ 
+-	if (device_create_file(dev, &dev_attr_coredump))
+-		gif_err("Unable to create sysfs coredump entry");
+-
+ 	/* wa: to prevent wrong irq handling during probe */
+ 	gif_enable_irq(&gc->irq_gnss2ap_spi);
+ 
+ 	gif_info("%s: ---\n", pdev->name);
+ 
+ 	return 0;
+-
+-free_ld:
+-	devm_kfree(dev, ld);
+-free_gc:
+-	devm_kfree(dev, gc);
+-probe_fail:
+-	gif_err("%s: xxx\n", pdata->name);
+-
+-	return -ENOMEM;
+ }
+ 
+ static const struct of_device_id gnss_dt_match[] = {
+@@ -203,7 +199,9 @@ static struct platform_driver gnss_driver = {
+ 		.remove = gnss_remove,
+ 		.driver = {
+ 				.name = "gnss_interface",
+-				.owner = THIS_MODULE,
++				.dev_groups = gnss_groups,
++				/* gnssd may hold the device node open */
++				.suppress_bind_attrs = true,
+ #if IS_ENABLED(CONFIG_OF)
+ 				.of_match_table = of_match_ptr(gnss_dt_match),
+ #endif
+diff --git a/drivers/soc/google/gnssif_spi/gnss_utils.c b/drivers/soc/google/gnssif_spi/gnss_utils.c
+index 0825d80b8..36499d30c 100644
+--- a/drivers/soc/google/gnssif_spi/gnss_utils.c
++++ b/drivers/soc/google/gnssif_spi/gnss_utils.c
+@@ -24,11 +24,12 @@ void gif_configure_irq(struct gnss_irq *irq, unsigned int num, const char *name,
+ 	gif_info("name:%s num:%d flags:0x%08lX\n", name, num, flags);
+ }
+ 
+-int gif_request_irq(struct gnss_irq *irq, irq_handler_t isr, void *data)
++int gif_request_irq(struct device *dev, struct gnss_irq *irq, irq_handler_t isr,
++		    void *data)
+ {
+ 	int ret;
+ 
+-	ret = request_irq(irq->num, isr, irq->flags, irq->name, data);
++	ret = devm_request_irq(dev, irq->num, isr, irq->flags, irq->name, data);
+ 	if (ret) {
+ 		gif_err("%s: ERR! request_irq fail (%d)\n", irq->name, ret);
+ 		return ret;
+@@ -80,25 +81,27 @@ void gif_disable_irq_nosync(struct gnss_irq *irq)
+ 
+ void gif_disable_irq_sync(struct gnss_irq *irq)
+ {
++	unsigned long flags;
++
+ 	if (irq->registered == false)
+ 		return;
+ 
+-	spin_lock(&irq->lock);
++	spin_lock_irqsave(&irq->lock, flags);
+ 
+ 	if (!irq->active) {
+-		spin_unlock(&irq->lock);
++		spin_unlock_irqrestore(&irq->lock, flags);
+ 		gif_debug("%s(#%d) is not active <%ps>\n",
+ 				irq->name, irq->num, CALLER);
+ 		return;
+ 	}
+ 
+-	spin_unlock(&irq->lock);
++	spin_unlock_irqrestore(&irq->lock, flags);
+ 
+ 	disable_irq(irq->num);
+ 
+-	spin_lock(&irq->lock);
++	spin_lock_irqsave(&irq->lock, flags);
+ 	irq->active = false;
+-	spin_unlock(&irq->lock);
++	spin_unlock_irqrestore(&irq->lock, flags);
+ 
+ 	gif_debug("%s(#%d) is disabled <%ps>\n",
+ 			irq->name, irq->num, CALLER);
+diff --git a/drivers/soc/google/gnssif_spi/gnss_utils.h b/drivers/soc/google/gnssif_spi/gnss_utils.h
+index 9125e6a41..7b089e4e0 100644
+--- a/drivers/soc/google/gnssif_spi/gnss_utils.h
++++ b/drivers/soc/google/gnssif_spi/gnss_utils.h
+@@ -76,7 +76,8 @@ static inline int gnssif_wlock_active(struct wakeup_source *ws)
+ /* gnss irq */
+ void gif_configure_irq(struct gnss_irq *irq, unsigned int num, const char *name,
+ 			unsigned long flags);
+-int gif_request_irq(struct gnss_irq *irq, irq_handler_t isr, void *data);
++int gif_request_irq(struct device *dev, struct gnss_irq *irq, irq_handler_t isr,
++		    void *data);
+ void gif_enable_irq(struct gnss_irq *irq);
+ void gif_disable_irq_nosync(struct gnss_irq *irq);
+ void gif_disable_irq_sync(struct gnss_irq *irq);

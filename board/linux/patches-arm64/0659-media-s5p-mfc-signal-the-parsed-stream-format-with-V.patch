@@ -1,0 +1,60 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?=C3=81ngel=20Ren=C3=A9?=
+ <17342133+angelrenefm@users.noreply.github.com>
+Date: Fri, 13 Nov 2026 20:46:44 +0100
+Subject: [PATCH] media: s5p-mfc: signal the parsed stream format with
+ V4L2_EVENT_SOURCE_CHANGE
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The stateful decoder interface (dev-decoder.rst, "Initialization") has
+the client learn the stream's coded format from V4L2_EVENT_SOURCE_CHANGE
+once the header is parsed; s5p-mfc only sent the event for a resolution
+change in the middle of a stream. Queue it when SEQ_DONE leaves the
+instance in HEAD_PARSED.
+
+Clients that do not subscribe to the event are not affected.
+
+Tested on a Pixel 7 (gs201, MFC v15.6) with the rest of this series: a
+small V4L2 stateful test client that waits for the event, FFmpeg's
+h264_v4l2m2m and GStreamer's v4l2h264dec all decode H.264 bit-exact
+against FFmpeg's software decoder. Not tested on any older MFC.
+
+Assisted-by: LLM
+Signed-off-by: Ángel René <17342133+angelrenefm@users.noreply.github.com>
+---
+ .../media/platform/samsung/s5p-mfc/s5p_mfc.c   | 18 ++++++++++++++++--
+ 1 file changed, 16 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/media/platform/samsung/s5p-mfc/s5p_mfc.c b/drivers/media/platform/samsung/s5p-mfc/s5p_mfc.c
+index 03e7eac8d..87f76d16c 100644
+--- a/drivers/media/platform/samsung/s5p-mfc/s5p_mfc.c
++++ b/drivers/media/platform/samsung/s5p-mfc/s5p_mfc.c
+@@ -540,10 +540,24 @@ static void s5p_mfc_handle_seq_done(struct s5p_mfc_ctx *ctx,
+ 		if (FW_HAS_E_MIN_SCRATCH_BUF(dev))
+ 			ctx->scratch_buf_size = s5p_mfc_hw_call(dev->mfc_ops,
+ 						get_min_scratch_buf_size, dev);
+-		if (ctx->img_width == 0 || ctx->img_height == 0)
++		if (ctx->img_width == 0 || ctx->img_height == 0) {
+ 			ctx->state = MFCINST_ERROR;
+-		else
++		} else {
++			static const struct v4l2_event ev_src_ch = {
++				.type = V4L2_EVENT_SOURCE_CHANGE,
++				.u.src_change.changes =
++					V4L2_EVENT_SRC_CH_RESOLUTION,
++			};
++
+ 			ctx->state = MFCINST_HEAD_PARSED;
++			/*
++			 * The stateful decoder interface (dev-decoder.rst,
++			 * "Initialization"): the client learns the stream's
++			 * format from this event, not by calling G_FMT on
++			 * CAPTURE in a loop.
++			 */
++			v4l2_event_queue_fh(&ctx->fh, &ev_src_ch);
++		}
+ 
+ 		if ((ctx->codec_mode == S5P_MFC_CODEC_H264_DEC ||
+ 			ctx->codec_mode == S5P_MFC_CODEC_H264_MVC_DEC) &&

@@ -1,0 +1,182 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Sun, 11 Oct 2026 19:04:05 -0400
+Subject: [PATCH] pinctrl: samsung: add Google gs201 pin controller data
+
+gs201 has nine pin controllers. FAR_ALIVE, GSACORE, GSACTRL, PERIC1 and
+HSI1 share their bank layout with gs101. The others differ:
+
+ - ALIVE: gpa2 has four pins, which shifts the filter offsets of the
+   following banks;
+ - PERIC0: gpp19 has five pins;
+ - HSI2 has only gph2 and gph4; gph3 (the UFS pins) moved to a separate
+   HSI2UFS controller.
+
+Bank layouts are taken from Google's GPL gs201 pinctrl driver. The
+wake-up interrupt numbering of ALIVE banks after gpa2 does not match the
+hardware EINT numbers, which only matters for the PMU wake-up mask in
+system suspend; that is left for later.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ .../pinctrl/samsung/pinctrl-exynos-arm64.c    | 120 ++++++++++++++++++
+ drivers/pinctrl/samsung/pinctrl-samsung.c     |   2 +
+ drivers/pinctrl/samsung/pinctrl-samsung.h     |   1 +
+ 3 files changed, 123 insertions(+)
+
+diff --git a/drivers/pinctrl/samsung/pinctrl-exynos-arm64.c b/drivers/pinctrl/samsung/pinctrl-exynos-arm64.c
+index 1aa977d2a..d2d22512d 100644
+--- a/drivers/pinctrl/samsung/pinctrl-exynos-arm64.c
++++ b/drivers/pinctrl/samsung/pinctrl-exynos-arm64.c
+@@ -2232,6 +2232,126 @@ const struct samsung_pinctrl_of_match_data gs101_of_data __initconst = {
+ 	.num_ctrl	= ARRAY_SIZE(gs101_pin_ctrl),
+ };
+ 
++/* pin banks of gs201 pin-controller (ALIVE) */
++static const struct samsung_pin_bank_data gs201_pin_alive[] = {
++	GS101_PIN_BANK_EINTW(8, 0x0, "gpa0", 0x00, 0x00),
++	GS101_PIN_BANK_EINTW(7, 0x20, "gpa1", 0x04, 0x08),
++	GS101_PIN_BANK_EINTW(4, 0x40, "gpa2", 0x08, 0x10),
++	GS101_PIN_BANK_EINTW(4, 0x60, "gpa3", 0x0c, 0x14),
++	GS101_PIN_BANK_EINTW(4, 0x80, "gpa4", 0x10, 0x18),
++	GS101_PIN_BANK_EINTW(7, 0xa0, "gpa5", 0x14, 0x1c),
++	GS101_PIN_BANK_EINTW(8, 0xc0, "gpa9", 0x18, 0x24),
++	GS101_PIN_BANK_EINTW(2, 0xe0, "gpa10", 0x1c, 0x2c),
++};
++
++/* pin banks of gs201 pin-controller (PERIC0) */
++static const struct samsung_pin_bank_data gs201_pin_peric0[] = {
++	GS101_PIN_BANK_EINTG(5, 0x0, "gpp0", 0x00, 0x00),
++	GS101_PIN_BANK_EINTG(4, 0x20, "gpp1", 0x04, 0x08),
++	GS101_PIN_BANK_EINTG(4, 0x40, "gpp2", 0x08, 0x0c),
++	GS101_PIN_BANK_EINTG(2, 0x60, "gpp3", 0x0c, 0x10),
++	GS101_PIN_BANK_EINTG(4, 0x80, "gpp4", 0x10, 0x14),
++	GS101_PIN_BANK_EINTG(2, 0xa0, "gpp5", 0x14, 0x18),
++	GS101_PIN_BANK_EINTG(4, 0xc0, "gpp6", 0x18, 0x1c),
++	GS101_PIN_BANK_EINTG(2, 0xe0, "gpp7", 0x1c, 0x20),
++	GS101_PIN_BANK_EINTG(4, 0x100, "gpp8", 0x20, 0x24),
++	GS101_PIN_BANK_EINTG(2, 0x120, "gpp9", 0x24, 0x28),
++	GS101_PIN_BANK_EINTG(4, 0x140, "gpp10", 0x28, 0x2c),
++	GS101_PIN_BANK_EINTG(2, 0x160, "gpp11", 0x2c, 0x30),
++	GS101_PIN_BANK_EINTG(4, 0x180, "gpp12", 0x30, 0x34),
++	GS101_PIN_BANK_EINTG(2, 0x1a0, "gpp13", 0x34, 0x38),
++	GS101_PIN_BANK_EINTG(4, 0x1c0, "gpp14", 0x38, 0x3c),
++	GS101_PIN_BANK_EINTG(2, 0x1e0, "gpp15", 0x3c, 0x40),
++	GS101_PIN_BANK_EINTG(4, 0x200, "gpp16", 0x40, 0x44),
++	GS101_PIN_BANK_EINTG(2, 0x220, "gpp17", 0x44, 0x48),
++	GS101_PIN_BANK_EINTG(4, 0x240, "gpp18", 0x48, 0x4c),
++	GS101_PIN_BANK_EINTG(5, 0x260, "gpp19", 0x4c, 0x50),
++};
++
++/* pin banks of gs201 pin-controller (HSI2) */
++static const struct samsung_pin_bank_data gs201_pin_hsi2[] = {
++	GS101_PIN_BANK_EINTG(6, 0x0, "gph2", 0x00, 0x00),
++	GS101_PIN_BANK_EINTG(6, 0x20, "gph4", 0x04, 0x08),
++};
++
++/* pin banks of gs201 pin-controller (HSI2UFS) */
++static const struct samsung_pin_bank_data gs201_pin_hsi2ufs[] = {
++	GS101_PIN_BANK_EINTG(2, 0x0, "gph3", 0x00, 0x00),
++};
++
++/*
++ * FAR_ALIVE, GSACORE, GSACTRL, PERIC1 and HSI1 have the same bank layout as
++ * on gs101. ALIVE (gpa2 has four pins), PERIC0 (gpp19 has five pins) and
++ * HSI2 differ, and gs201 has a separate HSI2UFS controller for gph3.
++ */
++static const struct samsung_pin_ctrl gs201_pin_ctrl[] __initconst = {
++	{
++		/* pin banks of gs201 pin-controller (ALIVE) */
++		.pin_banks	= gs201_pin_alive,
++		.nr_banks	= ARRAY_SIZE(gs201_pin_alive),
++		.eint_wkup_init = exynos_eint_wkup_init,
++		.suspend	= gs101_pinctrl_suspend,
++		.resume		= gs101_pinctrl_resume,
++		.retention_data = &no_retention_data,
++	}, {
++		/* pin banks of gs201 pin-controller (FAR_ALIVE) */
++		.pin_banks	= gs101_pin_far_alive,
++		.nr_banks	= ARRAY_SIZE(gs101_pin_far_alive),
++		.eint_wkup_init = exynos_eint_wkup_init,
++		.suspend	= gs101_pinctrl_suspend,
++		.resume		= gs101_pinctrl_resume,
++		.retention_data = &no_retention_data,
++	}, {
++		/* pin banks of gs201 pin-controller (GSACORE) */
++		.pin_banks	= gs101_pin_gsacore,
++		.nr_banks	= ARRAY_SIZE(gs101_pin_gsacore),
++	}, {
++		/* pin banks of gs201 pin-controller (GSACTRL) */
++		.pin_banks	= gs101_pin_gsactrl,
++		.nr_banks	= ARRAY_SIZE(gs101_pin_gsactrl),
++	}, {
++		/* pin banks of gs201 pin-controller (PERIC0) */
++		.pin_banks	= gs201_pin_peric0,
++		.nr_banks	= ARRAY_SIZE(gs201_pin_peric0),
++		.eint_gpio_init = exynos_eint_gpio_init,
++		.suspend	= gs101_pinctrl_suspend,
++		.resume		= gs101_pinctrl_resume,
++	}, {
++		/* pin banks of gs201 pin-controller (PERIC1) */
++		.pin_banks	= gs101_pin_peric1,
++		.nr_banks	= ARRAY_SIZE(gs101_pin_peric1),
++		.eint_gpio_init = exynos_eint_gpio_init,
++		.suspend	= gs101_pinctrl_suspend,
++		.resume		= gs101_pinctrl_resume,
++	}, {
++		/* pin banks of gs201 pin-controller (HSI1) */
++		.pin_banks	= gs101_pin_hsi1,
++		.nr_banks	= ARRAY_SIZE(gs101_pin_hsi1),
++		.eint_gpio_init = exynos_eint_gpio_init,
++		.suspend	= gs101_pinctrl_suspend,
++		.resume		= gs101_pinctrl_resume,
++	}, {
++		/* pin banks of gs201 pin-controller (HSI2) */
++		.pin_banks	= gs201_pin_hsi2,
++		.nr_banks	= ARRAY_SIZE(gs201_pin_hsi2),
++		.eint_gpio_init = exynos_eint_gpio_init,
++		.suspend	= gs101_pinctrl_suspend,
++		.resume		= gs101_pinctrl_resume,
++	}, {
++		/* pin banks of gs201 pin-controller (HSI2UFS) */
++		.pin_banks	= gs201_pin_hsi2ufs,
++		.nr_banks	= ARRAY_SIZE(gs201_pin_hsi2ufs),
++		.eint_gpio_init = exynos_eint_gpio_init,
++		.suspend	= gs101_pinctrl_suspend,
++		.resume		= gs101_pinctrl_resume,
++	},
++};
++
++const struct samsung_pinctrl_of_match_data gs201_of_data __initconst = {
++	.ctrl		= gs201_pin_ctrl,
++	.num_ctrl	= ARRAY_SIZE(gs201_pin_ctrl),
++};
++
+ /* pin banks of artpec8 pin-controller (FSYS0) */
+ static const struct samsung_pin_bank_data artpec8_pin_banks0[] __initconst = {
+ 	ARTPEC_PIN_BANK_EINTG(5, 0x000, "gpf0", 0x00),
+diff --git a/drivers/pinctrl/samsung/pinctrl-samsung.c b/drivers/pinctrl/samsung/pinctrl-samsung.c
+index 5ecc9ed4c..447a55106 100644
+--- a/drivers/pinctrl/samsung/pinctrl-samsung.c
++++ b/drivers/pinctrl/samsung/pinctrl-samsung.c
+@@ -1488,6 +1488,8 @@ static const struct of_device_id samsung_pinctrl_dt_match[] = {
+ 		.data = &artpec9_of_data },
+ 	{ .compatible = "google,gs101-pinctrl",
+ 		.data = &gs101_of_data },
++	{ .compatible = "google,gs201-pinctrl",
++		.data = &gs201_of_data },
+ 	{ .compatible = "samsung,exynos2200-pinctrl",
+ 		.data = &exynos2200_of_data },
+ 	{ .compatible = "samsung,exynos5433-pinctrl",
+diff --git a/drivers/pinctrl/samsung/pinctrl-samsung.h b/drivers/pinctrl/samsung/pinctrl-samsung.h
+index bb02fb49b..30dc4a614 100644
+--- a/drivers/pinctrl/samsung/pinctrl-samsung.h
++++ b/drivers/pinctrl/samsung/pinctrl-samsung.h
+@@ -406,6 +406,7 @@ extern const struct samsung_pinctrl_of_match_data exynosautov9_of_data;
+ extern const struct samsung_pinctrl_of_match_data exynosautov920_of_data;
+ extern const struct samsung_pinctrl_of_match_data fsd_of_data;
+ extern const struct samsung_pinctrl_of_match_data gs101_of_data;
++extern const struct samsung_pinctrl_of_match_data gs201_of_data;
+ extern const struct samsung_pinctrl_of_match_data s3c64xx_of_data;
+ extern const struct samsung_pinctrl_of_match_data s5pv210_of_data;
+ 

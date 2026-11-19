@@ -1,0 +1,153 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Tue, 27 Oct 2026 12:02:36 -0647
+Subject: [PATCH] drm: google: gs-dsim-cmd: keep a set of link timers per panel
+
+The 60 and 120 Hz link timers (the underrun timeout and the TE
+timeouts) depend on the panel's timings and the link rate, and the
+table had only the Pixel 7 Pro's. Make it one set per panel, and pick
+the set at probe from the timers the bootloader left, as the 60 Hz
+entry was found before.
+
+Add the Pixel 9a's tg4c panel: its 60 Hz pair is the one its
+bootloader leaves (underrun 0x18c8, TE_CTRL1 0x2a82306d, a word clock
+of about 68.75 MHz on 1100 Mbit/s lanes), and its 120 Hz pair follows
+Google's dsim_calc_underrun() the same way the Pixel 7 Pro's does: half
+the TE timeouts, and the 60 Hz underrun less the frame time saved.
+
+Its 120 Hz underrun (0x2a0) is derived from the bootloader's 60 Hz value
+in the same way. Google's dsim_calc_underrun() with tg4c's parameters
+would give 0x69c at 120 Hz (0x1cc4 at 60 Hz, not the bootloader's
+0x18c8), leaving more LP time; the derived value leaves about 1 ms.
+
+Tested on the Pixel 9a: the 60 Hz timers are recognised at probe, the
+desktop switches to 120 Hz and back, 602 frames in 5 s at 120 Hz with
+no underruns, and a minute of workspace switching at 120 Hz (67 round
+trips) left DSIM INTSRC's underrun bit (19) clear, read before and
+after. The tested gs-dsim-cmd.c (blob e6cbc14174a3) differs from this
+one only in comments and one continuation line's indentation.
+
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ drivers/gpu/drm/google/gs-dsim-cmd.c | 56 +++++++++++++++++++++-------
+ 1 file changed, 42 insertions(+), 14 deletions(-)
+
+diff --git a/drivers/gpu/drm/google/gs-dsim-cmd.c b/drivers/gpu/drm/google/gs-dsim-cmd.c
+index c93bad82e..415dc56f2 100644
+--- a/drivers/gpu/drm/google/gs-dsim-cmd.c
++++ b/drivers/gpu/drm/google/gs-dsim-cmd.c
+@@ -83,9 +83,29 @@ struct gs_dsim_rate {
+ 	u32 te_ctrl1;
+ };
+ 
+-static const struct gs_dsim_rate gs_dsim_rates[] = {
+-	{ .hz = 60, .underrun = 0x1f09, .te_ctrl1 = 0x33eb3b26 },
+-	{ .hz = 120, .underrun = 0x03ec, .te_ctrl1 = 0x19f51d93 },
++/*
++ * One set per panel and link, found at probe from the timers the
++ * bootloader left (its 60 Hz). Within a set, 120 Hz has half the TE
++ * timeouts and the underrun of Google's dsim_calc_underrun(): the 60 Hz
++ * value less the frame time saved (1e9 / 101 * (1/60 - 1/120) ns, te_var
++ * 1) at the link's word clock, in units of 100 word clocks.
++ */
++static const struct gs_dsim_rate gs_dsim_rates[][2] = {
++	/* Pixel 7 Pro, S6E3HC4 */
++	{
++		{ .hz = 60, .underrun = 0x1f09, .te_ctrl1 = 0x33eb3b26 },
++		{ .hz = 120, .underrun = 0x03ec, .te_ctrl1 = 0x19f51d93 },
++	},
++	/*
++	 * Pixel 9a, tg4c: word clock about 68.75 MHz (1100 Mbit/s lanes). The
++	 * 60 Hz pair is the bootloader's; the 120 Hz underrun is derived from
++	 * that value as above, which leaves less LP time than Google's own
++	 * formula with tg4c's parameters would (0x69c), but ran clean.
++	 */
++	{
++		{ .hz = 60, .underrun = 0x18c8, .te_ctrl1 = 0x2a82306d },
++		{ .hz = 120, .underrun = 0x02a0, .te_ctrl1 = 0x15411836 },
++	},
+ };
+ 
+ struct gs_dsim {
+@@ -100,6 +120,8 @@ struct gs_dsim {
+ 	struct drm_panel *panel;
+ 	/* the timers in use, NULL if they are not ones from gs_dsim_rates[] */
+ 	const struct gs_dsim_rate *rate;
++	/* the set the bootloader's timers matched */
++	const struct gs_dsim_rate *rates;
+ };
+ 
+ static struct platform_driver gs_dsim_driver;
+@@ -272,13 +294,16 @@ static ssize_t gs_dsim_transfer(struct mipi_dsi_host *host,
+ 
+ /* Refresh rate switching, for gs-decon */
+ 
+-static const struct gs_dsim_rate *gs_dsim_find_rate(unsigned int hz)
++static const struct gs_dsim_rate *gs_dsim_find_rate(struct gs_dsim *dsim,
++						    unsigned int hz)
+ {
+ 	int i;
+ 
+-	for (i = 0; i < ARRAY_SIZE(gs_dsim_rates); i++)
+-		if (gs_dsim_rates[i].hz == hz)
+-			return &gs_dsim_rates[i];
++	if (!dsim->rates)
++		return NULL;
++	for (i = 0; i < ARRAY_SIZE(gs_dsim_rates[0]); i++)
++		if (dsim->rates[i].hz == hz)
++			return &dsim->rates[i];
+ 
+ 	return NULL;
+ }
+@@ -356,7 +381,7 @@ bool gs_dsim_can_set_refresh_rate(struct gs_dsim *dsim, unsigned int hz)
+ 	if (dsim->rate && dsim->rate->hz == hz)
+ 		return true;
+ 
+-	return dsim->rate && gs_dsim_find_rate(hz) && READ_ONCE(allow_tx) &&
++	return dsim->rate && gs_dsim_find_rate(dsim, hz) && READ_ONCE(allow_tx) &&
+ 	       dsim->panel && dsim->panel->funcs &&
+ 	       dsim->panel->funcs->set_refresh_rate;
+ }
+@@ -378,7 +403,7 @@ EXPORT_SYMBOL_GPL(gs_dsim_can_set_refresh_rate);
+  */
+ int gs_dsim_set_refresh_rate(struct gs_dsim *dsim, unsigned int hz)
+ {
+-	const struct gs_dsim_rate *old, *new = gs_dsim_find_rate(hz);
++	const struct gs_dsim_rate *old, *new = gs_dsim_find_rate(dsim, hz);
+ 	int ret;
+ 
+ 	guard(mutex)(&dsim->panel_lock);
+@@ -462,7 +487,7 @@ EXPORT_SYMBOL_GPL(gs_dsim_panel_sleep);
+  */
+ int gs_dsim_panel_wake(struct gs_dsim *dsim, bool enable)
+ {
+-	const struct gs_dsim_rate *cold = gs_dsim_find_rate(60);
++	const struct gs_dsim_rate *cold = gs_dsim_find_rate(dsim, 60);
+ 
+ 	guard(mutex)(&dsim->panel_lock);
+ 	if (!dsim->panel)
+@@ -498,7 +523,7 @@ static int gs_dsim_probe(struct platform_device *pdev)
+ 	struct device *dev = &pdev->dev;
+ 	struct gs_dsim *dsim;
+ 	u32 underrun, te_ctrl1;
+-	int ret, i;
++	int ret, i, j;
+ 
+ 	dsim = devm_kzalloc(dev, sizeof(*dsim), GFP_KERNEL);
+ 	if (!dsim)
+@@ -524,9 +549,12 @@ static int gs_dsim_probe(struct platform_device *pdev)
+ 	underrun = readl(dsim->regs + DSIM_UNDERRUN_CTRL);
+ 	te_ctrl1 = readl(dsim->regs + DSIM_CMD_TE_CTRL1);
+ 	for (i = 0; i < ARRAY_SIZE(gs_dsim_rates); i++)
+-		if (gs_dsim_rates[i].underrun == underrun &&
+-		    gs_dsim_rates[i].te_ctrl1 == te_ctrl1)
+-			dsim->rate = &gs_dsim_rates[i];
++		for (j = 0; j < ARRAY_SIZE(gs_dsim_rates[0]); j++)
++			if (gs_dsim_rates[i][j].underrun == underrun &&
++			    gs_dsim_rates[i][j].te_ctrl1 == te_ctrl1) {
++				dsim->rates = gs_dsim_rates[i];
++				dsim->rate = &gs_dsim_rates[i][j];
++			}
+ 	if (dsim->rate)
+ 		dev_info(dev, "link timers for %u Hz\n", dsim->rate->hz);
+ 	else

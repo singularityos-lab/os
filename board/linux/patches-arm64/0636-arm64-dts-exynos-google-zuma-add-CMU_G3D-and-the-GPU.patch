@@ -1,0 +1,56 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Brett-Michael Green <brett@bmgvisualtech.com>
+Date: Sat, 31 Oct 2026 12:45:40 -0400
+Subject: [PATCH] arm64: dts: exynos: google: zuma: add CMU_G3D and the GPU
+
+Describe CMU_G3D and the Mali-G715 at 0x1f000000, both disabled, as
+zumapro does: the GPU's registers, its JOB, MMU and GPU interrupts
+(SPI 347, 348 and 346) and its size come from the Pixel 8 Pro's stock
+mali node, and its core, coregroup and stacks clocks from CMU_G3D.
+
+There is no power domain: stock's own power-domain driver reports
+pd-g3d on at probe, so the bootloader leaves G3D powered.
+
+Assisted-by: LLM
+Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
+---
+ arch/arm64/boot/dts/exynos/google/zuma.dtsi | 26 +++++++++++++++++++++
+ 1 file changed, 26 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/zuma.dtsi b/arch/arm64/boot/dts/exynos/google/zuma.dtsi
+index 93a9ce368..93bbbe6b7 100644
+--- a/arch/arm64/boot/dts/exynos/google/zuma.dtsi
++++ b/arch/arm64/boot/dts/exynos/google/zuma.dtsi
+@@ -909,6 +909,32 @@ decon0: display-controller@19470000 {
+ 			status = "disabled";
+ 		};
+ 
++		/* The bootloader leaves G3D powered; there's no power domain yet. */
++		cmu_g3d: clock-controller@1ee00000 {
++			compatible = "google,zuma-cmu-g3d";
++			reg = <0x1ee00000 0x8000>;
++			#clock-cells = <1>;
++			clocks = <&oscclk>, <&cmu_top CLK_DOUT_G3D_NOCD>,
++				 <&cmu_top CLK_DOUT_G3D_GLB>,
++				 <&cmu_top CLK_DOUT_G3D_SWITCH>;
++			clock-names = "oscclk", "bus", "glb", "switch";
++			status = "disabled";
++		};
++
++		gpu: gpu@1f000000 {
++			compatible = "google,zuma-mali", "arm,mali-valhall-csf";
++			reg = <0x1f000000 0x480000>;
++			interrupts = <GIC_SPI 347 IRQ_TYPE_LEVEL_HIGH>,
++				     <GIC_SPI 348 IRQ_TYPE_LEVEL_HIGH>,
++				     <GIC_SPI 346 IRQ_TYPE_LEVEL_HIGH>;
++			interrupt-names = "job", "mmu", "gpu";
++			clocks = <&cmu_g3d CLK_GOUT_G3D_CORE>,
++				 <&cmu_g3d CLK_GOUT_G3D_COREGROUP>,
++				 <&cmu_g3d CLK_GOUT_G3D_STACKS>;
++			clock-names = "core", "coregroup", "stacks";
++			status = "disabled";
++		};
++
+ 		cmu_top: clock-controller@26040000 {
+ 			compatible = "google,zuma-cmu-top";
+ 			reg = <0x26040000 0x8000>;

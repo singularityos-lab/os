@@ -1,0 +1,93 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: saiththerobo <the.tom.sharp@gmail.com>
+Date: Tue, 27 Oct 2026 16:56:20 +0000
+Subject: [PATCH] dt-bindings: input: add the Cirrus Logic CS40L25A haptic
+ driver
+
+The CS40L25A is the boosted haptic driver with a Halo Core DSP in the
+Pixel 6 Pro, controlled over I2C. Describe what cs40l25-vibra uses: its
+address, its active-low reset line, the boost converter's peak current
+and voltage limits (as the CS40L26 binding names them, with cs40l2x's
+ranges and defaults) and, for later, its interrupt.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Signed-off-by: saiththerobo <the.tom.sharp@gmail.com>
+---
+ .../bindings/input/cirrus,cs40l25a.yaml       | 68 +++++++++++++++++++
+ 1 file changed, 68 insertions(+)
+ create mode 100644 Documentation/devicetree/bindings/input/cirrus,cs40l25a.yaml
+
+diff --git a/Documentation/devicetree/bindings/input/cirrus,cs40l25a.yaml b/Documentation/devicetree/bindings/input/cirrus,cs40l25a.yaml
+new file mode 100644
+index 000000000..3f8e38a3b
+--- /dev/null
++++ b/Documentation/devicetree/bindings/input/cirrus,cs40l25a.yaml
+@@ -0,0 +1,68 @@
++# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
++%YAML 1.2
++---
++$id: http://devicetree.org/schemas/input/cirrus,cs40l25a.yaml#
++$schema: http://devicetree.org/meta-schemas/core.yaml#
++
++title: Cirrus Logic CS40L25A boosted haptic driver
++
++maintainers:
++  - saiththerobo <the.tom.sharp@gmail.com>
++
++description:
++  The CS40L25A is a boosted class-D amplifier with a Halo Core DSP that
++  drives a linear resonant actuator, controlled over I2C. It boots from
++  ROM into a basic mode; the host loads its RAM firmware and plays
++  effects through the firmware's mailbox.
++
++properties:
++  compatible:
++    const: cirrus,cs40l25a
++
++  reg:
++    maxItems: 1
++
++  interrupts:
++    maxItems: 1
++
++  reset-gpios:
++    maxItems: 1
++    description: The chip's active-low RESET line; asserted holds it in reset.
++
++  cirrus,boost-peak-microamp:
++    description: Peak current limit of the boost inductor.
++    minimum: 1600000
++    maximum: 4500000
++    multipleOf: 50000
++    default: 4500000
++
++  cirrus,boost-ctl-microvolt:
++    description: Maximum boost converter output voltage.
++    minimum: 2550000
++    maximum: 11000000
++    multipleOf: 50000
++    default: 11000000
++
++required:
++  - compatible
++  - reg
++  - reset-gpios
++
++additionalProperties: false
++
++examples:
++  - |
++    #include <dt-bindings/gpio/gpio.h>
++
++    i2c {
++        #address-cells = <1>;
++        #size-cells = <0>;
++
++        haptics@43 {
++            compatible = "cirrus,cs40l25a";
++            reg = <0x43>;
++            reset-gpios = <&gpio 0 GPIO_ACTIVE_LOW>;
++            cirrus,boost-peak-microamp = <4500000>;
++            cirrus,boost-ctl-microvolt = <7500000>;
++        };
++    };

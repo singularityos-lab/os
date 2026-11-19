@@ -1,0 +1,97 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Thu, 22 Oct 2026 20:25:11 -0700
+Subject: [PATCH] dt-bindings: mfd: Describe S2MPG14 touch regulators
+
+Describe the S2MPG14 main PMIC and the two outputs used by the Pixel
+9a touchscreen. Include a main-PMIC example with both supply outputs.
+The G4 ACPM parent binding is a separate prerequisite.
+
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ .../bindings/mfd/samsung,s2mpg14-pmic.yaml    | 44 +++++++++++++++++++
+ .../regulator/samsung,s2mpg14-regulator.yaml  | 24 ++++++++++
+ 2 files changed, 68 insertions(+)
+ create mode 100644 Documentation/devicetree/bindings/mfd/samsung,s2mpg14-pmic.yaml
+ create mode 100644 Documentation/devicetree/bindings/regulator/samsung,s2mpg14-regulator.yaml
+
+diff --git a/Documentation/devicetree/bindings/mfd/samsung,s2mpg14-pmic.yaml b/Documentation/devicetree/bindings/mfd/samsung,s2mpg14-pmic.yaml
+new file mode 100644
+index 000000000..5419f1522
+--- /dev/null
++++ b/Documentation/devicetree/bindings/mfd/samsung,s2mpg14-pmic.yaml
+@@ -0,0 +1,44 @@
++# SPDX-License-Identifier: GPL-2.0-only OR BSD-2-Clause
++%YAML 1.2
++---
++$id: http://devicetree.org/schemas/mfd/samsung,s2mpg14-pmic.yaml#
++$schema: http://devicetree.org/meta-schemas/core.yaml#
++
++title: Samsung S2MPG14 Power Management IC
++
++maintainers:
++  - W4HO <87742609+W4HO-ham@users.noreply.github.com>
++
++description: |
++  S2MPG14 is the main PMIC paired with Google's Tensor G4. Its LDO4M and
++  LDO25M outputs supply the analog and digital touchscreen power rails.
++
++properties:
++  compatible:
++    const: samsung,s2mpg14-pmic
++
++  regulators:
++    type: object
++    $ref: /schemas/regulator/samsung,s2mpg14-regulator.yaml
++
++required:
++  - compatible
++  - regulators
++
++additionalProperties: false
++
++examples:
++  - |
++    pmic-1 {
++        compatible = "samsung,s2mpg14-pmic";
++
++        regulators {
++            ldo4m {
++                regulator-name = "touch-avdd";
++            };
++
++            ldo25m {
++                regulator-name = "touch-vdd";
++            };
++        };
++    };
+diff --git a/Documentation/devicetree/bindings/regulator/samsung,s2mpg14-regulator.yaml b/Documentation/devicetree/bindings/regulator/samsung,s2mpg14-regulator.yaml
+new file mode 100644
+index 000000000..1b7d9b9b7
+--- /dev/null
++++ b/Documentation/devicetree/bindings/regulator/samsung,s2mpg14-regulator.yaml
+@@ -0,0 +1,24 @@
++# SPDX-License-Identifier: GPL-2.0-only OR BSD-2-Clause
++%YAML 1.2
++---
++$id: http://devicetree.org/schemas/regulator/samsung,s2mpg14-regulator.yaml#
++$schema: http://devicetree.org/meta-schemas/core.yaml#
++
++title: Samsung S2MPG14 Power Management IC regulators
++
++maintainers:
++  - W4HO <87742609+W4HO-ham@users.noreply.github.com>
++
++description: |
++  LDO4M and LDO25M are programmable voltage outputs of the S2MPG14 PMIC.
++  They supply the Pixel 9a touchscreen's analog and digital power rails.
++
++patternProperties:
++  "^ldo(4|25)m$":
++    type: object
++    $ref: regulator.yaml#
++    unevaluatedProperties: false
++    properties:
++      regulator-ramp-delay: false
++
++additionalProperties: false

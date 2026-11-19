@@ -1,0 +1,38 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Tue, 27 Oct 2026 12:16:31 -0647
+Subject: [PATCH] arm64: dts: exynos: google: zumapro: Add DSIM0
+
+Add DSIM0, the DSI master between DECON0 and the panel: its link and
+D-PHY register windows and its interrupt (GIC SPI 252), as in Google's
+GPL zumapro device tree, disabled until a board names its panel.
+
+Link: https://android.googlesource.com/kernel/devices/google/zumapro/+/8831630eee2ad095b85ed452944e6353940966a5/dts/zumapro.dtsi
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ arch/arm64/boot/dts/exynos/google/zumapro.dtsi | 12 ++++++++++++
+ 1 file changed, 12 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/zumapro.dtsi b/arch/arm64/boot/dts/exynos/google/zumapro.dtsi
+index 2a8017bea..cb99ace06 100644
+--- a/arch/arm64/boot/dts/exynos/google/zumapro.dtsi
++++ b/arch/arm64/boot/dts/exynos/google/zumapro.dtsi
+@@ -1457,6 +1457,18 @@ firmware-sram@0 {
+ 			};
+ 		};
+ 
++		dsi0: dsi@19440000 {
++			compatible = "google,zumapro-dsim", "google,gs201-dsim";
++			reg = <0x0 0x19440000 0x300>,
++			      <0x0 0x19460100 0x700>,
++			      <0x0 0x19460000 0x100>;
++			reg-names = "dsi", "dphy", "dphy-extra";
++			interrupts = <GIC_SPI 252 IRQ_TYPE_LEVEL_HIGH>;
++			#address-cells = <1>;
++			#size-cells = <0>;
++			status = "disabled";
++		};
++
+ 		/* Scans out what the bootloader set up; no panel or clock control. */
+ 		decon0: display-controller@19470000 {
+ 			compatible = "google,zumapro-decon";

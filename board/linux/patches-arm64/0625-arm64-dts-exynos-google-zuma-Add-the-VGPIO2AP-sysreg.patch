@@ -1,0 +1,35 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Colin Lundholm <265166644+gitColinX@users.noreply.github.com>
+Date: Wed, 11 Nov 2026 01:40:35 -0700
+Subject: [PATCH] arm64: dts: exynos: google: zuma: Add the VGPIO2AP sysreg
+
+The system registers that latch the main PMIC's in-band interrupt (GIC
+SPI 74 on this SoC), the way zumapro.dtsi and gs201.dtsi describe
+theirs. The address is SYSREG_VGPIO2AP in Google's s2mpg14-register.h
+(kernel/google-modules/soc/gs, android-gs-shusky-6.1-android16), where
+s2mpg14-irq.c maps it with INTC0_IPEND at 0x290. A PMIC node points at
+it with google,vgpio2ap-sysreg; nothing uses it until a board does.
+
+Co-Authored-By: Claude Fable 5.2 <noreply@anthropic.com>
+Signed-off-by: Colin Lundholm <265166644+gitColinX@users.noreply.github.com>
+---
+ arch/arm64/boot/dts/exynos/google/zuma.dtsi | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/zuma.dtsi b/arch/arm64/boot/dts/exynos/google/zuma.dtsi
+index 4143c3b74..93a9ce368 100644
+--- a/arch/arm64/boot/dts/exynos/google/zuma.dtsi
++++ b/arch/arm64/boot/dts/exynos/google/zuma.dtsi
+@@ -769,6 +769,12 @@ wakeup-interrupt-controller {
+ 			};
+ 		};
+ 
++		/* Latches the S2MPG14 PMIC's in-band interrupt (GIC SPI 74). */
++		sysreg_vgpio2ap: syscon@15090000 {
++			compatible = "google,zuma-vgpio2ap-sysreg", "syscon";
++			reg = <0x15090000 0x1000>;
++		};
++
+ 		ap2apm_mailbox: mailbox@15110000 {
+ 			compatible = "google,zuma-mbox", "google,gs101-mbox";
+ 			reg = <0x15110000 0x1000>;

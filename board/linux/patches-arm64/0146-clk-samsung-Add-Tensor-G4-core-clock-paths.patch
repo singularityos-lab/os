@@ -1,0 +1,319 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Thu, 22 Oct 2026 20:32:10 -0700
+Subject: [PATCH] clk: samsung: Add Tensor G4 core clock paths
+
+Describe TOP shared PLL rate paths, HSI2 storage and PCIe branch clocks,
+and the PERIC0 supply-GPIO path using the existing Samsung CMU helpers.
+Retain firmware PLL rates, mux selections and dividers; no PLL rate
+table is supplied. Only the listed branch gates enter CCF control.
+
+Register fields come from Google's cmucal-sfr.c; ordered parent lists
+come from cmucal-node.c. G4 uses the cal-if/zuma implementation as well.
+The same OSCCLK_CMU feeds TOP PLLs and oscillator mux entries, so use
+one oscclk reference instead of unverified 26 MHz CMU clock aliases.
+
+The original private implementation reached guarded UFS root on the
+Pixel 9a, but this revised oscillator description has not been tested
+on the phone. No board nodes or complete power management are added.
+The shared helper switches listed gates to manual mode, preserving
+the current CG bit; board integration must audit handoff gate states.
+
+Link: https://android.googlesource.com/kernel/google-modules/soc/gs/+/204078758737776959ecc85c527a00fd2cabb62f/drivers/soc/google/cal-if/zuma/cmucal-sfr.c
+Link: https://android.googlesource.com/kernel/google-modules/soc/gs/+/204078758737776959ecc85c527a00fd2cabb62f/drivers/soc/google/cal-if/zuma/cmucal-node.c
+Link: https://android.googlesource.com/kernel/google-modules/soc/gs/+/204078758737776959ecc85c527a00fd2cabb62f/drivers/clk/gs/clk-zuma.c#77
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ drivers/clk/samsung/Makefile      |   1 +
+ drivers/clk/samsung/clk-zumapro.c | 270 ++++++++++++++++++++++++++++++
+ 2 files changed, 271 insertions(+)
+ create mode 100644 drivers/clk/samsung/clk-zumapro.c
+
+diff --git a/drivers/clk/samsung/Makefile b/drivers/clk/samsung/Makefile
+index 32a269e25..c2df88230 100644
+--- a/drivers/clk/samsung/Makefile
++++ b/drivers/clk/samsung/Makefile
+@@ -30,6 +30,7 @@ obj-$(CONFIG_EXYNOS_ARM64_COMMON_CLK)	+= clk-exynosautov9.o
+ obj-$(CONFIG_EXYNOS_ARM64_COMMON_CLK)	+= clk-exynosautov920.o
+ obj-$(CONFIG_EXYNOS_ARM64_COMMON_CLK)	+= clk-gs101.o
+ obj-$(CONFIG_EXYNOS_ARM64_COMMON_CLK)	+= clk-gs201.o
++obj-$(CONFIG_EXYNOS_ARM64_COMMON_CLK)	+= clk-zumapro.o
+ obj-$(CONFIG_EXYNOS_ACPM_CLK)		+= clk-acpm.o
+ obj-$(CONFIG_S3C64XX_COMMON_CLK)	+= clk-s3c64xx.o
+ obj-$(CONFIG_S5PV210_COMMON_CLK)	+= clk-s5pv210.o clk-s5pv210-audss.o
+diff --git a/drivers/clk/samsung/clk-zumapro.c b/drivers/clk/samsung/clk-zumapro.c
+new file mode 100644
+index 000000000..89427169d
+--- /dev/null
++++ b/drivers/clk/samsung/clk-zumapro.c
+@@ -0,0 +1,270 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * Google Tensor G4 storage and staged peripheral clock paths.
++ *
++ * Register layout and parents derived from Google's GPL CMUCAL tables in
++ * cal-if/zuma/cmucal-{sfr,node}.c, Copyright 2022 Samsung Electronics Co., Ltd.
++ * Google's G4 integration also uses cal-if/zuma; the name is intentional.
++ * UFS, supply GPIO and the PCIe reference path are described. PLLs, muxes
++ * and dividers retain firmware settings; no PLL rate table is supplied.
++ */
++
++#include <linux/clk-provider.h>
++#include <linux/of.h>
++#include <linux/platform_device.h>
++#include <linux/property.h>
++
++#include <dt-bindings/clock/google,zumapro.h>
++
++#include "clk.h"
++#include "clk-exynos-arm64.h"
++#include "clk-pll.h"
++
++/* CMU_TOP, 0x26040000. PLL CON3 is the read-only rate source. */
++static const struct samsung_pll_clock top_plls[] __initconst = {
++	PLL(pll_0517x, CLK_FOUT_SHARED0, "zumapro_shared0", "oscclk",
++	    0x004, 0x14c, NULL),
++	PLL(pll_0517x, CLK_FOUT_SHARED1, "zumapro_shared1", "oscclk",
++	    0x008, 0x18c, NULL),
++	PLL(pll_0518x, CLK_FOUT_SHARED2, "zumapro_shared2", "oscclk",
++	    0x00c, 0x1cc, NULL),
++	PLL(pll_0518x, CLK_FOUT_SHARED3, "zumapro_shared3", "oscclk",
++	    0x010, 0x20c, NULL),
++	PLL(pll_0518x, CLK_FOUT_SPARE, "zumapro_spare", "oscclk",
++	    0x014, 0x24c, NULL),
++};
++
++static const struct samsung_fixed_factor_clock top_factors[] __initconst = {
++	FFACTOR(CLK_SHARED0_D4, "zumapro_shared0_d4", "zumapro_shared0", 1, 4, 0),
++	FFACTOR(CLK_SHARED1_D4, "zumapro_shared1_d4", "zumapro_shared1", 1, 4, 0),
++	FFACTOR(CLK_SHARED2_D2, "zumapro_shared2_d2", "zumapro_shared2", 1, 2, 0),
++	FFACTOR(CLK_SHARED3_D2, "zumapro_shared3_d2", "zumapro_shared3", 1, 2, 0),
++};
++
++PNAME(hsi2_noc_parents) = {
++	"zumapro_shared0_d4", "zumapro_shared1_d4", "zumapro_shared2_d2",
++	"zumapro_shared3_d2", "zumapro_spare", "oscclk", "oscclk",
++	"oscclk",
++};
++
++PNAME(hsi2_ufs_parents) = {
++	"oscclk", "zumapro_shared0_d4", "zumapro_shared2_d2", "zumapro_spare",
++};
++
++PNAME(hsi2_pcie_parents) = { "oscclk", "zumapro_shared2_d2" };
++
++PNAME(peric0_noc_parents) = {
++	"zumapro_shared0_d4", "zumapro_shared2_d2", "zumapro_shared3_d2",
++	"zumapro_spare",
++};
++
++static const struct samsung_mux_clock top_muxes[] __initconst = {
++	MUX_F(CLK_MOUT_HSI2_NOC, "zumapro_mout_hsi2_noc", hsi2_noc_parents,
++	      0x10b0, 0, 3, 0, CLK_MUX_READ_ONLY),
++	MUX_F(CLK_MOUT_HSI2_UFS, "zumapro_mout_hsi2_ufs", hsi2_ufs_parents,
++	      0x10b8, 0, 2, 0, CLK_MUX_READ_ONLY),
++	MUX_F(CLK_MOUT_PERIC0_NOC, "zumapro_mout_peric0_noc", peric0_noc_parents,
++	      0x10f0, 0, 2, 0, CLK_MUX_READ_ONLY),
++	MUX_F(CLK_MOUT_HSI0_NOC, "zumapro_mout_hsi0_noc", hsi2_noc_parents,
++	      0x1094, 0, 3, 0, CLK_MUX_READ_ONLY),
++	MUX_F(CLK_MOUT_HSI0_PERI, "zumapro_mout_hsi0_peri", peric0_noc_parents,
++	      0x1098, 0, 2, 0, CLK_MUX_READ_ONLY),
++	MUX_F(CLK_MOUT_HSI2_PCIE, "zumapro_mout_hsi2_pcie", hsi2_pcie_parents,
++	      0x10b4, 0, 1, 0, CLK_MUX_READ_ONLY),
++};
++
++/* The hardware order is mux -> gate -> divider. */
++static const struct samsung_gate_clock top_gates[] __initconst = {
++	GATE(CLK_GOUT_HSI2_NOC, "zumapro_gout_hsi2_noc", "zumapro_mout_hsi2_noc",
++	     0x20d8, 21, CLK_IGNORE_UNUSED, 0),
++	GATE(CLK_GOUT_HSI2_UFS, "zumapro_gout_hsi2_ufs", "zumapro_mout_hsi2_ufs",
++	     0x20e0, 21, CLK_IGNORE_UNUSED, 0),
++	GATE(CLK_GOUT_PERIC0_NOC, "zumapro_gout_peric0_noc",
++	     "zumapro_mout_peric0_noc", 0x2114, 21, CLK_IGNORE_UNUSED, 0),
++	GATE(CLK_GOUT_HSI2_PCIE, "zumapro_gout_hsi2_pcie", "zumapro_mout_hsi2_pcie",
++	     0x20dc, 21, CLK_IGNORE_UNUSED, 0),
++};
++
++static const struct samsung_div_clock top_dividers[] __initconst = {
++	DIV_F(CLK_DOUT_HSI2_NOC, "zumapro_dout_hsi2_noc", "zumapro_gout_hsi2_noc",
++	      0x18a8, 0, 4, 0, CLK_DIVIDER_READ_ONLY),
++	DIV_F(CLK_DOUT_HSI2_UFS, "zumapro_dout_hsi2_ufs", "zumapro_gout_hsi2_ufs",
++	      0x18b0, 0, 4, 0, CLK_DIVIDER_READ_ONLY),
++	DIV_F(CLK_DOUT_PERIC0_NOC, "zumapro_dout_peric0_noc",
++	      "zumapro_gout_peric0_noc", 0x18e8, 0, 4, 0, CLK_DIVIDER_READ_ONLY),
++	/* HSI0 branch gates remain firmware-owned; only read their rate path. */
++	DIV_F(CLK_DOUT_HSI0_NOC, "zumapro_dout_hsi0_noc", "zumapro_mout_hsi0_noc",
++	      0x188c, 0, 4, 0, CLK_DIVIDER_READ_ONLY),
++	DIV_F(CLK_DOUT_HSI0_PERI, "zumapro_dout_hsi0_peri",
++	      "zumapro_mout_hsi0_peri", 0x1890, 0, 4, 0, CLK_DIVIDER_READ_ONLY),
++	DIV_F(CLK_DOUT_HSI2_PCIE, "zumapro_dout_hsi2_pcie", "zumapro_gout_hsi2_pcie",
++	      0x18ac, 0, 3, 0, CLK_DIVIDER_READ_ONLY),
++};
++
++/* Only these branch gates are put under manual CCF control. */
++static const unsigned long top_regs[] __initconst = {
++	0x20d8, 0x20e0, 0x2114, 0x20dc,
++};
++
++static const struct samsung_cmu_info top_cmu __initconst = {
++	.pll_clks = top_plls,
++	.nr_pll_clks = ARRAY_SIZE(top_plls),
++	.fixed_factor_clks = top_factors,
++	.nr_fixed_factor_clks = ARRAY_SIZE(top_factors),
++	.mux_clks = top_muxes,
++	.nr_mux_clks = ARRAY_SIZE(top_muxes),
++	.gate_clks = top_gates,
++	.nr_gate_clks = ARRAY_SIZE(top_gates),
++	.div_clks = top_dividers,
++	.nr_div_clks = ARRAY_SIZE(top_dividers),
++	.nr_clk_ids = CLK_DOUT_HSI2_PCIE + 1,
++	.clk_regs = top_regs,
++	.nr_clk_regs = ARRAY_SIZE(top_regs),
++};
++
++static void __init zumapro_top_init(struct device_node *np)
++{
++	exynos_arm64_register_cmu(NULL, np, &top_cmu);
++}
++
++CLK_OF_DECLARE(zumapro_cmu_top, "google,zumapro-cmu-top", zumapro_top_init);
++
++/* CMU_HSI2, 0x13000000. The parent bus must be enabled before CMU access. */
++PNAME(hsi2_noc_user_parents) = { "oscclk", "zumapro_dout_hsi2_noc" };
++PNAME(hsi2_ufs_user_parents) = { "oscclk", "zumapro_dout_hsi2_ufs" };
++PNAME(hsi2_pcie_user_parents) = { "oscclk", "zumapro_dout_hsi2_pcie" };
++
++static const struct samsung_mux_clock hsi2_muxes[] __initconst = {
++	MUX_F(CLK_MOUT_HSI2_NOC_USER, "zumapro_hsi2_noc_user", hsi2_noc_user_parents,
++	      0x610, 4, 1, 0, CLK_MUX_READ_ONLY),
++	MUX_F(CLK_MOUT_HSI2_UFS_USER, "zumapro_hsi2_ufs_user", hsi2_ufs_user_parents,
++	      0x630, 4, 1, 0, CLK_MUX_READ_ONLY),
++	MUX_F(CLK_MOUT_HSI2_PCIE_USER, "zumapro_hsi2_pcie_user",
++	      hsi2_pcie_user_parents, 0x620, 4, 1, 0, CLK_MUX_READ_ONLY),
++};
++
++static const struct samsung_div_clock hsi2_dividers[] __initconst = {
++	DIV_F(CLK_DOUT_HSI2_NOCP, "zumapro_hsi2_nocp", "zumapro_hsi2_noc_user",
++	      0x1800, 0, 3, 0, CLK_DIVIDER_READ_ONLY),
++};
++
++static const struct samsung_gate_clock hsi2_gates[] __initconst = {
++	GATE(CLK_GOUT_UFS_ACLK, "zumapro_ufs_aclk", "zumapro_hsi2_noc_user",
++	     0x210c, 21, CLK_IGNORE_UNUSED, 0),
++	GATE(CLK_GOUT_UFS_UNIPRO, "zumapro_ufs_unipro", "zumapro_hsi2_ufs_user",
++	     0x2110, 21, CLK_IGNORE_UNUSED, 0),
++	GATE(CLK_GOUT_UFS_FMP, "zumapro_ufs_fmp", "zumapro_hsi2_noc_user",
++	     0x2114, 21, CLK_IGNORE_UNUSED, 0),
++	GATE(CLK_GOUT_QE_UFS_ACLK, "zumapro_qe_ufs_aclk", "zumapro_hsi2_noc_user",
++	     0x20cc, 21, CLK_IGNORE_UNUSED, 0),
++	GATE(CLK_GOUT_QE_UFS_PCLK, "zumapro_qe_ufs_pclk", "zumapro_hsi2_noc_user",
++	     0x20d0, 21, CLK_IGNORE_UNUSED, 0),
++	GATE(CLK_GOUT_SYSREG_HSI2, "zumapro_sysreg_hsi2", "zumapro_hsi2_noc_user",
++	     0x20e8, 21, CLK_IGNORE_UNUSED, 0),
++	GATE(CLK_GOUT_GPIO_HSI2UFS, "zumapro_gpio_hsi2ufs", "zumapro_hsi2_noc_user",
++	     0x2008, 21, CLK_IGNORE_UNUSED, 0),
++	GATE(CLK_GOUT_GPIO_HSI2, "zumapro_gpio_hsi2", "zumapro_hsi2_noc_user",
++	     0x2060, 21, CLK_IGNORE_UNUSED, 0),
++	GATE(CLK_GOUT_PCIE1_CTL_APB, "zumapro_pcie1_ctl_apb",
++	     "zumapro_hsi2_noc_user", 0x2094, 21, CLK_IGNORE_UNUSED, 0),
++	GATE(CLK_GOUT_PCIE1_DBI_ACLK, "zumapro_pcie1_dbi_aclk",
++	     "zumapro_hsi2_noc_user", 0x2088, 21, CLK_IGNORE_UNUSED, 0),
++	GATE(CLK_GOUT_PCIE1_SLV_ACLK, "zumapro_pcie1_slv_aclk",
++	     "zumapro_hsi2_noc_user", 0x2090, 21, CLK_IGNORE_UNUSED, 0),
++	GATE(CLK_GOUT_PCIE1_MSTR_ACLK, "zumapro_pcie1_mstr_aclk",
++	     "zumapro_hsi2_noc_user", 0x208c, 21, CLK_IGNORE_UNUSED, 0),
++	GATE(CLK_GOUT_PCIE1_PHY_UDBG_APB, "zumapro_pcie1_phy_udbg_apb",
++	     "zumapro_hsi2_noc_user", 0x2098, 21, CLK_IGNORE_UNUSED, 0),
++	GATE(CLK_GOUT_PCIE1_PHY_PAL_APB, "zumapro_pcie1_phy_pal_apb",
++	     "zumapro_hsi2_noc_user", 0x209c, 21, CLK_IGNORE_UNUSED, 0),
++	GATE(CLK_GOUT_PCIE1_PHY_REF, "zumapro_pcie1_phy_ref",
++	     "zumapro_hsi2_pcie_user", 0x201c, 21, CLK_IGNORE_UNUSED, 0),
++	GATE(CLK_GOUT_PCIE1_PHY_BRIDGE_APB, "zumapro_pcie1_phy_bridge_apb",
++	     "zumapro_hsi2_nocp", 0x2000, 21, CLK_IGNORE_UNUSED, 0),
++	GATE(CLK_GOUT_PCIE1_PHY_TEST_APB, "zumapro_pcie1_phy_test_apb",
++	     "zumapro_hsi2_nocp", 0x2020, 21, CLK_IGNORE_UNUSED, 0),
++	GATE(CLK_GOUT_PCIE1_IA_CLK, "zumapro_pcie1_ia_clk",
++	     "zumapro_hsi2_noc_user", 0x20a4, 21, CLK_IGNORE_UNUSED, 0),
++	GATE(CLK_GOUT_PCIE1_SSMT_IA_ACLK, "zumapro_pcie1_ssmt_ia_aclk",
++	     "zumapro_hsi2_noc_user", 0x2038, 21, CLK_IGNORE_UNUSED, 0),
++	GATE(CLK_GOUT_PCIE1_SSMT_IA_PCLK, "zumapro_pcie1_ssmt_ia_pclk",
++	     "zumapro_hsi2_noc_user", 0x203c, 21, CLK_IGNORE_UNUSED, 0),
++	GATE(CLK_GOUT_PCIE1_SYSMMU_CLK, "zumapro_pcie1_sysmmu_clk",
++	     "zumapro_hsi2_noc_user", 0x204c, 21, CLK_IGNORE_UNUSED, 0),
++	GATE(CLK_GOUT_PCIE1_PMMU_CLK, "zumapro_pcie1_pmmu_clk",
++	     "zumapro_hsi2_noc_user", 0x2050, 21, CLK_IGNORE_UNUSED, 0),
++};
++
++static const unsigned long hsi2_regs[] __initconst = {
++	0x2008, 0x2060, 0x20cc, 0x20d0, 0x20e8, 0x210c, 0x2110, 0x2114,
++	0x2094, 0x2088, 0x2090, 0x208c, 0x2098, 0x209c, 0x201c, 0x2000,
++	0x2020, 0x20a4, 0x2038, 0x203c, 0x204c, 0x2050,
++};
++
++static const struct samsung_cmu_info hsi2_cmu __initconst = {
++	.mux_clks = hsi2_muxes,
++	.nr_mux_clks = ARRAY_SIZE(hsi2_muxes),
++	.div_clks = hsi2_dividers,
++	.nr_div_clks = ARRAY_SIZE(hsi2_dividers),
++	.gate_clks = hsi2_gates,
++	.nr_gate_clks = ARRAY_SIZE(hsi2_gates),
++	.nr_clk_ids = CLK_GOUT_PCIE1_PMMU_CLK + 1,
++	.clk_regs = hsi2_regs,
++	.nr_clk_regs = ARRAY_SIZE(hsi2_regs),
++	.clk_name = "bus",
++};
++
++/* CMU_PERIC0, 0x10800000. Only the UFS VCC GPIO clock is controlled. */
++PNAME(peric0_noc_user_parents) = { "oscclk", "zumapro_dout_peric0_noc" };
++
++static const struct samsung_mux_clock peric0_muxes[] __initconst = {
++	MUX_F(CLK_MOUT_PERIC0_NOC_USER, "zumapro_peric0_noc_user",
++	      peric0_noc_user_parents, 0x600, 4, 1, 0, CLK_MUX_READ_ONLY),
++};
++
++static const struct samsung_gate_clock peric0_gates[] __initconst = {
++	GATE(CLK_GOUT_GPIO_PERIC0, "zumapro_gpio_peric0", "zumapro_peric0_noc_user",
++	     0x20b8, 21, CLK_IGNORE_UNUSED, 0),
++};
++
++static const unsigned long peric0_regs[] __initconst = { 0x20b8 };
++
++static const struct samsung_cmu_info peric0_cmu __initconst = {
++	.mux_clks = peric0_muxes,
++	.nr_mux_clks = ARRAY_SIZE(peric0_muxes),
++	.gate_clks = peric0_gates,
++	.nr_gate_clks = ARRAY_SIZE(peric0_gates),
++	.nr_clk_ids = CLK_GOUT_GPIO_PERIC0 + 1,
++	.clk_regs = peric0_regs,
++	.nr_clk_regs = ARRAY_SIZE(peric0_regs),
++	.clk_name = "bus",
++};
++
++static int __init zumapro_cmu_probe(struct platform_device *pdev)
++{
++	const struct samsung_cmu_info *cmu = device_get_match_data(&pdev->dev);
++
++	exynos_arm64_register_cmu(&pdev->dev, pdev->dev.of_node, cmu);
++	return 0;
++}
++
++static const struct of_device_id zumapro_cmu_match[] = {
++	{ .compatible = "google,zumapro-cmu-hsi2", .data = &hsi2_cmu },
++	{ .compatible = "google,zumapro-cmu-peric0", .data = &peric0_cmu },
++	{ }
++};
++
++static struct platform_driver zumapro_cmu_driver __refdata = {
++	.driver = {
++		.name = "zumapro-cmu",
++		.of_match_table = zumapro_cmu_match,
++		.suppress_bind_attrs = true,
++	},
++	.probe = zumapro_cmu_probe,
++};
++
++static int __init zumapro_cmu_init(void)
++{
++	return platform_driver_register(&zumapro_cmu_driver);
++}
++core_initcall(zumapro_cmu_init);

@@ -1,0 +1,30 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Thu, 22 Oct 2026 16:14:16 -0700
+Subject: [PATCH] dt-bindings: gpu: mali-valhall-csf: Add Tensor G4
+
+Describe the Tensor G4 Mali-G715 integration with its SoC-specific
+compatible and the common Valhall CSF fallback. The SoC compatible lets
+Panthor select the integration-specific cache hash data.
+
+Google's GPL android-gs-tegu-6.1-android16 manifest uses the zuma GPU
+node from zumapro. Its l2-hash-values are 0x0036db6d, 0x005b6db6 and 0.
+
+Link: https://android.googlesource.com/kernel/devices/google/zuma/+/42395e8adcb880aa336f0da6bb2a19ed53929c40/dts/zuma-gpu.dtsi
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ Documentation/devicetree/bindings/gpu/arm,mali-valhall-csf.yaml | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/Documentation/devicetree/bindings/gpu/arm,mali-valhall-csf.yaml b/Documentation/devicetree/bindings/gpu/arm,mali-valhall-csf.yaml
+index 1d25eeefc..e1951820a 100644
+--- a/Documentation/devicetree/bindings/gpu/arm,mali-valhall-csf.yaml
++++ b/Documentation/devicetree/bindings/gpu/arm,mali-valhall-csf.yaml
+@@ -19,6 +19,7 @@ properties:
+       - items:
+           - enum:
+               - google,gs201-mali         # G710
++              - google,zumapro-mali       # G715 family
+               - mediatek,mt8196-mali
+               - nxp,imx95-mali            # G310
+               - rockchip,rk3588-mali

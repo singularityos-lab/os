@@ -1,0 +1,71 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Sun, 1 Nov 2026 11:10:27 -0647
+Subject: [PATCH] dt-bindings: PCI: google,gs201-pcie: Add zumapro as a
+ fallback of zuma
+
+The Wi-Fi PCIe controller of zumapro (Tensor G4, Pixel 9a) is the one
+zuma has: the same DesignWare core and Samsung wrapper, at the same
+addresses (ELBI 0x13120000, DBI 0x13400000, config 0x60ffe000), with
+the same controller interrupt (SPI 439), and Google's
+pcie-exynos-rc.c drives both SoCs with the same code. The only place it
+tells them apart (IP version 0x986500 against 0x987500) is a register
+dump.
+
+Describe zumapro as "google,zumapro-pcie", "google,zuma-pcie", and make
+zuma's three-region constraint match on the fallback, so it covers
+zumapro too.
+
+Tested on a Pixel 9a with this pair of compatibles on PCIe channel 1,
+driven by pcie-gs201 with zuma's match data: the link trained at Gen2 x1
+on the first try and the BCM4383 behind it came up in brcmfmac.
+
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ .../bindings/pci/google,gs201-pcie.yaml       | 19 +++++++++++++------
+ 1 file changed, 13 insertions(+), 6 deletions(-)
+
+diff --git a/Documentation/devicetree/bindings/pci/google,gs201-pcie.yaml b/Documentation/devicetree/bindings/pci/google,gs201-pcie.yaml
+index d967492b9..19181b143 100644
+--- a/Documentation/devicetree/bindings/pci/google,gs201-pcie.yaml
++++ b/Documentation/devicetree/bindings/pci/google,gs201-pcie.yaml
+@@ -16,8 +16,10 @@ description:
+   adds a sub-control block (ELBI) with link training control and interrupt
+   status, and an I/A sequencer that re-locks the PHY clock-data recovery when
+   the link leaves L1.2. zuma's Wi-Fi controller runs without the I/A, as on
+-  stock. Legacy INTx interrupts are demultiplexed from the controller
+-  interrupt by a child interrupt controller.
++  stock. zumapro's (Tensor G4) Wi-Fi controller is the same as zuma's, at
++  the same addresses and with the same register map, so it uses zuma's
++  compatible as a fallback. Legacy INTx interrupts are demultiplexed from
++  the controller interrupt by a child interrupt controller.
+ 
+ allOf:
+   - $ref: /schemas/pci/pci-host-bridge.yaml#
+@@ -25,7 +27,8 @@ allOf:
+   - if:
+       properties:
+         compatible:
+-          const: google,zuma-pcie
++          contains:
++            const: google,zuma-pcie
+     then:
+       properties:
+         reg:
+@@ -35,9 +38,13 @@ allOf:
+ 
+ properties:
+   compatible:
+-    enum:
+-      - google,gs201-pcie
+-      - google,zuma-pcie
++    oneOf:
++      - enum:
++          - google,gs201-pcie
++          - google,zuma-pcie
++      - items:
++          - const: google,zumapro-pcie
++          - const: google,zuma-pcie
+ 
+   reg:
+     minItems: 3

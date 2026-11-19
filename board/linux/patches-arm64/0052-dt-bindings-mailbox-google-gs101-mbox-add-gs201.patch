@@ -1,0 +1,36 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Sun, 11 Oct 2026 23:58:20 -0400
+Subject: [PATCH] dt-bindings: mailbox: google,gs101-mbox: add gs201
+
+The AP-to-APM mailbox of the Google gs201 (Tensor G2) SoC uses the same
+register layout as gs101: Google's ACPM driver for gs201 rings the APM
+with INTGR1 and masks the AP side with INTMR0, exactly as on gs101. Add
+a gs201 compatible with the gs101 one as fallback.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ .../devicetree/bindings/mailbox/google,gs101-mbox.yaml | 10 +++++++---
+ 1 file changed, 7 insertions(+), 3 deletions(-)
+
+diff --git a/Documentation/devicetree/bindings/mailbox/google,gs101-mbox.yaml b/Documentation/devicetree/bindings/mailbox/google,gs101-mbox.yaml
+index c109c1f7a..713a4e594 100644
+--- a/Documentation/devicetree/bindings/mailbox/google,gs101-mbox.yaml
++++ b/Documentation/devicetree/bindings/mailbox/google,gs101-mbox.yaml
+@@ -20,9 +20,13 @@ description:
+ 
+ properties:
+   compatible:
+-    enum:
+-      - google,gs101-mbox
+-      - samsung,exynos850-mbox
++    oneOf:
++      - enum:
++          - google,gs101-mbox
++          - samsung,exynos850-mbox
++      - items:
++          - const: google,gs201-mbox
++          - const: google,gs101-mbox
+ 
+   reg:
+     maxItems: 1

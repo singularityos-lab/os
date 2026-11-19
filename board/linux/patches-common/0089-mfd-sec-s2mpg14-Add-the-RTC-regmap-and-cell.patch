@@ -1,0 +1,136 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Mon, 26 Oct 2026 09:22:04 -0647
+Subject: [PATCH] mfd: sec: s2mpg14: Add the RTC regmap and cell
+
+The S2MPG14's RTC block sits at ACPM access type 0x02 and has the same
+register layout as the S2MPG10's (CTRL at 0x00 through OSC_CTRL at 0x1b,
+two nonces to 0x2b, five scratch registers to 0x30), per Google's GPL
+rtc-s2mpg14.h. Describe it as an uncached "rtc" regmap over the ACPM bus,
+let the PMIC regmap read STATUS2 (the alarm flag, bit 2 as on S2MPG12),
+and add the s2mpg14-rtc cell. No interrupt line is described yet, so the
+cell carries no alarm resource.
+
+The regmap reads up to OSC_CTRL and writes only what rtc-s5m writes:
+CTRL, UPDATE, the time and alarm 0. SMPL, WTSR, CAP_SEL and OSC_CTRL
+(the power-loss and watchdog-reset protections and the oscillator
+tuning) and the nonces stay read-only.
+
+Link: https://android.googlesource.com/kernel/google-modules/soc/gs/+/refs/heads/android-gs-tegu-6.1-android16/include/linux/mfd/samsung/rtc-s2mpg14.h
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ drivers/mfd/sec-acpm.c              | 37 +++++++++++++++++++++++++++++
+ drivers/mfd/sec-common.c            |  6 ++++-
+ include/linux/mfd/samsung/s2mpg14.h | 12 ++++++++++
+ 3 files changed, 54 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/mfd/sec-acpm.c b/drivers/mfd/sec-acpm.c
+index ef1834d7b..ba018ce1c 100644
+--- a/drivers/mfd/sec-acpm.c
++++ b/drivers/mfd/sec-acpm.c
+@@ -593,6 +593,7 @@ static const struct regmap_config s2mpg14_regmap_config_common = {
+ };
+ 
+ static const struct regmap_range s2mpg14_pmic_rd_registers[] = {
++	regmap_reg_range(S2MPG14_PMIC_STATUS2, S2MPG14_PMIC_STATUS2), /* RTC alarm flag */
+ 	regmap_reg_range(S2MPG14_PMIC_L4M_CTRL, S2MPG14_PMIC_L4M_CTRL),
+ 	regmap_reg_range(S2MPG14_PMIC_L8M_CTRL, S2MPG14_PMIC_L9M_CTRL),
+ 	regmap_reg_range(S2MPG14_PMIC_L19M_CTRL, S2MPG14_PMIC_L19M_CTRL),
+@@ -625,6 +626,41 @@ static const struct regmap_config s2mpg14_regmap_config_pmic = {
+ 	.wr_table = &s2mpg14_pmic_wr_table,
+ };
+ 
++/*
++ * The RTC: everything up to the oscillator control may be read. Writes
++ * only where rtc-s5m writes: CTRL, UPDATE, the time and alarm 0. SMPL,
++ * WTSR, CAP_SEL and OSC_CTRL (the power-loss and watchdog-reset
++ * protections and the oscillator tuning) stay read-only.
++ */
++static const struct regmap_range s2mpg14_rtc_rd_registers[] = {
++	regmap_reg_range(S2MPG10_RTC_CTRL, S2MPG10_RTC_OSC_CTRL),
++};
++
++static const struct regmap_access_table s2mpg14_rtc_rd_table = {
++	.yes_ranges = s2mpg14_rtc_rd_registers,
++	.n_yes_ranges = ARRAY_SIZE(s2mpg14_rtc_rd_registers),
++};
++
++static const struct regmap_range s2mpg14_rtc_wr_registers[] = {
++	regmap_reg_range(S2MPG10_RTC_CTRL, S2MPG10_RTC_UPDATE),
++	regmap_reg_range(S2MPG10_RTC_SEC, S2MPG10_RTC_A0YEAR),
++};
++
++static const struct regmap_access_table s2mpg14_rtc_wr_table = {
++	.yes_ranges = s2mpg14_rtc_wr_registers,
++	.n_yes_ranges = ARRAY_SIZE(s2mpg14_rtc_wr_registers),
++};
++
++static const struct regmap_config s2mpg14_regmap_config_rtc = {
++	.name = "rtc",
++	.reg_bits = ACPM_ADDR_BITS,
++	.val_bits = 8,
++	.max_register = S2MPG10_RTC_OSC_CTRL,
++	.rd_table = &s2mpg14_rtc_rd_table,
++	.wr_table = &s2mpg14_rtc_wr_table,
++	.cache_type = REGCACHE_NONE,
++};
++
+ /* The sub-PMIC's revision and the LDO controls its consumers use. */
+ static const struct regmap_range s2mpg15_common_registers[] = {
+ 	regmap_reg_range(S2MPG15_COMMON_CHIPID, S2MPG15_COMMON_CHIPID),
+@@ -911,6 +947,7 @@ static const struct sec_pmic_acpm_platform_data s2mpg14_data = {
+ 	.speedy_channel = 0,
+ 	.regmap_cfg_common = &s2mpg14_regmap_config_common,
+ 	.regmap_cfg_pmic = &s2mpg14_regmap_config_pmic,
++	.regmap_cfg_rtc = &s2mpg14_regmap_config_rtc,
+ 	.no_irq = true,
+ };
+ 
+diff --git a/drivers/mfd/sec-common.c b/drivers/mfd/sec-common.c
+index e6660b6aa..47e6b183d 100644
+--- a/drivers/mfd/sec-common.c
++++ b/drivers/mfd/sec-common.c
+@@ -75,9 +75,13 @@ static const struct mfd_cell s2mpg13_devs[] = {
+ 	MFD_CELL_OF("s2mpg13-gpio", NULL, NULL, 0, 0, "samsung,s2mpg13-gpio"),
+ };
+ 
+-/* Only the qualified LDOs; no RTC, interrupt, GPIO or protection writes. */
++/*
++ * The qualified LDOs and the RTC. No interrupt line is described yet, so
++ * the RTC keeps time without an alarm; no GPIO or protection writes.
++ */
+ static const struct mfd_cell s2mpg14_devs[] = {
+ 	MFD_CELL_NAME("s2mpg14-regulator"),
++	MFD_CELL_NAME("s2mpg14-rtc"),
+ };
+ 
+ /* The sub-PMIC's LDOs; no interrupt, meter, GPIO or RTC. */
+diff --git a/include/linux/mfd/samsung/s2mpg14.h b/include/linux/mfd/samsung/s2mpg14.h
+index f553fac55..b09785f0d 100644
+--- a/include/linux/mfd/samsung/s2mpg14.h
++++ b/include/linux/mfd/samsung/s2mpg14.h
+@@ -6,7 +6,10 @@
+ #ifndef __LINUX_MFD_S2MPG14_H
+ #define __LINUX_MFD_S2MPG14_H
+ 
++#include <linux/bits.h>
++
+ #define S2MPG14_COMMON_CHIPID		0x0b
++#define S2MPG14_PMIC_STATUS2		0x0b
+ #define S2MPG14_PMIC_L4M_CTRL		0x2e
+ #define S2MPG14_PMIC_L8M_CTRL		0x32
+ #define S2MPG14_PMIC_L9M_CTRL		0x33
+@@ -14,4 +17,13 @@
+ #define S2MPG14_PMIC_L25M_CTRL		0x43
+ #define S2MPG14_PMIC_LDO_CTRL1		0x44
+ 
++/* S2MPG14_PMIC_STATUS2: the alarm flag sits where it does on S2MPG12 */
++#define S2MPG14_STATUS2_RTCA0E		BIT(2)
++
++/*
++ * The RTC block has S2MPG10's register layout (S2MPG10_RTC_* in rtc.h):
++ * CTRL at 0x00 through OSC_CTRL at 0x1b, then two nonces to 0x2b and
++ * five scratch registers to 0x30.
++ */
++
+ #endif /* __LINUX_MFD_S2MPG14_H */

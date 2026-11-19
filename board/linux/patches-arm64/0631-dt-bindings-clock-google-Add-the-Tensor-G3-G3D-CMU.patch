@@ -1,0 +1,126 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Brett-Michael Green <brett@bmgvisualtech.com>
+Date: Sat, 31 Oct 2026 12:42:39 -0400
+Subject: [PATCH] dt-bindings: clock: google: Add the Tensor G3 G3D CMU
+
+Document zuma's (Tensor G3) CMU_G3D, which clocks the GPU, and the
+CMU_TOP clocks it takes: the G3D GLB, NOCD and SWITCH paths and the
+shared PLL dividers behind them. The inputs and their order are those of
+zumapro's CMU_G3D, which has the same layout.
+
+Assisted-by: LLM
+Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
+---
+ .../bindings/clock/google,zuma-clock.yaml     | 28 +++++++++++++--
+ include/dt-bindings/clock/google,zuma.h       | 36 +++++++++++++++++++
+ 2 files changed, 61 insertions(+), 3 deletions(-)
+
+diff --git a/Documentation/devicetree/bindings/clock/google,zuma-clock.yaml b/Documentation/devicetree/bindings/clock/google,zuma-clock.yaml
+index b4f124506..01127c9c3 100644
+--- a/Documentation/devicetree/bindings/clock/google,zuma-clock.yaml
++++ b/Documentation/devicetree/bindings/clock/google,zuma-clock.yaml
+@@ -10,13 +10,16 @@ maintainers:
+   - Brett-Michael Green <brett@bmgvisualtech.com>
+ 
+ description: |
+-  CMU_TOP supplies the HSI0 NoC and peripheral clocks to CMU_HSI0 from its
+-  shared PLLs. CMU_HSI0 supplies USI2, the touchscreen's SPI, from the HSI0
+-  peripheral clock; its NoC path also takes the board-level HSI0 ALT clock.
++  CMU_TOP supplies the HSI0 NoC and peripheral clocks to CMU_HSI0, and the
++  G3D clocks to CMU_G3D, from its shared PLLs. CMU_HSI0 supplies USI2, the
++  touchscreen's SPI, from the HSI0 peripheral clock; its NoC path also takes
++  the board-level HSI0 ALT clock.
+   CMU_TOP also supplies the PERIC1 NoC and USI input clocks to CMU_PERIC1,
+   which supplies USI11, the I2C bus of the battery, charger and USB-C chips.
+   CMU_APM supplies the APM mailbox, its internal memory and the always-on
+   GPIO banks from the always-on ALV PLL and the oscillator.
++  CMU_G3D supplies the GPU from its own two PLLs and from the G3D GLB, NOCD
++  and SWITCH clocks of CMU_TOP.
+   The external oscillator supplies the PLL reference and the oscillator mux
+   paths.
+   Clock identifiers are defined in dt-bindings/clock/google,zuma.h.
+@@ -26,6 +29,7 @@ properties:
+     enum:
+       - google,zuma-cmu-top
+       - google,zuma-cmu-apm
++      - google,zuma-cmu-g3d
+       - google,zuma-cmu-hsi0
+       - google,zuma-cmu-peric0
+       - google,zuma-cmu-peric1
+@@ -84,6 +88,24 @@ allOf:
+             - const: bus
+             - const: peri
+             - const: alt
++  - if:
++      properties:
++        compatible:
++          const: google,zuma-cmu-g3d
++    then:
++      properties:
++        clocks:
++          items:
++            - description: External oscillator reference clock
++            - description: G3D NoC clock from CMU_TOP
++            - description: G3D global clock from CMU_TOP
++            - description: G3D switch clock from CMU_TOP
++        clock-names:
++          items:
++            - const: oscclk
++            - const: bus
++            - const: glb
++            - const: switch
+   - if:
+       properties:
+         compatible:
+diff --git a/include/dt-bindings/clock/google,zuma.h b/include/dt-bindings/clock/google,zuma.h
+index 05db2859f..a0f2e2f8a 100644
+--- a/include/dt-bindings/clock/google,zuma.h
++++ b/include/dt-bindings/clock/google,zuma.h
+@@ -33,6 +33,21 @@
+ #define CLK_DOUT_PERIC0_NOC		26
+ #define CLK_DOUT_PERIC0_IP		27
+ 
++/* CMU_TOP: the G3D paths, and the shared PLL dividers they take. */
++#define CLK_SHARED0_D2			28
++#define CLK_SHARED0_D3			29
++#define CLK_SHARED1_D2			30
++#define CLK_SHARED1_D3			31
++#define CLK_MOUT_G3D_GLB		32
++#define CLK_MOUT_G3D_NOCD		33
++#define CLK_MOUT_G3D_SWITCH		34
++#define CLK_GOUT_G3D_GLB		35
++#define CLK_GOUT_G3D_NOCD		36
++#define CLK_GOUT_G3D_SWITCH		37
++#define CLK_DOUT_G3D_GLB		38
++#define CLK_DOUT_G3D_NOCD		39
++#define CLK_DOUT_G3D_SWITCH		40
++
+ /* CMU_HSI0: USI2, the touchscreen's SPI, and USI3, the GNSS receiver's SPI. */
+ #define CLK_GOUT_HSI0_ALT		1
+ #define CLK_MOUT_HSI0_NOC_USER		2
+@@ -104,4 +119,25 @@
+ #define CLK_GOUT_PERIC0_USI14_PCLK	7
+ #define CLK_GOUT_PERIC0_USI14_RSTNSYNC	8
+ 
++/* CMU_G3D: the GPU. */
++#define CLK_FOUT_G3D			1
++#define CLK_FOUT_G3D_L2			2
++#define CLK_MOUT_G3D_SWITCH_USER	3
++#define CLK_MOUT_G3D_GLB_USER		4
++#define CLK_MOUT_G3D_NOCD_USER		5
++#define CLK_MOUT_G3D_L2_GLB		6
++#define CLK_MOUT_G3D_STACKS		7
++#define CLK_MOUT_G3D_TOP		8
++#define CLK_DOUT_G3D_L2_GLB		9
++#define CLK_DOUT_G3D_STACKS		10
++#define CLK_DOUT_G3D_TOP		11
++#define CLK_MOUT_G3D_COREGROUP_USER	12
++#define CLK_MOUT_G3D_STACKS_USER	13
++#define CLK_MOUT_G3D_TOP_USER		14
++#define CLK_DOUT_G3D_NOCP		15
++#define CLK_GOUT_G3D_CMU		16
++#define CLK_GOUT_G3D_CORE		17
++#define CLK_GOUT_G3D_COREGROUP		18
++#define CLK_GOUT_G3D_STACKS		19
++
+ #endif /* _DT_BINDINGS_CLOCK_GOOGLE_ZUMA_H */

@@ -1,0 +1,1544 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Wed, 14 Oct 2026 21:05:22 -0400
+Subject: [PATCH] drm: google: add a KMS driver for the gs201 DECON
+
+On gs201 the bootloader leaves DECON0 -> DSIM0 -> panel running in DSI
+command mode with DSC, scanning out its framebuffer through DPP0, and
+simpledrm copies every frame into that buffer.
+
+Add a KMS driver that keeps the bootloader's configuration and flips:
+it points DPP0's read DMA at the new buffer and requests a shadow
+update, which DECON applies at the next frame start. Frame start, which
+in command mode comes once per panel TE while the hardware trigger is
+unmasked, drives vblank. A flip completes at the frame that latched it:
+the update request is polled for up to 20 us at frame start and checked
+again at frame done, and a flip not taken within 100 ms completes
+anyway. Buffers come from a dedicated CMA pool below 4 GiB, as DPP0
+takes 32-bit addresses with the DPU SysMMU bypassed. DPP0 switches from
+the bootloader's ARGB8888 to XRGB8888 (DPP code 4: the DPP's codes are
+named by byte order in memory) with the first DRM buffer, and whenever
+no DRM buffer may be scanned out it goes back to the bootloader's
+framebuffer, cleared to black.
+
+The modes are 1440x3120 at 60 and 120 Hz (preferred). They differ only
+in the rate, which the panel changes while it runs, so the CRTC check
+clears mode_changed and atomic_begin does the switch: MIF and DISP
+floors through the ACPM DVFS clocks first, then, right after a frame
+done interrupt, the DSIM timers and the panel through gs-dsim-cmd.
+120 Hz needs the DSIM on the output port, a panel that can switch and
+the mif clock; max_refresh=60 turns it off.
+
+With the CRTC off the driver drops to 60 Hz behind a black frame, and
+can also mask DECON's trigger so no frames are sent and no memory is
+read (screen_off=1), or put the panel to sleep as well (screen_off=2).
+A custom commit tail updates planes on active CRTCs only. The primary
+plane is required only on an active CRTC, since compositors turn the
+screen off by detaching it together with ACTIVE=0. Remove and shutdown
+leave the boot state (panel lit, trigger running) for a kexec.
+
+The driver never touches clocks or power domains directly. It checks
+the pipeline before taking the display from simpledrm through the
+aperture helpers, and registers no fbdev console unless fbdev=1, so the
+boot splash stays up until the first client commits. A stage module
+parameter keeps earlier read-only steps for debugging (0 logs the
+hardware state, 1 also measures the refresh rate); the default, 2,
+registers the DRM device.
+
+Register layout from Google's GPL display driver (cal_9845), which gs201
+shares with gs101.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ drivers/gpu/drm/Makefile          |    2 +-
+ drivers/gpu/drm/google/Kconfig    |   25 +
+ drivers/gpu/drm/google/Makefile   |    1 +
+ drivers/gpu/drm/google/gs-decon.c | 1425 +++++++++++++++++++++++++++++
+ 4 files changed, 1452 insertions(+), 1 deletion(-)
+ create mode 100644 drivers/gpu/drm/google/gs-decon.c
+
+diff --git a/drivers/gpu/drm/Makefile b/drivers/gpu/drm/Makefile
+index e2a76354e..0caf3ece6 100644
+--- a/drivers/gpu/drm/Makefile
++++ b/drivers/gpu/drm/Makefile
+@@ -190,7 +190,7 @@ obj-$(CONFIG_DRM_NOUVEAU) +=nouveau/
+ obj-$(CONFIG_DRM_EXYNOS) +=exynos/
+ obj-$(CONFIG_DRM_ROCKCHIP) +=rockchip/
+ obj-$(CONFIG_DRM_GMA500) += gma500/
+-obj-$(CONFIG_DRM_GS_DSIM_CMD) += google/
++obj-y += google/
+ obj-$(CONFIG_DRM_UDL) += udl/
+ obj-$(CONFIG_DRM_AST) += ast/
+ obj-$(CONFIG_DRM_ARMADA) += armada/
+diff --git a/drivers/gpu/drm/google/Kconfig b/drivers/gpu/drm/google/Kconfig
+index e30821af4..c8346a574 100644
+--- a/drivers/gpu/drm/google/Kconfig
++++ b/drivers/gpu/drm/google/Kconfig
+@@ -17,3 +17,28 @@ config DRM_GS_DSIM_CMD
+ 
+ 	  To compile this driver as a module, choose M here: the module
+ 	  will be called gs-dsim-cmd.
++
++config DRM_GS_DECON
++	tristate "Google gs201 DECON flip-only KMS driver"
++	depends on ARCH_EXYNOS || COMPILE_TEST
++	depends on OF && DRM && MMU
++	depends on DRM_GS_DSIM_CMD
++	select DRM_CLIENT_SELECTION
++	select DRM_GEM_DMA_HELPER
++	select DRM_KMS_HELPER
++	select APERTURE_HELPERS
++	help
++	  KMS driver for the gs201 (Tensor G2) DECON0 on a display the
++	  bootloader left running in DSI command mode. It keeps the
++	  bootloader's DECON, DSIM and DSC configuration and only flips
++	  DPP0 between scanout buffers, with vblank and page flip events
++	  from the DECON frame start interrupt, and switches the panel
++	  between 60 and 120 Hz through the DSIM driver. It replaces
++	  simpledrm.
++
++	  This is a bring-up driver. For debugging, the stage module
++	  parameter limits it to logging the hardware state (0) or to
++	  counting frame interrupts (1).
++
++	  To compile this driver as a module, choose M here: the module
++	  will be called gs-decon.
+diff --git a/drivers/gpu/drm/google/Makefile b/drivers/gpu/drm/google/Makefile
+index 7642ff382..0cc56b4b7 100644
+--- a/drivers/gpu/drm/google/Makefile
++++ b/drivers/gpu/drm/google/Makefile
+@@ -1,2 +1,3 @@
+ # SPDX-License-Identifier: GPL-2.0-only
+ obj-$(CONFIG_DRM_GS_DSIM_CMD) += gs-dsim-cmd.o
++obj-$(CONFIG_DRM_GS_DECON) += gs-decon.o
+diff --git a/drivers/gpu/drm/google/gs-decon.c b/drivers/gpu/drm/google/gs-decon.c
+new file mode 100644
+index 000000000..9b23d24d2
+--- /dev/null
++++ b/drivers/gpu/drm/google/gs-decon.c
+@@ -0,0 +1,1425 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * Flip-only KMS driver for the Google gs201 DECON0, on a display the
++ * bootloader left running.
++ *
++ * The bootloader brings up DECON0 -> DSIM0 -> the panel in DSI command
++ * mode, with DSC, and scans out its framebuffer through DPP0. This driver
++ * keeps all of that configuration. It only:
++ *
++ *  - points DPP0's read DMA at a new buffer and requests a shadow update,
++ *    which the hardware applies at the next frame start; the first one
++ *    also switches DPP0 from the bootloader's ARGB8888 to XRGB8888;
++ *  - counts frame start interrupts, which in command mode come once per
++ *    panel TE pulse while the hardware trigger is unmasked, and reports
++ *    them as vblanks, and completes page flips once the shadow update has
++ *    been taken;
++ *  - switches between 60 and 120 Hz without a modeset, through the DSIM
++ *    driver (link timers and the panel, gs-dsim.h), with memory bus and
++ *    display clock floors from the ACPM DVFS clocks at 120 Hz.
++ *
++ * It never stops DECON, never touches the DPU clocks or power domains, so
++ * the DPU is never powered down under a running DECON. With the CRTC off
++ * it scans out a black frame.
++ *
++ * The "stage" module parameter selects how much it does:
++ *
++ *  0: log the DECON and DPP0 state, read only
++ *  1: also enable the frame start/done interrupts and count them, to
++ *     measure the refresh rate (sysfs "stats")
++ *  2: also register a DRM device that takes the display over from
++ *     simpledrm (default)
++ *
++ * Register layout from Google's GPL display driver
++ * (google-modules/display/samsung/cal_9845/regs-decon.h and regs-dpp.h),
++ * which gs201 shares with gs101.
++ */
++
++#include <linux/aperture.h>
++#include <linux/bitfield.h>
++#include <linux/clk.h>
++#include <linux/dma-mapping.h>
++#include <linux/interrupt.h>
++#include <linux/io.h>
++#include <linux/iopoll.h>
++#include <linux/ktime.h>
++#include <linux/math64.h>
++#include <linux/module.h>
++#include <linux/mod_devicetable.h>
++#include <linux/of.h>
++#include <linux/of_graph.h>
++#include <linux/of_reserved_mem.h>
++#include <linux/platform_device.h>
++#include <linux/spinlock.h>
++#include <linux/wait.h>
++#include <linux/workqueue.h>
++
++#include <drm/clients/drm_client_setup.h>
++#include <drm/drm_atomic.h>
++#include <drm/drm_atomic_helper.h>
++#include <drm/drm_connector.h>
++#include <drm/drm_crtc.h>
++#include <drm/drm_drv.h>
++#include <drm/drm_encoder.h>
++#include <drm/drm_fb_dma_helper.h>
++#include <drm/drm_fbdev_dma.h>
++#include <drm/drm_fourcc.h>
++#include <drm/drm_framebuffer.h>
++#include <drm/drm_gem_atomic_helper.h>
++#include <drm/drm_gem_dma_helper.h>
++#include <drm/drm_gem_framebuffer_helper.h>
++#include <drm/drm_managed.h>
++#include <drm/drm_modeset_helper_vtables.h>
++#include <drm/drm_plane.h>
++#include <drm/drm_print.h>
++#include <drm/drm_probe_helper.h>
++#include <drm/drm_vblank.h>
++
++#include "gs-dsim.h"
++
++/* DECON main */
++#define DECON_VERSION			0x0000
++#define DECON_FRAME_COUNT		0x0004
++#define DECON_GLOBAL_CON		0x0020
++#define GLOBAL_CON_OPERATION_MODE_CMD	BIT(8)
++#define GLOBAL_CON_RUN_STATUS		BIT(4)
++#define GLOBAL_CON_DECON_EN		BIT(1)
++#define GLOBAL_CON_DECON_EN_F		BIT(0)
++#define DECON_TRIG_CON			0x0030
++#define TRIG_CON_HW_TRIG_MASK_DECON	BIT(4)
++#define TRIG_CON_HW_TRIG_EN		BIT(0)
++#define DECON_HW_TE_CNT			0x0038
++#define DECON_SHD_REG_UP_REQ		0x0050
++#define SHD_REG_UP_REQ_GLOBAL		BIT(31)
++#define SHD_REG_UP_REQ_CMP		BIT(20)
++#define SHD_REG_UP_REQ_ALL_WIN		0x3f
++#define DECON_INT_EN			0x0060
++#define INT_EN_FRAME_DONE		BIT(13)
++#define INT_EN_FRAME_START		BIT(12)
++#define INT_EN				BIT(0)
++#define DECON_INT_EN_EXTRA		0x0064
++#define DECON_INT_PEND			0x0070
++#define INT_PEND_FRAME_DONE		BIT(13)
++#define INT_PEND_FRAME_START		BIT(12)
++#define DECON_INT_PEND_EXTRA		0x0074
++#define DECON_BLD_BG_IMG_SIZE_PRI	0x0220
++
++/* DPP0 read DMA; the registers in use are mirrored at +0x400 */
++#define RDMA_ENABLE			0x0000
++#define RDMA_IN_CTRL_0			0x0008
++#define IDMA_IMG_FORMAT			GENMASK(13, 8)
++/*
++ * Google's regs-dpp.h names the formats by byte order in memory, so its
++ * "BGRX8888" (4) is DRM_FORMAT_XRGB8888, and the bootloader's "BGRA8888"
++ * (0) is DRM_FORMAT_ARGB8888. Its "XRGB8888" (7) swaps the channels.
++ */
++#define IDMA_IMG_FORMAT_XRGB8888	4
++/* 0..7 are the 32-bit RGB formats */
++#define IDMA_IMG_FORMAT_LAST_8888	7
++#define RDMA_SRC_SIZE			0x0010
++#define RDMA_SRC_OFFSET			0x0014
++#define RDMA_IMG_SIZE			0x0018
++#define RDMA_BASEADDR_Y8		0x0040
++#define RDMA_SRC_STRIDE_1		0x0054
++#define DMA_SHD_OFFSET			0x0400
++
++/*
++ * What the driver writes on a flip: every window, the global registers
++ * and the compressor, as Google's command-mode commit does.
++ */
++#define SHD_REG_UP_REQ_FLIP		(SHD_REG_UP_REQ_GLOBAL | \
++					 SHD_REG_UP_REQ_CMP | \
++					 SHD_REG_UP_REQ_ALL_WIN)
++
++/*
++ * DECON clears the shadow update request as the frame starts; allow it
++ * this long after the frame start interrupt before deferring the flip's
++ * completion to the frame done.
++ */
++#define GS_DECON_LATCH_POLL_US		20
++
++/* A flip not taken within this time is completed anyway. */
++#define GS_DECON_FLIP_TIMEOUT_MS	100
++
++/* More frame interrupts than this per second means one is stuck. */
++#define GS_DECON_IRQ_STORM		2000
++
++/* A rate switch starts right after a frame; one at 60 Hz takes 16.7 ms. */
++#define GS_DECON_FRAME_DONE_TIMEOUT_MS	50
++
++/*
++ * Floors while the panel runs at 120 Hz (DISPLAY-PLAN.md D5.2): DPP0 then
++ * reads 2.16 GB/s, and stock pairs 120 Hz with MIF 1352 MHz; DECON needs
++ * 1440 * 3120 * 120 * 1.1 / 2 pixels per clock = 297 MHz, the 310 MHz
++ * DISP level.
++ */
++#define GS_DECON_MIF_FLOOR_HZ		1352000000UL
++#define GS_DECON_DISP_FLOOR_HZ		310000000UL
++
++enum gs_decon_stage {
++	GS_DECON_STAGE_READ,
++	GS_DECON_STAGE_MEASURE,
++	GS_DECON_STAGE_KMS,
++};
++
++static int stage = GS_DECON_STAGE_KMS;
++module_param(stage, int, 0444);
++MODULE_PARM_DESC(stage,
++		 "0 = log state only, 1 = count frame interrupts, 2 = KMS (default)");
++
++static unsigned int max_refresh = 120;
++module_param(max_refresh, uint, 0444);
++MODULE_PARM_DESC(max_refresh, "Highest refresh rate to offer, 60 or 120 (default)");
++
++static unsigned int screen_off;
++module_param(screen_off, uint, 0644);
++MODULE_PARM_DESC(screen_off,
++		 "With the CRTC off: 0 = send black frames (default), 1 = stop sending frames, 2 = also put the panel to sleep");
++
++static bool fbdev;
++module_param(fbdev, bool, 0444);
++MODULE_PARM_DESC(fbdev,
++		 "Text console on the panel (replaces the boot splash with a console, default: off)");
++
++/*
++ * The S6E3HC4 at 1440x3120, 60 and 120 Hz, as in Google's panel driver.
++ * The bootloader starts it at 60 Hz.
++ */
++#define GS_DECON_MODE(hz) {						\
++	.clock = (1440 + 80 + 24 + 36) * (3120 + 12 + 4 + 14) * (hz) / 1000, \
++	.hdisplay = 1440,						\
++	.hsync_start = 1440 + 80,					\
++	.hsync_end = 1440 + 80 + 24,					\
++	.htotal = 1440 + 80 + 24 + 36,					\
++	.vdisplay = 3120,						\
++	.vsync_start = 3120 + 12,					\
++	.vsync_end = 3120 + 12 + 4,					\
++	.vtotal = 3120 + 12 + 4 + 14,					\
++	.width_mm = 71,							\
++	.height_mm = 155,						\
++	.type = DRM_MODE_TYPE_DRIVER,					\
++}
++
++static const struct drm_display_mode gs_decon_modes[] = {
++	GS_DECON_MODE(60),
++	GS_DECON_MODE(120),
++};
++
++#define GS_DECON_BOOT_HZ		60
++
++struct gs_decon {
++	struct drm_device drm;
++	struct drm_plane plane;
++	struct drm_crtc crtc;
++	struct drm_encoder encoder;
++	struct drm_connector connector;
++
++	struct device *dev;
++	void __iomem *regs;
++	void __iomem *dma;
++	int irq_fs;
++	int irq_fd;
++	u32 int_en_boot;
++	bool irqs_on;
++
++	/* the bootloader's framebuffer, scanned out when no plane is */
++	struct resource boot_fb;
++	u32 width;
++	u32 height;
++	u32 pitch;
++
++	/* optional ACPM DVFS domains, floors at 120 Hz */
++	struct clk *mif;
++	struct clk *disp;
++
++	/* the link and panel, for rate switching; NULL: 60 Hz only */
++	struct gs_dsim *dsim;
++	/* highest rate offered, and the one the panel runs at */
++	unsigned int max_hz;
++	unsigned int hz;
++
++	/* screen off: DECON's trigger masked, panel asleep; shutting down */
++	bool trigger_masked;
++	bool panel_asleep;
++	bool going_down;
++
++	/* the frame done count, for waiting on the next frame */
++	wait_queue_head_t frame_wq;
++	unsigned int fd_seq;
++
++	/* protects everything below */
++	spinlock_t lock;
++	struct drm_pending_vblank_event *event;
++	bool flip_pending;
++	dma_addr_t scanout;
++	bool xrgb;
++	struct delayed_work flip_timeout;
++
++	u64 fs_count;
++	u64 fd_count;
++	u64 flips;
++	u64 flip_timeouts;
++	/* flips completed at frame done, i.e. after a late latch */
++	u64 flips_late;
++	/* from arming the page flip event to sending it */
++	ktime_t flip_armed;
++	u64 flip_latency_us_sum;
++	u32 flip_latency_us_max;
++	u64 flip_latency_n;
++	ktime_t start;
++	u32 frame_count_start;
++	unsigned int storm;
++	ktime_t storm_start;
++	bool kms;
++};
++
++static inline struct gs_decon *drm_to_decon(struct drm_device *drm)
++{
++	return container_of(drm, struct gs_decon, drm);
++}
++
++static void gs_decon_dump(struct gs_decon *dc)
++{
++	static const struct {
++		const char *name;
++		bool dma;
++		u32 offset;
++	} regs[] = {
++		{ "VERSION", false, DECON_VERSION },
++		{ "FRAME_COUNT", false, DECON_FRAME_COUNT },
++		{ "GLOBAL_CON", false, DECON_GLOBAL_CON },
++		{ "TRIG_CON", false, DECON_TRIG_CON },
++		{ "HW_TE_CNT", false, DECON_HW_TE_CNT },
++		{ "SHD_REG_UP_REQ", false, DECON_SHD_REG_UP_REQ },
++		{ "INT_EN", false, DECON_INT_EN },
++		{ "INT_EN_EXTRA", false, DECON_INT_EN_EXTRA },
++		{ "INT_PEND", false, DECON_INT_PEND },
++		{ "INT_PEND_EXTRA", false, DECON_INT_PEND_EXTRA },
++		{ "BLD_BG_SIZE", false, DECON_BLD_BG_IMG_SIZE_PRI },
++		{ "RDMA_ENABLE", true, RDMA_ENABLE },
++		{ "RDMA_IN_CTRL_0", true, RDMA_IN_CTRL_0 },
++		{ "RDMA_SRC_SIZE", true, RDMA_SRC_SIZE },
++		{ "RDMA_SRC_OFFSET", true, RDMA_SRC_OFFSET },
++		{ "RDMA_IMG_SIZE", true, RDMA_IMG_SIZE },
++		{ "RDMA_BASEADDR", true, RDMA_BASEADDR_Y8 },
++		{ "RDMA_BASEADDR*", true, RDMA_BASEADDR_Y8 + DMA_SHD_OFFSET },
++		{ "RDMA_STRIDE_1", true, RDMA_SRC_STRIDE_1 },
++	};
++	int i;
++
++	for (i = 0; i < ARRAY_SIZE(regs); i++)
++		dev_info(dc->dev, "%-15s = 0x%08x\n", regs[i].name,
++			 readl((regs[i].dma ? dc->dma : dc->regs) + regs[i].offset));
++}
++
++/*
++ * Checks that the pipeline is the one this driver knows how to drive:
++ * DECON on in command mode, DPP0 scanning a linear 8888 buffer, full
++ * screen, from the reserved boot framebuffer.
++ */
++static int gs_decon_check_boot_state(struct gs_decon *dc)
++{
++	const u32 run = GLOBAL_CON_OPERATION_MODE_CMD | GLOBAL_CON_DECON_EN |
++			GLOBAL_CON_DECON_EN_F;
++	u32 global = readl(dc->regs + DECON_GLOBAL_CON);
++	u32 size = readl(dc->dma + RDMA_IMG_SIZE);
++	u32 src = readl(dc->dma + RDMA_SRC_SIZE);
++	u32 addr = readl(dc->dma + RDMA_BASEADDR_Y8);
++
++	if ((global & run) != run) {
++		dev_err(dc->dev, "DECON is not running in command mode (GLOBAL_CON 0x%08x)\n",
++			global);
++		return -ENODEV;
++	}
++
++	dc->width = size & 0x3fff;
++	dc->height = (size >> 16) & 0x3fff;
++	/* the source width is the stride in pixels */
++	dc->pitch = (src & 0xffff) * 4;
++	if (dc->width != gs_decon_modes[0].hdisplay ||
++	    dc->height != gs_decon_modes[0].vdisplay ||
++	    (src >> 16) != dc->height || dc->pitch < dc->width * 4) {
++		dev_err(dc->dev, "unexpected scanout size %ux%u (source 0x%08x)\n",
++			dc->width, dc->height, src);
++		return -ENODEV;
++	}
++
++	if (addr != dc->boot_fb.start ||
++	    resource_size(&dc->boot_fb) < (resource_size_t)dc->pitch * dc->height) {
++		dev_err(dc->dev, "DPP0 scans 0x%08x, not the boot framebuffer %pR\n",
++			addr, &dc->boot_fb);
++		return -ENODEV;
++	}
++
++	return 0;
++}
++
++static void gs_decon_storm_check(struct gs_decon *dc)
++{
++	ktime_t now = ktime_get();
++
++	if (ktime_ms_delta(now, dc->storm_start) >= 1000) {
++		dc->storm_start = now;
++		dc->storm = 0;
++	}
++	if (++dc->storm > GS_DECON_IRQ_STORM) {
++		dev_err(dc->dev, "frame interrupt storm, disabling the interrupts\n");
++		disable_irq_nosync(dc->irq_fs);
++		disable_irq_nosync(dc->irq_fd);
++	}
++}
++
++static void gs_decon_send_event_locked(struct gs_decon *dc)
++{
++	struct drm_device *drm = &dc->drm;
++
++	if (!dc->event)
++		return;
++
++	spin_lock(&drm->event_lock);
++	drm_crtc_send_vblank_event(&dc->crtc, dc->event);
++	spin_unlock(&drm->event_lock);
++	drm_crtc_vblank_put(&dc->crtc);
++	dc->event = NULL;
++}
++
++/* The new address is in use: complete the flip. dc->lock is held. */
++static void gs_decon_flip_done_locked(struct gs_decon *dc, bool late)
++{
++	dc->flip_pending = false;
++	dc->flips++;
++	if (late)
++		dc->flips_late++;
++
++	if (dc->event) {
++		u32 us = ktime_us_delta(ktime_get(), dc->flip_armed);
++
++		dc->flip_latency_us_sum += us;
++		dc->flip_latency_n++;
++		dc->flip_latency_us_max = max(dc->flip_latency_us_max, us);
++	}
++	gs_decon_send_event_locked(dc);
++}
++
++/* Whether DECON has taken the requested update, polling up to @poll_us. */
++static bool gs_decon_flip_latched(struct gs_decon *dc, unsigned int poll_us)
++{
++	u32 req;
++
++	if (!poll_us)
++		return !(readl(dc->regs + DECON_SHD_REG_UP_REQ) & SHD_REG_UP_REQ_FLIP);
++
++	return !readl_poll_timeout_atomic(dc->regs + DECON_SHD_REG_UP_REQ, req,
++					  !(req & SHD_REG_UP_REQ_FLIP), 1, poll_us);
++}
++
++static irqreturn_t gs_decon_fs_irq(int irq, void *data)
++{
++	struct gs_decon *dc = data;
++	u32 pend = readl(dc->regs + DECON_INT_PEND);
++
++	if (!(pend & INT_PEND_FRAME_START))
++		return IRQ_NONE;
++
++	/* write-one-to-clear, only our bit */
++	writel(INT_PEND_FRAME_START, dc->regs + DECON_INT_PEND);
++
++	spin_lock(&dc->lock);
++	dc->fs_count++;
++	gs_decon_storm_check(dc);
++
++	if (dc->kms) {
++		drm_crtc_handle_vblank(&dc->crtc);
++
++		/*
++		 * The request bits clear once the new registers are in use,
++		 * as this frame starts. Complete the flip at the vblank that
++		 * latched it, as other drivers do; a request made after the
++		 * latch waits for the next frame.
++		 */
++		if (dc->flip_pending &&
++		    gs_decon_flip_latched(dc, GS_DECON_LATCH_POLL_US))
++			gs_decon_flip_done_locked(dc, false);
++	}
++	spin_unlock(&dc->lock);
++
++	return IRQ_HANDLED;
++}
++
++static irqreturn_t gs_decon_fd_irq(int irq, void *data)
++{
++	struct gs_decon *dc = data;
++	u32 pend = readl(dc->regs + DECON_INT_PEND);
++
++	if (!(pend & INT_PEND_FRAME_DONE))
++		return IRQ_NONE;
++
++	writel(INT_PEND_FRAME_DONE, dc->regs + DECON_INT_PEND);
++
++	spin_lock(&dc->lock);
++	dc->fd_count++;
++	WRITE_ONCE(dc->fd_seq, dc->fd_seq + 1);
++	/* a latch the frame start interrupt missed: don't wait a frame more */
++	if (dc->kms && dc->flip_pending && gs_decon_flip_latched(dc, 0))
++		gs_decon_flip_done_locked(dc, true);
++	spin_unlock(&dc->lock);
++	wake_up(&dc->frame_wq);
++
++	return IRQ_HANDLED;
++}
++
++static void gs_decon_flip_timeout(struct work_struct *work)
++{
++	struct gs_decon *dc = container_of(to_delayed_work(work),
++					   struct gs_decon, flip_timeout);
++	unsigned long flags;
++
++	spin_lock_irqsave(&dc->lock, flags);
++	if (dc->flip_pending) {
++		dc->flip_pending = false;
++		dc->flip_timeouts++;
++		dev_warn_ratelimited(dc->dev,
++				     "flip not taken in %u ms (no TE?), SHD_REG_UP_REQ 0x%08x\n",
++				     GS_DECON_FLIP_TIMEOUT_MS,
++				     readl(dc->regs + DECON_SHD_REG_UP_REQ));
++		spin_lock(&dc->drm.event_lock);
++		if (dc->event) {
++			drm_crtc_send_vblank_event(&dc->crtc, dc->event);
++			dc->event = NULL;
++			spin_unlock(&dc->drm.event_lock);
++			spin_unlock_irqrestore(&dc->lock, flags);
++			drm_crtc_vblank_put(&dc->crtc);
++			return;
++		}
++		spin_unlock(&dc->drm.event_lock);
++	}
++	spin_unlock_irqrestore(&dc->lock, flags);
++}
++
++/*
++ * Points DPP0 at @addr and asks DECON to take it at the next frame start.
++ * The caller holds dc->lock.
++ */
++static void gs_decon_set_scanout_locked(struct gs_decon *dc, dma_addr_t addr)
++{
++	/*
++	 * The bootloader scans out ARGB8888; DRM buffers are XRGB8888, whose
++	 * fourth byte is undefined. Switch with the first DRM buffer, in the
++	 * same shadow update, so the boot picture stays until then.
++	 */
++	if (!dc->xrgb && addr != dc->boot_fb.start) {
++		u32 ctrl = readl(dc->dma + RDMA_IN_CTRL_0);
++
++		ctrl &= ~IDMA_IMG_FORMAT;
++		ctrl |= FIELD_PREP(IDMA_IMG_FORMAT, IDMA_IMG_FORMAT_XRGB8888);
++		writel(ctrl, dc->dma + RDMA_IN_CTRL_0);
++		dc->xrgb = true;
++	}
++
++	writel(lower_32_bits(addr), dc->dma + RDMA_BASEADDR_Y8);
++	writel(readl(dc->regs + DECON_SHD_REG_UP_REQ) | SHD_REG_UP_REQ_FLIP,
++	       dc->regs + DECON_SHD_REG_UP_REQ);
++	dc->scanout = addr;
++	dc->flip_pending = true;
++}
++
++/*
++ * Scans out the boot framebuffer, cleared to black, so that no buffer
++ * DRM is about to free is still being read. Waits until DECON has taken
++ * the new address, or two frames at 60 Hz.
++ */
++static void gs_decon_park(struct gs_decon *dc)
++{
++	size_t size = (size_t)dc->pitch * dc->height;
++	unsigned long flags;
++	void *fb;
++	u32 val;
++
++	if (dc->scanout == dc->boot_fb.start)
++		return;
++
++	fb = memremap(dc->boot_fb.start, size, MEMREMAP_WC);
++	if (fb) {
++		memset(fb, 0, size);
++		memunmap(fb);
++	}
++
++	spin_lock_irqsave(&dc->lock, flags);
++	gs_decon_set_scanout_locked(dc, dc->boot_fb.start);
++	spin_unlock_irqrestore(&dc->lock, flags);
++
++	if (readl_poll_timeout(dc->regs + DECON_SHD_REG_UP_REQ, val,
++			       !(val & SHD_REG_UP_REQ_FLIP), 1000, 40000))
++		dev_warn(dc->dev, "boot framebuffer not taken yet\n");
++}
++
++/* Refresh rate */
++
++static void gs_decon_wait_frame_done(struct gs_decon *dc)
++{
++	unsigned int seq = READ_ONCE(dc->fd_seq);
++
++	if (!wait_event_timeout(dc->frame_wq, READ_ONCE(dc->fd_seq) != seq,
++				msecs_to_jiffies(GS_DECON_FRAME_DONE_TIMEOUT_MS)))
++		dev_warn_ratelimited(dc->dev, "no frame done in %u ms\n",
++				     GS_DECON_FRAME_DONE_TIMEOUT_MS);
++}
++
++/*
++ * A floor, not a rate: others may vote higher. The clock core leaves a
++ * clock that already runs at or above the floor alone, and dropping the
++ * floor changes nothing either; the rate stays until someone sets another.
++ */
++static void gs_decon_set_floors(struct gs_decon *dc, unsigned int hz)
++{
++	bool high = hz > GS_DECON_BOOT_HZ;
++	int ret;
++
++	ret = clk_set_min_rate(dc->mif, high ? GS_DECON_MIF_FLOOR_HZ : 0);
++	if (ret)
++		dev_warn(dc->dev, "MIF floor for %u Hz: %d\n", hz, ret);
++	ret = clk_set_min_rate(dc->disp, high ? GS_DECON_DISP_FLOOR_HZ : 0);
++	if (ret)
++		dev_warn(dc->dev, "DISP floor for %u Hz: %d\n", hz, ret);
++
++	if (high)
++		dev_dbg(dc->dev, "MIF %lu Hz, DISP %lu Hz\n",
++			clk_get_rate(dc->mif), clk_get_rate(dc->disp));
++}
++
++/*
++ * Switches the panel and the link to @hz (DISPLAY-PLAN.md D5.2): floors
++ * up first, then, right after a frame has gone out, the DSIM timers and
++ * the panel's rate set, which it takes at its next frame; floors down last.
++ * Called from the commit tail. On failure everything stays at the old rate.
++ */
++static void gs_decon_set_rate(struct gs_decon *dc, unsigned int hz)
++{
++	unsigned int old = dc->hz;
++	int ret;
++
++	if (!dc->dsim || hz == old)
++		return;
++
++	if (hz > old)
++		gs_decon_set_floors(dc, hz);
++
++	gs_decon_wait_frame_done(dc);
++	ret = gs_dsim_set_refresh_rate(dc->dsim, hz);
++	if (ret) {
++		dev_err(dc->dev, "staying at %u Hz: %d\n", old, ret);
++		if (hz > old)
++			gs_decon_set_floors(dc, old);
++		return;
++	}
++	dc->hz = hz;
++
++	if (hz < old)
++		gs_decon_set_floors(dc, hz);
++
++	dev_info(dc->dev, "%u Hz\n", hz);
++}
++
++/*
++ * With the trigger masked DECON sends no frames, and so reads no memory;
++ * it stays enabled (GLOBAL_CON untouched), as the bootloader leaves it.
++ */
++static void gs_decon_set_trigger(struct gs_decon *dc, bool run)
++{
++	u32 val = readl(dc->regs + DECON_TRIG_CON);
++
++	if (run)
++		val &= ~TRIG_CON_HW_TRIG_MASK_DECON;
++	else
++		val |= TRIG_CON_HW_TRIG_MASK_DECON;
++	writel(val, dc->regs + DECON_TRIG_CON);
++	dc->trigger_masked = !run;
++}
++
++/*
++ * Screen off, after the black frame and the drop to 60 Hz: stop the
++ * frames (screen_off >= 1), then display off, sleep in and reset
++ * (screen_off >= 2). Undone by gs_decon_screen_on().
++ */
++static void gs_decon_screen_off(struct gs_decon *dc)
++{
++	unsigned int mode = READ_ONCE(screen_off);
++	int ret;
++
++	if (dc->going_down || !mode)
++		return;
++
++	/* the black frame has gone out */
++	gs_decon_wait_frame_done(dc);
++	gs_decon_set_trigger(dc, false);
++
++	if (mode < 2 || !dc->dsim || dc->hz != GS_DECON_BOOT_HZ)
++		return;
++
++	ret = gs_dsim_panel_sleep(dc->dsim);
++	if (ret) {
++		dev_err(dc->dev, "panel sleep failed: %d\n", ret);
++		return;
++	}
++	dc->panel_asleep = true;
++	dev_dbg(dc->dev, "panel asleep\n");
++}
++
++/*
++ * Cold init of a sleeping panel, one black frame, display on; or just let
++ * frames run again.
++ */
++static void gs_decon_screen_on(struct gs_decon *dc)
++{
++	bool wake = dc->panel_asleep;
++	int ret;
++
++	if (wake) {
++		ret = gs_dsim_panel_wake(dc->dsim, false);
++		if (ret) {
++			/* still in reset: the next screen on tries again */
++			dev_err(dc->dev, "panel cold init failed: %d\n", ret);
++			wake = false;
++		}
++	}
++
++	if (dc->trigger_masked) {
++		gs_decon_set_trigger(dc, true);
++		if (wake)
++			gs_decon_wait_frame_done(dc);
++	}
++
++	if (wake) {
++		ret = gs_dsim_panel_wake(dc->dsim, true);
++		if (ret)
++			dev_err(dc->dev, "panel display on failed: %d\n", ret);
++		dc->panel_asleep = false;
++		dev_dbg(dc->dev, "panel awake\n");
++	}
++}
++
++static unsigned int gs_decon_mode_hz(struct gs_decon *dc,
++				     const struct drm_display_mode *mode)
++{
++	int i;
++
++	for (i = 0; i < ARRAY_SIZE(gs_decon_modes); i++)
++		if (drm_mode_equal(mode, &gs_decon_modes[i]) &&
++		    drm_mode_vrefresh(&gs_decon_modes[i]) <= dc->max_hz)
++			return drm_mode_vrefresh(&gs_decon_modes[i]);
++
++	return 0;
++}
++
++/* DRM */
++
++static int gs_decon_plane_atomic_check(struct drm_plane *plane,
++				       struct drm_atomic_commit *state)
++{
++	struct drm_plane_state *new = drm_atomic_get_new_plane_state(state, plane);
++	struct gs_decon *dc = drm_to_decon(plane->dev);
++	struct drm_crtc_state *crtc_state;
++	struct drm_framebuffer *fb = new->fb;
++	dma_addr_t addr;
++	int ret;
++
++	if (!new->crtc || !fb)
++		return 0;
++
++	crtc_state = drm_atomic_get_new_crtc_state(state, new->crtc);
++	if (!crtc_state)
++		return -EINVAL;
++
++	ret = drm_atomic_helper_check_plane_state(new, crtc_state,
++						  DRM_PLANE_NO_SCALING,
++						  DRM_PLANE_NO_SCALING,
++						  false, false);
++	if (ret)
++		return ret;
++
++	/* Only the base address changes: the layout must be the boot one. */
++	if (fb->width != dc->width || fb->height != dc->height ||
++	    fb->pitches[0] != dc->pitch || new->src_x || new->src_y) {
++		drm_dbg_kms(plane->dev, "fb %ux%u pitch %u does not match %ux%u pitch %u\n",
++			    fb->width, fb->height, fb->pitches[0],
++			    dc->width, dc->height, dc->pitch);
++		return -EINVAL;
++	}
++
++	/* DPP0 takes a 32-bit address and the DPU SysMMU is bypassed. */
++	addr = drm_fb_dma_get_gem_addr(fb, new, 0);
++	if (upper_32_bits(addr))
++		return -EINVAL;
++
++	return 0;
++}
++
++static void gs_decon_plane_atomic_update(struct drm_plane *plane,
++					 struct drm_atomic_commit *state)
++{
++	struct drm_plane_state *new = drm_atomic_get_new_plane_state(state, plane);
++	struct gs_decon *dc = drm_to_decon(plane->dev);
++	unsigned long flags;
++
++	if (!new->fb || !new->visible)
++		return;
++
++	spin_lock_irqsave(&dc->lock, flags);
++	gs_decon_set_scanout_locked(dc, drm_fb_dma_get_gem_addr(new->fb, new, 0));
++	spin_unlock_irqrestore(&dc->lock, flags);
++}
++
++static void gs_decon_plane_atomic_disable(struct drm_plane *plane,
++					  struct drm_atomic_commit *state)
++{
++	gs_decon_park(drm_to_decon(plane->dev));
++}
++
++static const struct drm_plane_helper_funcs gs_decon_plane_helper_funcs = {
++	DRM_GEM_SHADOW_PLANE_HELPER_FUNCS,
++	.atomic_check = gs_decon_plane_atomic_check,
++	.atomic_update = gs_decon_plane_atomic_update,
++	.atomic_disable = gs_decon_plane_atomic_disable,
++};
++
++static const struct drm_plane_funcs gs_decon_plane_funcs = {
++	.update_plane = drm_atomic_helper_update_plane,
++	.disable_plane = drm_atomic_helper_disable_plane,
++	.destroy = drm_plane_cleanup,
++	DRM_GEM_SHADOW_PLANE_FUNCS,
++};
++
++static const u32 gs_decon_formats[] = {
++	DRM_FORMAT_XRGB8888,
++};
++
++static int gs_decon_crtc_atomic_check(struct drm_crtc *crtc,
++				      struct drm_atomic_commit *state)
++{
++	struct drm_crtc_state *old = drm_atomic_get_old_crtc_state(state, crtc);
++	struct drm_crtc_state *new = drm_atomic_get_new_crtc_state(state, crtc);
++	struct gs_decon *dc = drm_to_decon(crtc->dev);
++	unsigned int hz;
++
++	if (new->enable) {
++		hz = gs_decon_mode_hz(dc, &new->mode);
++		if (!hz)
++			return -EINVAL;
++		/* e.g. gs_dsim_cmd.allow_tx turned off */
++		if (dc->dsim && hz != dc->hz &&
++		    !gs_dsim_can_set_refresh_rate(dc->dsim, hz))
++			return -EINVAL;
++
++		/*
++		 * The modes differ only in the rate, which the panel switches
++		 * while running (atomic_begin): no modeset needed.
++		 */
++		if (new->mode_changed && old->enable && !new->connectors_changed)
++			new->mode_changed = false;
++	}
++
++	/*
++	 * Only a CRTC that scans out needs the primary plane. Compositors
++	 * turn the screen off (DPMS) by detaching the plane together with
++	 * ACTIVE=0, and closing a client's framebuffers detaches it too.
++	 */
++	if (!new->active)
++		return 0;
++
++	return drm_atomic_helper_check_crtc_primary_plane(new);
++}
++
++static void gs_decon_crtc_atomic_begin(struct drm_crtc *crtc,
++				       struct drm_atomic_commit *state)
++{
++	struct drm_crtc_state *new = drm_atomic_get_new_crtc_state(state, crtc);
++	struct gs_decon *dc = drm_to_decon(crtc->dev);
++
++	/* only called for an active CRTC (DRM_PLANE_COMMIT_ACTIVE_ONLY) */
++	gs_decon_set_rate(dc, drm_mode_vrefresh(&new->mode));
++}
++
++static void gs_decon_crtc_atomic_flush(struct drm_crtc *crtc,
++				       struct drm_atomic_commit *state)
++{
++	struct gs_decon *dc = drm_to_decon(crtc->dev);
++	struct drm_pending_vblank_event *event = crtc->state->event;
++	unsigned long flags;
++
++	if (!event)
++		return;
++	crtc->state->event = NULL;
++
++	spin_lock_irqsave(&dc->lock, flags);
++	if (crtc->state->active && dc->flip_pending &&
++	    !drm_crtc_vblank_get(crtc)) {
++		/* completed by the frame start that takes the new address */
++		WARN_ON(dc->event);
++		dc->event = event;
++		dc->flip_armed = ktime_get();
++		mod_delayed_work(system_wq, &dc->flip_timeout,
++				 msecs_to_jiffies(GS_DECON_FLIP_TIMEOUT_MS));
++	} else {
++		spin_lock(&crtc->dev->event_lock);
++		drm_crtc_send_vblank_event(crtc, event);
++		spin_unlock(&crtc->dev->event_lock);
++	}
++	spin_unlock_irqrestore(&dc->lock, flags);
++}
++
++static void gs_decon_crtc_atomic_enable(struct drm_crtc *crtc,
++					struct drm_atomic_commit *state)
++{
++	gs_decon_screen_on(drm_to_decon(crtc->dev));
++	drm_crtc_vblank_on(crtc);
++}
++
++static void gs_decon_crtc_atomic_disable(struct drm_crtc *crtc,
++					 struct drm_atomic_commit *state)
++{
++	struct gs_decon *dc = drm_to_decon(crtc->dev);
++
++	/*
++	 * DECON keeps running: stopping it needs the full init to restart,
++	 * which this driver does not have. Scan out black instead, at 60 Hz
++	 * to halve the memory traffic of the black frames. The panel itself
++	 * is switched off through its backlight's bl_power, or here with
++	 * screen_off=2.
++	 */
++	gs_decon_park(dc);
++	gs_decon_set_rate(dc, GS_DECON_BOOT_HZ);
++	drm_crtc_vblank_off(crtc);
++	gs_decon_screen_off(dc);
++
++	/* no atomic_flush for an inactive CRTC: complete the commit here */
++	spin_lock_irq(&crtc->dev->event_lock);
++	if (crtc->state->event && !crtc->state->active) {
++		drm_crtc_send_vblank_event(crtc, crtc->state->event);
++		crtc->state->event = NULL;
++	}
++	spin_unlock_irq(&crtc->dev->event_lock);
++}
++
++static int gs_decon_enable_vblank(struct drm_crtc *crtc)
++{
++	/* the frame start interrupt stays on while the driver is bound */
++	return 0;
++}
++
++static void gs_decon_disable_vblank(struct drm_crtc *crtc)
++{
++}
++
++static const struct drm_crtc_helper_funcs gs_decon_crtc_helper_funcs = {
++	.atomic_check = gs_decon_crtc_atomic_check,
++	.atomic_begin = gs_decon_crtc_atomic_begin,
++	.atomic_flush = gs_decon_crtc_atomic_flush,
++	.atomic_enable = gs_decon_crtc_atomic_enable,
++	.atomic_disable = gs_decon_crtc_atomic_disable,
++};
++
++static const struct drm_crtc_funcs gs_decon_crtc_funcs = {
++	.reset = drm_atomic_helper_crtc_reset,
++	.destroy = drm_crtc_cleanup,
++	.set_config = drm_atomic_helper_set_config,
++	.page_flip = drm_atomic_helper_page_flip,
++	.atomic_duplicate_state = drm_atomic_helper_crtc_duplicate_state,
++	.atomic_destroy_state = drm_atomic_helper_crtc_destroy_state,
++	.enable_vblank = gs_decon_enable_vblank,
++	.disable_vblank = gs_decon_disable_vblank,
++};
++
++static int gs_decon_connector_get_modes(struct drm_connector *connector)
++{
++	struct gs_decon *dc = drm_to_decon(connector->dev);
++	int i, count = 0;
++
++	for (i = 0; i < ARRAY_SIZE(gs_decon_modes); i++) {
++		unsigned int hz = drm_mode_vrefresh(&gs_decon_modes[i]);
++		struct drm_display_mode *mode;
++
++		if (hz > dc->max_hz)
++			continue;
++		mode = drm_mode_duplicate(connector->dev, &gs_decon_modes[i]);
++		if (!mode)
++			break;
++		if (hz == dc->max_hz)
++			mode->type |= DRM_MODE_TYPE_PREFERRED;
++		drm_mode_set_name(mode);
++		drm_mode_probed_add(connector, mode);
++		count++;
++	}
++	connector->display_info.width_mm = gs_decon_modes[0].width_mm;
++	connector->display_info.height_mm = gs_decon_modes[0].height_mm;
++
++	return count;
++}
++
++static const struct drm_connector_helper_funcs gs_decon_connector_helper_funcs = {
++	.get_modes = gs_decon_connector_get_modes,
++};
++
++static const struct drm_connector_funcs gs_decon_connector_funcs = {
++	.reset = drm_atomic_helper_connector_reset,
++	.fill_modes = drm_helper_probe_single_connector_modes,
++	.atomic_duplicate_state = drm_atomic_helper_connector_duplicate_state,
++	.atomic_destroy_state = drm_atomic_helper_connector_destroy_state,
++};
++
++static const struct drm_encoder_funcs gs_decon_encoder_funcs = {
++	.destroy = drm_encoder_cleanup,
++};
++
++static const struct drm_mode_config_funcs gs_decon_mode_config_funcs = {
++	.fb_create = drm_gem_fb_create,
++	.atomic_check = drm_atomic_helper_check,
++	.atomic_commit = drm_atomic_helper_commit,
++};
++
++/*
++ * Planes only on an active CRTC, so a CRTC turned off keeps scanning the
++ * black frame; and the commit is done when its flip is, which the frame
++ * start interrupt (or the flip timeout) signals.
++ */
++static void gs_decon_commit_tail(struct drm_atomic_commit *state)
++{
++	struct drm_device *drm = state->dev;
++
++	drm_atomic_helper_commit_modeset_disables(drm, state);
++	drm_atomic_helper_commit_modeset_enables(drm, state);
++	drm_atomic_helper_commit_planes(drm, state, DRM_PLANE_COMMIT_ACTIVE_ONLY);
++	drm_atomic_helper_commit_hw_done(state);
++	drm_atomic_helper_wait_for_flip_done(drm, state);
++	drm_atomic_helper_cleanup_planes(drm, state);
++}
++
++static const struct drm_mode_config_helper_funcs gs_decon_mode_config_helpers = {
++	.atomic_commit_tail = gs_decon_commit_tail,
++};
++
++DEFINE_DRM_GEM_DMA_FOPS(gs_decon_fops);
++
++static const struct drm_driver gs_decon_driver = {
++	.driver_features = DRIVER_GEM | DRIVER_MODESET | DRIVER_ATOMIC,
++	.fops = &gs_decon_fops,
++	DRM_GEM_DMA_DRIVER_OPS,
++	DRM_FBDEV_DMA_DRIVER_OPS,
++	.name = "gs-decon",
++	.desc = "Google gs201 DECON (flip only)",
++	.major = 0,
++	.minor = 1,
++};
++
++static void gs_decon_release_pool(struct drm_device *drm, void *data)
++{
++	/* after the last scanout buffer is gone */
++	of_reserved_mem_device_release(data);
++}
++
++static int gs_decon_kms_init(struct gs_decon *dc)
++{
++	struct drm_device *drm = &dc->drm;
++	int ret;
++
++	ret = drmm_mode_config_init(drm);
++	if (ret)
++		return ret;
++
++	drm->mode_config.min_width = dc->width;
++	drm->mode_config.max_width = dc->width;
++	drm->mode_config.min_height = dc->height;
++	drm->mode_config.max_height = dc->height;
++	drm->mode_config.preferred_depth = 24;
++	drm->mode_config.funcs = &gs_decon_mode_config_funcs;
++	drm->mode_config.helper_private = &gs_decon_mode_config_helpers;
++
++	ret = drm_universal_plane_init(drm, &dc->plane, 1, &gs_decon_plane_funcs,
++				       gs_decon_formats,
++				       ARRAY_SIZE(gs_decon_formats), NULL,
++				       DRM_PLANE_TYPE_PRIMARY, NULL);
++	if (ret)
++		return ret;
++	drm_plane_helper_add(&dc->plane, &gs_decon_plane_helper_funcs);
++
++	ret = drm_crtc_init_with_planes(drm, &dc->crtc, &dc->plane, NULL,
++					&gs_decon_crtc_funcs, NULL);
++	if (ret)
++		return ret;
++	drm_crtc_helper_add(&dc->crtc, &gs_decon_crtc_helper_funcs);
++
++	ret = drm_encoder_init(drm, &dc->encoder, &gs_decon_encoder_funcs,
++			       DRM_MODE_ENCODER_DSI, NULL);
++	if (ret)
++		return ret;
++	dc->encoder.possible_crtcs = drm_crtc_mask(&dc->crtc);
++
++	ret = drmm_connector_init(drm, &dc->connector, &gs_decon_connector_funcs,
++				  DRM_MODE_CONNECTOR_DSI, NULL);
++	if (ret)
++		return ret;
++	drm_connector_helper_add(&dc->connector, &gs_decon_connector_helper_funcs);
++
++	ret = drm_connector_attach_encoder(&dc->connector, &dc->encoder);
++	if (ret)
++		return ret;
++
++	ret = drm_vblank_init(drm, 1);
++	if (ret)
++		return ret;
++
++	drm_mode_config_reset(drm);
++
++	return 0;
++}
++
++/* sysfs */
++
++static ssize_t stats_show(struct device *dev, struct device_attribute *attr,
++			  char *buf)
++{
++	struct gs_decon *dc = dev_get_drvdata(dev);
++	u64 fs, fd, flips, timeouts, late, lat_sum, lat_n;
++	u32 lat_max;
++	unsigned long flags;
++	s64 ms;
++	u32 frames;
++
++	spin_lock_irqsave(&dc->lock, flags);
++	fs = dc->fs_count;
++	fd = dc->fd_count;
++	flips = dc->flips;
++	timeouts = dc->flip_timeouts;
++	late = dc->flips_late;
++	lat_sum = dc->flip_latency_us_sum;
++	lat_n = dc->flip_latency_n;
++	lat_max = dc->flip_latency_us_max;
++	ms = ktime_ms_delta(ktime_get(), dc->start);
++	spin_unlock_irqrestore(&dc->lock, flags);
++	frames = readl(dc->regs + DECON_FRAME_COUNT) - dc->frame_count_start;
++
++	return sysfs_emit(buf,
++			  "elapsed_ms %lld\nframe_start %llu\nframe_done %llu\n"
++			  "frame_start_mhz %llu\nframe_count %u\nhw_te_cnt 0x%08x\n"
++			  "flips %llu\nflip_timeouts %llu\nrefresh_hz %u\n"
++			  "trigger_masked %d\npanel_asleep %d\n"
++			  "flips_late %llu\nflip_latency_us_avg %llu\nflip_latency_us_max %u\n",
++			  ms, fs, fd, ms > 0 ? div64_u64(fs * 1000000, ms) : 0,
++			  frames, readl(dc->regs + DECON_HW_TE_CNT), flips,
++			  timeouts, READ_ONCE(dc->hz), READ_ONCE(dc->trigger_masked),
++			  READ_ONCE(dc->panel_asleep), late,
++			  lat_n ? div64_u64(lat_sum, lat_n) : 0, lat_max);
++}
++static DEVICE_ATTR_RO(stats);
++
++static struct attribute *gs_decon_attrs[] = {
++	&dev_attr_stats.attr,
++	NULL
++};
++ATTRIBUTE_GROUPS(gs_decon);
++
++/* probe */
++
++static int gs_decon_irqs_on(struct gs_decon *dc)
++{
++	struct platform_device *pdev = to_platform_device(dc->dev);
++	int ret;
++
++	dc->irq_fs = platform_get_irq_byname(pdev, "frame_start");
++	if (dc->irq_fs < 0)
++		return dc->irq_fs;
++	dc->irq_fd = platform_get_irq_byname(pdev, "frame_done");
++	if (dc->irq_fd < 0)
++		return dc->irq_fd;
++
++	ret = devm_request_irq(dc->dev, dc->irq_fs, gs_decon_fs_irq, 0,
++			       "gs-decon-fs", dc);
++	if (ret)
++		return ret;
++	ret = devm_request_irq(dc->dev, dc->irq_fd, gs_decon_fd_irq, 0,
++			       "gs-decon-fd", dc);
++	if (ret)
++		return ret;
++
++	dc->int_en_boot = readl(dc->regs + DECON_INT_EN);
++	dc->start = ktime_get();
++	dc->storm_start = dc->start;
++	dc->frame_count_start = readl(dc->regs + DECON_FRAME_COUNT);
++	dc->fs_count = 0;
++	dc->fd_count = 0;
++
++	dev_info(dc->dev, "enabling frame start/done interrupts (INT_EN 0x%08x)\n",
++		 dc->int_en_boot);
++	writel(INT_PEND_FRAME_START | INT_PEND_FRAME_DONE,
++	       dc->regs + DECON_INT_PEND);
++	writel(dc->int_en_boot | INT_EN | INT_EN_FRAME_START | INT_EN_FRAME_DONE,
++	       dc->regs + DECON_INT_EN);
++	dc->irqs_on = true;
++
++	return 0;
++}
++
++static void gs_decon_irqs_off(struct gs_decon *dc)
++{
++	if (!dc->irqs_on)
++		return;
++
++	writel(dc->int_en_boot, dc->regs + DECON_INT_EN);
++	writel(INT_PEND_FRAME_START | INT_PEND_FRAME_DONE,
++	       dc->regs + DECON_INT_PEND);
++	dc->irqs_on = false;
++}
++
++static void gs_decon_put_dsim(void *data)
++{
++	gs_dsim_put(data);
++}
++
++/*
++ * The DSIM on the output port switches the link and the panel between
++ * rates. Without a port, the driver offers the bootloader's 60 Hz only.
++ */
++static int gs_decon_get_dsim(struct gs_decon *dc)
++{
++	struct device_node *np;
++	unsigned int hz;
++	int ret;
++
++	np = of_graph_get_remote_node(dc->dev->of_node, 0, 0);
++	if (!np) {
++		dev_info(dc->dev, "no DSIM on the output port: 60 Hz only\n");
++		return 0;
++	}
++	dc->dsim = gs_dsim_get(dc->dev, np);
++	of_node_put(np);
++	if (IS_ERR(dc->dsim)) {
++		ret = PTR_ERR(dc->dsim);
++		dc->dsim = NULL;
++		return dev_err_probe(dc->dev, ret, "DSIM and panel\n");
++	}
++	ret = devm_add_action_or_reset(dc->dev, gs_decon_put_dsim, dc->dsim);
++	if (ret) {
++		dc->dsim = NULL;
++		return ret;
++	}
++
++	hz = gs_dsim_refresh_rate(dc->dsim);
++	if (!hz) {
++		/* timers we have no table for: leave the link alone */
++		dc->dsim = NULL;
++		dev_warn(dc->dev, "unknown DSIM timers: 60 Hz only\n");
++		return 0;
++	}
++	dc->hz = hz;
++
++	if (max_refresh >= 120 && dc->mif &&
++	    gs_dsim_can_set_refresh_rate(dc->dsim, 120))
++		dc->max_hz = 120;
++	else if (max_refresh >= 120)
++		dev_info(dc->dev, "120 Hz needs the mif clock, gs_dsim_cmd.allow_tx and the panel\n");
++	if (dc->hz > dc->max_hz)
++		dc->max_hz = dc->hz;
++	/* a kexec from a kernel that left 120 Hz */
++	if (dc->hz > GS_DECON_BOOT_HZ)
++		gs_decon_set_floors(dc, dc->hz);
++
++	return 0;
++}
++
++static int gs_decon_probe(struct platform_device *pdev)
++{
++	struct device *dev = &pdev->dev;
++	struct gs_decon *dc;
++	u32 val;
++	int ret;
++
++	dc = devm_drm_dev_alloc(dev, &gs_decon_driver, struct gs_decon, drm);
++	if (IS_ERR(dc))
++		return PTR_ERR(dc);
++
++	dc->dev = dev;
++	dc->hz = GS_DECON_BOOT_HZ;
++	dc->max_hz = GS_DECON_BOOT_HZ;
++	spin_lock_init(&dc->lock);
++	init_waitqueue_head(&dc->frame_wq);
++	INIT_DELAYED_WORK(&dc->flip_timeout, gs_decon_flip_timeout);
++	platform_set_drvdata(pdev, dc);
++
++	ret = of_reserved_mem_region_to_resource_byname(dev->of_node,
++							"boot-framebuffer",
++							&dc->boot_fb);
++	if (ret)
++		return dev_err_probe(dev, ret, "no boot-framebuffer region\n");
++
++	/*
++	 * Mapping the registers of an unpowered block and reading them hangs
++	 * the SoC. Nothing in Linux powers the display down (no gs201 power
++	 * domain driver, pd_ignore_unused), and the bootloader leaves it on
++	 * and scanning out, which simpledrm relies on too.
++	 */
++	dc->regs = devm_platform_ioremap_resource_byname(pdev, "main");
++	if (IS_ERR(dc->regs))
++		return PTR_ERR(dc->regs);
++	dc->dma = devm_platform_ioremap_resource_byname(pdev, "dma");
++	if (IS_ERR(dc->dma))
++		return PTR_ERR(dc->dma);
++
++	/* the full dump for the debug stages; probe may be deferred often */
++	if (stage < GS_DECON_STAGE_KMS) {
++		dev_info(dev, "stage %d, bootloader state:\n", stage);
++		gs_decon_dump(dc);
++	} else {
++		dev_dbg(dev, "GLOBAL_CON 0x%08x TRIG_CON 0x%08x RDMA_IN_CTRL_0 0x%08x RDMA_BASEADDR 0x%08x\n",
++			readl(dc->regs + DECON_GLOBAL_CON),
++			readl(dc->regs + DECON_TRIG_CON),
++			readl(dc->dma + RDMA_IN_CTRL_0),
++			readl(dc->dma + RDMA_BASEADDR_Y8));
++	}
++	dc->start = ktime_get();
++	dc->frame_count_start = readl(dc->regs + DECON_FRAME_COUNT);
++
++	if (stage < GS_DECON_STAGE_MEASURE)
++		return 0;
++
++	ret = gs_decon_check_boot_state(dc);
++	if (ret)
++		return ret;
++
++	/*
++	 * Frames, and so frame start interrupts, only come while the
++	 * hardware trigger is enabled and unmasked (TRIG_CON 0x3061, written
++	 * by our init). The bootloader leaves it masked (0x3070).
++	 */
++	val = readl(dc->regs + DECON_TRIG_CON);
++	if (!(val & TRIG_CON_HW_TRIG_EN) || (val & TRIG_CON_HW_TRIG_MASK_DECON))
++		dev_warn(dev, "TE trigger is off (TRIG_CON 0x%08x): no frames will be sent\n",
++			 val);
++
++	dc->mif = devm_clk_get_optional(dev, "mif");
++	if (IS_ERR(dc->mif))
++		return dev_err_probe(dev, PTR_ERR(dc->mif), "mif clock\n");
++	dc->disp = devm_clk_get_optional(dev, "disp");
++	if (IS_ERR(dc->disp))
++		return dev_err_probe(dev, PTR_ERR(dc->disp), "disp clock\n");
++	if (dc->mif)
++		dev_info(dev, "MIF at %lu Hz\n", clk_get_rate(dc->mif));
++	if (dc->disp)
++		dev_info(dev, "DISP at %lu Hz\n", clk_get_rate(dc->disp));
++
++	if (stage >= GS_DECON_STAGE_KMS) {
++		u32 format = FIELD_GET(IDMA_IMG_FORMAT,
++				       readl(dc->dma + RDMA_IN_CTRL_0));
++
++		if (format > IDMA_IMG_FORMAT_LAST_8888)
++			return dev_err_probe(dev, -ENODEV,
++					     "DPP0 format %u is not 32-bit RGB\n",
++					     format);
++		dc->xrgb = format == IDMA_IMG_FORMAT_XRGB8888;
++
++		ret = gs_decon_get_dsim(dc);
++		if (ret)
++			return ret;
++
++		ret = of_reserved_mem_device_init_by_name(dev, dev->of_node, "pool");
++		if (ret)
++			return dev_err_probe(dev, ret, "no scanout pool\n");
++		ret = drmm_add_action_or_reset(&dc->drm, gs_decon_release_pool, dev);
++		if (ret)
++			return ret;
++		ret = dma_set_mask_and_coherent(dev, DMA_BIT_MASK(32));
++		if (ret)
++			return ret;
++
++		dc->scanout = dc->boot_fb.start;
++		ret = gs_decon_kms_init(dc);
++		if (ret)
++			return ret;
++	}
++
++	ret = gs_decon_irqs_on(dc);
++	if (ret)
++		return ret;
++
++	if (stage < GS_DECON_STAGE_KMS)
++		return 0;
++
++	/* simpledrm scans the same buffer: take the display from it */
++	ret = aperture_remove_conflicting_devices(dc->boot_fb.start,
++						  resource_size(&dc->boot_fb),
++						  gs_decon_driver.name);
++	if (ret)
++		goto err_irqs;
++
++	dc->kms = true;
++	ret = drm_dev_register(&dc->drm, 0);
++	if (ret)
++		goto err_kms;
++
++	/*
++	 * Without an fbdev console nothing draws until a client (Plymouth,
++	 * the compositor) commits, so the boot splash stays on screen, and
++	 * nothing restores a console when the last client exits.
++	 */
++	if (fbdev)
++		drm_client_setup(&dc->drm, NULL);
++	dev_info(dev, "flip-only KMS on DECON0, %ux%u, up to %u Hz (at %u Hz)\n",
++		 dc->width, dc->height, dc->max_hz, dc->hz);
++
++	return 0;
++
++err_kms:
++	dc->kms = false;
++err_irqs:
++	gs_decon_irqs_off(dc);
++	return ret;
++}
++
++static void gs_decon_remove(struct platform_device *pdev)
++{
++	struct gs_decon *dc = platform_get_drvdata(pdev);
++
++	if (dc->kms) {
++		dc->going_down = true;
++		drm_dev_unplug(&dc->drm);
++		drm_atomic_helper_shutdown(&dc->drm);
++		/* no DRM buffer may still be scanned out once they are freed */
++		gs_decon_park(dc);
++		cancel_delayed_work_sync(&dc->flip_timeout);
++		/* leave the panel lit and the frames running, as at boot */
++		gs_decon_screen_on(dc);
++	}
++	gs_decon_irqs_off(dc);
++}
++
++static void gs_decon_shutdown(struct platform_device *pdev)
++{
++	struct gs_decon *dc = platform_get_drvdata(pdev);
++
++	if (dc->kms) {
++		dc->going_down = true;
++		drm_atomic_helper_shutdown(&dc->drm);
++		/* a kexec'd kernel expects the boot state: panel lit, frames running */
++		gs_decon_screen_on(dc);
++	}
++}
++
++static const struct of_device_id gs_decon_of_match[] = {
++	{ .compatible = "google,gs201-decon" },
++	{ /* sentinel */ }
++};
++MODULE_DEVICE_TABLE(of, gs_decon_of_match);
++
++static struct platform_driver gs_decon_platform_driver = {
++	.probe = gs_decon_probe,
++	.remove = gs_decon_remove,
++	.shutdown = gs_decon_shutdown,
++	.driver = {
++		.name = "gs-decon",
++		.of_match_table = gs_decon_of_match,
++		.dev_groups = gs_decon_groups,
++		.suppress_bind_attrs = true,
++	},
++};
++module_platform_driver(gs_decon_platform_driver);
++
++MODULE_DESCRIPTION("Flip-only KMS driver for the Google gs201 DECON");
++MODULE_LICENSE("GPL");

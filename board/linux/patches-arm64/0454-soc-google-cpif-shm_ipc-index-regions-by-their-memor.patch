@@ -1,0 +1,40 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Mon, 12 Oct 2026 18:59:40 -0400
+Subject: [PATCH] soc: google: cpif: shm_ipc: index regions by their
+ memory-region position
+
+Stock gives each of the modem's reserved-memory nodes an "rmem_index"
+property, and shm_ipc fails without it. Those are generic
+reserved-memory nodes here, shared with nothing but still not the place
+for a driver's numbering. Use the position in the shared-memory node's
+memory-region list when the property is absent (stock lists them in
+index order, so the result is the same), and drop the node references.
+
+Assisted-by: LLM
+Signed-off-by: Derek Ross <derekross@gmail.com>
+---
+ drivers/soc/google/cpif/shm_ipc.c | 8 +++++++-
+ 1 file changed, 7 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/soc/google/cpif/shm_ipc.c b/drivers/soc/google/cpif/shm_ipc.c
+index 92dc13e50..66b23a49c 100644
+--- a/drivers/soc/google/cpif/shm_ipc.c
++++ b/drivers/soc/google/cpif/shm_ipc.c
+@@ -45,9 +45,15 @@ static int cp_rmem_setup_latecall(struct platform_device *pdev)
+ 		if (!np)
+ 			break;
+ 
+-		mif_dt_read_u32(np, "rmem_index", rmem_index);
++		/*
++		 * Stock gives each reserved-memory node an "rmem_index";
++		 * without one, the position in memory-region is the index.
++		 */
++		rmem_index = i;
++		mif_dt_read_u32_noerr(np, "rmem_index", rmem_index);
+ 
+ 		rmem = of_reserved_mem_lookup(np);
++		of_node_put(np);
+ 		if (!rmem) {
+ 			mif_err("of_reserved_mem_lookup() failed\n");
+ 			break;

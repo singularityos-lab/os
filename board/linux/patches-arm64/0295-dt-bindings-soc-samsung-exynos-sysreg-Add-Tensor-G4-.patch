@@ -1,0 +1,43 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Tue, 27 Oct 2026 09:53:40 -0647
+Subject: [PATCH] dt-bindings: soc: samsung: exynos-sysreg: Add Tensor G4 APM,
+ HSI0 and PERIC1
+
+Add the Tensor G4 (zumapro) system-register blocks the SoC's USIs select
+their mode through: APM (one UART), HSI0 (two SPI buses and an I2C
+bus) and PERIC1 (one I2C bus). Each block's interface clock is
+a gate the Tensor G4 clock driver exports, so they list clocks, as
+PERIC0 and UFS do.
+
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ .../bindings/soc/samsung/samsung,exynos-sysreg.yaml         | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+diff --git a/Documentation/devicetree/bindings/soc/samsung/samsung,exynos-sysreg.yaml b/Documentation/devicetree/bindings/soc/samsung/samsung,exynos-sysreg.yaml
+index 2a5a5d5cf..5acd0e0ef 100644
+--- a/Documentation/devicetree/bindings/soc/samsung/samsung,exynos-sysreg.yaml
++++ b/Documentation/devicetree/bindings/soc/samsung/samsung,exynos-sysreg.yaml
+@@ -28,7 +28,10 @@ properties:
+               - google,gs201-peric1-sysreg
+               - google,gs201-vgpio2ap-sysreg
+               - google,zuma-ufs-sysreg
++              - google,zumapro-apm-sysreg
++              - google,zumapro-hsi0-sysreg
+               - google,zumapro-peric0-sysreg
++              - google,zumapro-peric1-sysreg
+               - google,zumapro-ufs-sysreg
+               - samsung,exynos2200-cmgp-sysreg
+               - samsung,exynos2200-peric0-sysreg
+@@ -112,7 +115,10 @@ allOf:
+               - google,gs201-hsi2-sysreg
+               - google,gs201-peric0-sysreg
+               - google,gs201-peric1-sysreg
++              - google,zumapro-apm-sysreg
++              - google,zumapro-hsi0-sysreg
+               - google,zumapro-peric0-sysreg
++              - google,zumapro-peric1-sysreg
+               - google,zumapro-ufs-sysreg
+               - samsung,exynos850-cmgp-sysreg
+               - samsung,exynos850-peri-sysreg

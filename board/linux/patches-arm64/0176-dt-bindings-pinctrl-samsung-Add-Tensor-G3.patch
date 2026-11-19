@@ -1,0 +1,35 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Brett-Michael Green <brett@bmgvisualtech.com>
+Date: Mon, 26 Oct 2026 09:19:47 -0400
+Subject: [PATCH] dt-bindings: pinctrl: samsung: Add Tensor G3
+
+zuma (Tensor G3) has Tensor G4's pin controllers, in the same order,
+with two banks fewer in ALIVE (gpa11 and gpa12), so it needs its own
+compatible. Like Tensor G4's, each controller takes its bus clock.
+
+Assisted-by: LLM
+Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
+---
+ Documentation/devicetree/bindings/pinctrl/samsung,pinctrl.yaml | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/Documentation/devicetree/bindings/pinctrl/samsung,pinctrl.yaml b/Documentation/devicetree/bindings/pinctrl/samsung,pinctrl.yaml
+index 8ff162a7c..5b01a97bb 100644
+--- a/Documentation/devicetree/bindings/pinctrl/samsung,pinctrl.yaml
++++ b/Documentation/devicetree/bindings/pinctrl/samsung,pinctrl.yaml
+@@ -39,6 +39,7 @@ properties:
+       - axis,artpec9-pinctrl
+       - google,gs101-pinctrl
+       - google,gs201-pinctrl
++      - google,zuma-pinctrl
+       - google,zumapro-pinctrl
+       - samsung,s3c64xx-pinctrl
+       - samsung,s5pv210-pinctrl
+@@ -142,6 +143,7 @@ allOf:
+             enum:
+               - google,gs101-pinctrl
+               - google,gs201-pinctrl
++              - google,zuma-pinctrl
+               - google,zumapro-pinctrl
+               - samsung,exynos8890-pinctrl
+     then:

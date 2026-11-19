@@ -1,0 +1,33 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Mon, 9 Nov 2026 09:00:51 -0643
+Subject: [PATCH] arm64: dts: exynos: google: zumapro: give the UFS node a
+ sleep pin state
+
+The UFS host re-applies its pin state when it resumes with the link
+down, so that the pads come back as the UFS function after a system
+suspend (on the Pixel 9a they read as plain inputs on about one wake in
+a hundred). pinctrl_select_state() does nothing for an unchanged state,
+so the node needs a second state to switch away to: the "sleep" state
+names the same pin groups as the default.
+
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ arch/arm64/boot/dts/exynos/google/zumapro.dtsi | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/zumapro.dtsi b/arch/arm64/boot/dts/exynos/google/zumapro.dtsi
+index 4a1ea78aa..f6adcff16 100644
+--- a/arch/arm64/boot/dts/exynos/google/zumapro.dtsi
++++ b/arch/arm64/boot/dts/exynos/google/zumapro.dtsi
+@@ -1425,8 +1425,9 @@ ufs: ufs@13200000 {
+ 			phys = <&ufs_phy>;
+ 			phy-names = "ufs-phy";
+ 			samsung,sysreg = <&sysreg_ufs 0x710>;
+-			pinctrl-names = "default";
++			pinctrl-names = "default", "sleep";
+ 			pinctrl-0 = <&ufs_reset>, <&ufs_refclk>;
++			pinctrl-1 = <&ufs_reset>, <&ufs_refclk>;
+ 			lanes-per-direction = <2>;
+ 			dma-coherent;
+ 			status = "disabled";

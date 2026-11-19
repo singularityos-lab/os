@@ -1,0 +1,73 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Brett-Michael Green <brett@bmgvisualtech.com>
+Date: Fri, 30 Oct 2026 16:36:41 -0400
+Subject: [PATCH] arm64: dts: exynos: google: zuma: add HSI0's USI2 and its SPI
+
+Add HSI0's system registers and USI2 at 0x111d00c0 with its SPI
+controller (SPI 408), clocked from CMU_HSI0, as stock's spi@111D0000
+(usi-offset 0x101c). This is the touchscreen's bus.
+
+Assisted-by: LLM
+Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
+---
+ arch/arm64/boot/dts/exynos/google/zuma.dtsi | 33 +++++++++++++++++++++
+ 1 file changed, 33 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/zuma.dtsi b/arch/arm64/boot/dts/exynos/google/zuma.dtsi
+index 043ce2c91..2e76d0332 100644
+--- a/arch/arm64/boot/dts/exynos/google/zuma.dtsi
++++ b/arch/arm64/boot/dts/exynos/google/zuma.dtsi
+@@ -14,6 +14,7 @@
+ #include <dt-bindings/clock/google,zuma.h>
+ #include <dt-bindings/interrupt-controller/arm-gic.h>
+ #include <dt-bindings/interrupt-controller/irq.h>
++#include <dt-bindings/soc/samsung,exynos-usi.h>
+ 
+ / {
+ 	compatible = "google,zuma";
+@@ -363,6 +364,11 @@ cmu_hsi0: clock-controller@11000000 {
+ 			clock-names = "oscclk", "bus", "peri", "alt";
+ 		};
+ 
++		sysreg_hsi0: syscon@11020000 {
++			compatible = "google,zuma-hsi0-sysreg", "syscon";
++			reg = <0x11020000 0x10000>;
++		};
++
+ 		/*
+ 		 * USB control block: Exynos 2200's link registers, with the
+ 		 * eUSB2 PHY below as its high-speed PHY. The USB3/DP combo PHY
+@@ -391,6 +397,33 @@ usb_hsphy: phy@11110000 {
+ 			status = "disabled";
+ 		};
+ 
++		usi2_hsi0: usi@111d00c0 {
++			compatible = "google,zuma-usi", "samsung,exynos850-usi";
++			reg = <0x111d00c0 0x20>;
++			clocks = <&cmu_hsi0 CLK_GOUT_HSI0_USI2_PCLK>,
++				 <&cmu_hsi0 CLK_GOUT_HSI0_USI2_IP>;
++			clock-names = "pclk", "ipclk";
++			samsung,sysreg = <&sysreg_hsi0 0x101c>;
++			samsung,mode = <USI_MODE_SPI>;
++			#address-cells = <1>;
++			#size-cells = <1>;
++			ranges;
++			status = "disabled";
++
++			spi20: spi@111d0000 {
++				compatible = "google,zuma-spi", "google,gs101-spi";
++				/* USI control starts at 0xc0; do not claim it twice. */
++				reg = <0x111d0000 0xc0>;
++				interrupts = <GIC_SPI 408 IRQ_TYPE_LEVEL_HIGH>;
++				clocks = <&cmu_hsi0 CLK_GOUT_HSI0_USI2_PCLK>,
++					 <&cmu_hsi0 CLK_GOUT_HSI0_USI2_IP>;
++				clock-names = "spi", "spi_busclk0";
++				#address-cells = <1>;
++				#size-cells = <0>;
++				status = "disabled";
++			};
++		};
++
+ 		/*
+ 		 * The DWC3 controller, in peripheral mode as on stock (which
+ 		 * wraps it in Google's exynos9-dwusb glue). On a normal boot

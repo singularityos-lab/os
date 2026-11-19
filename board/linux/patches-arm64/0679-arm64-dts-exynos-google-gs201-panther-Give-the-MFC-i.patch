@@ -1,0 +1,84 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?=C3=81ngel=20Ren=C3=A9?=
+ <17342133+angelrenefm@users.noreply.github.com>
+Date: Sun, 15 Nov 2026 13:51:15 +0100
+Subject: [PATCH] arm64: dts: exynos: google: gs201-panther: Give the MFC its
+ memory pool
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Give panther's MFC its own reusable shared-dma-pool of 256 MiB below
+4 GiB, and leave the node disabled. The driver takes its 64 MiB for the
+firmware, contexts and codec buffers from the pool, firmware first, and
+vb2 serves the OUTPUT and CAPTURE buffers from the rest. The firmware
+rejects any buffer below its own base, which a single pool rules out.
+256 MiB is what a 4K stream needs: a 3840x2160 frame in single-buffer
+NV12 is 12.4 MiB in one block, and with 128 MiB next to the firmware
+GStreamer got no frame at all out of a 4K clip. The pool is reusable, so
+its pages serve movable allocations while nothing is decoded.
+
+The node stays disabled until its two System MMUs are described: in
+bypass, Google's closed firmware parsing untrusted video can reach all
+memory below 4 GiB. An overlay in omarchy-mobile (device/panther)
+enables it for owners who want hardware video.
+
+Tested on a Pixel 7 booting a DTB with this node and pool enabled, the
+driver built from this series as a module and the firmware taken from
+the phone's own OTA. The pool is reserved below 4 GiB and the driver
+probes from it on its own. H.264, HEVC, VP8 and VP9 decode bit-exact
+against FFmpeg's and GStreamer's software decoders (1080p and 4K), and
+Chromium plays 1080p and 4K H.264 and VP9 on the MFC.
+
+Assisted-by: LLM
+Signed-off-by: Ángel René <17342133+angelrenefm@users.noreply.github.com>
+---
+ .../boot/dts/exynos/google/gs201-panther.dts  | 28 +++++++++++++++++++
+ 1 file changed, 28 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/gs201-panther.dts b/arch/arm64/boot/dts/exynos/google/gs201-panther.dts
+index 25594305a..9986f4a90 100644
+--- a/arch/arm64/boot/dts/exynos/google/gs201-panther.dts
++++ b/arch/arm64/boot/dts/exynos/google/gs201-panther.dts
+@@ -125,6 +125,24 @@ cont_splash_mem: splash@fac00000 {
+ 			reg = <0x0 0xfac00000 (1080 * 2400 * 4)>;
+ 			no-map;
+ 		};
++
++		/*
++		 * MFC firmware, contexts and frames. The MFC takes 32-bit
++		 * addresses, its System MMU is in bypass and the firmware
++		 * rejects any buffer below its own base, so they all come from
++		 * one contiguous pool below 4 GiB, firmware first. Reusable,
++		 * so the pages serve movable allocations while no video is
++		 * decoded. 256 MiB holds the firmware and a 4K stream decoded
++		 * to single-buffer NV12.
++		 */
++		mfc_pool: mfc-pool {
++			compatible = "shared-dma-pool";
++			reusable;
++			size = <0x10000000>;
++			/* read with the root's #address-cells (2), not #size-cells */
++			alignment = <0x0 0x200000>;
++			alloc-ranges = <0x0 0x80000000 0x80000000>;
++		};
+ 	};
+ };
+ 
+@@ -246,6 +264,16 @@ &gpu {
+ 	status = "okay";
+ };
+ 
++/*
++ * Left disabled until its two System MMUs are described: in bypass, the
++ * closed firmware parsing untrusted video can reach all memory below
++ * 4 GiB. omarchy-mobile's device/panther overlay enables it for owners who
++ * want hardware video.
++ */
++&mfc {
++	memory-region = <&mfc_pool>;
++};
++
+ &usbdrd31_phy {
+ 	status = "okay";
+ };

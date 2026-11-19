@@ -1,0 +1,74 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: saiththerobo <the.tom.sharp@gmail.com>
+Date: Wed, 28 Oct 2026 13:43:08 +0000
+Subject: [PATCH] rtc: s5m: wait for the S2MPG10's read update before reading
+ the time
+
+On the Pixel 6 Pro (S2MPG10, through ACPM), reading the RTC returned a
+stale time now and then: of 20 reads half a second apart, three were 1 s
+behind the system clock and one 5 s, and an alarm set 60 s ahead with
+rtcwake landed 31 s late. rtcwake sets its alarm relative to that read,
+so the alarm fired early in one suspend and not at all in another,
+leaving the phone asleep for 558 s instead of 20.
+
+The S2MPG10 copies its counters into the time registers on a rising edge
+of RUDR, and the copy takes time. The driver only sets the bit, which
+writes nothing while it still reads 1, and reads the registers at once.
+Do what Google's s2mpg10 driver does (s2m_rtc_update()): clear RUDR,
+wait 50 us, set it, and wait 1 ms before the read.
+
+Assisted-by: Claude Opus 5.5
+Signed-off-by: saiththerobo <the.tom.sharp@gmail.com>
+---
+ drivers/rtc/rtc-s5m.c | 29 +++++++++++++++++++++++------
+ 1 file changed, 23 insertions(+), 6 deletions(-)
+
+diff --git a/drivers/rtc/rtc-s5m.c b/drivers/rtc/rtc-s5m.c
+index 27faa7f6a..c70384de6 100644
+--- a/drivers/rtc/rtc-s5m.c
++++ b/drivers/rtc/rtc-s5m.c
+@@ -343,14 +343,27 @@ static int s5m_rtc_read_time(struct device *dev, struct rtc_time *tm)
+ 	int ret;
+ 
+ 	if (info->regs->read_time_udr_mask) {
++		/*
++		 * The S2MPG10 copies the counters into the time registers on a
++		 * rising edge of RUDR, and the copy takes time: with the bit
++		 * only set (a no-op while it still reads 1) and the registers
++		 * read at once, a read could return a time seconds old, and
++		 * an alarm set from it fired early or not at all. Clear it
++		 * first and wait for the copy, as Google's s2mpg10 driver does.
++		 */
++		if (info->device_type == S2MPG10) {
++			ret = regmap_clear_bits(info->regmap, info->regs->udr_update,
++						info->regs->read_time_udr_mask);
++			if (ret)
++				goto udr_fail;
++			usleep_range(50, 100);
++		}
+ 		ret = regmap_set_bits(info->regmap, info->regs->udr_update,
+ 				      info->regs->read_time_udr_mask);
+-		if (ret) {
+-			dev_err(dev,
+-				"Failed to prepare registers for time reading: %d\n",
+-				ret);
+-			return ret;
+-		}
++		if (ret)
++			goto udr_fail;
++		if (info->device_type == S2MPG10)
++			usleep_range(1000, 1100);
+ 	}
+ 	ret = regmap_bulk_read(info->regmap, info->regs->time, data,
+ 			info->regs->regs_count);
+@@ -374,6 +387,10 @@ static int s5m_rtc_read_time(struct device *dev, struct rtc_time *tm)
+ 	dev_dbg(dev, "%s: %ptR(%d)\n", __func__, tm, tm->tm_wday);
+ 
+ 	return 0;
++
++udr_fail:
++	dev_err(dev, "Failed to prepare registers for time reading: %d\n", ret);
++	return ret;
+ }
+ 
+ static int s5m_rtc_set_time(struct device *dev, struct rtc_time *tm)

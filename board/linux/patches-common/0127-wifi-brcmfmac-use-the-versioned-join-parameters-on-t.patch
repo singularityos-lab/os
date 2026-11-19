@@ -1,0 +1,214 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Mon, 12 Oct 2026 10:05:08 -0400
+Subject: [PATCH] wifi: brcmfmac: use the versioned join parameters on the
+ BCM4389
+
+Firmware with a WLC interface version of 14.2, 14.4, 16.1+ or 17+
+takes the "join" iovar in its versioned layout, wl_extjoin_params_v1_t:
+a version/pad word in front, and association parameters that start
+with version and flags and carry a bssid_cnt before chanspec_num.
+Broadcom's driver picks that layout by this WLC version test
+(bcmdhd wl_cfg80211.c, MIN_JOINEXT_V1_* and
+wl_fillup_assoc_params_v1()); the version fields are left 0.
+
+The Pixel 7 Pro's BCM4389 firmware (20.101.90) reports WLC 14.4 and
+rejects brcmfmac's unversioned join, and the WLC_SET_SSID fallback
+after it, so association never starts:
+
+  brcmf_cfg80211_connect: BRCMF_C_SET_SSID failed (-52)
+
+Add a JOIN_V1 feature, set from "wlc_ver" by the same test, for the
+BCM4389 only, and send the versioned join when it is set. Log the
+firmware's own error code if the join fails.
+
+Assisted-by: LLM
+Signed-off-by: Derek Ross <derekross@gmail.com>
+---
+ .../broadcom/brcm80211/brcmfmac/cfg80211.c    | 80 +++++++++++++++++++
+ .../broadcom/brcm80211/brcmfmac/feature.c     | 12 +++
+ .../broadcom/brcm80211/brcmfmac/feature.h     |  3 +-
+ .../broadcom/brcm80211/brcmfmac/fwil_types.h  | 28 +++++++
+ 4 files changed, 122 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/cfg80211.c b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/cfg80211.c
+index 62d072b63..aa869ecf3 100644
+--- a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/cfg80211.c
++++ b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/cfg80211.c
+@@ -2377,6 +2377,75 @@ static void brcmf_set_join_pref(struct brcmf_if *ifp,
+ 		bphy_err(drvr, "Set join_pref error (%d)\n", err);
+ }
+ 
++static u32 ssid_len_of(struct cfg80211_connect_params *sme)
++{
++	return min_t(u32, sme->ssid_len, IEEE80211_MAX_SSID_LEN);
++}
++
++/*
++ * The "join" iovar with versioned parameters (wl_extjoin_params_v1_t), as
++ * Broadcom's driver fills it (bcmdhd wl_cfg80211.c
++ * wl_fillup_assoc_params_v1()). @chanspec 0 means no channel.
++ */
++static s32 brcmf_join_v1(struct brcmf_if *ifp,
++			 struct cfg80211_connect_params *sme, u32 ssid_len,
++			 u16 chanspec)
++{
++	struct brcmf_pub *drvr = ifp->drvr;
++	struct brcmf_ext_join_params_v1_le *jp;
++	size_t len;
++	s32 err;
++
++	len = offsetof(struct brcmf_ext_join_params_v1_le, assoc_le) +
++	      offsetof(struct brcmf_assoc_params_v1_le, chanspec_list);
++	if (chanspec)
++		len += sizeof(u16);
++
++	jp = kzalloc_obj(*jp);
++	if (!jp)
++		return -ENOMEM;
++
++	jp->ssid_le.SSID_len = cpu_to_le32(ssid_len);
++	memcpy(jp->ssid_le.SSID, sme->ssid, ssid_len);
++
++	jp->scan_le.scan_type = -1;
++	jp->scan_le.home_time = cpu_to_le32(-1);
++	if (chanspec) {
++		jp->scan_le.active_time =
++			cpu_to_le32(BRCMF_SCAN_JOIN_ACTIVE_DWELL_TIME_MS);
++		jp->scan_le.passive_time =
++			cpu_to_le32(BRCMF_SCAN_JOIN_PASSIVE_DWELL_TIME_MS);
++		jp->scan_le.nprobes =
++			cpu_to_le32(BRCMF_SCAN_JOIN_ACTIVE_DWELL_TIME_MS /
++				    BRCMF_SCAN_JOIN_PROBE_INTERVAL_MS);
++		jp->assoc_le.chanspec_num = cpu_to_le32(1);
++		jp->assoc_le.chanspec_list[0] = cpu_to_le16(chanspec);
++	} else {
++		jp->scan_le.active_time = cpu_to_le32(-1);
++		jp->scan_le.passive_time = cpu_to_le32(-1);
++		jp->scan_le.nprobes = cpu_to_le32(-1);
++	}
++
++	if (sme->bssid)
++		memcpy(jp->assoc_le.bssid, sme->bssid, ETH_ALEN);
++	else
++		eth_broadcast_addr(jp->assoc_le.bssid);
++
++	/* get the firmware's own error code for the log */
++	ifp->fwil_fwerr = true;
++	err = brcmf_fil_bsscfg_data_set(ifp, "join", jp, len);
++	ifp->fwil_fwerr = false;
++	kfree(jp);
++
++	if (err)
++		bphy_err(drvr, "join (v1, chanspec 0x%04x, %zu bytes) failed: firmware error %d\n",
++			 chanspec, len, err);
++	else
++		brcmf_dbg(CONN, "join (v1, chanspec 0x%04x) sent\n", chanspec);
++
++	return err ? -EBADE : 0;
++}
++
+ static s32
+ brcmf_cfg80211_connect(struct wiphy *wiphy, struct net_device *ndev,
+ 		       struct cfg80211_connect_params *sme)
+@@ -2531,6 +2600,15 @@ brcmf_cfg80211_connect(struct wiphy *wiphy, struct net_device *ndev,
+ 		if (err)
+ 			goto done;
+ 	}
++	if (brcmf_feat_is_enabled(ifp, BRCMF_FEAT_JOIN_V1)) {
++		brcmf_set_join_pref(ifp, &sme->bss_select);
++		err = brcmf_join_v1(ifp, sme, ssid_len_of(sme),
++				    cfg->channel ? chanspec : 0);
++		if (!err)
++			goto done;
++		goto set_ssid;
++	}
++
+ 	/* Join with specific BSSID and cached SSID
+ 	 * If SSID is zero join based on BSSID only
+ 	 */
+@@ -2594,6 +2672,8 @@ brcmf_cfg80211_connect(struct wiphy *wiphy, struct net_device *ndev,
+ 		/* This is it. join command worked, we are done */
+ 		goto done;
+ 
++set_ssid:
++	ssid_len = ssid_len_of(sme);
+ 	/* join command failed, fallback to set ssid */
+ 	memset(&join_params, 0, sizeof(join_params));
+ 	join_params_size = sizeof(join_params.ssid_le);
+diff --git a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/feature.c b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/feature.c
+index 488364ef8..9d1bdc7c3 100644
+--- a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/feature.c
++++ b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/feature.c
+@@ -156,6 +156,18 @@ static void brcmf_feat_wlc_version_overrides(struct brcmf_pub *drv)
+ 
+ 	brcmf_dbg(INFO, "WLC version: %d.%d\n", major, minor);
+ 
++	/*
++	 * Versioned "join" parameters (wl_extjoin_params_v1_t), by the
++	 * same WLC version test as Broadcom's driver (bcmdhd
++	 * wl_cfg80211.c, MIN_JOINEXT_V1_*): 14.2 or 14.4, 16.1 and later
++	 * on 16, or 17 and later. Only the BCM4389 for now; its 20.101.90
++	 * firmware reports 14.4 and rejects the unversioned layout.
++	 */
++	if (drv->bus_if->chip == BRCM_CC_4389_CHIP_ID &&
++	    ((major == 14 && (minor == 2 || minor == 4)) ||
++	     (major == 16 && minor >= 1) || major >= 17))
++		feat_flags |= BIT(BRCMF_FEAT_JOIN_V1);
++
+ 	for (i = 0; i < ARRAY_SIZE(brcmf_feat_wlcfeat_map); i++) {
+ 		e = &brcmf_feat_wlcfeat_map[i];
+ 		if (major > e->min_ver_major ||
+diff --git a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/feature.h b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/feature.h
+index 31f8695ca..014cf6f47 100644
+--- a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/feature.h
++++ b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/feature.h
+@@ -59,7 +59,8 @@
+ 	BRCMF_FEAT_DEF(SCAN_V2) \
+ 	BRCMF_FEAT_DEF(PMKID_V2) \
+ 	BRCMF_FEAT_DEF(PMKID_V3) \
+-	BRCMF_FEAT_DEF(SAE_EXT)
++	BRCMF_FEAT_DEF(SAE_EXT) \
++	BRCMF_FEAT_DEF(JOIN_V1)
+ 
+ /*
+  * Quirks:
+diff --git a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/fwil_types.h b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/fwil_types.h
+index e74a23e11..f346f7c71 100644
+--- a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/fwil_types.h
++++ b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/fwil_types.h
+@@ -533,6 +533,34 @@ struct brcmf_ext_join_params_le {
+ 	struct brcmf_assoc_params_le assoc_le;
+ };
+ 
++/**
++ * struct brcmf_assoc_params_v1_le - versioned association parameters.
++ *
++ * @version: structure version (left 0, as Broadcom's driver does).
++ * @flags: ASSOC_HINT_BSSID_PRESENT etc.
++ * @bssid: target BSSID, or broadcast.
++ * @bssid_cnt: 0: use @chanspec_num and the single @bssid.
++ * @chanspec_num: 0: all channels, else count of @chanspec_list entries.
++ * @chanspec_list: chanspecs.
++ */
++struct brcmf_assoc_params_v1_le {
++	__le16 version;
++	__le16 flags;
++	u8 bssid[ETH_ALEN];
++	__le16 bssid_cnt;
++	__le32 chanspec_num;
++	__le16 chanspec_list[1];
++};
++
++/* extended join params, versioned (wl_extjoin_params_v1_t) */
++struct brcmf_ext_join_params_v1_le {
++	__le16 version;
++	__le16 pad;
++	struct brcmf_ssid_le ssid_le;
++	struct brcmf_join_scan_params_le scan_le;
++	struct brcmf_assoc_params_v1_le assoc_le;
++};
++
+ struct brcmf_wsec_key {
+ 	u32 index;		/* key index */
+ 	u32 len;		/* key length */

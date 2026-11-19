@@ -1,0 +1,65 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Tue, 27 Oct 2026 10:55:37 -0647
+Subject: [PATCH] Input: synaptics-tcm: Keep the attention interrupt off across
+ system sleep
+
+The driver had no PM callbacks, so its attention interrupt stayed armed
+through system suspend. On the Pixel 9a a touch while the system was
+going down raised it after the SPI controller had suspended: the read
+failed part way ("Attempted to sync while suspend"), every read after
+that saw "bad message header a5 03 00 00", and the touchscreen stayed
+dead after resume until the driver was rebound.
+
+Disable the interrupt in suspend and enable it again in resume. A
+report that arrives in between keeps the level-triggered line asserted
+and is read once the interrupt is back on, with the bus already
+resumed.
+
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ drivers/input/touchscreen/synaptics_tcm.c | 24 +++++++++++++++++++++++
+ 1 file changed, 24 insertions(+)
+
+diff --git a/drivers/input/touchscreen/synaptics_tcm.c b/drivers/input/touchscreen/synaptics_tcm.c
+index 53ac4287a..1aa29458a 100644
+--- a/drivers/input/touchscreen/synaptics_tcm.c
++++ b/drivers/input/touchscreen/synaptics_tcm.c
+@@ -831,6 +831,29 @@ static int tcm_probe(struct spi_device *spi)
+ 	return 0;
+ }
+ 
++/*
++ * Keep the attention interrupt off across system sleep: it can fire after
++ * the SPI controller has suspended, and a read then fails part way and
++ * leaves the message stream out of step.
++ */
++static int tcm_suspend(struct device *dev)
++{
++	struct tcm_ts *ts = dev_get_drvdata(dev);
++
++	disable_irq(ts->spi->irq);
++	return 0;
++}
++
++static int tcm_resume(struct device *dev)
++{
++	struct tcm_ts *ts = dev_get_drvdata(dev);
++
++	enable_irq(ts->spi->irq);
++	return 0;
++}
++
++static DEFINE_SIMPLE_DEV_PM_OPS(tcm_pm_ops, tcm_suspend, tcm_resume);
++
+ static const struct of_device_id tcm_of_match[] = {
+ 	{ .compatible = "syna,s3908" },
+ 	{ }
+@@ -847,6 +870,7 @@ static struct spi_driver tcm_driver = {
+ 	.driver = {
+ 		.name = "synaptics-tcm",
+ 		.of_match_table = tcm_of_match,
++		.pm = pm_sleep_ptr(&tcm_pm_ops),
+ 	},
+ 	.id_table = tcm_spi_ids,
+ 	.probe = tcm_probe,

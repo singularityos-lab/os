@@ -1,0 +1,132 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: DarekM <149845949+aninmucek@users.noreply.github.com>
+Date: Mon, 2 Nov 2026 21:08:14 +0000
+Subject: [PATCH] arm64: dts: exynos: google: Add Pixel 8a (akita) first-light
+ board
+
+Add a first-light board file for the Pixel 8a: husky's first-light file
+with akita's model, compatible and /soc_compatible children, and USB.
+zuma.dtsi already describes the first DRAM bank (ABL adds the others),
+the fixed reservations, the watchdogs, and the PMU with its reboot
+mode; this file switches on the DWC3 and its two PHYs and carries
+husky's bootargs.
+
+akita's ABL picks the base DTB by /soc_compatible, as husky's does, but
+a retail 8a has the IPOP package: its live tree's children are B0_IPOP
+and B1_IPOP (product id 0x9865, pkg_mode 1), the two that Google's
+zuma-b0-ipop.dts carries, where husky's are FOPLP.
+
+Every fixed DRAM reservation in the 8a's live tree lies inside one of
+zuma.dtsi's, at husky's addresses, except the four that ABL inserts
+itself (pkvm_guest_firmware, sec_dram, sec_pt and
+debug_kinfo_reserved). The DWC3, the USB DRD PHY, the UART, the PMU and
+the watchdogs are at zuma.dtsi's addresses.
+
+There is no framebuffer yet: the splash address is read from DPP0 on a
+running 8a before a carve-out goes in, as on husky. UFS, the buttons,
+the PMICs, touch and the MAX77759 follow, each once it has run on the
+phone.
+
+Tested on a Pixel 8a (bootloader akita-17.0-15681527): the bootloader
+boots this tree from slot B, all nine CPUs come up, the watchdog
+driver stops both cluster watchdogs, and the initramfs brings up the
+USB gadget and SSH 0.4 s into boot. The booted tree has the
+bootloader's DRAM banks and its four reservations added, and the
+kernel reports no reserved-memory overlap.
+
+Link: https://android.googlesource.com/kernel/devices/google/akita/+/refs/tags/android-16.0.0_r0.10/dts/zuma-akita-mp.dts
+Link: https://android.googlesource.com/kernel/devices/google/zuma/+/refs/tags/android-16.0.0_r0.10/dts/zuma-b0-ipop.dts
+Assisted-by: Claude Opus 5.5
+Signed-off-by: DarekM <149845949+aninmucek@users.noreply.github.com>
+---
+ arch/arm64/boot/dts/exynos/google/Makefile    |  2 +
+ .../boot/dts/exynos/google/zuma-akita.dts     | 61 +++++++++++++++++++
+ 2 files changed, 63 insertions(+)
+ create mode 100644 arch/arm64/boot/dts/exynos/google/zuma-akita.dts
+
+diff --git a/arch/arm64/boot/dts/exynos/google/Makefile b/arch/arm64/boot/dts/exynos/google/Makefile
+index 8e651de7d..3f8e377c7 100644
+--- a/arch/arm64/boot/dts/exynos/google/Makefile
++++ b/arch/arm64/boot/dts/exynos/google/Makefile
+@@ -8,6 +8,7 @@ dtb-$(CONFIG_ARCH_EXYNOS) += \
+ 	gs201-felix.dtb \
+ 	gs201-lynx.dtb \
+ 	gs201-panther.dtb \
++	zuma-akita.dtb \
+ 	zuma-husky.dtb \
+ 	zumapro-tegu.dtb
+ 
+@@ -19,5 +20,6 @@ DTC_FLAGS_gs201-cheetah += -@
+ DTC_FLAGS_gs201-felix += -@
+ DTC_FLAGS_gs201-lynx += -@
+ DTC_FLAGS_gs201-panther += -@
++DTC_FLAGS_zuma-akita += -@
+ DTC_FLAGS_zuma-husky += -@
+ DTC_FLAGS_zumapro-tegu += -@
+diff --git a/arch/arm64/boot/dts/exynos/google/zuma-akita.dts b/arch/arm64/boot/dts/exynos/google/zuma-akita.dts
+new file mode 100644
+index 000000000..8aadf4edc
+--- /dev/null
++++ b/arch/arm64/boot/dts/exynos/google/zuma-akita.dts
+@@ -0,0 +1,61 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * Google Pixel 8a (akita) - first-light board file.
++ */
++
++/dts-v1/;
++
++#include "zuma.dtsi"
++
++/ {
++	model = "Google Pixel 8a";
++	compatible = "google,zuma-akita", "google,zuma";
++
++	/*
++	 * zuma's ABL picks the base DTB by matching these children against
++	 * the SoC's product id, revision and package; there is no /soc_id.
++	 * A retail akita has a B0/B1 IPOP part (stock base DTB 3, which
++	 * carries exactly these two), where husky's is FOPLP.
++	 */
++	soc_compatible {
++		B0_IPOP {
++			product_id = <0x9865>;
++			major = <1>;
++			minor = <0>;
++			pkg_mode = <1>;
++		};
++
++		B1_IPOP {
++			product_id = <0x9865>;
++			major = <1>;
++			minor = <1>;
++			pkg_mode = <1>;
++		};
++	};
++
++	chosen {
++		/*
++		 * ABL requires bootargs to exist; it appends its own after these.
++		 * reboot=warm: a cold PSCI reset clears the reboot reason in
++		 * SYSIP_DAT0 before ABL reads it, so "reboot bootloader" would
++		 * only boot the slot again.
++		 * The watchdog driver stops the bootloader's watchdogs, so a
++		 * hang that never panics lasts until someone resets the phone
++		 * with its buttons: panic on soft and hard lockups and on RCU
++		 * stalls, so that panic=10 resets the phone by itself.
++		 */
++		bootargs = "console=tty0 fbcon=font:TER16x32 reboot=warm panic=10 softlockup_panic=1 nmi_watchdog=panic sysctl.kernel.panic_on_rcu_stall=1 clk_ignore_unused pd_ignore_unused rdinit=/init";
++	};
++};
++
++&usb_dwc3 {
++	status = "okay";
++};
++
++&usb_hsphy {
++	status = "okay";
++};
++
++&usbdrd_phy {
++	status = "okay";
++};

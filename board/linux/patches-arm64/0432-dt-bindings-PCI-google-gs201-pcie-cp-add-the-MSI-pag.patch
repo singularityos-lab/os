@@ -1,0 +1,50 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Mon, 12 Oct 2026 17:22:47 -0400
+Subject: [PATCH] dt-bindings: PCI: google,gs201-pcie-cp: add the MSI page,
+ isolation note
+
+The modem link's MSI target is a fixed page of reserved RAM (Google's
+cp_msi_rmem): the DesignWare MSI block terminates the MSI writes to it,
+and the modem writes its boot stage into the same page. Describe it with
+memory-region.
+
+The PMU register is no longer only read: the controller sets the PHY
+isolation again once the link is down.
+
+Assisted-by: LLM
+Signed-off-by: Derek Ross <derekross@gmail.com>
+---
+ .../bindings/pci/google,gs201-pcie-cp.yaml           | 12 +++++++++++-
+ 1 file changed, 11 insertions(+), 1 deletion(-)
+
+diff --git a/Documentation/devicetree/bindings/pci/google,gs201-pcie-cp.yaml b/Documentation/devicetree/bindings/pci/google,gs201-pcie-cp.yaml
+index ae7416597..c3e58c9cf 100644
+--- a/Documentation/devicetree/bindings/pci/google,gs201-pcie-cp.yaml
++++ b/Documentation/devicetree/bindings/pci/google,gs201-pcie-cp.yaml
+@@ -82,7 +82,16 @@ properties:
+       - items:
+           - description: PMU
+           - description: offset of the PHY isolation control register
+-    description: PMU and the PHY isolation control register (read-only here).
++    description:
++      PMU and the PHY isolation control register. The PHY driver releases
++      isolation; this controller sets it again once the link is down.
++
++  memory-region:
++    maxItems: 1
++    description:
++      The modem's MSI target page. The DesignWare MSI block terminates the
++      MSI writes to it; the modem also writes its boot stage into the page,
++      so it must be reserved RAM.
+ 
+   samsung,sysreg:
+     $ref: /schemas/types.yaml#/definitions/phandle-array
+@@ -171,6 +180,7 @@ examples:
+         interrupt-names = "ctrl", "msi0", "msi1", "msi2", "msi3", "msi4";
+         phys = <&pcie_0_phy>;
+         phy-names = "pcie";
++        memory-region = <&cp_msi_mem>;
+         reset-gpios = <&gph0 0 GPIO_ACTIVE_LOW>;
+         samsung,pmu-syscon = <&pmu_system_controller 0x3ec0>;
+         samsung,sysreg = <&sysreg_hsi1 0x704>;

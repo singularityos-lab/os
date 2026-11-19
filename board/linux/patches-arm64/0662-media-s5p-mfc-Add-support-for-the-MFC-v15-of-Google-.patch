@@ -1,0 +1,462 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?=C3=81ngel=20Ren=C3=A9?=
+ <17342133+angelrenefm@users.noreply.github.com>
+Date: Fri, 13 Nov 2026 21:06:50 +0100
+Subject: [PATCH] media: s5p-mfc: Add support for the MFC v15 of Google GS201
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The GS201 MFC (IP version 0x15060000) keeps the v8+ register map used by
+v12, with these differences, measured on a Pixel 7 or taken from
+Google's exynos-mfc driver (kernel/google-modules/soc/gs,
+drivers/media/platform/exynos/mfc/) and its device tree
+(kernel/devices/google/gs201, dts/gs201-mfc.dtsi), both on branch
+android-gs-pantah-6.1-android16:
+
+- The non-secure firmware base is RISC_NONSECURE_BASE_ADDR (0x0068);
+  0x0054 is the secure one.
+- MFC_CLOCK_OFF is cleared before RISC_ON, and the firmware status bit
+  (0xF0A4) is polled before SYS_INIT. MFC_VERSION (0xF028) is checked.
+- The firmware rejects any buffer placed below its own base (ERR_RET
+  with error 0x33, measured). The firmware, the device and instance
+  contexts and also the codec buffers therefore come from one
+  preallocated 64 MiB region with a 32-bit DMA mask, firmware first. An
+  optional "memory-region" makes the vb2 buffers come from the same pool;
+  without it, buffers below the firmware base are reported with a
+  warning.
+- A missing clock is tolerated: the node's clock is only the ACPM DVFS
+  rate, and the MFC clock controller (CMU_MFC) is not described yet.
+- The encoder registers differ from v12's (0xF770/0xF774 clash with the
+  decoder's) and nothing programs them yet, so only the decoder node is
+  registered.
+
+The firmware is loaded as s5p-mfc-v15.fw; it is the stock mfc_fw.bin
+from the device's vendor partition, which each owner takes from their
+own OTA.
+
+The vendor driver always runs the decoder with dynamic DPB; that comes
+in the next patch. This patch was not run on its own: whether the v15
+firmware still takes mainline's static DPB is not known.
+
+Tested on a Pixel 7 (panther) with the node applied as a runtime DT
+overlay on the "camera-pool" reserved region, together with the next
+patch. Not tested: the encoder, VP8/VP9/HEVC/MPEG-4 decode, the System
+MMU (left in bypass), runtime PM with a real clock, suspend/resume.
+
+Assisted-by: LLM
+Signed-off-by: Ángel René <17342133+angelrenefm@users.noreply.github.com>
+---
+ .../platform/samsung/s5p-mfc/regs-mfc-v15.h   | 35 ++++++++++++
+ .../media/platform/samsung/s5p-mfc/s5p_mfc.c  | 54 +++++++++++++++++++
+ .../platform/samsung/s5p-mfc/s5p_mfc_common.h | 14 +++--
+ .../platform/samsung/s5p-mfc/s5p_mfc_ctrl.c   | 50 ++++++++++++++++-
+ .../platform/samsung/s5p-mfc/s5p_mfc_dec.c    | 32 ++++++++++-
+ .../platform/samsung/s5p-mfc/s5p_mfc_opr.c    | 13 +++++
+ .../platform/samsung/s5p-mfc/s5p_mfc_pm.c     |  7 ++-
+ 7 files changed, 195 insertions(+), 10 deletions(-)
+ create mode 100644 drivers/media/platform/samsung/s5p-mfc/regs-mfc-v15.h
+
+diff --git a/drivers/media/platform/samsung/s5p-mfc/regs-mfc-v15.h b/drivers/media/platform/samsung/s5p-mfc/regs-mfc-v15.h
+new file mode 100644
+index 000000000..3a792de93
+--- /dev/null
++++ b/drivers/media/platform/samsung/s5p-mfc/regs-mfc-v15.h
+@@ -0,0 +1,35 @@
++/* SPDX-License-Identifier: GPL-2.0-only */
++/*
++ * Register definition file for Samsung MFC V15.x Interface (FIMV) driver
++ *
++ * MFC v15.6 is found in the Google GS201 SoC. Its register map is the v8+
++ * map used by v12; only the differences used by this driver are listed here.
++ */
++
++#ifndef _REGS_MFC_V15_H
++#define _REGS_MFC_V15_H
++
++#include <linux/sizes.h>
++#include "regs-mfc-v12.h"
++
++/* Firmware base for the non-secure firmware; 0x0054 is the secure one */
++#define S5P_FIMV_RISC_NONSECURE_BASE_ADDR_V15	0x0068
++#define S5P_FIMV_MFC_VERSION_V15		0xF028
++#define S5P_FIMV_FW_STATUS_INFO_V15		0xF0A4
++#define S5P_FIMV_FW_STATUS_READY_V15		BIT(0)
++
++/* MFCv15 variant defines */
++#define MFC_VERSION_V15			0xF0
++#define MFC_HW_VERSION_V15		0x15060000
++#define MFC_NUM_PORTS_V15		1
++#define MAX_FW_SIZE_V15			(SZ_1M)
++#define MAX_CPB_SIZE_V15		(7 * SZ_1M)
++
++/*
++ * The firmware rejects every buffer below its own base address, so the
++ * firmware and all the driver's private buffers share one region with the
++ * firmware at its start.
++ */
++#define MFC_MEM_SIZE_V15		(64 * SZ_1M)
++
++#endif /*_REGS_MFC_V15_H*/
+diff --git a/drivers/media/platform/samsung/s5p-mfc/s5p_mfc.c b/drivers/media/platform/samsung/s5p-mfc/s5p_mfc.c
+index 87f76d16c..eba9b1430 100644
+--- a/drivers/media/platform/samsung/s5p-mfc/s5p_mfc.c
++++ b/drivers/media/platform/samsung/s5p-mfc/s5p_mfc.c
+@@ -1233,10 +1233,28 @@ static int s5p_mfc_configure_common_memory(struct s5p_mfc_dev *mfc_dev)
+ {
+ 	struct device *dev = &mfc_dev->plat_dev->dev;
+ 	unsigned long mem_size = SZ_4M;
++	int ret;
+ 
+ 	if (IS_ENABLED(CONFIG_DMA_CMA) || exynos_is_iommu_available(dev))
+ 		mem_size = SZ_8M;
+ 
++	if (IS_MFCV15(mfc_dev)) {
++		/*
++		 * The firmware sees physical addresses through 32-bit
++		 * registers and rejects buffers below its own base, so all of
++		 * the private buffers (codec buffers included) live in this
++		 * region, after the firmware. An optional "memory-region"
++		 * also serves the vb2 buffers from the same pool.
++		 */
++		mem_size = MFC_MEM_SIZE_V15;
++		ret = dma_set_mask_and_coherent(dev, DMA_BIT_MASK(32));
++		if (ret)
++			return ret;
++		ret = of_reserved_mem_device_init(dev);
++		if (ret && ret != -ENODEV)
++			return ret;
++	}
++
+ 	if (mfc_mem_size)
+ 		mem_size = memparse(mfc_mem_size, NULL);
+ 
+@@ -1248,6 +1266,8 @@ static int s5p_mfc_configure_common_memory(struct s5p_mfc_dev *mfc_dev)
+ 					       &mfc_dev->mem_base, GFP_KERNEL);
+ 	if (!mfc_dev->mem_virt) {
+ 		bitmap_free(mfc_dev->mem_bitmap);
++		if (IS_MFCV15(mfc_dev))
++			of_reserved_mem_device_release(dev);
+ 		dev_err(dev, "failed to preallocate %ld MiB for the firmware and context buffers\n",
+ 			(mem_size / SZ_1M));
+ 		return -ENOMEM;
+@@ -1288,6 +1308,8 @@ static void s5p_mfc_unconfigure_common_memory(struct s5p_mfc_dev *mfc_dev)
+ 			  mfc_dev->mem_base);
+ 	bitmap_free(mfc_dev->mem_bitmap);
+ 	vb2_dma_contig_clear_max_seg_size(dev);
++	if (IS_MFCV15(mfc_dev))
++		of_reserved_mem_device_release(dev);
+ }
+ 
+ static int s5p_mfc_configure_dma_memory(struct s5p_mfc_dev *mfc_dev)
+@@ -1433,6 +1455,18 @@ static int s5p_mfc_probe(struct platform_device *pdev)
+ 	v4l2_info(&dev->v4l2_dev,
+ 		  "decoder registered as /dev/video%d\n", dev->vfd_dec->num);
+ 
++	/*
++	 * The v15 encoder's registers differ from v12's (0xF770/0xF774 clash
++	 * with the decoder's) and nothing here programs them yet: no encoder
++	 * node rather than one that hangs the firmware.
++	 */
++	if (IS_MFCV15(dev)) {
++		video_device_release(dev->vfd_enc);
++		dev->vfd_enc = NULL;
++		pr_debug("%s--\n", __func__);
++		return 0;
++	}
++
+ 	ret = video_register_device(dev->vfd_enc, VFL_TYPE_VIDEO, 0);
+ 	if (ret) {
+ 		v4l2_err(&dev->v4l2_dev, "Failed to register video device\n");
+@@ -1719,6 +1753,23 @@ static struct s5p_mfc_variant mfc_drvdata_v12 = {
+ 	.num_clocks	= 1,
+ };
+ 
++static const struct s5p_mfc_buf_size buf_size_v15 = {
++	.fw     = MAX_FW_SIZE_V15,
++	.cpb    = MAX_CPB_SIZE_V15,
++	.priv   = &mfc_buf_size_v12,
++};
++
++static const struct s5p_mfc_variant mfc_drvdata_v15 = {
++	.version        = MFC_VERSION_V15,
++	.version_bit    = MFC_V15_BIT,
++	.port_num       = MFC_NUM_PORTS_V15,
++	.buf_size       = &buf_size_v15,
++	.fw_name[0]     = "s5p-mfc-v15.fw",
++	.clk_names	= {"mfc"},
++	.num_clocks	= 1,
++	.clocks_optional = true,
++};
++
+ static const struct of_device_id exynos_mfc_match[] = {
+ 	{
+ 		.compatible = "samsung,mfc-v5",
+@@ -1744,6 +1795,9 @@ static const struct of_device_id exynos_mfc_match[] = {
+ 	}, {
+ 		.compatible = "tesla,fsd-mfc",
+ 		.data = &mfc_drvdata_v12,
++	}, {
++		.compatible = "google,gs201-mfc",
++		.data = &mfc_drvdata_v15,
+ 	},
+ 	{},
+ };
+diff --git a/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_common.h b/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_common.h
+index 58dc17680..a0192a79a 100644
+--- a/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_common.h
++++ b/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_common.h
+@@ -19,7 +19,7 @@
+ #include <media/v4l2-ioctl.h>
+ #include <media/videobuf2-v4l2.h>
+ #include "regs-mfc.h"
+-#include "regs-mfc-v12.h"
++#include "regs-mfc-v15.h"
+ 
+ #define S5P_MFC_NAME		"s5p-mfc"
+ 
+@@ -234,6 +234,7 @@ struct s5p_mfc_variant {
+ 	const char	*clk_names[MFC_MAX_CLOCKS];
+ 	int		num_clocks;
+ 	bool		use_clock_gating;
++	bool		clocks_optional;
+ };
+ 
+ /**
+@@ -790,6 +791,7 @@ void s5p_mfc_cleanup_queue(struct list_head *lh, struct vb2_queue *vq);
+ #define IS_MFCV8_PLUS(dev)	((dev)->variant->version >= 0x80)
+ #define IS_MFCV10_PLUS(dev)	((dev)->variant->version >= 0xA0)
+ #define IS_MFCV12(dev)		((dev)->variant->version >= 0xC0)
++#define IS_MFCV15(dev)		((dev)->variant->version >= 0xF0)
+ #define FW_HAS_E_MIN_SCRATCH_BUF(dev) (IS_MFCV10_PLUS(dev))
+ 
+ #define MFC_V5_BIT	BIT(0)
+@@ -798,14 +800,16 @@ void s5p_mfc_cleanup_queue(struct list_head *lh, struct vb2_queue *vq);
+ #define MFC_V8_BIT	BIT(3)
+ #define MFC_V10_BIT	BIT(5)
+ #define MFC_V12_BIT	BIT(7)
++#define MFC_V15_BIT	BIT(8)
+ 
+ #define MFC_V5PLUS_BITS		(MFC_V5_BIT | MFC_V6_BIT | MFC_V7_BIT | \
+-					MFC_V8_BIT | MFC_V10_BIT | MFC_V12_BIT)
++					MFC_V8_BIT | MFC_V10_BIT | MFC_V12_BIT | \
++					MFC_V15_BIT)
+ #define MFC_V6PLUS_BITS		(MFC_V6_BIT | MFC_V7_BIT | MFC_V8_BIT | \
+-					MFC_V10_BIT | MFC_V12_BIT)
++					MFC_V10_BIT | MFC_V12_BIT | MFC_V15_BIT)
+ #define MFC_V7PLUS_BITS		(MFC_V7_BIT | MFC_V8_BIT | MFC_V10_BIT | \
+-					MFC_V12_BIT)
++					MFC_V12_BIT | MFC_V15_BIT)
+ 
+-#define MFC_V10PLUS_BITS	(MFC_V10_BIT | MFC_V12_BIT)
++#define MFC_V10PLUS_BITS	(MFC_V10_BIT | MFC_V12_BIT | MFC_V15_BIT)
+ 
+ #endif /* S5P_MFC_COMMON_H_ */
+diff --git a/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_ctrl.c b/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_ctrl.c
+index 625d77b2b..b72209070 100644
+--- a/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_ctrl.c
++++ b/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_ctrl.c
+@@ -178,7 +178,13 @@ int s5p_mfc_reset(struct s5p_mfc_dev *dev)
+ 
+ static inline void s5p_mfc_init_memctrl(struct s5p_mfc_dev *dev)
+ {
+-	if (IS_MFCV6_PLUS(dev)) {
++	if (IS_MFCV15(dev)) {
++		/* 0x0054 is the secure firmware base on MFCv15 */
++		mfc_write(dev, dev->dma_base[BANK_L_CTX],
++			  S5P_FIMV_RISC_NONSECURE_BASE_ADDR_V15);
++		mfc_debug(2, "Base Address : %pad\n",
++			  &dev->dma_base[BANK_L_CTX]);
++	} else if (IS_MFCV6_PLUS(dev)) {
+ 		mfc_write(dev, dev->dma_base[BANK_L_CTX],
+ 			  S5P_FIMV_RISC_BASE_ADDRESS_V6);
+ 		mfc_debug(2, "Base Address : %pad\n",
+@@ -207,6 +213,34 @@ static inline void s5p_mfc_clear_cmds(struct s5p_mfc_dev *dev)
+ 	}
+ }
+ 
++/*
++ * MFCv15: check that the IP is the one the driver knows and wait until the
++ * firmware accepts commands, as the vendor driver does before SYS_INIT.
++ */
++static int s5p_mfc_v15_check_fw(struct s5p_mfc_dev *dev)
++{
++	unsigned long timeout;
++	u32 ver;
++
++	ver = mfc_read(dev, S5P_FIMV_MFC_VERSION_V15);
++	if (ver != MFC_HW_VERSION_V15) {
++		mfc_err("Unsupported MFC IP version 0x%08x (expected 0x%08x)\n",
++			ver, MFC_HW_VERSION_V15);
++		return -ENODEV;
++	}
++
++	timeout = jiffies + msecs_to_jiffies(MFC_BW_TIMEOUT);
++	while (!(mfc_read(dev, S5P_FIMV_FW_STATUS_INFO_V15) &
++		 S5P_FIMV_FW_STATUS_READY_V15)) {
++		if (time_after(jiffies, timeout)) {
++			mfc_err("Timeout waiting for the firmware status\n");
++			return -EIO;
++		}
++		usleep_range(100, 200);
++	}
++	return 0;
++}
++
+ /* Initialize hardware */
+ int s5p_mfc_init_hw(struct s5p_mfc_dev *dev)
+ {
+@@ -235,6 +269,10 @@ int s5p_mfc_init_hw(struct s5p_mfc_dev *dev)
+ 	s5p_mfc_clear_cmds(dev);
+ 	/* 3. Release reset signal to the RISC */
+ 	s5p_mfc_clean_dev_int_flags(dev);
++	/* MFCv15 needs the clock ungated before the RISC starts */
++	if (IS_MFCV15(dev))
++		mfc_write(dev, 0x0, S5P_FIMV_MFC_CLOCK_OFF_V10);
++
+ 	if (IS_MFCV6_PLUS(dev)) {
+ 		dev->risc_on = 1;
+ 		mfc_write(dev, 0x1, S5P_FIMV_RISC_ON_V6);
+@@ -242,7 +280,7 @@ int s5p_mfc_init_hw(struct s5p_mfc_dev *dev)
+ 	else
+ 		mfc_write(dev, 0x3ff, S5P_FIMV_SW_RESET);
+ 
+-	if (IS_MFCV10_PLUS(dev))
++	if (IS_MFCV10_PLUS(dev) && !IS_MFCV15(dev))
+ 		mfc_write(dev, 0x0, S5P_FIMV_MFC_CLOCK_OFF_V10);
+ 
+ 	mfc_debug(2, "Will now wait for completion of firmware transfer\n");
+@@ -253,6 +291,14 @@ int s5p_mfc_init_hw(struct s5p_mfc_dev *dev)
+ 		return -EIO;
+ 	}
+ 	s5p_mfc_clean_dev_int_flags(dev);
++	if (IS_MFCV15(dev)) {
++		ret = s5p_mfc_v15_check_fw(dev);
++		if (ret) {
++			s5p_mfc_reset(dev);
++			s5p_mfc_clock_off(dev);
++			return ret;
++		}
++	}
+ 	/* 4. Initialize firmware */
+ 	ret = s5p_mfc_hw_call(dev->mfc_cmds, sys_init_cmd, dev);
+ 	if (ret) {
+diff --git a/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_dec.c b/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_dec.c
+index afd28beab..8da765ebd 100644
+--- a/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_dec.c
++++ b/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_dec.c
+@@ -61,14 +61,14 @@ static const struct s5p_mfc_fmt formats[] = {
+ 		.codec_mode     = S5P_MFC_CODEC_NONE,
+ 		.type           = MFC_FMT_RAW,
+ 		.num_planes     = 3,
+-		.versions       = MFC_V12_BIT,
++		.versions       = MFC_V12_BIT | MFC_V15_BIT,
+ 	},
+ 	{
+ 		.fourcc         = V4L2_PIX_FMT_YVU420M,
+ 		.codec_mode     = S5P_MFC_CODEC_NONE,
+ 		.type           = MFC_FMT_RAW,
+ 		.num_planes     = 3,
+-		.versions       = MFC_V12_BIT
++		.versions       = MFC_V12_BIT | MFC_V15_BIT
+ 	},
+ 	{
+ 		.fourcc		= V4L2_PIX_FMT_H264,
+@@ -1002,6 +1002,32 @@ static int s5p_mfc_queue_setup(struct vb2_queue *vq,
+ 	return 0;
+ }
+ 
++/*
++ * MFCv15 firmware rejects any buffer below its own base address. The private
++ * buffers are allocated after it, but the vb2 buffers come from the generic
++ * DMA allocator and nothing guarantees their position unless the device has
++ * its own "memory-region". Warn so that a failure can be traced to this.
++ */
++static void s5p_mfc_check_buf_addr_v15(struct s5p_mfc_ctx *ctx,
++				       struct vb2_buffer *vb, unsigned int planes)
++{
++	struct s5p_mfc_dev *dev = ctx->dev;
++	dma_addr_t addr;
++	unsigned int i;
++
++	if (!IS_MFCV15(dev))
++		return;
++
++	for (i = 0; i < planes; i++) {
++		addr = vb2_dma_contig_plane_dma_addr(vb, i);
++		if (addr < dev->fw_buf.dma)
++			dev_warn(&dev->plat_dev->dev,
++				 "%s buffer %u plane %u at %pad is below the firmware base %pad, the MFC will reject it\n",
++				 V4L2_TYPE_IS_OUTPUT(vb->type) ? "OUTPUT" : "CAPTURE",
++				 vb->index, i, &addr, &dev->fw_buf.dma);
++	}
++}
++
+ static int s5p_mfc_buf_init(struct vb2_buffer *vb)
+ {
+ 	struct vb2_v4l2_buffer *vbuf = to_vb2_v4l2_buffer(vb);
+@@ -1031,6 +1057,7 @@ static int s5p_mfc_buf_init(struct vb2_buffer *vb)
+ 				return -EINVAL;
+ 			}
+ 		}
++		s5p_mfc_check_buf_addr_v15(ctx, vb, ctx->dst_fmt->num_planes);
+ 		i = vb->index;
+ 		ctx->dst_bufs[i].b = vbuf;
+ 		ctx->dst_bufs[i].cookie.raw.luma =
+@@ -1054,6 +1081,7 @@ static int s5p_mfc_buf_init(struct vb2_buffer *vb)
+ 			return -EINVAL;
+ 		}
+ 
++		s5p_mfc_check_buf_addr_v15(ctx, vb, 1);
+ 		i = vb->index;
+ 		ctx->src_bufs[i].b = vbuf;
+ 		ctx->src_bufs[i].cookie.stream =
+diff --git a/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_opr.c b/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_opr.c
+index 5b078cc0d..a57602677 100644
+--- a/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_opr.c
++++ b/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_opr.c
+@@ -78,6 +78,13 @@ int s5p_mfc_alloc_generic_buf(struct s5p_mfc_dev *dev, unsigned int mem_ctx,
+ {
+ 	struct device *mem_dev = dev->mem_dev[mem_ctx];
+ 
++	/*
++	 * MFCv15 firmware rejects buffers below its base address, so the codec
++	 * buffers come from the same region as the firmware.
++	 */
++	if (IS_MFCV15(dev))
++		return s5p_mfc_alloc_priv_buf(dev, mem_ctx, b);
++
+ 	mfc_debug(3, "Allocating generic buf: %zu\n", b->size);
+ 
+ 	b->ctx = mem_ctx;
+@@ -114,6 +121,12 @@ void s5p_mfc_release_generic_buf(struct s5p_mfc_dev *dev,
+ 			      struct s5p_mfc_priv_buf *b)
+ {
+ 	struct device *mem_dev = dev->mem_dev[b->ctx];
++
++	if (IS_MFCV15(dev)) {
++		if (b->virt)
++			s5p_mfc_release_priv_buf(dev, b);
++		return;
++	}
+ 	dma_free_coherent(mem_dev, b->size, b->virt, b->dma);
+ 	b->virt = NULL;
+ 	b->dma = 0;
+diff --git a/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_pm.c b/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_pm.c
+index ae4241408..d60a04b5a 100644
+--- a/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_pm.c
++++ b/drivers/media/platform/samsung/s5p-mfc/s5p_mfc_pm.c
+@@ -26,7 +26,12 @@ int s5p_mfc_init_pm(struct s5p_mfc_dev *dev)
+ 
+ 	/* clock control */
+ 	for (i = 0; i < pm->num_clocks; i++) {
+-		pm->clocks[i] = devm_clk_get(pm->device, pm->clk_names[i]);
++		if (dev->variant->clocks_optional)
++			pm->clocks[i] = devm_clk_get_optional(pm->device,
++							      pm->clk_names[i]);
++		else
++			pm->clocks[i] = devm_clk_get(pm->device,
++						     pm->clk_names[i]);
+ 		if (IS_ERR(pm->clocks[i])) {
+ 			/* additional clocks are optional */
+ 			if (i && PTR_ERR(pm->clocks[i]) == -ENOENT) {

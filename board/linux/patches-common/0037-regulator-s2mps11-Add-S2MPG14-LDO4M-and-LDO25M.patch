@@ -1,0 +1,106 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Thu, 22 Oct 2026 20:25:11 -0700
+Subject: [PATCH] regulator: s2mps11: Add S2MPG14 LDO4M and LDO25M
+
+The Pixel 9a bootloader leaves the touchscreen supplies off. Enabling
+LDO4M and LDO25M through ACPM while retaining firmware voltage selectors
+allows the S3908 controller to identify itself and report input.
+
+Expose only these two controls, with enable changes through ACPM's
+read-modify-write path and read-only voltage reporting. Do not provide
+a voltage setter or expose the unverified regulator controls.
+No board nodes are enabled here.
+
+Link: https://android.googlesource.com/kernel/google-modules/soc/gs/+/204078758737776959ecc85c527a00fd2cabb62f/drivers/regulator/s2mpg14-regulator.c
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ drivers/regulator/s2mps11.c | 54 +++++++++++++++++++++++++++++++++++++
+ 1 file changed, 54 insertions(+)
+
+diff --git a/drivers/regulator/s2mps11.c b/drivers/regulator/s2mps11.c
+index 872ea1693..1d1818020 100644
+--- a/drivers/regulator/s2mps11.c
++++ b/drivers/regulator/s2mps11.c
+@@ -21,6 +21,7 @@
+ #include <linux/mfd/samsung/s2mpg11.h>
+ #include <linux/mfd/samsung/s2mpg12.h>
+ #include <linux/mfd/samsung/s2mpg13.h>
++#include <linux/mfd/samsung/s2mpg14.h>
+ #include <linux/mfd/samsung/s2mps11.h>
+ #include <linux/mfd/samsung/s2mps13.h>
+ #include <linux/mfd/samsung/s2mps14.h>
+@@ -2268,6 +2269,54 @@ static const struct regulator_desc s2mpu05_regulators[] = {
+ 	regulator_desc_s2mpu05_buck45(5),
+ };
+ 
++/*
++ * Only LDO4M and LDO25M have been qualified on S2MPG14. Both switch with
++ * bit7; the low six voltage-selector bits remain firmware-owned here.
++ */
++static const struct regulator_ops s2mpg14_ldo_ops = {
++	.list_voltage		= regulator_list_voltage_linear,
++	.get_voltage_sel	= regulator_get_voltage_sel_regmap,
++	.is_enabled		= regulator_is_enabled_regmap,
++	.enable			= regulator_enable_regmap,
++	.disable		= regulator_disable_regmap,
++};
++
++static const struct regulator_desc s2mpg14_regulators[] = {
++	{
++		.name = "ldo4m",
++		.id = 3,
++		.of_match = of_match_ptr("ldo4m"),
++		.regulators_node = of_match_ptr("regulators"),
++		.ops = &s2mpg14_ldo_ops,
++		.type = REGULATOR_VOLTAGE,
++		.owner = THIS_MODULE,
++		.min_uV = 1800000,
++		.uV_step = 25000,
++		.n_voltages = 64,
++		.vsel_reg = S2MPG14_PMIC_L4M_CTRL,
++		.vsel_mask = GENMASK(5, 0),
++		.enable_reg = S2MPG14_PMIC_L4M_CTRL,
++		.enable_mask = BIT(7),
++		.enable_time = 128,
++	}, {
++		.name = "ldo25m",
++		.id = 24,
++		.of_match = of_match_ptr("ldo25m"),
++		.regulators_node = of_match_ptr("regulators"),
++		.ops = &s2mpg14_ldo_ops,
++		.type = REGULATOR_VOLTAGE,
++		.owner = THIS_MODULE,
++		.min_uV = 700000,
++		.uV_step = 25000,
++		.n_voltages = 64,
++		.vsel_reg = S2MPG14_PMIC_L25M_CTRL,
++		.vsel_mask = GENMASK(5, 0),
++		.enable_reg = S2MPG14_PMIC_L25M_CTRL,
++		.enable_mask = BIT(7),
++		.enable_time = 128,
++	},
++};
++
+ static int s2mps11_handle_ext_control(struct s2mps11_info *s2mps11,
+ 				      struct regulator_dev *rdev)
+ {
+@@ -2338,6 +2387,10 @@ static int s2mps11_pmic_probe(struct platform_device *pdev)
+ 		regulators = s2mpg13_regulators;
+ 		BUILD_BUG_ON(ARRAY_SIZE(s2mpg13_regulators) > S2MPS_REGULATOR_MAX);
+ 		break;
++	case S2MPG14:
++		rdev_num = ARRAY_SIZE(s2mpg14_regulators);
++		regulators = s2mpg14_regulators;
++		break;
+ 	case S2MPS11X:
+ 		rdev_num = ARRAY_SIZE(s2mps11_regulators);
+ 		regulators = s2mps11_regulators;
+@@ -2421,6 +2474,7 @@ static const struct platform_device_id s2mps11_pmic_id[] = {
+ 	{ .name = "s2mpg11-regulator", .driver_data = S2MPG11 },
+ 	{ .name = "s2mpg12-regulator", .driver_data = S2MPG12 },
+ 	{ .name = "s2mpg13-regulator", .driver_data = S2MPG13 },
++	{ .name = "s2mpg14-regulator", .driver_data = S2MPG14 },
+ 	{ .name = "s2mps11-regulator", .driver_data = S2MPS11X },
+ 	{ .name = "s2mps13-regulator", .driver_data = S2MPS13X },
+ 	{ .name = "s2mps14-regulator", .driver_data = S2MPS14X },

@@ -1,0 +1,130 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Lef <me@lefteros.com>
+Date: Mon, 9 Nov 2026 21:22:44 +0200
+Subject: [PATCH] arm64: dts: exynos: google: zuma-husky: add the BCM4775x GNSS
+ node on spi21, disabled
+
+The Pixel 8 Pro's GNSS receiver is a BCM4775x on HSI0 USI3 (Google's
+spi_21). Add a gnss@0 node for the brcm,bcm4775-gnss binding, as the
+Pixel 7 Pro does, with the lines from stock's bcm4775@0: host request
+gpa5-3, mcu request gpp4-3, nstandby gph3-3 and mcu response gph3-2, and
+the three supplies from the S2MPG15 LDOs (ldo9s, ldo10s, ldo11s). The
+four pin groups sit in this file beside the Wi-Fi ones, with the pull and
+power-down states stock has.
+
+The GPIOs are raw levels with nstandby active high, not active low as
+stock writes it: the driver sets nstandby with raw values. The host
+request line is also the interrupt (level high), as on the 7 Pro.
+
+spi-max-frequency (26 MHz) and samsung,spi-feedback-delay (1) are stock's
+values for this node. Chip select is the controller's native one, as
+stock has no cs-gpios and no pin group for spi_21; the spi driver's
+manual_native_cs path handles that. Stock's node also has
+samsung,spi-chip-select-mode = <0>, which this tree's spi driver does
+not read, so it is left out.
+
+The node is status = "disabled" and sits on the pin controllers and the
+gpa5, gph3 and gpp4 banks that omamobile already has, and on spi21 and
+the S2MPG15 sub-PMIC (both already in, the latter from the S2MPG15
+commit that merged earlier).
+
+Built, not booted.
+
+Signed-off-by: Lef <me@lefteros.com>
+---
+ .../boot/dts/exynos/google/zuma-husky.dts     | 71 +++++++++++++++++++
+ 1 file changed, 71 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/zuma-husky.dts b/arch/arm64/boot/dts/exynos/google/zuma-husky.dts
+index bedcfcc52..be6b992bb 100644
+--- a/arch/arm64/boot/dts/exynos/google/zuma-husky.dts
++++ b/arch/arm64/boot/dts/exynos/google/zuma-husky.dts
+@@ -327,6 +327,14 @@ wlan_host_wake: wlan-host-wake-pins {
+ 		samsung,pin-con-pdn = <GS101_PIN_PDN_PREV>;
+ 		samsung,pin-pud-pdn = <GS101_PIN_PULL_DOWN>;
+ 	};
++
++	gnss_host_req: gnss-host-req-pins {
++		samsung,pins = "gpa5-3";
++		samsung,pin-function = <GS101_PIN_FUNC_EINT>;
++		samsung,pin-pud = <GS101_PIN_PULL_NONE>;
++		samsung,pin-con-pdn = <GS101_PIN_PDN_PREV>;
++		samsung,pin-pud-pdn = <GS101_PIN_PULL_NONE>;
++	};
+ };
+ 
+ &pinctrl_hsi2 {
+@@ -347,6 +355,32 @@ wlan_dev_wake: wlan-dev-wake-pins {
+ 		samsung,pin-con-pdn = <GS101_PIN_PDN_PREV>;
+ 		samsung,pin-pud-pdn = <GS101_PIN_PULL_DOWN>;
+ 	};
++
++	gnss_mcu_resp: gnss-mcu-resp-pins {
++		samsung,pins = "gph3-2";
++		samsung,pin-function = <GS101_PIN_FUNC_INPUT>;
++		samsung,pin-pud = <GS101_PIN_PULL_DOWN>;
++		samsung,pin-con-pdn = <GS101_PIN_PDN_PREV>;
++		samsung,pin-pud-pdn = <GS101_PIN_PULL_DOWN>;
++	};
++
++	gnss_nstandby: gnss-nstandby-pins {
++		samsung,pins = "gph3-3";
++		samsung,pin-function = <GS101_PIN_FUNC_OUTPUT>;
++		samsung,pin-pud = <GS101_PIN_PULL_NONE>;
++		samsung,pin-con-pdn = <GS101_PIN_PDN_PREV>;
++		samsung,pin-pud-pdn = <GS101_PIN_PULL_NONE>;
++	};
++};
++
++&pinctrl_peric0 {
++	gnss_mcu_req: gnss-mcu-req-pins {
++		samsung,pins = "gpp4-3";
++		samsung,pin-function = <GS101_PIN_FUNC_OUTPUT>;
++		samsung,pin-pud = <GS101_PIN_PULL_NONE>;
++		samsung,pin-con-pdn = <GS101_PIN_PDN_PREV>;
++		samsung,pin-pud-pdn = <GS101_PIN_PULL_NONE>;
++	};
+ };
+ 
+ &spi20 {
+@@ -674,3 +708,40 @@ led {
+ 		};
+ 	};
+ };
++
++/*
++ * The BCM4775x GNSS receiver on HSI0 USI3 (Google's spi_21), as stock's
++ * bcm4775@0 and the Pixel 7 Pro's node. The lines are raw levels, because
++ * the driver drives nstandby with raw GPIO values (lhd writes 1 to run the
++ * chip), so nstandby is not marked active low as stock marks it. The bus
++ * and the sub-PMIC are disabled here, and a bring-up overlay enables them
++ * together with this node. Stock's spi-max-frequency (26 MHz) and feedback
++ * delay (1) are used as they are; its chip-select-mode property is not read
++ * by this tree's spi driver.
++ */
++&spi21 {
++	gnss@0 {
++		compatible = "brcm,bcm4775-gnss";
++		reg = <0>;
++		spi-max-frequency = <26000000>;
++		spi-cpol;
++		spi-cpha;
++		interrupts-extended = <&gpa5 3 IRQ_TYPE_LEVEL_HIGH>;
++		nstandby-gpios = <&gph3 3 GPIO_ACTIVE_HIGH>;
++		mcu-req-gpios = <&gpp4 3 GPIO_ACTIVE_HIGH>;
++		mcu-resp-gpios = <&gph3 2 GPIO_ACTIVE_HIGH>;
++		host-req-gpios = <&gpa5 3 GPIO_ACTIVE_HIGH>;
++		vddcore-supply = <&ldo9s>;
++		vddrf-supply = <&ldo10s>;
++		vddaux-supply = <&ldo11s>;
++		pinctrl-names = "default";
++		pinctrl-0 = <&gnss_nstandby &gnss_mcu_resp &gnss_mcu_req
++			     &gnss_host_req>;
++		status = "disabled";
++
++		/* Stock's value; whether 26 MHz needs it is not known. */
++		controller-data {
++			samsung,spi-feedback-delay = <1>;
++		};
++	};
++};

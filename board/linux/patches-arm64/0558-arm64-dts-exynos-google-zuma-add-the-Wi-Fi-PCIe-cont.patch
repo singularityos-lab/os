@@ -1,0 +1,132 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Brett-Michael Green <brett@bmgvisualtech.com>
+Date: Sat, 31 Oct 2026 08:15:31 -0400
+Subject: [PATCH] arm64: dts: exynos: google: zuma: add the Wi-Fi PCIe
+ controller and PHY
+
+Add zuma's second PCIe controller (stock's pcie_1, ch-num 1) and its
+Gen3 PHY, disabled, at the addresses of stock's pcie@13120000: one lane,
+Gen3, PERST# on gph3-0 and CLKREQ# on gph3-1 with stock's pin settings,
+and the PHY's isolation at PMU offset 0x3ec8. Legacy INTx is
+demultiplexed from the controller's interrupt (SPI 439). As on stock,
+the controller is not cache coherent and runs without the I/A.
+
+Its memory window and config space are at 0x60000000, so the soc bus
+now maps the first 2 GiB, as on gs201.
+
+Assisted-by: LLM
+Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
+---
+ .../boot/dts/exynos/google/zuma-pinctrl.dtsi  | 17 ++++++
+ arch/arm64/boot/dts/exynos/google/zuma.dtsi   | 56 ++++++++++++++++++-
+ 2 files changed, 72 insertions(+), 1 deletion(-)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/zuma-pinctrl.dtsi b/arch/arm64/boot/dts/exynos/google/zuma-pinctrl.dtsi
+index 4c54b4f27..cb9a1349a 100644
+--- a/arch/arm64/boot/dts/exynos/google/zuma-pinctrl.dtsi
++++ b/arch/arm64/boot/dts/exynos/google/zuma-pinctrl.dtsi
+@@ -617,6 +617,23 @@ gph4: gph4-gpio-bank {
+ 		interrupt-controller;
+ 		#interrupt-cells = <2>;
+ 	};
++
++	pcie1_clkreq: pcie1-clkreq-pins {
++		samsung,pins = "gph3-1";
++		samsung,pin-function = <GS101_PIN_FUNC_2>;
++		samsung,pin-pud = <GS101_PIN_PULL_UP>;
++		samsung,pin-drv = <GS101_PIN_DRV_10_MA>;
++		samsung,pin-con-pdn = <GS101_PIN_PDN_PREV>;
++		samsung,pin-pud-pdn = <GS101_PIN_PULL_UP>;
++	};
++
++	pcie1_perst: pcie1-perst-pins {
++		samsung,pins = "gph3-0";
++		samsung,pin-function = <GS101_PIN_FUNC_OUTPUT>;
++		samsung,pin-pud = <GS101_PIN_PULL_NONE>;
++		samsung,pin-drv = <GS101_PIN_DRV_10_MA>;
++		samsung,pin-con-pdn = <GS101_PIN_PDN_PREV>;
++	};
+ };
+ 
+ &pinctrl_hsi2ufs {
+diff --git a/arch/arm64/boot/dts/exynos/google/zuma.dtsi b/arch/arm64/boot/dts/exynos/google/zuma.dtsi
+index fcf546592..17fa18b06 100644
+--- a/arch/arm64/boot/dts/exynos/google/zuma.dtsi
++++ b/arch/arm64/boot/dts/exynos/google/zuma.dtsi
+@@ -12,6 +12,7 @@
+  */
+ 
+ #include <dt-bindings/clock/google,zuma.h>
++#include <dt-bindings/gpio/gpio.h>
+ #include <dt-bindings/interrupt-controller/arm-gic.h>
+ #include <dt-bindings/interrupt-controller/irq.h>
+ #include <dt-bindings/soc/samsung,exynos-usi.h>
+@@ -305,7 +306,8 @@ soc: soc@0 {
+ 		compatible = "simple-bus";
+ 		#address-cells = <1>;
+ 		#size-cells = <1>;
+-		ranges = <0x0 0x0 0x0 0x40000000>;
++		/* Registers below 1 GiB, PCIe windows at 0x40000000-0x7fffffff */
++		ranges = <0x0 0x0 0x0 0x80000000>;
+ 
+ 		/*
+ 		 * ABL hands over with both cluster watchdogs counting (30 s);
+@@ -638,6 +640,58 @@ pinctrl_hsi2ufs: pinctrl@13060000 {
+ 			interrupts = <GIC_SPI 433 IRQ_TYPE_LEVEL_HIGH>;
+ 		};
+ 
++		/*
++		 * The Wi-Fi chip's controller (stock's pcie_1, ch-num 1): one
++		 * Gen3 lane, at the addresses of stock's pcie@13120000. Its
++		 * interrupts are its legacy INTx; stock's MSI lines are unused.
++		 */
++		pcie_1: pcie@13120000 {
++			compatible = "google,zuma-pcie";
++			reg = <0x13120000 0x1400>,
++			      <0x13400000 0x381000>,
++			      <0x60ffe000 0x2000>;
++			reg-names = "elbi", "dbi", "config";
++			#address-cells = <3>;
++			#size-cells = <2>;
++			device_type = "pci";
++			ranges = <0x82000000 0x0 0x60000000 0x60000000 0x0 0xff0000>;
++			bus-range = <0x00 0xff>;
++			interrupts = <GIC_SPI 439 IRQ_TYPE_LEVEL_HIGH>;
++			#interrupt-cells = <1>;
++			interrupt-map-mask = <0 0 0 7>;
++			interrupt-map = <0 0 0 1 &pcie_1_intc 1>,
++					<0 0 0 2 &pcie_1_intc 2>,
++					<0 0 0 3 &pcie_1_intc 3>,
++					<0 0 0 4 &pcie_1_intc 4>;
++			phys = <&pcie_1_phy>;
++			phy-names = "pcie";
++			pinctrl-0 = <&pcie1_clkreq>, <&pcie1_perst>;
++			pinctrl-names = "default";
++			reset-gpios = <&gph3 0 GPIO_ACTIVE_LOW>;
++			num-lanes = <1>;
++			max-link-speed = <3>;
++			status = "disabled";
++
++			pcie_1_intc: legacy-interrupt-controller {
++				#address-cells = <0>;
++				interrupt-controller;
++				#interrupt-cells = <1>;
++			};
++		};
++
++		pcie_1_phy: phy@13160000 {
++			compatible = "google,zuma-pcie-phy";
++			reg = <0x13160000 0x3000>,
++			      <0x13140000 0x5000>,
++			      <0x13121400 0x10>,
++			      <0x13150000 0xd000>,
++			      <0x13130000 0x5000>;
++			reg-names = "pma", "pcs", "rst", "udbg", "soc";
++			samsung,pmu-syscon = <&pmu_system_controller 0x3ec8>;
++			#phy-cells = <0>;
++			status = "disabled";
++		};
++
+ 		ufs_0: ufs@13200000 {
+ 			compatible = "google,zuma-ufs", "google,zumapro-ufs";
+ 			reg = <0x13200000 0x200>,

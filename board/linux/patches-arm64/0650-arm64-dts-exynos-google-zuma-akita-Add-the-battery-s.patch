@@ -1,0 +1,132 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: DarekM <149845949+aninmucek@users.noreply.github.com>
+Date: Thu, 12 Nov 2026 20:34:17 +0000
+Subject: [PATCH] arm64: dts: exynos: google: zuma-akita: Add the battery's
+ fuel gauge and PMIC
+
+The Pixel 8a's battery chips are the Pixel 8 Pro's: a MAX77759 fuel
+gauge at 0x36 and PMIC at 0x66 (its charger at 0x69) on hsi2c_11, with
+the gauge's interrupt on gpa7-7, the PMIC's on gpa8-0 and a 5 mOhm
+sense resistor (Google's zuma-akita-battery.dtsi). Enable CMU_PERIC1,
+its sysreg, USI11 and hsi2c_11, and describe the gauge and the PMIC as
+zuma-husky does. Google's file leaves the bus pins without a pull, but
+the stock phone's live device tree has them pulled up, as
+zuma-pinctrl.dtsi does, so akita needs no override.
+
+The battery node carries the 8a's pack: 4486 mAh, the design capacity
+the stock gauge reports, and 4.48 V design maximum (google,fv-max-uv).
+The charge limits are 4.2 V and about 0.3 C (1.32 A), below stock's,
+as on the 8 Pro. The Type-C controller (0x25) isn't described yet.
+
+Assisted-by: Claude Opus 5.5
+Signed-off-by: DarekM <149845949+aninmucek@users.noreply.github.com>
+---
+ .../boot/dts/exynos/google/zuma-akita.dts     | 77 +++++++++++++++++++
+ 1 file changed, 77 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/zuma-akita.dts b/arch/arm64/boot/dts/exynos/google/zuma-akita.dts
+index 3714d9502..903005438 100644
+--- a/arch/arm64/boot/dts/exynos/google/zuma-akita.dts
++++ b/arch/arm64/boot/dts/exynos/google/zuma-akita.dts
+@@ -47,6 +47,23 @@ ufs_0_fixed_vcc_reg: regulator-ufs-vcc {
+ 		enable-active-high;
+ 	};
+ 
++	/*
++	 * The pack, for the fuel gauge and the charger cell. 4486 mAh is the
++	 * design capacity the stock phone's gauge reports
++	 * (charge_full_design); Google's charger node names 4404 mAh. The
++	 * charge limits are deliberately below stock's 4.48 V
++	 * (google,fv-max-uv): 4.2 V and about 0.3 C, as on the Pixel 8 Pro,
++	 * until a review raises them.
++	 */
++	battery: battery {
++		compatible = "simple-battery";
++		charge-full-design-microamp-hours = <4486000>;
++		voltage-max-design-microvolt = <4480000>;
++		voltage-min-design-microvolt = <3300000>;
++		constant-charge-voltage-max-microvolt = <4200000>;
++		constant-charge-current-max-microamp = <1320000>;
++	};
++
+ 	chosen {
+ 		/*
+ 		 * ABL requires bootargs to exist; it appends its own after these.
+@@ -167,6 +184,58 @@ touch_vdd: ldo25m {
+ 	};
+ };
+ 
++&cmu_peric1 {
++	status = "okay";
++};
++
++/*
++ * The MAX77759's fuel gauge (0x36) and PMIC (0x66, which also holds the
++ * charger at 0x69), as on the Pixel 8 Pro (Google's
++ * zuma-akita-battery.dtsi: the same addresses, interrupts gpa7-7 and
++ * gpa8-0, and a 5 mOhm sense resistor). The bus pins are pulled up, as
++ * the stock phone's live device tree has them. Binding the PMIC at 0x66
++ * also creates its charger cell, and the charger driver then programs
++ * charge limits from the battery node, so max77759_charger,
++ * gpio_max77759, nvmem_max77759 and tcpci_maxim have to be kept from
++ * loading: the akita device package blocks them (omamobile-max77759.conf,
++ * omarchy-mobile#718), so install it with this DTB. The Type-C controller
++ * at 0x25 isn't described yet.
++ */
++&hsi2c_11 {
++	clock-frequency = <400000>;
++	status = "okay";
++
++	fuel-gauge@36 {
++		compatible = "maxim,max77759-fg";
++		reg = <0x36>;
++		interrupts-extended = <&gpa7 7 IRQ_TYPE_LEVEL_LOW>;
++		pinctrl-0 = <&if_pmic_fg_int>;
++		pinctrl-names = "default";
++		shunt-resistor-micro-ohms = <5000>;
++		monitored-battery = <&battery>;
++	};
++
++	pmic@66 {
++		compatible = "maxim,max77759";
++		reg = <0x66>;
++		interrupts-extended = <&gpa8 0 IRQ_TYPE_LEVEL_LOW>;
++		pinctrl-0 = <&if_pmic_int>;
++		pinctrl-names = "default";
++		interrupt-controller;
++		#interrupt-cells = <2>;
++		/* for the charger cell */
++		monitored-battery = <&battery>;
++
++		gpio {
++			compatible = "maxim,max77759-gpio";
++			gpio-controller;
++			#gpio-cells = <2>;
++			interrupt-controller;
++			#interrupt-cells = <2>;
++		};
++	};
++};
++
+ &spi20 {
+ 	status = "okay";
+ 
+@@ -193,6 +262,10 @@ touchscreen@0 {
+ 	};
+ };
+ 
++&sysreg_peric1 {
++	status = "okay";
++};
++
+ /*
+  * Behind the init's storage guard (only slot B's boot images and userdata
+  * writable), which sets every partition read-only before anything mounts
+@@ -222,3 +295,7 @@ &usbdrd_phy {
+ &usi2_hsi0 {
+ 	status = "okay";
+ };
++
++&usi11 {
++	status = "okay";
++};

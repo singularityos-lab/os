@@ -1,0 +1,38 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Thu, 22 Oct 2026 22:00:02 -0700
+Subject: [PATCH] dt-bindings: regulator: samsung,s2mpg14: Describe eUSB2
+ supplies
+
+Describe LDO8M, LDO9M and LDO19M alongside the touchscreen supplies.
+Google's zumapro-common.dtsi gives all three USB supplies to sub_pd_hsi0:
+vdd075, vdd12 and vdd33, respectively. This does not establish a split
+between PHY and repeater ownership. Their Linux consumer remains open
+until the HSI0 power-domain work establishes rail ownership.
+
+Link: https://android.googlesource.com/kernel/devices/google/zumapro/+/8831630eee2ad095b85ed452944e6353940966a5/dts/zumapro-common.dtsi
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ .../bindings/regulator/samsung,s2mpg14-regulator.yaml      | 7 ++++---
+ 1 file changed, 4 insertions(+), 3 deletions(-)
+
+diff --git a/Documentation/devicetree/bindings/regulator/samsung,s2mpg14-regulator.yaml b/Documentation/devicetree/bindings/regulator/samsung,s2mpg14-regulator.yaml
+index 1b7d9b9b7..fe9ffd97d 100644
+--- a/Documentation/devicetree/bindings/regulator/samsung,s2mpg14-regulator.yaml
++++ b/Documentation/devicetree/bindings/regulator/samsung,s2mpg14-regulator.yaml
+@@ -10,11 +10,12 @@ maintainers:
+   - W4HO <87742609+W4HO-ham@users.noreply.github.com>
+ 
+ description: |
+-  LDO4M and LDO25M are programmable voltage outputs of the S2MPG14 PMIC.
+-  They supply the Pixel 9a touchscreen's analog and digital power rails.
++  S2MPG14 provides programmable voltage outputs. This binding covers
++  LDO4M, LDO8M, LDO9M, LDO19M and LDO25M. Board descriptions specify their
++  consumers and operating constraints.
+ 
+ patternProperties:
+-  "^ldo(4|25)m$":
++  "^ldo(4|8|9|19|25)m$":
+     type: object
+     $ref: regulator.yaml#
+     unevaluatedProperties: false

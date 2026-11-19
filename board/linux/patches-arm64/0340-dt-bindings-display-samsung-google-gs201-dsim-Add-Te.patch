@@ -1,0 +1,41 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Tue, 27 Oct 2026 12:16:30 -0647
+Subject: [PATCH] dt-bindings: display: samsung: google,gs201-dsim: Add Tensor
+ G4
+
+The Tensor G4 (zumapro) display pipeline has the gs201 DSIM, at the same
+register layout and with the same three register windows. Add
+google,zumapro-dsim with google,gs201-dsim as its fallback.
+
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ .../bindings/display/samsung/google,gs201-dsim.yaml      | 9 +++++++--
+ 1 file changed, 7 insertions(+), 2 deletions(-)
+
+diff --git a/Documentation/devicetree/bindings/display/samsung/google,gs201-dsim.yaml b/Documentation/devicetree/bindings/display/samsung/google,gs201-dsim.yaml
+index 663c43b67..e70bda177 100644
+--- a/Documentation/devicetree/bindings/display/samsung/google,gs201-dsim.yaml
++++ b/Documentation/devicetree/bindings/display/samsung/google,gs201-dsim.yaml
+@@ -14,14 +14,19 @@ description:
+   pipeline. It takes pixel data from a DECON and drives up to four data
+   lanes through a combined D-PHY/C-PHY, in video or command mode, with
+   DSC slice packing and TE-based command scheduling. Panels are described
+-  as child nodes.
++  as child nodes. The Tensor G4 (zumapro) has the same DSIM, at the same
++  register layout.
+ 
+ allOf:
+   - $ref: /schemas/display/dsi-controller.yaml#
+ 
+ properties:
+   compatible:
+-    const: google,gs201-dsim
++    oneOf:
++      - const: google,gs201-dsim
++      - items:
++          - const: google,zumapro-dsim
++          - const: google,gs201-dsim
+ 
+   reg:
+     minItems: 1

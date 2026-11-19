@@ -1,0 +1,124 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+Date: Wed, 28 Oct 2026 09:26:09 -0647
+Subject: [PATCH] arm64: dts: exynos: google: zumapro-tegu: Add Bluetooth
+
+The Pixel 9a's BCM4383 sits on the APM's UART (USI1, uart18) at 3 Mbaud.
+BT_REG_ON is gpn8-0 behind the chip's latch, clocked by gpp24-3 (the
+binding's brcm,ble-dbo-gpios), device wake is gpn9-0 and host wake is
+gpa5-6 (EINT with a pull-down, as stock's bt_host_wake), as in Google's
+GPL zumapro Bluetooth device tree that tegu includes. With host wake as
+its interrupt, hci_bcm runs the controller with runtime PM and lets it
+wake the system.
+
+gpa5 becomes an interrupt controller with its eight EINT SPIs (60-67).
+
+Link: https://android.googlesource.com/kernel/devices/google/zumapro/+/8831630eee2ad095b85ed452944e6353940966a5/dts/zumapro-board-bluetooth_wakectrl.dtsi
+Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
+---
+ .../boot/dts/exynos/google/zumapro-tegu.dts   | 60 +++++++++++++++++++
+ 1 file changed, 60 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/zumapro-tegu.dts b/arch/arm64/boot/dts/exynos/google/zumapro-tegu.dts
+index e373d05a7..91dffaac3 100644
+--- a/arch/arm64/boot/dts/exynos/google/zumapro-tegu.dts
++++ b/arch/arm64/boot/dts/exynos/google/zumapro-tegu.dts
+@@ -280,6 +280,20 @@ &gpa4 {
+ 		     <GIC_SPI 29 IRQ_TYPE_LEVEL_HIGH>;
+ };
+ 
++/* Bluetooth's host wake (gpa5-6). */
++&gpa5 {
++	interrupt-controller;
++	#interrupt-cells = <2>;
++	interrupts = <GIC_SPI 60 IRQ_TYPE_LEVEL_HIGH>,
++		     <GIC_SPI 61 IRQ_TYPE_LEVEL_HIGH>,
++		     <GIC_SPI 62 IRQ_TYPE_LEVEL_HIGH>,
++		     <GIC_SPI 63 IRQ_TYPE_LEVEL_HIGH>,
++		     <GIC_SPI 64 IRQ_TYPE_LEVEL_HIGH>,
++		     <GIC_SPI 65 IRQ_TYPE_LEVEL_HIGH>,
++		     <GIC_SPI 66 IRQ_TYPE_LEVEL_HIGH>,
++		     <GIC_SPI 67 IRQ_TYPE_LEVEL_HIGH>;
++};
++
+ &gpa6 {
+ 	interrupt-controller;
+ 	#interrupt-cells = <2>;
+@@ -422,10 +436,23 @@ usb_pd_irq: usb-pd-irq-pins {
+ 
+ &pinctrl_custom_alive {
+ 	status = "okay";
++
++	bt_power: bt-power-pins {
++		samsung,pins = "gpn8-0", "gpn9-0";
++		samsung,pin-function = <EXYNOS_PIN_FUNC_OUTPUT>;
++		samsung,pin-pud = <EXYNOS_PIN_PULL_NONE>;
++		samsung,pin-drv = <0>;
++	};
+ };
+ 
+ &pinctrl_far_alive {
+ 	status = "okay";
++
++	bt_host_wake: bt-host-wake-pins {
++		samsung,pins = "gpa5-6";
++		samsung,pin-function = <EXYNOS_PIN_FUNC_EINT>;
++		samsung,pin-pud = <EXYNOS_PIN_PULL_DOWN>;
++	};
+ };
+ 
+ &pinctrl_hsi1 {
+@@ -474,6 +501,13 @@ touch_reset_held: touch-reset-held-pins {
+ &pinctrl_peric1 {
+ 	status = "okay";
+ 
++	bt_ble_dbo: bt-ble-dbo-pins {
++		samsung,pins = "gpp24-3";
++		samsung,pin-function = <EXYNOS_PIN_FUNC_INPUT>;
++		samsung,pin-pud = <EXYNOS_PIN_PULL_NONE>;
++		samsung,pin-drv = <0>;
++	};
++
+ 	hsi2c9_bus: hsi2c9-bus-pins {
+ 		samsung,pins = "gpp19-4", "gpp19-5";
+ 		samsung,pin-function = <EXYNOS_PIN_FUNC_2>;
+@@ -533,6 +567,28 @@ &sysreg_ufs {
+ 	status = "okay";
+ };
+ 
++/*
++ * Bluetooth: the BCM4383 on the APM's UART at 3 Mbaud, powered through
++ * BT_REG_ON (gpn8-0) behind its latch (ble-dbo on gpp24-3), with device wake
++ * on gpn9-0 and host wake on gpa5-6, as Google's GPL zumapro Bluetooth DT.
++ */
++&uart18 {
++	status = "okay";
++
++	bluetooth {
++		compatible = "brcm,bcm4383-bt";
++		pinctrl-names = "default";
++		pinctrl-0 = <&bt_power &bt_ble_dbo &bt_host_wake>;
++		max-speed = <3000000>;
++		shutdown-gpios = <&gpn8 0 GPIO_ACTIVE_HIGH>;
++		device-wakeup-gpios = <&gpn9 0 GPIO_ACTIVE_HIGH>;
++		brcm,ble-dbo-gpios = <&gpp24 3 GPIO_ACTIVE_HIGH>;
++		interrupt-parent = <&gpa5>;
++		interrupts = <6 IRQ_TYPE_EDGE_RISING>;
++		interrupt-names = "host-wakeup";
++	};
++};
++
+ /*
+  * Behind the init's storage guard (only slot B's boot images and userdata
+  * writable), which runs before the disks appear.
+@@ -596,6 +652,10 @@ &usi9 {
+ 	status = "okay";
+ };
+ 
++&usi_apm1 {
++	status = "okay";
++};
++
+ &watchdog_cl0 {
+ 	status = "okay";
+ };

@@ -1,0 +1,34 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Lef <me@lefteros.com>
+Date: Fri, 6 Nov 2026 06:45:36 +0200
+Subject: [PATCH] dt-bindings: soc: samsung: exynos-sysreg: add
+ google,zuma-apm-sysreg
+
+The sysreg of the Tensor G3's APM block, which holds the USI mode
+selectors; the Pixel 8 Pro's Bluetooth UART needs it.
+
+Signed-off-by: Lef <me@lefteros.com>
+---
+ .../devicetree/bindings/soc/samsung/samsung,exynos-sysreg.yaml  | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/Documentation/devicetree/bindings/soc/samsung/samsung,exynos-sysreg.yaml b/Documentation/devicetree/bindings/soc/samsung/samsung,exynos-sysreg.yaml
+index 6c33a6194..b5a944604 100644
+--- a/Documentation/devicetree/bindings/soc/samsung/samsung,exynos-sysreg.yaml
++++ b/Documentation/devicetree/bindings/soc/samsung/samsung,exynos-sysreg.yaml
+@@ -28,6 +28,7 @@ properties:
+               - google,gs201-peric0-sysreg
+               - google,gs201-peric1-sysreg
+               - google,gs201-vgpio2ap-sysreg
++              - google,zuma-apm-sysreg
+               - google,zuma-hsi0-sysreg
+               - google,zuma-peric1-sysreg
+               - google,zuma-ufs-sysreg
+@@ -118,6 +119,7 @@ allOf:
+               - google,gs201-hsi2-sysreg
+               - google,gs201-peric0-sysreg
+               - google,gs201-peric1-sysreg
++              - google,zuma-apm-sysreg
+               - google,zuma-peric1-sysreg
+               - google,zumapro-apm-sysreg
+               - google,zumapro-hsi0-sysreg

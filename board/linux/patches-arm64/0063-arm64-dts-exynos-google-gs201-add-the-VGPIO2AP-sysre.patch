@@ -1,0 +1,29 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Wed, 14 Oct 2026 21:05:04 -0400
+Subject: [PATCH] arm64: dts: exynos: google: gs201: add the VGPIO2AP sysreg
+
+It latches the main PMIC's in-band interrupt (GIC SPI 72).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ arch/arm64/boot/dts/exynos/google/gs201.dtsi | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/gs201.dtsi b/arch/arm64/boot/dts/exynos/google/gs201.dtsi
+index 42d0829e8..e41ddfdff 100644
+--- a/arch/arm64/boot/dts/exynos/google/gs201.dtsi
++++ b/arch/arm64/boot/dts/exynos/google/gs201.dtsi
+@@ -609,6 +609,12 @@ ap2apm_mailbox: mailbox@18210000 {
+ 			#mbox-cells = <0>;
+ 		};
+ 
++		/* Latches the S2MPG12 PMIC's in-band interrupt (GIC SPI 72). */
++		sysreg_vgpio2ap: syscon@182f0000 {
++			compatible = "google,gs201-vgpio2ap-sysreg", "syscon";
++			reg = <0x182f0000 0x1000>;
++		};
++
+ 		apm_sram: sram@18500000 {
+ 			compatible = "mmio-sram";
+ 			reg = <0x18500000 0x48000>;

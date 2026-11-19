@@ -1,0 +1,82 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: saiththerobo <the.tom.sharp@gmail.com>
+Date: Thu, 15 Oct 2026 14:28:35 +0100
+Subject: [PATCH] arm64: dts: exynos: google: gs101-raven: S6SY79x touchscreen
+ on SPI 11
+
+From Google's GPL gs101-sec-touch.dtsi, gs101-common-touch.dtsi and
+gs101-raven-touch.dtsi: SPI 11 in SPI mode with a GPIO chip select, the
+controller at 10 MHz, mode 3, interrupt on gpa9-0 (level low), an
+active-low reset on gpp26-0 (sec_ts holds it at 0 while the controller
+is unpowered and drives 1, 0, 1 after power-up), DVDD on LDO25M pinned
+to 1.8 V and AVDD on LDO26M pinned to 3.3 V, and TS_SPI_SEL (gpp26-1)
+hogged low so the touch bus belongs to the AP rather than the AoC.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Signed-off-by: saiththerobo <the.tom.sharp@gmail.com>
+---
+ .../boot/dts/exynos/google/gs101-raven.dts    | 54 +++++++++++++++++++
+ 1 file changed, 54 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/exynos/google/gs101-raven.dts b/arch/arm64/boot/dts/exynos/google/gs101-raven.dts
+index 350ab7502..133f470ce 100644
+--- a/arch/arm64/boot/dts/exynos/google/gs101-raven.dts
++++ b/arch/arm64/boot/dts/exynos/google/gs101-raven.dts
+@@ -118,3 +118,57 @@ bt_reg_on: bt-reg-on-pins {
+ 		samsung,pin-drv = <GS101_PIN_DRV_2_5_MA>;
+ 	};
+ };
++
++/*
++ * Touch: a Samsung S6SY79x on SPI 11 (Google's gs101-sec-touch.dtsi and
++ * gs101-common-touch.dtsi): 10 MHz, mode 3, interrupt on gpa9-0, an
++ * active-low reset on gpp26-0 (sec_ts drives it 0 until powered, then
++ * 1, 0, 1), DVDD on LDO25M and AVDD on LDO26M, which
++ * gs101-raven-touch.dtsi pins to 1.8 V and 3.3 V.
++ */
++&usi11 {
++	samsung,mode = <USI_MODE_SPI>;
++	status = "okay";
++};
++
++&spi_11 {
++	cs-gpios = <&gpp23 3 GPIO_ACTIVE_LOW>;
++	num-cs = <1>;
++	pinctrl-0 = <&spi11_bus &spi11_cs>;
++	status = "okay";
++
++	touchscreen@0 {
++		compatible = "samsung,s6sy792";
++		reg = <0>;
++		spi-max-frequency = <10000000>;
++		spi-cpol;
++		spi-cpha;
++		interrupt-parent = <&gpa9>;
++		interrupts = <0 IRQ_TYPE_LEVEL_LOW>;
++		reset-gpios = <&gpp26 0 GPIO_ACTIVE_LOW>;
++		vdd-supply = <&{/firmware/power-management/pmic-1/regulators/ldo25m}>;
++		avdd-supply = <&{/firmware/power-management/pmic-1/regulators/ldo26m}>;
++		touchscreen-size-x = <1440>;
++		touchscreen-size-y = <3120>;
++	};
++};
++
++/* TS_SPI_SEL: low gives the touch controller's bus to the AP, not the AoC */
++&gpp26 {
++	ts-spi-sel-hog {
++		gpio-hog;
++		gpios = <1 GPIO_ACTIVE_HIGH>;
++		output-low;
++		line-name = "ts-spi-sel";
++	};
++};
++
++&{/firmware/power-management/pmic-1/regulators/ldo25m} {
++	regulator-min-microvolt = <1800000>;
++	regulator-max-microvolt = <1800000>;
++};
++
++&{/firmware/power-management/pmic-1/regulators/ldo26m} {
++	regulator-min-microvolt = <3300000>;
++	regulator-max-microvolt = <3300000>;
++};

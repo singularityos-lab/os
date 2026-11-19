@@ -1,0 +1,47 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Derek Ross <derekross@gmail.com>
+Date: Fri, 23 Oct 2026 23:36:47 -0400
+Subject: [PATCH] dt-bindings: watchdog: samsung-wdt: add google,gs201-wdt
+
+gs201 (Tensor G2) has the same two cluster watchdogs as gs101, with the
+same PMU mask, reset-status and counter-enable controls, so the s3c2410
+driver already uses gs101's variant data for it. Document it with
+google,gs101-wdt as the fallback, so the driver needs no gs201 entry
+and the gs101 rules (two clocks, cluster index, PMU phandle) apply.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Signed-off-by: Derek Ross <derekross@gmail.com>
+---
+ .../devicetree/bindings/watchdog/samsung-wdt.yaml          | 7 +++++--
+ 1 file changed, 5 insertions(+), 2 deletions(-)
+
+diff --git a/Documentation/devicetree/bindings/watchdog/samsung-wdt.yaml b/Documentation/devicetree/bindings/watchdog/samsung-wdt.yaml
+index bd653717f..111a1ca10 100644
+--- a/Documentation/devicetree/bindings/watchdog/samsung-wdt.yaml
++++ b/Documentation/devicetree/bindings/watchdog/samsung-wdt.yaml
+@@ -28,6 +28,9 @@ properties:
+           - samsung,exynos990-wdt                 # for Exynos990
+           - samsung,exynosautov9-wdt              # for Exynosautov9
+           - samsung,exynosautov920-wdt            # for Exynosautov920
++      - items:
++          - const: google,gs201-wdt
++          - const: google,gs101-wdt
+       - items:
+           - const: google,zumapro-wdt
+           - const: google,zuma-wdt
+@@ -55,13 +58,13 @@ properties:
+     enum: [0, 1, 2]
+     description:
+       Index of CPU cluster on which watchdog is running (in case of Exynos850,
+-      Exynos990, Google gs101, zuma or zumapro).
++      Exynos990, Google gs101, gs201, zuma or zumapro).
+ 
+   samsung,syscon-phandle:
+     $ref: /schemas/types.yaml#/definitions/phandle
+     description:
+       Phandle to the PMU system controller node (in case of Exynos5250,
+-      Exynos5420, Exynos7, Exynos850, Exynos990, gs101, zuma and zumapro).
++      Exynos5420, Exynos7, Exynos850, Exynos990, gs101, gs201, zuma and zumapro).
+ 
+ required:
+   - compatible
