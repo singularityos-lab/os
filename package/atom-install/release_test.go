@@ -226,3 +226,33 @@ func TestStageDataForAPhone(t *testing.T) {
 		t.Fatalf("a release without its signed anchor must be refused, got %v", err)
 	}
 }
+
+func TestStageBoardSharesTheInstallID(t *testing.T) {
+	dir := fakeRelease(t, "aarch64")
+	os.WriteFile(filepath.Join(dir, "manifest.json.sig"), []byte("sig"), 0o644)
+	rel, err := readRelease(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sysroot := t.TempDir()
+	os.MkdirAll(filepath.Join(sysroot, "etc/greetd"), 0o755)
+	os.WriteFile(filepath.Join(sysroot, "etc/greetd/config.toml"), []byte("[default_session]\ncommand = \"x\"\n"), 0o644)
+	out := t.TempDir()
+	if err := stageBoard(out, rel, sysroot); err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range []string{
+		"esp/EFI/BOOT/BOOTAA64.EFI", "esp/EFI/atom/kernelcache-active.efi", "esp/EFI/atom/kernelcache-active.efi.sig",
+		"esp/EFI/atom/deployment.json", "esp/EFI/atom/boot-state",
+		"data/boot/rootfs/rootfs-active.erofs", "data/boot/rootfs/release/v9/manifest.json", "data/.atom-var",
+	} {
+		if _, err := os.Stat(filepath.Join(out, f)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	a, _ := os.ReadFile(filepath.Join(out, "esp/EFI/atom/state/install-id"))
+	b, _ := os.ReadFile(filepath.Join(out, "data/.atom-install-id"))
+	if len(a) == 0 || string(a) != string(b) {
+		t.Fatalf("ESP install id %q, data install id %q", a, b)
+	}
+}

@@ -264,6 +264,17 @@ func mibOfDev(dev string) (int64, error) {
 
 func main() {
 	args := os.Args[1:]
+	if len(args) > 0 && args[0] == "--stage" {
+		if len(args) != 6 || args[2] != "--from" || args[4] != "--sysroot" {
+			fmt.Fprintln(os.Stderr, "usage: atom-install --stage DIR --from RELEASE --sysroot ROOT")
+			os.Exit(1)
+		}
+		rel, err := readRelease(args[3])
+		die(err)
+		die(stageBoard(args[1], rel, args[5]))
+		fmt.Printf("atom-install: ESP and data for %s staged in %s\n", rel.version, args[1])
+		return
+	}
 	if len(args) > 0 && args[0] == "--data-dir" {
 		if len(args) != 6 || args[2] != "--from" || args[4] != "--sysroot" {
 			fmt.Fprintln(os.Stderr, "usage: atom-install --data-dir DIR --from RELEASE --sysroot ROOT")
@@ -356,7 +367,12 @@ func activateInstalledKernelcache(esp, installID string) (err error) {
 		}
 	}()
 
-	dir := filepath.Join(mnt, "EFI", "atom")
+	return activateKernelcache(filepath.Join(mnt, "EFI", "atom"), installID)
+}
+
+// activateKernelcache records the install in the atom directory of an ESP and
+// makes the kernelcache it was installed with the active one.
+func activateKernelcache(dir, installID string) error {
 	stateDir := filepath.Join(dir, "state")
 	if err := os.MkdirAll(stateDir, 0o755); err != nil {
 		return err
@@ -536,6 +552,30 @@ func stageData(dir string, rel releaseDir, sysroot string) error {
 		return err
 	}
 	return checkData(dir, rel.erofs(), rel.hash())
+}
+
+// stageBoard writes the ESP and the data partition of a board installed by
+// flashing its partitions, into dir/esp and dir/data, as a board install from
+// a stick lays them out: one install ID shared by both, the release kernel
+// active on the ESP and the root slot on the data partition.
+func stageBoard(dir string, rel releaseDir, sysroot string) error {
+	installID, err := newInstallID()
+	if err != nil {
+		return err
+	}
+	anchorSource = rel.dir
+	esp, data := filepath.Join(dir, "esp"), filepath.Join(dir, "data")
+	if err := populateESP(esp, rel); err != nil {
+		return err
+	}
+	if err := activateKernelcache(filepath.Join(esp, "EFI", "atom"), installID); err != nil {
+		return err
+	}
+	wal := deploymentWAL(rel.version, rel.recovery)
+	if err := populateData(data, rel.erofs(), rel.hash(), "", installID, false, wal, filepath.Join(sysroot, liveGreetdConfig)); err != nil {
+		return err
+	}
+	return checkData(data, rel.erofs(), rel.hash())
 }
 
 // checkData checks that the root image, its hash and the installed-system marker
