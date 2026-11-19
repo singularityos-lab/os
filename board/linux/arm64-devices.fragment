@@ -456,3 +456,5 @@ CONFIG_NVMEM_MAX77759=y
 CONFIG_NVMEM_REBOOT_MODE=y
 CONFIG_CHARGER_MAX77759=y
 CONFIG_GPIO_MAX77759=y
+# DEVICE-FIX(gs201): the built-in charger's temperature guard reads the fuel gauge from probe; as a module the gauge loads later and the guard stops charging until it does
+CONFIG_BATTERY_MAX17042=y
