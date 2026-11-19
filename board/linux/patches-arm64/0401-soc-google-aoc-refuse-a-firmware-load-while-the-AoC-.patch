@@ -3,11 +3,6 @@ From: Derek Ross <derekross@gmail.com>
 Date: Mon, 12 Oct 2026 16:04:51 -0400
 Subject: [PATCH] soc: google: aoc: refuse a firmware load while the AoC runs
 
-Writing the firmware attribute of a running AoC takes it offline and
-asks the GSA to load the image again, which the GSA refuses while the
-AoC runs (-EBUSY); this port cannot reset the AoC, so every service is
-gone until a reboot. Refuse the write unless the AoC is offline.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

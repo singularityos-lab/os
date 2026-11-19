@@ -4,14 +4,6 @@ Date: Mon, 12 Oct 2026 13:59:15 -0400
 Subject: [PATCH] arm64: dts: exynos: google: gs201: add PCIe GEN4A_0 and the
  modem MSI page
 
-Describe PCIe GEN4A_0 (pcie@11920000, GIC SPI 388-393), its PHY at
-0x11950000 (PMU isolation 0x3ec0), the HSI1 system registers and the
-CLKREQ#/PERST# pins on gph0, from Google's gs201 device tree. Reserve the
-modem's MSI target page at 0xf6200000 (stock cp_msi_rmem), which was
-plain System RAM so far.
-
-The controller and the PHY stay disabled.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

@@ -4,39 +4,6 @@ Date: Mon, 12 Oct 2026 20:51:30 -0400
 Subject: [PATCH] wifi: brcmfmac: pcie: catch the D3 ACK in shared memory,
  recover from a missed one
 
-On a Pixel 7 Pro (BCM4389, PCIe core rev >= 64, shared version 7) the
-first suspend with Wi-Fi up failed: the D3 inform went out as a control
-message, the dongle stopped its DMA engines right after it, and no D3 ACK
-was ever seen, neither on the control completion ring (its write index
-didn't move) nor anywhere brcmfmac looked. The suspend failed with -EIO,
-and the dongle stayed in D3: every later command timed out, and the
-host-to-dongle mailbox interrupt (FN0_0 in the dongle's DAR intstatus)
-stayed pending until a reboot.
-
-Broadcom's driver reads the shared-memory D2H mailbox whenever FN0_0 or
-FN0_1 is set, on rev >= 64 cores too, where those bits double as the D2H4
-doorbells, and while waiting for a D3 ACK without an interrupt it polls
-that mailbox every millisecond. brcmfmac never reads it on rev >= 64
-cores (int_fn0 = 0). Do both:
-
- - set int_fn0 for the rev >= 64 register sets, so the interrupt thread
-   reads the shared-memory mailbox, under rx_lock;
- - wait for the D3 ACK by polling the shared-memory mailbox and the
-   control completion ring every 2 ms, besides the wake-up;
- - once acknowledged, disable and clear the device's interrupts, as
-   Broadcom's driver does.
-
-A missed ACK must not kill Wi-Fi: Broadcom's driver reports a hang and
-the firmware is reloaded. Ring the host-ready doorbell and request a bus
-reset (firmware reload, no memory dump) through a new
-brcmf_bus_request_reset(). Restart the firmware console timer when the
-inform couldn't be sent. On a hot resume, look at the mailbox and rings
-once and restart the poll, so nothing posted while interrupts were off
-waits for the next interrupt.
-
-The D3 path logs one dev_dbg() line per suspend and resume, which
-CONFIG_BRCMDBG builds print without the ring dumps of debug=0x80000.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

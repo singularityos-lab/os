@@ -4,51 +4,6 @@ Date: Sat, 7 Nov 2026 16:47:08 -0300
 Subject: [PATCH] Input: synaptics-tcm: Probe a controller that sends no
  identify report
 
-On a Pixel 7 Pro (cheetah, SKU GE2AE, Samsung S6E3HC4 panel) the
-controller keeps running its application firmware when the reset line is
-toggled, and it keeps streaming reports. No identify report follows the
-reset, and probe fails:
-
-  synaptics-tcm spi0.0: bad message header f8 5f 00 20
-  synaptics-tcm spi0.0: no identify report after reset
-  synaptics-tcm spi0.0: probe ... failed with error -110
-
-Starting the phone from a full power off, with the phone off for six
-hours, fails the same way, so this is not state left over from a previous
-session.
-
-Google's driver handles this in syna_tcm_v1_detect(): if the first packet
-after the reset is not the identify report, it sends an IDENTIFY command,
-and a RESET command if that fails. The identify record is the payload of
-IDENTIFY's response; only RESET is completed by an identify report. Do
-the same, and hand the payload to tcm_handle_identify() so ts->id and
-max_write_size are real and the existing RUN_APP_FW step still applies if
-the controller is not in application mode.
-
-This controller acknowledges IDENTIFY (status 0x01, no payload) and
-RESET, sends no identify report for either, and RESET does not restart
-it. It is alive and in application mode, so carry on with an empty
-identify record in that case; the part number and build id stay unknown.
-A controller whose identify report was read without its ATTN interrupt
-having fired still fails, as before.
-
-The message CRC setting is detected from the bytes after the first
-payload, which the driver took to be padding when CRCs are off. This
-controller sends the start of the next chunk (0xa5 0x03) there instead,
-so the driver decided CRCs were on and every later command was ignored.
-Treat that as no CRC too.
-
-A controller left running also streams heat map frames (report 0xc3).
-Ask it to stop, as Google's driver does at suspend, and log it if the
-controller refuses.
-
-Occasionally a read starts in the middle of one of those frames and its
-payload is taken for a "continued read" header. The length field of that
-header is payload data, and the driver tried to read about 63 KB for it.
-Drop the read and resync. Log the first one, with the code and length of
-the message before it, and count the rest (dev_dbg), since a touched
-screen does this a few times a second.
-
 Assisted-by: Claude:claude-sonnet-5-5
 Signed-off-by: Roberto Nuzzarello <nuzzarello@gmail.com>
 ---

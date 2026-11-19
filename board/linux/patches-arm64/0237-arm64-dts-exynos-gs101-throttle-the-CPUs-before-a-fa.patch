@@ -4,14 +4,7 @@ Date: Thu, 15 Oct 2026 19:23:06 +0100
 Subject: [PATCH] arm64: dts: exynos: gs101: throttle the CPUs before a fast
  burst trips
 
-On raven the big cluster went from 51 to over 110 C within six seconds
-of the UI starting, and the kernel powered the phone off at the critical
-trip in three boots out of four: step_wise adds one cooling state per
-passive poll (250 ms), and the big cluster has 16. Poll faster (250 ms,
-100 ms when passive) and add a second passive trip at 95 C that drops
-each cluster at once to a deep state (big 10, mid 8, little 6).
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Assisted-by: Claude:claude-opus-5-5
 Signed-off-by: saiththerobo <the.tom.sharp@gmail.com>
 ---
  arch/arm64/boot/dts/exynos/google/gs101.dtsi | 53 +++++++++++++++++---

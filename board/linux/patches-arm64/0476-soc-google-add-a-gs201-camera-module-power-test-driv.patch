@@ -3,22 +3,6 @@ From: Derek Ross <derekross@gmail.com>
 Date: Mon, 12 Oct 2026 19:16:59 -0400
 Subject: [PATCH] soc: google: add a gs201 camera module power test driver
 
-Bring-up only, until there are sensor drivers. To learn which sensor
-sits behind each camera I2C address, and that its rails come up, a
-module has to be powered in the order the stock device tree gives
-(supplies, master clock, reset release, with their delays) and its
-identification registers read.
-
-Add gs201-cam-power and its binding. It binds to a module's I2C device
-(sensor or EEPROM), takes the supplies in power-up order, the delays,
-an optional master clock (enabled as is, rate only logged), its pad
-states and an active-low reset from the device tree, and does nothing
-at probe. From debugfs it powers the device up and down, reads single
-registers from a device-tree allowlist (16-bit address, 8- or 16-bit
-value), and reports whether a device answers a one-byte read with no
-register address written first, which is what the module EEPROMs get.
-It never writes to the device and powers it down when unbound.
-
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---
  .../google,gs201-camera-power-test.yaml       | 118 ++++

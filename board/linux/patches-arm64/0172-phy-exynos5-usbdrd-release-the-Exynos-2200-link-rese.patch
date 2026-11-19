@@ -4,33 +4,6 @@ Date: Fri, 23 Oct 2026 19:00:52 -0400
 Subject: [PATCH] phy: exynos5-usbdrd: release the Exynos 2200 link reset at
  exit
 
-exynos2200_usbdrd_phy_exit() sets CLKRST_LINK_SW_RST and leaves it set,
-so the DWC3 link stays in reset until the next phy_init(). But the DWC3
-core touches its own registers before dwc3_core_init() calls
-phy_init(): its probe reads GSNPSID and the hardware parameters, and
-dwc3_phy_setup() writes the PHY configuration registers. On zuma, which
-uses these ops, such an access to a link held in reset hangs the bus:
-unbinding and rebinding the DWC3 freezes every CPU, with no lockup,
-hung-task or sysrq panic able to reset the phone. Resume from system
-suspend would hit the same path, since dwc3 exits its PHY on suspend in
-device mode.
-
-Pulse the reset instead, as exynos850_usbdrd_phy_exit() already does.
-The driver zuma's stock kernel builds never leaves the link in reset
-either: Google's exynos_usbcon_init_link() (exynos-usb-blkcon.c, in
-phy-exynos-usbdrd-eusb-super) sets the bit, waits 10 us and clears it,
-and its exit path (exynos_usbdrd_utmi_exit()) leaves the bit alone.
-
-Tested on a Pixel 8 Pro, on the zuma-husky DT. Without this change
-every rebind froze the phone (5 of 5, with and without "phy:
-exynos5-usbdrd: Balance underlying UTMI PHY initialization"), and so
-did 1 of 1 with the link reset kept but the PHY isolation skipped;
-skipping only the link reset made the rebind work. With this change
-and that commit, three unbind/bind cycles each re-enumerated the gadget
-within 4 s, ssh came back each time, and dmesg showed no PHY or DWC3
-error.
-
-Fixes: cc52a697f87e ("phy: exynos5-usbdrd: support Exynos USBDRD 3.2 4nm controller")
 Assisted-by: LLM
 Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
 ---

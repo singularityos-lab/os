@@ -3,16 +3,6 @@ From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 Date: Thu, 22 Oct 2026 16:15:17 -0700
 Subject: [PATCH] scsi: ufs: exynos: Set Tensor G4 clock stop before disable
 
-On the Pixel 9a prototype, shutdown reached the Exynos clock-off callback
-after host clock references had been dropped, then stopped during vendor
-HCI access. Hibern8 and PHY suspension had already completed.
-
-Select PRE_CHANGE for Tensor G4 clock-stop programming so the accesses
-finish while the host clocks remain enabled. Preserve POST_CHANGE for
-other variants and retain the register values and clock-on sequence.
-The controlled prototype test completed this callback and returned to
-native Linux on an ordinary reboot. Diagnostic tracing is excluded.
-
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  drivers/ufs/host/ufs-exynos.c | 11 +++++++++--

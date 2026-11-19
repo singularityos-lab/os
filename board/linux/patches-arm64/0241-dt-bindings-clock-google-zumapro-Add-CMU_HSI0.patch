@@ -3,15 +3,6 @@ From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 Date: Tue, 27 Oct 2026 01:06:08 -0647
 Subject: [PATCH] dt-bindings: clock: google,zumapro: Add CMU_HSI0
 
-CMU_HSI0 feeds the USB controller, its eUSB2 PHY and the touchscreen's
-USI2. Describe it in the common Tensor G4 clock binding with its five
-inputs: the oscillator, CMU_TOP's HSI0 NoC and peripheral clocks, and the
-board's ALT and TCXO fixed clocks. Allow a power domain for it, which
-firmware keeps on today. Add its 22 clock identifiers in a new HSI0 block,
-and CMU_TOP's two HSI0 branch gates at the end of the TOP block, leaving
-the existing identifiers unchanged.
-
-Link: https://android.googlesource.com/kernel/google-modules/soc/gs/+/204078758737776959ecc85c527a00fd2cabb62f/drivers/soc/google/cal-if/zuma/cmucal-node.c
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  .../bindings/clock/google,zumapro-clock.yaml  | 42 ++++++++++++++++++-

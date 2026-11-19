@@ -3,24 +3,8 @@ From: =?UTF-8?q?Andr=C3=A9=20Draszik?= <andre.draszik@linaro.org>
 Date: Wed, 18 Mar 2026 11:53:49 -0400
 Subject: [PATCH] dt-bindings: soc: google: gs101-pmu: allow power domains as
  children
-MIME-Version: 1.0
-Content-Type: text/plain; charset=UTF-8
-Content-Transfer-Encoding: 8bit
-
-The power domains are a property of / implemented in the PMU. As such,
-they should be modelled as child nodes of the PMU.
-
-Note:
-Because the properties added are 'required', this commit breaks DT
-validation of the existing DT for Pixel 6, but a) that's simply because
-the DT is incomplete and b) a DT update will be posted once the binding
-is accepted.
-It is not possible to write the binding such that it supports old
-(incomplete) DTs in addition to the full version, but as per above
-it's not required to keep supporting old DTs.
 
 Signed-off-by: André Draszik <andre.draszik@linaro.org>
-Link: https://lore.kernel.org/r/20260318-gs101-pd-v8-4-241523460b10@linaro.org
 Signed-off-by: saiththerobo <the.tom.sharp@gmail.com>
 ---
  .../bindings/soc/google/google,gs101-pmu.yaml | 41 +++++++++++++++++++

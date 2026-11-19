@@ -3,24 +3,6 @@ From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 Date: Tue, 27 Oct 2026 08:30:12 -0647
 Subject: [PATCH] clk: samsung: zumapro: Add CMU_HSI1
 
-Register CMU_HSI1 on the common exynos_arm64_register_cmu() path with
-its bus input, and CMU_TOP's HSI1 NoC branch. Firmware keeps the domain
-powered and owns its setup: the NoC and ALT user muxes, the local NoC mux
-and the ALT divider are read-only, and the ALT, GPIO and CMU gates are
-read-only gates. Only the GPIO bank's clock path is described; the PCIe
-channel 0 clocks are not. The ALT gate's parent is the board's 400 MHz
-hsi1-alt fixed clock, found by name as HSI0's ALT and TCXO inputs are.
-
-Every offset, width and parent list was checked against zuma's
-cmucal-sfr.c and cmucal-node.c.
-
-Booted on the Pixel 9a:
-7.3.0-rc6-omamobile-tegu-s2mpg15-m1-g991042e2eff3-dirty, whose
-clk-zumapro.c (blob c1db3a4a7736) carries these clocks under that
-tree's own clock ids.
-
-Link: https://android.googlesource.com/kernel/google-modules/soc/gs/+/204078758737776959ecc85c527a00fd2cabb62f/drivers/soc/google/cal-if/zuma/cmucal-sfr.c
-Link: https://android.googlesource.com/kernel/google-modules/soc/gs/+/204078758737776959ecc85c527a00fd2cabb62f/drivers/soc/google/cal-if/zuma/cmucal-node.c
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  drivers/clk/samsung/clk-zumapro.c | 53 ++++++++++++++++++++++++++++++-

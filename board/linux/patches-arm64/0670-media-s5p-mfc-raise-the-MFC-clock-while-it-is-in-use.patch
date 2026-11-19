@@ -1,30 +1,8 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?=C3=81ngel=20Ren=C3=A9?=
- <17342133+angelrenefm@users.noreply.github.com>
 Date: Sat, 14 Nov 2026 13:47:52 +0100
 Subject: [PATCH] media: s5p-mfc: raise the MFC clock while it is in use on MFC
  v15
-MIME-Version: 1.0
-Content-Type: text/plain; charset=UTF-8
-Content-Transfer-Encoding: 8bit
-
-The bootloader leaves the Pixel 7's MFC at 100 MHz. Decoding only, that
-gives about 22 fps for 3840x2160 H.264 and 64 fps for 1080p, so 4K
-cannot play in real time.
-
-On gs201 the MFC rate is a DVFS domain of the ACPM firmware, which sets
-the voltage along with it. Let a variant name the rate to ask of its
-first clock while the MFC is powered on, and put the previous rate back
-at power off. MFC v15 asks for 666 MHz, the top of Google's gs201
-mfc_freqs table.
-
-On the Pixel 7, with the clock below in the device tree: the rate reads
-666 MHz while decoding and 100 MHz again afterwards; decoding only, the
-4K clip runs at about 70 fps and the 1080p one at about 280 fps; the 4K
-clip plays on screen through glimagesink at 30 fps with no frame
-dropped (44 shown and 72 dropped before); and the 300 4K frames and the
-1800 frames of a 60 s 1080p clip match FFmpeg's software decoder bit
-for bit.
 
 Assisted-by: LLM
 Signed-off-by: Ángel René <17342133+angelrenefm@users.noreply.github.com>

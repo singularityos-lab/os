@@ -4,17 +4,6 @@ Date: Wed, 4 Nov 2026 22:55:42 +0200
 Subject: [PATCH] arm64: dts: exynos: google: zuma-husky: add the rear flash
  LED (LM3644)
 
-Add cmu_peric0, sysreg_peric0, usi14 and hsi2c_14 (0x10980000, IRQ 648)
-to zuma.dtsi, and the pins hsi2c14_bus (gpp16-0 and gpp16-1, function
-2) and flash_en (gpp8-2). The board file gets the LM3644 at 0x63 with
-HWEN on gpp8-2 and the 7 Pro's bring-up cap of 50 mA per LED (not a
-stock value), and enables cmu_peric0 and sysreg_peric0, which stay off
-in zuma.dtsi like PERIC1.
-
-Tested on a Pixel 8 Pro with 7.3.0-rc6: the chip is found (LM3644TT,
-ID 0x04), the LED class white:torch has 17 steps from 2550 to 49110 uA
-and lights the rear LED.
-
 Signed-off-by: Lef <me@lefteros.com>
 ---
  .../boot/dts/exynos/google/zuma-husky.dts     | 42 +++++++++++++++++++

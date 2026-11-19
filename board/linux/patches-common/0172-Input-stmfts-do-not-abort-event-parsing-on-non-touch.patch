@@ -4,20 +4,6 @@ Date: Tue, 3 Nov 2026 14:58:41 -0800
 Subject: [PATCH] Input: stmfts - do not abort event parsing on non-touch
  events
 
-When processing hardware interrupts, stmfts_read_events() reads a batch
-of up to 32 events from the controller FIFO into the buffer. Only
-STMFTS_EV_NO_EVENT (0x00) marks the end of valid events in this buffer.
-
-Currently, both stmfts_parse_events() and stmfts5_parse_events() abort
-the event parsing loop early upon encountering non-touch events such as
-controller-ready, status, user-report, or debug events. This causes any
-subsequent touch events that were already read from the FIFO in the same
-batch to be discarded.
-
-Update both event parsing loops so only STMFTS_EV_NO_EVENT terminates
-processing, while non-touch events complete cmd_done when applicable and
-continue processing the remaining entries in the FIFO buffer.
-
 Signed-off-by: Dmitry Torokhov <dmitry.torokhov@gmail.com>
 Signed-off-by: quatrixone <quatrix1@gmail.com>
 ---

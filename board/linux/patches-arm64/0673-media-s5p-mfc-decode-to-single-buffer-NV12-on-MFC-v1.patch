@@ -1,34 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?=C3=81ngel=20Ren=C3=A9?=
- <17342133+angelrenefm@users.noreply.github.com>
 Date: Sat, 14 Nov 2026 14:37:43 +0100
 Subject: [PATCH] media: s5p-mfc: decode to single-buffer NV12 on MFC v15
-MIME-Version: 1.0
-Content-Type: text/plain; charset=UTF-8
-Content-Transfer-Encoding: 8bit
-
-The decoder only offers multi-planar formats (NV12M and friends), each
-plane in a buffer of its own. Chromium's V4L2 decoder renders NV12 in
-one buffer without a copy; for NM12 it sets up an image processor first,
-and on the Pixel 7 it got no further than that.
-
-Offer V4L2_PIX_FMT_NV12 on MFC v15, laid out as V4L2 has it: a 64 byte
-aligned stride, as Google's NV12N, and the chroma right after the luma's
-bytesperline * height. The MFC is given the luma address and the chroma
-one inside the same buffer. The firmware still wants its 64 bytes after
-each plane (it reports 2089024 and 1044544 bytes as the least for
-1920x1088, and fails frames with INSUFFICIENT_DPB_SIZE below that), so
-the plane sizes it is told include them, and the buffer ends 64 bytes
-after the chroma. Work the sizes out again when the CAPTURE format
-changes after the header was parsed, as Chromium does, and count the
-CAPTURE planes with mem_planes rather than comp_planes.
-
-On the Pixel 7, with this format only offered: GStreamer's v4l2h264dec
-decodes a 20 s and a 60 s 1080p clip (2400 frames) to the same frames
-as avdec_h264. With all formats offered, GStreamer keeps NV12M and its
-2700 frames still match; Chromium 156 (AcceleratedVideoDecoder enabled)
-plays a 1080p30 clip at 30 fps with no frame dropped and spends 6.8 s of
-CPU time per 10 s of video, against 9.9 s decoding in software.
 
 Assisted-by: LLM
 Signed-off-by: Ángel René <17342133+angelrenefm@users.noreply.github.com>

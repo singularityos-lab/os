@@ -3,16 +3,6 @@ From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 Date: Thu, 29 Oct 2026 09:04:33 -0647
 Subject: [PATCH] clk: samsung: zumapro: Let USI3 reach OSCCLK for the GNSS SPI
 
-The Pixel 9a's GNSS SPI (SPI21 on HSI0 USI3) asks for 12.5 MHz, but the
-USI3 mux is read-only on the 399.36 MHz parent and its 4-bit divider
-stops at /16, so the IP clock is 24.96 MHz and the bus runs at 6.24 MHz,
-twice what stock uses. Google's clock table makes the 12 MHz setting
-from OSCCLK / 2 (cmucal-vclklut.c, div_clk_hsi0_usix_12mhz_lut_params).
-Let the rate request reach the mux (nMUX, so the clock framework may
-reparent) and pass it up through the divider and the source gate; the
-framework then picks OSCCLK and /2, 12.288 MHz, a 3.072 MHz bus. USI2
-(the touchscreen) is unchanged.
-
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  drivers/clk/samsung/clk-zumapro.c | 9 ++++-----

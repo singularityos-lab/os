@@ -4,16 +4,7 @@ Date: Sun, 11 Oct 2026 19:35:50 -0400
 Subject: [PATCH] arm64: dts: exynos: google: gs201: add FAR_ALIVE and PERIC1
  pinctrl, USI0 SPI
 
-Add the FAR_ALIVE and PERIC1 pin controllers with their GPIO banks, the
-PERIC1 sysreg, and the PERIC1 USI0 block with its SPI controller, which
-the Pixel 7 and 7 Pro use for the touchscreen.
-
-The FAR_ALIVE wake-up interrupts are wired straight to the GIC. Note
-that gs201 skips EINT19 in its interrupt map, so the GIC numbers differ
-from gs101 by one. The FAR_ALIVE bus clock comes from CMU_APM, which
-has no driver yet.
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Assisted-by: Claude:claude-opus-5-5
 ---
  .../boot/dts/exynos/google/gs201-pinctrl.dtsi | 158 ++++++++++++++++++
  arch/arm64/boot/dts/exynos/google/gs201.dtsi  |  67 +++++++-

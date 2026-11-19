@@ -3,36 +3,6 @@ From: Derek Ross <derekross@gmail.com>
 Date: Tue, 13 Oct 2026 09:59:25 -0400
 Subject: [PATCH] trusty: share a dma-buf by its attachment's DMA addresses
 
-TIPC_IOC_SEND_MSG with a memref attaches to the dma-buf, maps the
-attachment, and then passed the table to trusty_transfer_memory(), which
-maps it a second time with dma_map_sg(). That second mapping reads the
-struct pages behind the table. A dma-buf importer must not use them, and
-with CONFIG_DMABUF_DEBUG (default y with DEBUG_KERNEL) the core hands the
-importer a copy of the table that carries only the DMA addresses and
-lengths, with NULL pages. dma_direct_map_sg() then turned the NULL page
-into a physical address far outside RAM and cleaned the cache for it:
-
-  Unable to handle kernel paging request at ffff801000000000
-  pc : dcache_clean_poc_nosync+0x24/0x44
-  lr : arch_sync_dma_for_device+0x24/0x30
-  ...
-  trusty_transfer_memory+0xa0 [trusty_core]
-  tipc_ioctl+0x480 [trusty_ipc]
-
-on gs201, when trusty_apploader sent an app image in a system heap buffer.
-
-The attachment is made for the tipc virtio device, which uses the Trusty
-device's dma-direct ops without an offset, so its DMA addresses already
-are the physical addresses FF-A wants, and the exporter has done the cache
-maintenance. Split the FF-A share and reclaim out of
-trusty_transfer_memory() and trusty_reclaim_memory(), and add
-trusty_transfer_mapped_memory() and trusty_reclaim_mapped_memory(), which
-take an already mapped table and use only its DMA fields (sgt->nents, the
-DMA segment count). The memref path uses them; the exporter's unmap still
-runs when the handle is dropped. Callers that share their own pages keep
-the mapping variants.
-
-Fixes: edae3bf75217 ("trusty: add Google's Trusty driver")
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---
  drivers/trusty/trusty-ipc.c   |  19 ++--

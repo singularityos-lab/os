@@ -4,11 +4,6 @@ Date: Fri, 30 Oct 2026 14:44:01 -0400
 Subject: [PATCH] dt-bindings: pinctrl: samsung: Add the Tensor G3 wake-up
  interrupts
 
-zuma's (Tensor G3) ALIVE pin controller has a wake-up interrupt
-controller like Tensor G4's: each pin has its own GIC interrupt, and its
-EINT registers are at the same offsets. Document zuma's compatible with
-Tensor G4's as the fallback.
-
 Assisted-by: LLM
 Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
 ---

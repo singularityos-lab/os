@@ -4,22 +4,6 @@ Date: Mon, 12 Oct 2026 20:08:48 -0400
 Subject: [PATCH] PCI: dwc: gs201-cp: power the modem off as stock does, and
  trace the lines
 
-On the phone every modem power-off (cp_off) was followed 0.08-0.15 s
-later by one recovered UFS error-handler pass (a PA-layer LINERESET) and
-thousands of UFS data-link errors; power-on and a running link were
-clean. Our sequence was Google's gpio_power_off_cp() plus one more edge:
-it also drove ap2cp-pda-active low at the end. Stock never does that
-when it powers the modem off; it drives the line low only for AP
-suspend.
-
-Drop that edge so that cp_off is stock's sequence exactly, and add a
-separate "pda_off" step that returns the line to the level the
-bootloader leaves, for a modem that is off, so that each edge can be
-measured on its own. Module removal still leaves every line low.
-
-With trace_lines=1 every output edge is logged, to line the UFS error up
-with the edge that causes it.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

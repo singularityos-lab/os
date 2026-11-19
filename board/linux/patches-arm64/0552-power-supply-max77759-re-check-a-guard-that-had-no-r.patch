@@ -4,36 +4,6 @@ Date: Sun, 8 Nov 2026 11:36:36 -0500
 Subject: [PATCH] power: supply: max77759: re-check a guard that had no reading
  soon
 
-The temperature guard inhibits charging when it cannot read the
-battery: without a temperature it can't tell whether charging is safe.
-It then looks again a guard period, 30 s, later. At boot that is the
-usual case: the charger probes about a second before the MAX77759 fuel
-gauge answers (it returns -EAGAIN until its battery model is loaded),
-so every boot of a Pixel 7 Pro (gs201) starts with
-
-  max77759-charger: no reading from max170xx_battery: charging inhibited
-  max17042 5-0036: battery model loaded (...)                    (+0.9 s)
-  max77759-charger: battery 29.4 C, 3747 mV: band 20-42 C, ...   (+31 s)
-
-and the battery is not charged for those 30 s. On a flat battery with
-the screen on, the phone draws more than the 500 mA input limit, the
-battery supplies the rest, and the phone browned out at 3.14 V
-(issue #169).
-
-Keep the rule, no reading, no charging, but while there is no reading
-look again every 2 s, and at once when the battery named by guard_psy
-reports a change, as the gauge does when its initialization ends. The
-guard period, the bands and their hysteresis are unchanged once there
-is a reading, as is the inhibit for a reading out of band.
-
-The guard work is set up before the power supply notifier now, so
-that on unbind the notifier, which can queue it, is removed before the
-work is cancelled.
-
-This applies wherever temp_guard is on (the Pixel 7 Pro and the
-Pixel 6 Pro use it); it changes only how soon a missing reading is
-read again.
-
 Assisted-by: Claude Opus 5.5
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

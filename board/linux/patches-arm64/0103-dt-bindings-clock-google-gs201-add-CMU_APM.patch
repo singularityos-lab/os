@@ -3,19 +3,7 @@ From: Derek Ross <derekross@gmail.com>
 Date: Sun, 11 Oct 2026 23:57:34 -0400
 Subject: [PATCH] dt-bindings: clock: google,gs201: add CMU_APM
 
-CMU_APM (0x18000000) clocks the always-on APM block, including the APM
-USI1 UART at 0x181b0000 that carries the Bluetooth HCI link on Pixel 7
-devices. It runs from OSCCLK and the PLL_ALV outputs, not from CMU_TOP.
-
-The APM firmware owns most of this CMU, so only the clock path of the
-USI1 UART is given identifiers: the PLL_ALV taps and PAD_CLK_APM feeding
-the FUNC/FUNCSRC muxes, the APM_FUNC gate, the USI1_UART divider and the
-UART's IPCLK, PCLK and reset-sync gates. Like CMU_TOP it takes only
-OSCCLK and has no sysreg.
-
-Offsets and parents are from Google's GPL gs201 CMUCAL tables.
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Assisted-by: Claude:claude-opus-5-5
 ---
  .../bindings/clock/google,gs201-clock.yaml         | 10 ++++++++--
  include/dt-bindings/clock/google,gs201.h           | 14 ++++++++++++++

@@ -3,25 +3,6 @@ From: saiththerobo <the.tom.sharp@gmail.com>
 Date: Thu, 15 Oct 2026 04:47:00 +0100
 Subject: [PATCH] drm/panel: add a Samsung S6E3HC3 driver
 
-The Pixel 6 Pro's bootloader leaves the S6E3HC3 running in DSI command
-mode. Take it over as it is, like the S6E3HC4 driver: no reset or rail
-changes, nothing sent until the backlight changes.
-
-Brightness is DCS 0x51 in the normal range 4..2047 (Google's GPL
-driver). Level 0 is the dimmest level, not off: Omarchy darkens with
-level 0 before locking and puts the level back afterwards, and when the
-put-back did not happen the panel stayed dark with nothing to wake it.
-A blanked backlight turns the display off (0x28, then 20 ms), and the
-next unblanked update turns it back on. Since a reloaded driver cannot
-know whether the panel was left with its display off, its first
-unblanked update sends display on.
-
-The refresh rate switches between 60 and 120 Hz with the vendor
-driver's manual mode: unlock F0, BD 21 (manual), 60 00 for 120 Hz or
-60 01 for 60 Hz, F7 0F (frequency update), lock F0. The panel takes the
-new rate at its next frame without a power cycle; gs-dsim-cmd switches
-its link timers around it.
-
 Assisted-by: Claude Opus 5.5
 Signed-off-by: saiththerobo <the.tom.sharp@gmail.com>
 ---

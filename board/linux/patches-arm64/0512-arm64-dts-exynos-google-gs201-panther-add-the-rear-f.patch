@@ -1,31 +1,8 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?=C3=81ngel=20Ren=C3=A9?=
- <17342133+angelrenefm@users.noreply.github.com>
 Date: Wed, 4 Nov 2026 18:55:13 +0100
 Subject: [PATCH] arm64: dts: exynos: google: gs201-panther: add the rear flash
  LED
-MIME-Version: 1.0
-Content-Type: text/plain; charset=UTF-8
-Content-Transfer-Encoding: 8bit
-
-The Pixel 7's stock dtbo for board 0x30406 wires the rear flash LED as
-the Pixel 7 Pro's (board 0x30306): a TI LM3644 at 0x63 on I2C bus 15
-(USI15), next to the camera EEPROM at 0x50 and the wireless charger at
-0x3c, with the bus at 400 kHz and HWEN on gpp8-2. The hsi2c_15
-fragments, the flash-en pin state and the LWIS "flash-lm3644" node
-compare equal between the two dtbos.
-
-So add cheetah's led-controller@63 node, torch only, with the same
-50 mA bring-up cap per channel (our limit, not a stock value). USI15
-and its I2C controller stay disabled as in gs201.dtsi; a bring-up
-overlay turns them on.
-
-Booted on a Pixel 7 with this node and that overlay: the driver reads
-"LM3644 (ID 0x02)", not the Pixel 7 Pro's LM3644TT (ID 0x04), and
-registers white:torch with 36 steps, 977-49977 uA per channel.
-Brightness 1 for 4 s lit the LED (seen by the phone's owner).
-
-I used AI help (Claude) to work on this.
 
 Signed-off-by: Ángel René <17342133+angelrenefm@users.noreply.github.com>
 ---

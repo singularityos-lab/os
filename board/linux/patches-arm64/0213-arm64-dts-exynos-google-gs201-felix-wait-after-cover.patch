@@ -3,14 +3,6 @@ From: boozedog <code@booze.dog>
 Date: Mon, 26 Oct 2026 12:01:42 -0400
 Subject: [PATCH] arm64: dts: exynos: google: gs201-felix: wait after cover
  chip select
-MIME-Version: 1.0
-Content-Type: text/plain; charset=UTF-8
-Content-Transfer-Encoding: 8bit
-
-Stock's cover touch controller-data sets cs-clock-delay to 2. That
-is 2 µs from chip select to the first clock. The upstream spelling
-is spi-cs-setup-delay-ns. Chip select is a GPIO, and the SPI host
-has no set_cs_timing, so the core applies the delay.
 
 Signed-off-by: boozedog <code@booze.dog>
 Assisted-by: LLM

@@ -3,15 +3,6 @@ From: Mirko Brombin <9479903+mirkobrombin@users.noreply.github.com>
 Date: Sat, 18 Jul 2026 17:26:31 +0100
 Subject: [PATCH 01/11] uapi: freeze the MTS v0.2 descriptor and tier contract
 
-Give userspace one versioned contract before the observe-mode collector
-starts producing data. The descriptor remains one atomic 64-bit word. Tier
-capabilities, normalized histogram bounds, and provider-loss semantics are
-explicit and append-only through v0.3.
-
-Document mts.conf as a portable configuration contract. systemd may
-generate the boot unit, but it does not become the policy controller.
-Non-systemd implementations consume the same file.
-
 Signed-off-by: Mirko Brombin <9479903+mirkobrombin@users.noreply.github.com>
 ---
  Documentation/userspace-api/mts.rst |  85 +++++++++++++++

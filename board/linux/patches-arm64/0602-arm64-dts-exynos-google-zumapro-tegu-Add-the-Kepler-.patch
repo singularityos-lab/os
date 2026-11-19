@@ -4,24 +4,6 @@ Date: Mon, 9 Nov 2026 17:21:08 -0643
 Subject: [PATCH] arm64: dts: exynos: google: zumapro-tegu: Add the Kepler GNSS
  link
 
-The Pixel 9a's GNSS receiver is the Kepler core in its S5300 modem. Its
-data go over an SPI bus of the application processor, USI3 of HSI0
-(spi21), in 64-byte blocks paced by two handshake lines; gnssif_spi
-drives both. Add the SPI device and the handshake node, and enable the
-USI.
-
-The bus keeps zumapro's port configuration, with which spi-s3c64xx
-moves a 64-byte block in one piece. With gs101's compatible alone
-(the controller's automatic chip select, as stock uses for this
-device) the driver cut each block into 60 and 4 bytes, and in two
-sessions on the phone 12 of those reads timed out (-110) in 13
-minutes; with zumapro's, two more sessions had none. The feedback
-delay is stock's 0. The bus has no pin group: it runs on the
-bootloader's pin state, which the data were clean with.
-
-Nothing probes until the modules load, and the core answers only while
-the modem is up and the GNSS daemon has loaded its firmware.
-
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  .../boot/dts/exynos/google/zumapro-tegu.dts   | 36 +++++++++++++++++++

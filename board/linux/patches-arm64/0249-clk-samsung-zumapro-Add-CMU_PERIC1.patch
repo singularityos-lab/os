@@ -3,22 +3,6 @@ From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 Date: Tue, 27 Oct 2026 08:32:11 -0647
 Subject: [PATCH] clk: samsung: zumapro: Add CMU_PERIC1
 
-Register CMU_PERIC1 on the common exynos_arm64_register_cmu() path with
-its bus input, and CMU_TOP's PERIC1 NoC and IP branches. Firmware sets
-the block up: the NoC and USI9 user muxes and the USI9 divider are
-read-only, and the GPIO, sysreg and USI9 gates are read-only gates. USI9
-is the I2C bus of the Pixel 9a's NFC controller and haptics driver.
-
-Every offset, width and parent list was checked against zuma's
-cmucal-sfr.c and cmucal-node.c.
-
-Booted on the Pixel 9a:
-7.3.0-rc6-omamobile-tegu-s2mpg15-m1-g991042e2eff3-dirty, whose
-clk-zumapro.c (blob c1db3a4a7736) carries these clocks under that
-tree's own clock ids.
-
-Link: https://android.googlesource.com/kernel/google-modules/soc/gs/+/204078758737776959ecc85c527a00fd2cabb62f/drivers/soc/google/cal-if/zuma/cmucal-sfr.c
-Link: https://android.googlesource.com/kernel/google-modules/soc/gs/+/204078758737776959ecc85c527a00fd2cabb62f/drivers/soc/google/cal-if/zuma/cmucal-node.c
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  drivers/clk/samsung/clk-zumapro.c | 59 ++++++++++++++++++++++++++++++-

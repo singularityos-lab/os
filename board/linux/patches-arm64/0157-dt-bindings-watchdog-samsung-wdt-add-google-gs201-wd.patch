@@ -3,13 +3,7 @@ From: Derek Ross <derekross@gmail.com>
 Date: Fri, 23 Oct 2026 23:36:47 -0400
 Subject: [PATCH] dt-bindings: watchdog: samsung-wdt: add google,gs201-wdt
 
-gs201 (Tensor G2) has the same two cluster watchdogs as gs101, with the
-same PMU mask, reset-status and counter-enable controls, so the s3c2410
-driver already uses gs101's variant data for it. Document it with
-google,gs101-wdt as the fallback, so the driver needs no gs201 entry
-and the gs101 rules (two clocks, cluster index, PMU phandle) apply.
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Assisted-by: Claude:claude-opus-5-5
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---
  .../devicetree/bindings/watchdog/samsung-wdt.yaml          | 7 +++++--

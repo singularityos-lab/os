@@ -1,16 +1,8 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?=C3=81ngel=20Ren=C3=A9?=
- <17342133+angelrenefm@users.noreply.github.com>
 Date: Sat, 14 Nov 2026 19:27:02 +0100
 Subject: [PATCH] media: s5p-mfc: size the encoder bitstream buffer when the
  client does not
-MIME-Version: 1.0
-Content-Type: text/plain; charset=UTF-8
-Content-Transfer-Encoding: 8bit
-
-A client may leave the CAPTURE sizeimage to the driver (v4l2-ctl does).
-The encoder then keeps 0 and fails later when it allocates the buffers.
-Use the variant's CPB size.
 
 Assisted-by: LLM
 Signed-off-by: Ángel René <17342133+angelrenefm@users.noreply.github.com>

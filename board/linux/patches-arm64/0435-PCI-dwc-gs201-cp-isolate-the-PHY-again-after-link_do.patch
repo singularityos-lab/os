@@ -3,21 +3,6 @@ From: Derek Ross <derekross@gmail.com>
 Date: Mon, 12 Oct 2026 17:13:36 -0400
 Subject: [PATCH] PCI: dwc: gs201-cp: isolate the PHY again after link_down
 
-On the phone (M2.4) link_down and cp_off left PMU 0x3ec0 at 0x1: the
-modem link's PHY stayed out of isolation. phy_exit() of the gs201 PCIe
-PHY only drops its clocks, on purpose: Google's driver never isolates
-the Wi-Fi link's PHY after probe. The comment here assumed otherwise.
-
-Google's driver does isolate a link that is down when the system
-suspends (exynos_pcie_rc_suspend_noirq()), and the modem link is down
-most of the time. So after the PHY is powered down and its clocks are
-released, clear the PMU bypass bit through the same SMC-backed PMU regmap
-the PHY driver uses to set it, and log the value read back. Only a PHY
-that link_up took out of isolation is touched.
-
-Also pulse the controller's soft power reset before the PHY power-down,
-as exynos_pcie_rc_poweroff() does after LTSSM is disabled.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

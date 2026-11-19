@@ -3,28 +3,6 @@ From: DarekM <149845949+aninmucek@users.noreply.github.com>
 Date: Wed, 11 Nov 2026 00:42:50 +0000
 Subject: [PATCH] arm64: dts: exynos: google: zuma-akita: Add the touchscreen
 
-The Pixel 8a's touchscreen is a Goodix GT9895 (Berlin) on USI2_HSI0's
-SPI, the bus, interrupt and reset lines of the Pixel 8 Pro's: 10 MHz,
-interrupt on gpn0-0 (falling edge, as stock's goodix,irq-flags = 2),
-reset on gpp21-2 (Google's zuma-akita-touch.dtsi; the stock phone's
-/proc/interrupts lists goodix_ts on gpn0 0 Edge). Both of stock's
-firmware files, goodix_firmware_ak3a.bin and goodix_firmware_ak3b.bin,
-carry "9895" in their Berlin header, so it takes the gt9895 match data
-(14-byte contact records), as the Pixel 7a does. The driver runs the
-firmware already on the chip and loads none.
-
-The supplies are the LDO4M and LDO25M described with the PMIC, at
-stock's 3.0 V and 1.8 V.
-
-Tested on a Pixel 8a from slot B (7.3.0-rc6), in a later boot than the
-one that first set the voltage: with the driver held back, the rails
-read 3.0 V and 1.8 V and off; loading goodix_berlin_spi enabled them
-and registered "Goodix Berlin Capacitive TouchScreen". Touches in the
-four corners came in at (110,121), (1004,118), (118,2311) and
-(971,2298), so no axis swap or inversion is needed, and 842 interrupts
-gave no checksum errors. In the next boots the driver loads by itself,
-and the PIN pad, the shell and the on-screen keyboard work by touch.
-
 Assisted-by: Claude Opus 5.5
 Signed-off-by: DarekM <149845949+aninmucek@users.noreply.github.com>
 ---

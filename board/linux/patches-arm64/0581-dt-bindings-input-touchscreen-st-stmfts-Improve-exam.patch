@@ -3,15 +3,7 @@ From: David Heidelberg <david@ixit.cz>
 Date: Thu, 29 Oct 2026 14:36:38 -0700
 Subject: [PATCH] dt-bindings: input: touchscreen: st,stmfts: Improve example
 
-The touchscreen-size-{x,y} is exact number, the -1 deduction is done on
-driver side.
-
-Example now use interrupts-extended and size obviously not deducted by
-one.
-
 Signed-off-by: David Heidelberg <david@ixit.cz>
-Acked-by: Krzysztof Kozlowski <krzysztof.kozlowski@oss.qualcomm.com>
-Link: https://patch.msgid.link/20260925-stmfts5-v8-2-0fcf49e2c85f@ixit.cz
 Signed-off-by: Dmitry Torokhov <dmitry.torokhov@gmail.com>
 Signed-off-by: quatrixone <quatrix1@gmail.com>
 ---

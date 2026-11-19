@@ -3,11 +3,7 @@ From: Mirko Brombin <9479903+mirkobrombin@users.noreply.github.com>
 Date: Thu, 29 Oct 2026 08:30:00 +0100
 Subject: [PATCH 08/11] mm: move anonymous pages to MTS tiers from any cgroup
 
-A domain admitted for a cgroup now covers every cgroup below it, and the deepest admitted domain wins. The exact match left a domain on "/" covering only the root cgroup itself.
 
-Walk the folio mappings without folio_lock_anon_vma_read(): after try_to_migrate() the folio is no longer mapped, so that lock returned no anon_vma and no PTE was ever converted. The folio is locked, which is what rmap_walk() needs.
-
-Freeze the reference held by reclaim before freeing a demoted folio, as the lazyfree path does, instead of freeing it with a live reference.
 ---
  mm/mts_tier.c | 36 +++++++++++++++++++-----------------
  mm/rmap.c     |  1 -

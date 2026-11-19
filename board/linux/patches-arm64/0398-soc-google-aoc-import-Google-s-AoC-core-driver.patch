@@ -3,18 +3,6 @@ From: Derek Ross <derekross@gmail.com>
 Date: Mon, 12 Oct 2026 14:00:34 -0400
 Subject: [PATCH] soc: google: aoc: import Google's AoC core driver
 
-Import the AoC (audio and sensor DSP) core of Google's GPL gs201
-kernel (google-modules/aoc and google-modules/aoc_ipc, the android14
-gs-6.1 tree that stock cheetah runs, whose interface matches the stock
-firmware 14022723-polygon): the platform driver and AoC bus (aoc.c,
-aoc_v1.c, aoc_service_core.c), the firmware format (aoc_firmware.c),
-the IPC ring and queue core (aoc_ipc_core.c), the AoC mailbox driver
-(mailbox-wc.c), and the character device front ends (aoc_char_dev.c,
-aoc_channel_dev.c) with their uapi headers.
-
-The files are unchanged and not built yet; the next commit ports them to
-this kernel.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

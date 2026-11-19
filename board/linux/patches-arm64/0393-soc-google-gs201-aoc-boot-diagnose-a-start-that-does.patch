@@ -4,19 +4,6 @@ Date: Mon, 12 Oct 2026 13:22:55 -0400
 Subject: [PATCH] soc: google: gs201-aoc-boot: diagnose a start that does not
  finish
 
-The first start on cheetah returned GSA state 4 and the firmware never
-replaced the boot parameter block with its control block. Log, before
-and after start, what tells the cases apart: the AoC S2MPU's CTRL0, the
-A32 reset control in the PCU, the System MMU registers and VID 0's fault
-registers, the first words of the IPC area, and the ramdump header's
-magic and boot breadcrumbs (carve-out + 32 MiB). Request the AoC
-watchdog interrupt and log it.
-
-Before start, put back an S2MPU or System MMU setting that a block reset
-cleared (reapply=1, the default). Add a cmd file for any GSA AoC command
-(0, 1, 4, 5, 6) and a ramdump file with a hex dump of the header and of
-the IPC area.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

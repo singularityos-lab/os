@@ -3,44 +3,6 @@ From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 Date: Sat, 31 Oct 2026 11:19:22 -0643
 Subject: [PATCH] soc: google: aoc: Add Tensor G4 (zumapro)
 
-The Pixel 9a's AoC takes gs201's firmware protocol, with these
-differences, kept in per-SoC match data:
-
-- Its authenticated firmware owns the AoC's memory protection: the GSA
-  authenticates the image with the S2MPU and System MMU untouched, so
-  the driver neither maps nor writes them.
-- The PCU, GPIO and doorbell blocks sit at 0x1400000, 0x1c00000 and
-  0x1f004/0x1f008 in the AoC's address space, from Google's zumapro
-  AoC device tree.
-- The chip type is the product id's low byte, and the main revision is
-  in it too, not in the 0x10 word.
-- The firmware image is named by firmware-name; a zumapro node must
-  have it, and the board id and revision.
-- The sensors' 1.8 V and 3.3 V are two named supplies, turned on in
-  that order at probe and off in reverse (aoc_sensor_power.c).
-- Without force-vnom in the DT the firmware gets forced VNOM off. gs201
-  keeps getting it on, as it always has (dt_property() returns
-  DT_PROPERTY_NOT_FOUND, not 0, for a missing property).
-
-The firmware path is hardened where a zumapro failure could otherwise
-go wrong without a way back: the image is copied only while the GSA
-reports the AoC inactive and the power request is acknowledged, a
-failed copy stops the load, the authentication header stays allocated
-(the GSA may still read it after a timeout), a second submission in the
-same boot is refused, and a watchdog or AP reset leaves the AoC down
-for a reboot rather than dumping or restarting it, since the image is
-locked once authenticated. "google,gnss-type" replaces the unprefixed
-"gnss-type", which no gs201 DT sets.
-
-Booted on the Pixel 9a:
-7.3.0-rc6-omamobile-tegu-s2mpg15-m1-g991042e2eff3-dirty runs this
-driver with bring-up parameters on top (startup tracing, a boot
-parameter readback, a gate on power request writes, left at "write").
-With it the AoC authenticates, starts and reaches its 93 services and
-stays up; seven fresh boots in a row passed, with speaker and
-microphone audio through the AoC sound card and the AoC's sensors on
-D-Bus.
-
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  drivers/soc/google/Kconfig                |   2 +-

@@ -3,28 +3,6 @@ From: Brett-Michael Green <brett@bmgvisualtech.com>
 Date: Sat, 31 Oct 2026 08:15:21 -0400
 Subject: [PATCH] phy: samsung: Add the Google zuma PCIe Gen3 PHY driver
 
-Add a driver for the one-lane Gen3 PHY of zuma's (Tensor G3) second
-PCIe controller, which connects the Pixel 8's Wi-Fi chip. The sequence
-is Samsung's CAL for zuma, channel 1, from the driver Google builds for
-zuma (pcie-exynos-zuma-rc-cal.c and pcie-exynos-rc.c):
-
-- init: release the PMU isolation, then power the PHY down
-  (phy_all_pwrdn);
-- power_on: select the clock mode in the SOC block, clear the power
-  downs, start the external PLL and wait for its lock, select it as the
-  PHY's input clock, program the PMA and PCS in reset, release the
-  resets and wait for the PLL, CDR and offset calibration, then write
-  UDBG 0xc800 as establish_link does before PERST#;
-- power_off: power the PHY down again.
-
-The CAL also sets the controller's RC mode and soft power reset in the
-middle of this; those are the controller driver's, in its ELBI space.
-The PMA and PCS values for a Broadcom endpoint (stock's ep-device-type 1)
-are used, since that is what this controller connects.
-
-As in the gs201 PHY driver, trace=1 logs every step before it touches
-the hardware, for bring-up.
-
 Assisted-by: LLM
 Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
 ---

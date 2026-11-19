@@ -3,15 +3,7 @@ From: Derek Ross <derekross@gmail.com>
 Date: Sun, 11 Oct 2026 22:23:22 -0400
 Subject: [PATCH] dt-bindings: display: panel: add Samsung S6E3HC4
 
-The Samsung S6E3HC4 drives the 1440x3120 command-mode AMOLED panel of
-the Google Pixel 7 Pro. It takes DSC-compressed data over four DSI
-lanes and has a reset line and three supplies.
-
-The supplies are optional: on the Pixel they come from the S2MPG12 and
-S2MPG13 PMICs, which the bootloader leaves on and which have no driver
-yet.
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Assisted-by: Claude:claude-opus-5-5
 ---
  .../display/panel/samsung,s6e3hc4.yaml        | 66 +++++++++++++++++++
  1 file changed, 66 insertions(+)

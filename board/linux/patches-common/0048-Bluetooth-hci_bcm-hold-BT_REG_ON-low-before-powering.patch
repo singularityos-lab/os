@@ -4,23 +4,7 @@ Date: Tue, 20 Oct 2026 17:00:21 +0100
 Subject: [PATCH] Bluetooth: hci_bcm: hold BT_REG_ON low before powering up a
  BCM4389
 
-On the Pixel 6 Pro (BCM4389C1 over UART) about one boot in five the chip
-answered neither the baud rate change nor HCI_Reset until a PMIC reset.
-Holding the shutdown line (BT_REG_ON) low for 30 ms before raising it,
-as Google's driver for the BCM4389 does, fixed it: 15 boots out of 15
-came up.
-
-The line is already low by then: bcm_serdev_probe() powers the chip
-down, and so does every close. What the wait really adds is 30 ms
-between the UART being opened (and its flow control set up) and
-BT_REG_ON rising. Why the chip needs that is not known; it is enough
-here and matches Google's sequence.
-
-Add it as match data, power_on_delay_ms, and set it for brcm,bcm4389-bt
-only, so other hci_bcm users see no change. The line is driven low once
-more before the wait, so the wait starts from a known level.
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Assisted-by: Claude:claude-opus-5-5
 Signed-off-by: saiththerobo <the.tom.sharp@gmail.com>
 ---
  drivers/bluetooth/hci_bcm.c | 28 +++++++++++++++++++++++++++-

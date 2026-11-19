@@ -4,18 +4,6 @@ Date: Mon, 12 Oct 2026 16:39:43 -0400
 Subject: [PATCH] soc: google: aoc: do not fill a ring that is already at its
  start
 
-aoc_ring_reset_write_pointer() moves a ring's write pointer back to the
-start by advancing it over the rest of the ring. When the pointer is
-already at the start (wp 0, as on a ring never written), that advances
-it by a whole ring: the ring then reads as full, and the first PCM write
-after prepare finds no room. On gs201 the AoC does not drain such a
-ring, so playback fails at once:
-
-  ERR: inconsistent write/read pointers, avail = 0, towrite = 15360
-  (audio_playback5 down ring: written 8388608, read 0)
-
-Leave the ring alone when the write pointer is already at the start.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

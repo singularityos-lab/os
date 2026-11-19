@@ -3,23 +3,7 @@ From: Derek Ross <derekross@gmail.com>
 Date: Mon, 12 Oct 2026 19:06:11 -0400
 Subject: [PATCH] regulator: add a driver for the Dialog SLG51002 camera PMIC
 
-Google's Pixel 7 boards power their camera sensors, actuators and
-module EEPROMs from an SLG51002: eight LDOs and four load switches on
-I2C with 16-bit register addresses, woken from a low power reset by a
-chip select line. Mainline only has the different SLG51000.
 
-Register layout from Google's GPL slg51002 driver; the structure
-follows slg51000-regulator. The driver raises chip select, waits the
-10 ms the datasheet gives to ready, checks the pattern ID, then
-registers the LDOs (range from each LDO's trimmed MINV/MAXV, enable in
-the matrix control register) and the load switches.
-
-Unlike Google's driver it never enters the chip's software test mode.
-That mode is only needed on OTP revision AA parts, for current limit
-trims and to switch the load switches; on those the driver registers
-the LDOs only and says so. Pixel 7 Pro parts report revision AB
-(0xb13103) in the stock kernel log. The regmap only allows writes to
-the enable matrix, the LDO voltage selectors and the switch controls.
 ---
  drivers/regulator/Kconfig              |   9 +
  drivers/regulator/Makefile             |   1 +

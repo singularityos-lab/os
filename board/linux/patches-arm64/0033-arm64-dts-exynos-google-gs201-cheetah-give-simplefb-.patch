@@ -4,11 +4,7 @@ Date: Sun, 11 Oct 2026 20:26:17 -0400
 Subject: [PATCH] arm64: dts: exynos: google: gs201-cheetah: give simplefb the
  panel size
 
-Without it simpledrm reports a 96 dpi monitor (381 x 825 mm), so
-size-aware clients such as on-screen keyboards treat the phone as a
-desktop. Sizes from the vendor S6E3HC4 panel driver.
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Assisted-by: Claude:claude-opus-5-5
 ---
  arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts | 12 ++++++++++++
  1 file changed, 12 insertions(+)

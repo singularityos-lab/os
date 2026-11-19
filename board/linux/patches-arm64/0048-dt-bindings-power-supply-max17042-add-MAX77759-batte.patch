@@ -4,17 +4,7 @@ Date: Sun, 11 Oct 2026 23:42:48 -0400
 Subject: [PATCH] dt-bindings: power: supply: max17042: add MAX77759 battery
  model
 
-The MAX77759 fuel gauge has no non-volatile memory. After a power-on
-reset it runs a generic model with a 3000 mAh design capacity and the
-temperature input disabled, until the host loads the battery model
-(ModelGauge m5): a 48-word cell characterization table and the register
-values that go with it.
-
-Describe both as maxim,fg-model and maxim,fg-params. The parameters
-keep the fixed order of the model data already published for Pixel
-phones, so a model can be taken over as is.
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Assisted-by: Claude:claude-opus-5-5
 ---
  .../bindings/power/supply/maxim,max17042.yaml | 42 +++++++++++++++++++
  1 file changed, 42 insertions(+)

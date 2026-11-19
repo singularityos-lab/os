@@ -3,16 +3,6 @@ From: Derek Ross <derekross@gmail.com>
 Date: Sun, 11 Oct 2026 22:39:16 -0400
 Subject: [PATCH] dt-bindings: PCI: add Google gs201 PCIe host controller
 
-The gs201 (Tensor G2) PCIe controllers are DesignWare cores in a Samsung
-wrapper: an ELBI sub-control block for link training and interrupt
-status, and an I/A sequencer that re-locks the PHY clock-data recovery
-when the link leaves L1.2. INTx is demultiplexed from the controller
-interrupt, so the node has a legacy-interrupt-controller child.
-
-The I/A region is not one of the generic DesignWare register names, so
-the binding refers to snps,dw-pcie-common.yaml rather than
-snps,dw-pcie.yaml and lists its own reg-names.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

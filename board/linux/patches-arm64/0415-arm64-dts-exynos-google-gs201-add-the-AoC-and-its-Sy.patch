@@ -4,20 +4,6 @@ Date: Mon, 12 Oct 2026 12:56:53 -0400
 Subject: [PATCH] arm64: dts: exynos: google: gs201: add the AoC and its System
  MMU
 
-Describe the AoC System MMU (0x1a090000, non-secure fault interrupt
-GIC SPI 118) and the AoC boot node (power request at 0x181d0000, the
-AoC S2MPU at 0x1a0b0000, the chip id block, the carve-out), as in the
-stock device tree. Both disabled: the board enables them with its board
-id and revision during bring-up.
-
-The PCU is at 0x19a00000 (stock pcu-base 0xa00000 in the AoC block) and
-the AoC watchdog is GIC SPI 116, as in the stock device tree.
-
-The AoC's three mailbox blocks (A32, F1 and P6) are at 0x18300000,
-0x18320000 and 0x18340000, as in the stock device tree, each a
-google,gs201-aoc-mbox node with its interrupt (GIC SPI 75-77); the AoC
-node takes their 48 channels through mboxes.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

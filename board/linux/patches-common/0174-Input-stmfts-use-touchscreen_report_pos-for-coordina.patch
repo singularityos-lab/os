@@ -3,19 +3,6 @@ From: Dmitry Torokhov <dmitry.torokhov@gmail.com>
 Date: Tue, 3 Nov 2026 14:58:43 -0800
 Subject: [PATCH] Input: stmfts - use touchscreen_report_pos() for coordinates
 
-During driver initialization, stmfts_probe() invokes
-touchscreen_parse_properties() to parse axis inversion and swapping
-properties into sdata->prop.
-
-However, stmfts_report_contact_event(), stmfts5_report_contact_event(),
-and stmfts_report_hover_event() continue to report coordinates directly
-using input_report_abs(), ignoring any configured axis inversion or
-swapping settings in sdata->prop.
-
-Update coordinate reporting across all three functions to use
-touchscreen_report_pos() with &sdata->prop so that axis inversion and
-swapping transformations are properly applied.
-
 Signed-off-by: Dmitry Torokhov <dmitry.torokhov@gmail.com>
 Signed-off-by: quatrixone <quatrix1@gmail.com>
 ---

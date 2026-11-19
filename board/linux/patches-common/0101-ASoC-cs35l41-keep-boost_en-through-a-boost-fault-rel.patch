@@ -4,18 +4,6 @@ Date: Tue, 27 Oct 2026 14:22:56 -0400
 Subject: [PATCH] ASoC: cs35l41: keep boost_en through a boost fault release;
  say when the knobs apply
 
-From the review of the three bring-up parameters: cs35l41_irq() releases
-a boost over-voltage, under-voltage or short fault by turning the
-converter off and back on through cs35l41_boost_enable(), which did not
-look at boost_en, so one fault would have brought the converter (and the
-Pixel 7 Pro's static) back behind a status that still said "off". The
-helper now honours boost_en, whose declaration moves above it. Each
-parameter's description says it is applied at probe or rebind, bst_ctl
-above 0xAA warns instead of being silently ignored, the weak-FET mode is
-logged only when switched off so a default boot's log is unchanged, and
-the boost_en comment names the hibernate path that would undo it on a
-board without cirrus,dsp-no-hibernate.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

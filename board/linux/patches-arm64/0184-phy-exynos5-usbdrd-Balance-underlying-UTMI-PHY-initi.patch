@@ -4,23 +4,6 @@ Date: Thu, 22 Oct 2026 21:08:06 -0700
 Subject: [PATCH] phy: exynos5-usbdrd: Balance underlying UTMI PHY
  initialization
 
-The Exynos2200-family UTMI callback discards phy_init() failures, so
-the wrapper can report success after its underlying PHY has unwound
-failed regulator, clock or reset setup. Its exit path never calls
-phy_exit(), leaving a successful child's references held across cycles.
-
-Initialize the child from the returning wrapper callback, propagate
-its error and unwind wrapper resources on failure. Balance a successful
-child init in the UTMI exit path before isolating the wrapper. Leave
-other SoC callbacks and PIPE-specific initialization unchanged.
-
-A host-only harness using the exact functions reproduces the original
-dropped error and verifies eight lifecycle cases with this change,
-including child/clock/regulator failures and a NULL optional child.
-ARM64 W=1 and the combined Image/modules link pass. No hardware test
-is claimed.
-
-Fixes: cc52a697f87e ("phy: exynos5-usbdrd: support Exynos USBDRD 3.2 4nm controller")
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  drivers/phy/samsung/phy-exynos5-usbdrd.c | 29 ++++++++++++++++--------

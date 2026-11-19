@@ -3,19 +3,6 @@ From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 Date: Thu, 29 Oct 2026 09:04:21 -0647
 Subject: [PATCH] spi: s3c64xx: Do not cut a PIO transfer that fills the FIFO
 
-A PIO transfer of fifo_depth bytes or more is cut into pieces of
-fifo_depth - 1 bytes, because the RX trigger level of the interrupt
-mode stops one short of the FIFO. On the Pixel 9a's GNSS link the
-slave hands out one 64-byte block per chip-select cycle, and the cut
-loses data at the piece boundary (the channel is reset between the
-pieces). On ports that ask for it with the new port-config flag
-poll_full_fifo, set only for zumapro, transfer a full FIFO in one
-piece, polled, as the vendor driver does; every other board keeps its
-transfers exactly as before, the cut having always worked there. For
-all ports, keep the pieces of longer transfers a whole number of
-words, so a 16- or 32-bit transfer's packet count does not round down
-and time out.
-
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  drivers/spi/spi-s3c64xx.c | 26 +++++++++++++++++++++-----

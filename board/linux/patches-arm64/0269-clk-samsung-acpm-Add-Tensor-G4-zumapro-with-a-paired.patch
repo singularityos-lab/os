@@ -4,26 +4,6 @@ Date: Tue, 27 Oct 2026 11:35:48 -0647
 Subject: [PATCH] clk: samsung: acpm: Add Tensor G4 (zumapro) with a paired GPU
  clock
 
-The ACPM protocol driver already creates a "zumapro-acpm-clk" child for
-the Tensor G4, but clk-acpm had no match for it. The G4 firmware has 17
-DVFS domains, with DSU, BCI, AOC and BW among them, so the indices differ
-from gs101's: G3D is 7 and G3DL2 is 8.
-
-Add the zumapro variant: the 17 domains as clocks, and a paired "gpu"
-clock (index 17) that moves G3D and G3DL2 together through the Pixel
-9a's GPU DVFS table, the same way the gs201 "gpu" clock does. Its rate
-is capped by zumapro_gpu_max_khz, read-only by default, as gs201's is.
-
-Tested on the Pixel 9a: clk-acpm binds zumapro-acpm-clk in place of the
-out-of-tree driver it replaces, cpufreq-dt runs the three CPU clusters
-on cpucl0-2, and with zumapro_gpu_max_khz=890000 panthor's devfreq
-moves the GPU between 150 and 890 MHz under load. The tested
-clk-acpm.c is this one (blob 82dae93f4f46). The 940 MHz point was not
-sent: the cap stayed at 890 MHz.
-
-Link: https://android.googlesource.com/kernel/google-modules/soc/gs/+/204078758737776959ecc85c527a00fd2cabb62f/drivers/soc/google/cal-if/zuma/acpm_dvfs_zuma.h
-Link: https://android.googlesource.com/kernel/devices/google/zuma/+/42395e8adcb880aa336f0da6bb2a19ed53929c40/dts/zuma-gpu.dtsi
-Link: https://android.googlesource.com/kernel/devices/google/zumapro/+/8831630eee2ad095b85ed452944e6353940966a5/dts/zumapro-gpu.dtsi
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  drivers/clk/samsung/clk-acpm.c | 77 ++++++++++++++++++++++++++++++++++

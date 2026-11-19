@@ -3,32 +3,7 @@ From: Derek Ross <derekross@gmail.com>
 Date: Sun, 11 Oct 2026 19:19:11 -0400
 Subject: [PATCH] arm64: dts: exynos: google: gs201: add the Mali-G710 GPU
 
-Describe the gs201 Mali-G710 for Panthor. Values from Google's GPL-2.0
-gs201-gpu.dtsi and gs201.h, checked against the device tree the
-bootloader hands over on a Pixel 7 Pro:
-
- - registers 0x28000000, size 0x480000
- - interrupts GIC SPI 329 (job), 330 (mmu), 328 (gpu)
-
-The GPU clocks belong to the APM firmware: Google's kbase changes them
-only through ACPM DVFS requests (domains G3D and G3DL2), which also set
-the rail voltage. Until Linux can talk to ACPM on gs201, give the GPU a
-fixed-clock placeholder and a single OPP at the rate the bootloader
-leaves it at, so devfreq never requests a change. That rate is the boot
-level in the bootloader's ECT table: MINMAX_G3D and MINMAX_G3DL2 list
-boot = resume = 151 MHz for every ASV group (parsed from the ECT blob in
-the device's bl2 partition with the layout from Google's ect_parser.c).
-
-No power-domains yet: the bootloader leaves pd_g3d and pd_embedded_g3d
-on (the stock kernel reports both "on" at probe, before anything powers
-them), and their on/off sequence needs EL3 calls (PMU writes through
-SMC and the D_TZPC restore) that the Exynos power domain driver does
-not make. No mali-supply either: the G3D bucks are switched by the PMU
-power domain signal and their voltage is set by ACPM.
-
-The node is disabled here and enabled per board.
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Assisted-by: Claude:claude-opus-5-5
 ---
  arch/arm64/boot/dts/exynos/google/gs201.dtsi | 45 ++++++++++++++++++++
  1 file changed, 45 insertions(+)

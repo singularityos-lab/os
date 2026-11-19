@@ -4,20 +4,6 @@ Date: Wed, 28 Oct 2026 20:12:10 -0647
 Subject: [PATCH] arm64: dts: exynos: google: zumapro: Add USI10 and its I2C
  controller
 
-USI10 on PERIC1 carries the Pixel 9a's RT9470 (the USB OTG boost) at
-0x5b. Add the USI and its HSI2C controller, disabled, with the clocks
-from CMU_PERIC1 (merged as "clk: samsung: zumapro: Add the PERIC1 USI10
-clocks"), PERIC1 sysreg offset 0x8 and GIC SPI 658. The board enables
-it with its pins.
-
-Google's zumapro-usi.dtsi describes hsi2c_10 at 0x10CA0000 with
-IRQ_USI10_USI_PERIC1, SCL and SDA on gpp20-0 and gpp20-1, and the USI
-at sysreg_peric1 offset 0x8; the header defines IRQ_USI10_USI_PERIC1 as
-SPI 658. On the Pixel 9a the node, enabled by the board, bound hsi2c10
-and talked to the RT9470.
-
-Link: https://android.googlesource.com/kernel/devices/google/zumapro/+/8831630eee2ad095b85ed452944e6353940966a5/dts/zumapro-usi.dtsi
-Link: https://android.googlesource.com/kernel/google-modules/soc/gs/+/204078758737776959ecc85c527a00fd2cabb62f/include/dt-bindings/interrupt-controller/zumapro.h
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  .../arm64/boot/dts/exynos/google/zumapro.dtsi | 27 +++++++++++++++++++

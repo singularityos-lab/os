@@ -4,34 +4,6 @@ Date: Mon, 12 Oct 2026 00:29:51 -0400
 Subject: [PATCH] wifi: brcmfmac: chip: size the BCM4389 SYSMEM from its RAM
  banks
 
-brcmfmac decodes the SYSMEM core's coreinfo register with the SOCRAM
-layout (bank count in bits 7:4) and sizes banks from index 0. On the
-BCM4389 the SYSMEM coreinfo holds the RAM bank count in bits 4:0 and the
-ROM bank count in bits 9:5 (bits 23:16 and 31:24 from core revision 12),
-and the ROM banks come first in the bank index space. That is how
-Broadcom's own driver sizes it (bcmdhd siutils.c si_sysmem_size(),
-sbsysmem.h), and what Google's Pixel 7 Pro logs at boot:
-
-  si_sysmem_size: coreinfo:0x115 num_rom_banks:8 num_ram_baks:21
-  sysmem_banksize: bankidx:8 bankinfo:0xf00060f banksize:131072(0x20000)
-  ...
-  DHD: dongle ram size is set to 2752512(orig 2752512) at 0x200000
-
-With the SOCRAM decoding, coreinfo 0x115 reads as one bank, and bank 0
-is a ROM bank. The register dump of the failed load has the NVRAM length
-token (0xe8b4174b, the same as stock's) and 0x23a2d0, which is
-0x240000 minus the 23856-byte NVRAM: brcmfmac sized the RAM at 256 KiB
-instead of 2688 KiB, and wrote the NVRAM and the random seed into the
-1.7 MB firmware image it had just downloaded to 0x200000. The
-firmware crashed on start, and the shared RAM address read back as
-0xffffffff:
-
-  brcmf_pcie_download_fw_nvram: Invalid shared RAM address 0xffffffff
-
-Decode the BCM4389 the way Broadcom's driver does: count only the RAM
-banks and skip the ROM banks in front of them. Other SYSMEM chips
-(BCM4365/4366 family) keep the current decoding.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

@@ -3,10 +3,7 @@ From: Derek Ross <derekross@gmail.com>
 Date: Tue, 13 Oct 2026 13:35:43 -0400
 Subject: [PATCH] dt-bindings: vendor-prefixes: add semco
 
-Samsung Electro-Mechanics Co., Ltd. (SEMCO) makes camera modules and
-their lens controllers, such as the SEM1215SA.
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Assisted-by: Claude:claude-opus-5-5
 ---
  Documentation/devicetree/bindings/vendor-prefixes.yaml | 2 ++
  1 file changed, 2 insertions(+)

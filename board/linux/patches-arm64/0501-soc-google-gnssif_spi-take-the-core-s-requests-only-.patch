@@ -4,29 +4,6 @@ Date: Sun, 1 Nov 2026 18:40:28 -0647
 Subject: [PATCH] soc: google: gnssif_spi: take the core's requests only while
  gnss_ipc is open
 
-Google's gnssif enables the core's request interrupt at the end of its
-probe, so from the moment the module loads, a high level on the line
-starts the read work, which keeps reading 64-byte blocks for as long as
-the line stays high, whether or not anyone will read them: what it
-queues is thrown away at the last release of /dev/gnss_ipc anyway. On
-the Pixel 9a the line is GPA5 pin 4, the same bank as the modem's own
-lines, and the core has nothing to say until the modem is up and the
-GNSS daemon has loaded its firmware, which it does before it talks to
-the core. Loading the driver should not be able to take an interrupt
-there early.
-
-Enable the interrupt, and arm it as a wake source, on the first open of
-/dev/gnss_ipc, and disable and disarm it on the last release, after
-waiting for the read work (which enables the interrupt again when it
-ends). The line is level-triggered, so a request the core raises before
-the open is taken as soon as the interrupt is enabled. A mutex keeps a
-first open and a last release from interleaving. The interrupt is still
-requested at probe, disabled, so a missing interrupt still fails the
-probe.
-
-This is MODEM-PLAN K5's "IRQ requested at open rather than probe", done
-by enabling rather than requesting it there.
-
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  .../soc/google/gnssif_spi/gnss_io_device.c    | 11 ++++-

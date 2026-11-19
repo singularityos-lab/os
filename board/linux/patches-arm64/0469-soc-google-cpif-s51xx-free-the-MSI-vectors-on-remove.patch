@@ -3,37 +3,6 @@ From: Derek Ross <derekross@gmail.com>
 Date: Tue, 13 Oct 2026 23:23:26 -0400
 Subject: [PATCH] soc: google: cpif: s51xx: free the MSI vectors on remove
 
-The modem driver allocates the S5300's MSI vectors on the first power-on
-and requests its doorbell handlers on them, but nothing gives them back:
-s51xx_pcie_remove() only frees the saved state. When the endpoint is
-unbound, which the host driver does at every shutdown when it removes
-the bus, the driver core then releases the endpoint's per-device MSI
-domain with the vectors still in it:
-
-  cpif: s51xx_pcie_remove: s51xx PCIe Remove!!!
-  WARNING: kernel/irq/irqdomain.c:408 at irq_domain_remove+0xf0/0x128
-   msi_remove_device_irq_domain+0x78/0xc4
-   msi_device_data_release+0x20/0x4c
-   ...
-   pci_stop_root_bus+0x40/0x68
-   gs201_pcie_cp_remove+0x84/0x140 [pcie_gs201_cp]
-   gs201_pcie_cp_shutdown+0x10/0x1c [pcie_gs201_cp]
-  WARNING: kernel/irq/msi.c:294 at msi_device_data_release+0x44/0x4c
-
-(a reboot with the modem online and its link idle, MODEM-PLAN M4.1j).
-The host driver's order is already right, the bus going before its MSI
-domain; the leak is the endpoint driver's. The handlers stay on the
-freed interrupts as well, and mc->s51xx_pdev keeps pointing at the
-pci_dev the bus removal frees, which the modem's own shutdown then
-reads.
-
-Free the two doorbell handlers (and their wake setting) and then the
-vectors in remove, and forget the pci_dev. The packet queues' vectors
-are the controller's own blocks and are not affected. With the link
-down, as at an idle-link shutdown, the masking this does is dropped by
-the host driver: config space is refused and DBI is not touched while
-the PHY is isolated.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

@@ -4,18 +4,6 @@ Date: Sat, 24 Oct 2026 10:22:31 -0500
 Subject: [PATCH] arm64: dts: exynos: google: gs201-lynx: enable the
  touchscreen
 
-The touchscreen is a Goodix GT9895 on USI0's SPI, with the interrupt,
-reset and chip select on the same pins as on cheetah. Unlike cheetah,
-the bootloader leaves its supplies (S2MPG12 LDO25M and LDO26M) off, so
-describe the main PMIC with those two rails and let the driver enable
-them. LDO25M is the 1.8 V I/O rail (PP1800_L25M_TSP_DVDD), so it is
-fixed at 1.8 V rather than the LDO's 1.6-1.95 V range; LDO26M is fixed
-at 3.0 V as in stock's lynx PMIC description. The PMIC's RTC now sets
-the clock at boot.
-
-Tested on a Pixel 7a from slot B: the controller identifies, and
-touch input works in the desktop session.
-
 Assisted-by: LLM
 Signed-off-by: Chris Gray <chrisgray70@gmail.com>
 ---

@@ -4,10 +4,6 @@ Date: Mon, 26 Oct 2026 07:32:50 -0400
 Subject: [PATCH] dt-bindings: input: touchscreen: require SALIXP size
  properties
 
-The cover node already sets touchscreen-size-x and
-touchscreen-size-y. Require them, and set them in the example, so
-the binding check passes in this commit.
-
 Signed-off-by: boozedog <code@booze.dog>
 Assisted-by: LLM
 ---

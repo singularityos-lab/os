@@ -3,23 +3,6 @@ From: Derek Ross <derekross@gmail.com>
 Date: Mon, 12 Oct 2026 12:56:28 -0400
 Subject: [PATCH] soc: google: gsa: load and start AoC firmware
 
-Give the AoC driver what it needs from the GSA:
-
- - gsa_load_aoc_fw_image(): mailbox command 90 with the image header's
-   DMA address and the body's physical address. It holds a GSA wakelock
-   (commands 150/151), which keeps the GSA core powered, and sets the
-   GSA S2MPU's CTRL0 to 0 for the duration of the load: nothing else
-   opens it without a hypervisor. Headers stay below 4 GiB.
- - gsa_send_aoc_cmd(): AoC state commands (start, shutdown, reset, get
-   state). Google's kernels send them to the hwmgr.aoc service in Trusty
-   (CONFIG_GOOGLE_GSA_TRUSTY, a client of the Trusty IPC driver with
-   Google's message format); with aoc_cmd_mbox=1 they go on the mailbox
-   as command 91 instead, which this phone's GSA firmware answers.
- - gsa_get_device(): the GSA a client's google,gsa property names.
-
-debugfs gains aoc_state_tz (state through Trusty) and, with
-s2mpu_probe=1, s2mpu_ctrl0 (read under a wakelock).
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

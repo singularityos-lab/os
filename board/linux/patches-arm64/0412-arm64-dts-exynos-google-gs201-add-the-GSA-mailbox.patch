@@ -3,10 +3,6 @@ From: Derek Ross <derekross@gmail.com>
 Date: Mon, 12 Oct 2026 12:04:04 -0400
 Subject: [PATCH] arm64: dts: exynos: google: gs201: add the GSA mailbox
 
-Add the GSA mailbox node at 0x17c90000 with its response interrupt (GIC
-SPI 363), as in the stock device tree. Leave it disabled: nothing uses
-it until the AoC bring-up enables it.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

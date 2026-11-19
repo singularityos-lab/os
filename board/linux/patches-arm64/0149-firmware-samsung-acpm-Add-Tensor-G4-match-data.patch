@@ -3,18 +3,6 @@ From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 Date: Thu, 22 Oct 2026 20:23:08 -0700
 Subject: [PATCH] firmware: samsung: acpm: Add Tensor G4 match data
 
-Google's zumapro.dtsi specifies initdata-base = <0xa000>. Use that
-initialization-data base and a distinct clock child name for G4.
-The existing polling transport handles its channel table and PMIC
-requests without a new queue implementation. The PMIC client source
-is unchanged from the public base.
-
-The private Pixel 9a bring-up used this match to read and enable the
-two touch rails through the existing ACPM API. The G4 clock child
-intentionally remains unbound: no DVFS clock table, scaling or thermal
-support is claimed. PMIC and board support are separate dependencies.
-
-Link: https://android.googlesource.com/kernel/devices/google/zumapro/+/8831630eee2ad095b85ed452944e6353940966a5/dts/zumapro.dtsi#562
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  drivers/firmware/samsung/exynos-acpm.c | 9 +++++++++

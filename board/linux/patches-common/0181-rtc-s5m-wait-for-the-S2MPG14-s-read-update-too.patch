@@ -3,45 +3,6 @@ From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 Date: Wed, 11 Nov 2026 21:52:18 -0644
 Subject: [PATCH] rtc: s5m: wait for the S2MPG14's read update too
 
-The S2MPG14 has the S2MPG10's RTC registers, and the same read update:
-the time registers get a copy of the counters on a rising edge of RUDR,
-and the copy takes time. Commit 210e28ff7eaa ("rtc: s5m: wait for the
-S2MPG10's read update before reading the time") clears RUDR, waits, sets
-it and waits again on the S2MPG10. Commit 58544d878d8a ("rtc: s5m: wait
-for the S2MPG12's read update too") does the same on the S2MPG12. The
-S2MPG14 still reads the registers before the copy lands and can get the
-time of the read before.
-
-The S2MPG14 is the main PMIC of three boards here, the Pixel 9a
-(zumapro-tegu), the Pixel 8 Pro (zuma-husky) and the Pixel 8a
-(zuma-akita), so the RTC read changes on all three. It then matches
-Google's driver for this PMIC on all of them: s2m_rtc_update() in
-rtc-s2mpg14.c clears the read bit, waits 50 us, sets it and waits 1 ms
-before every read, and the file is the same on the Pixel 9a's and the
-Pixel 8's kernel branches. This was run on the 9a only.
-
-On a Pixel 9a, 60 rounds of two reads of
-/sys/class/rtc/rtc0/since_epoch after a 20 s pause, each compared with
-the system clock: the first read was 20 s behind in two rounds on this
-tree, and on an older build of the same driver in four, with one more
-10 s behind. The second read, a moment later, was right every time.
-2,500 reads 5 to 90 ms apart showed none off, the read before being
-that recent. In 310 suspends with a read before and after each, five of
-the differences were off while the kernel's clock had every sleep at
-60 s: three by 20 or 21 s and one by 7 s, which is what an old read
-gives, and one by 39 s, which fits a read that mixed the old time with
-the new and has not been reproduced awake.
-
-rtcwake sets its alarm relative to its read, so a read that old moves
-the alarm back by its age, and one older than the interval asked for
-puts the alarm in the past.
-
-Take the S2MPG10's path on the S2MPG14 too. With it, the same 60 rounds
-returned no old time; at two in 60 before, that alone would happen by
-chance about one time in eight. The build with this change has been
-through 10 suspends of 60 s so far, each woken by the RTC alarm with the
-two reads 62 or 63 s apart, as a 60 s sleep gives.
-
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  drivers/rtc/rtc-s5m.c | 9 ++++++---

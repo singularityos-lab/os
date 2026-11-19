@@ -3,12 +3,6 @@ From: boozedog <code@booze.dog>
 Date: Wed, 21 Oct 2026 06:33:59 -0400
 Subject: [PATCH] arm64: dts: exynos: google: gs201: add USI6 with its SPI bus
 
-Add the PERIC0 USI6 block with its SPI controller (GIC SPI 679,
-sysreg offset 0x1014) and bus pins (gpp12-0/1/2, function 3), as
-found in the stock device tree. On the Pixel Fold this host carries
-the cover touch controller. The USI stays disabled until a board
-enables it.
-
 Signed-off-by: boozedog <code@booze.dog>
 ---
  .../boot/dts/exynos/google/gs201-pinctrl.dtsi |  7 +++++

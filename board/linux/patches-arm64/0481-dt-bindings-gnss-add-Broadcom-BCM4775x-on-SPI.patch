@@ -3,10 +3,6 @@ From: Derek Ross <derekross@gmail.com>
 Date: Mon, 12 Oct 2026 13:26:35 -0400
 Subject: [PATCH] dt-bindings: gnss: add Broadcom BCM4775x on SPI
 
-The BCM4775x GNSS receivers in Google's Pixel 7 phones sit on SPI with
-a standby line, an MCU wake request/response pair and a host-request
-interrupt, and three supplies (core, RF, auxiliary).
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

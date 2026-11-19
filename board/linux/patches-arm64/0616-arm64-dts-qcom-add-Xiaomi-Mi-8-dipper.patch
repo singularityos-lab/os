@@ -3,19 +3,7 @@ From: David Heidelberg <david@ixit.cz>
 Date: Tue, 15 Sep 2026 16:32:25 +0200
 Subject: [PATCH] arm64: dts: qcom: add Xiaomi Mi 8 (dipper)
 
-Initial submission for one member of the prime Xiaomi Mi 8 family.
-Mi 8 Pro (equuleus) and Mi 8 Explorer (ursa) are nearly identical.
-Known differences are battery capacity and fingerprint sensor placement.
-This submission includes basic abstraction for other developers to be
-able easily extend it to support other variants.
-
-What does work upstream: framebuffer, USB, UFS, Bluetooth, Wi-Fi.
-
-Based on work of multiple people trying to bring the device up in the past.
-Last attempt was done by Max Furman.
-
 Signed-off-by: David Heidelberg <david@ixit.cz>
-Link: https://lore.kernel.org/linux-arm-msm/20260915-dipper-v2-2-cbade54919ee@ixit.cz/
 Signed-off-by: quatrixone <quatrix1@gmail.com>
 ---
  arch/arm64/boot/dts/qcom/Makefile             |   1 +

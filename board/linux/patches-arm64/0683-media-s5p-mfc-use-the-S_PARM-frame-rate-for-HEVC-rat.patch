@@ -1,21 +1,8 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?=C3=81ngel=20Ren=C3=A9?=
- <17342133+angelrenefm@users.noreply.github.com>
 Date: Sat, 14 Nov 2026 19:26:55 +0100
 Subject: [PATCH] media: s5p-mfc: use the S_PARM frame rate for HEVC rate
  control
-MIME-Version: 1.0
-Content-Type: text/plain; charset=UTF-8
-Content-Transfer-Encoding: 8bit
-
-The other encoders program E_RC_FRAME_RATE from the frame rate set with
-VIDIOC_S_PARM. HEVC only uses the control
-V4L2_CID_MPEG_VIDEO_HEVC_FRAME_RATE_RESOLUTION, which defaults to 1. So
-with frame rate control on, the firmware spreads the bitrate over one
-frame per second: on the Pixel 7 (MFC v15), 4 Mbit/s asked at 30 fps
-gave about 18 Mbit/s.
-
-Use the S_PARM frame rate when it is set, and the HEVC control otherwise.
 
 Assisted-by: LLM
 Signed-off-by: Ángel René <17342133+angelrenefm@users.noreply.github.com>

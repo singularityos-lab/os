@@ -4,15 +4,6 @@ Date: Sat, 31 Oct 2026 07:50:09 -0400
 Subject: [PATCH] Input: salixp: stop at the scan echo, and wait up to stock's
  2.5 s
 
-The Pixel 8 Pro's FTM5 firmware first reports a forced calibration
-(status 43 05 01) after the scan command, then echoes the command about
-60 ms after it was sent, past the 50 ms window. Probe then failed with
-"turning sensing on".
-
-Wait up to 2.5 s, as stock's checkEcho does (TIEMOUT_ECHO), and stop
-polling once the echo arrives, so the longer window costs nothing when
-the firmware answers promptly.
-
 Assisted-by: LLM
 Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
 ---

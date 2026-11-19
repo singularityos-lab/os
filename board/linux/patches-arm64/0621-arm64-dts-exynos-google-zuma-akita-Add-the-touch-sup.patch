@@ -4,19 +4,6 @@ Date: Tue, 10 Nov 2026 16:08:23 +0000
 Subject: [PATCH] arm64: dts: exynos: google: zuma-akita: Add the touch
  supplies
 
-The Pixel 8a's touch controller takes vdd from the S2MPG14's LDO25M at
-1.8 V and avdd from its LDO4M at 3.0 V (the stock phone's live device
-tree; Google's zuma-akita-touch.dtsi fixes both and drops always-on).
-Describe the main PMIC on ACPM with those two regulators, as zuma-husky
-does, but with akita's 3.0 V avdd rather than the Pixel 8 Pro's 3.3 V.
-
-Nothing uses them yet: the touchscreen node follows in its own commit.
-
-Tested on a Pixel 8a from slot B (7.3.0-rc6, with the S2MPG14 setter):
-the core logs "touch-avdd: Bringing 3300000uV into 3000000-3000000uV"
-and both rails read back 3000000 and 1800000 uV, disabled, with no
-users, in a boot with no consumer.
-
 Assisted-by: Claude Opus 5.5
 Signed-off-by: DarekM <149845949+aninmucek@users.noreply.github.com>
 ---

@@ -4,12 +4,6 @@ Date: Thu, 22 Oct 2026 16:18:53 -0700
 Subject: [PATCH] phy: samsung-ufs: Propagate isolation errors and unwind
  failed power-on
 
-Return PMU isolation failures instead of continuing into a potentially
-isolated PHY. If clock enabling or calibration fails, undo the clock and
-isolation state acquired by power_on. Return power_off isolation errors
-to the caller as well. Keep the register access through the existing
-regmap route; do not add raw PMU accesses.
-
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  drivers/phy/samsung/phy-samsung-ufs.c | 20 ++++++++++++++------

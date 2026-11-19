@@ -4,22 +4,6 @@ Date: Sun, 1 Nov 2026 11:10:27 -0647
 Subject: [PATCH] dt-bindings: PCI: google,gs201-pcie: Add zumapro as a
  fallback of zuma
 
-The Wi-Fi PCIe controller of zumapro (Tensor G4, Pixel 9a) is the one
-zuma has: the same DesignWare core and Samsung wrapper, at the same
-addresses (ELBI 0x13120000, DBI 0x13400000, config 0x60ffe000), with
-the same controller interrupt (SPI 439), and Google's
-pcie-exynos-rc.c drives both SoCs with the same code. The only place it
-tells them apart (IP version 0x986500 against 0x987500) is a register
-dump.
-
-Describe zumapro as "google,zumapro-pcie", "google,zuma-pcie", and make
-zuma's three-region constraint match on the fallback, so it covers
-zumapro too.
-
-Tested on a Pixel 9a with this pair of compatibles on PCIe channel 1,
-driven by pcie-gs201 with zuma's match data: the link trained at Gen2 x1
-on the first try and the BCM4383 behind it came up in brcmfmac.
-
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  .../bindings/pci/google,gs201-pcie.yaml       | 19 +++++++++++++------

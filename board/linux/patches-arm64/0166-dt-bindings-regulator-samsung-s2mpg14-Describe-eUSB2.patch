@@ -4,13 +4,6 @@ Date: Thu, 22 Oct 2026 22:00:02 -0700
 Subject: [PATCH] dt-bindings: regulator: samsung,s2mpg14: Describe eUSB2
  supplies
 
-Describe LDO8M, LDO9M and LDO19M alongside the touchscreen supplies.
-Google's zumapro-common.dtsi gives all three USB supplies to sub_pd_hsi0:
-vdd075, vdd12 and vdd33, respectively. This does not establish a split
-between PHY and repeater ownership. Their Linux consumer remains open
-until the HSI0 power-domain work establishes rail ownership.
-
-Link: https://android.googlesource.com/kernel/devices/google/zumapro/+/8831630eee2ad095b85ed452944e6353940966a5/dts/zumapro-common.dtsi
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  .../bindings/regulator/samsung,s2mpg14-regulator.yaml      | 7 ++++---

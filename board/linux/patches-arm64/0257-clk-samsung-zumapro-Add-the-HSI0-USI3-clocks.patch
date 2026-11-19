@@ -3,22 +3,6 @@ From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 Date: Tue, 27 Oct 2026 09:33:07 -0647
 Subject: [PATCH] clk: samsung: zumapro: Add the HSI0 USI3 clocks
 
-Add CMU_HSI0's USI3, the Pixel 9a's GNSS SPI bus (SPI21), described as
-USI2 is: the local mux is read-only, the divider is writable and the
-source, IP and PCLK gates are in hsi0_regs, so the SPI driver turns them
-on and sets the rate through the IP gate.
-
-The mux (0x1020), divider (0x1820) and gates (0x2124, 0x2104, 0x2108),
-and the mux parents (HSI0 PERI user, oscclk), were checked against
-zuma's cmucal-sfr.c and cmucal-node.c.
-
-Booted on the Pixel 9a:
-7.3.0-rc6-omamobile-tegu-s2mpg15-m1-g991042e2eff3-dirty, whose
-clk-zumapro.c (blob c1db3a4a7736) carries these clocks under that
-tree's own clock ids.
-
-Link: https://android.googlesource.com/kernel/google-modules/soc/gs/+/204078758737776959ecc85c527a00fd2cabb62f/drivers/soc/google/cal-if/zuma/cmucal-sfr.c
-Link: https://android.googlesource.com/kernel/google-modules/soc/gs/+/204078758737776959ecc85c527a00fd2cabb62f/drivers/soc/google/cal-if/zuma/cmucal-node.c
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  drivers/clk/samsung/clk-zumapro.c | 23 +++++++++++++++++++----

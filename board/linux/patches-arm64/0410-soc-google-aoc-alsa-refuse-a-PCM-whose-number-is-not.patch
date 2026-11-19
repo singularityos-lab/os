@@ -4,22 +4,6 @@ Date: Mon, 12 Oct 2026 17:10:06 -0400
 Subject: [PATCH] soc: google: aoc: alsa: refuse a PCM whose number is not its
  entry point
 
-The PCM driver takes the AoC entry point of a playback stream, and the
-use case of a capture stream, from the PCM device number. That holds
-only when the card's DAI links are in the order of the stock device
-tree, where EPn playback is PCM n - 1 and EPn capture PCM 8 + n - 1.
-
-A card described by a device tree overlay had its links reversed (the
-overlay apply inserts each new node first), so EP6 playback became PCM
-47, and the AoC rejected it:
-
-  F1: ERR: controller_audio_output.cc, 1912: Mode Playback is not supported by Entrypoint 47
-  F1: ERR: controller_audio_output.cc, 2005: Entrypoint 47 cannot be configured
-
-For the EP playback and capture links, check the PCM number against the
-link id and refuse to open the PCM if they disagree, instead of
-configuring some other entry point on the AoC.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

@@ -3,23 +3,6 @@ From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 Date: Tue, 27 Oct 2026 12:03:06 -0647
 Subject: [PATCH] drm: google: gs-decon: Allow 120 Hz on the Tensor G4
 
-Offer the Pixel 9a's 120 Hz mode beside the bootloader's 60 Hz one,
-with TG4B/TG4C's timings (TG4A's porches differ; DECON only needs the
-active size and the totals).
-
-On gs201 the switch to 120 Hz raises the MIF and DISP floors first, and
-gs-decon only offers it when the board gives those clocks. The 9a's
-bootloader already leaves MIF at 2028 MHz and DISP at 400 MHz, above
-the 120 Hz floors, so on zumapro the floor clocks are optional
-(floors_optional): 120 Hz is offered without them, and they are still
-used when a board names them. Nothing in Linux keeps MIF and DISP above
-the floors on the 9a; it works because nothing lowers them yet, so the
-rates need a fresh look once ACPM DVFS or suspend changes them.
-
-Tested on the Pixel 9a with the tg4c timers from the previous commit:
-the desktop runs at 120 Hz (602 frames in 5 s, no underruns), drops to
-60 Hz with the panel asleep on DPMS off, and comes back at 120 Hz.
-
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  drivers/gpu/drm/google/gs-decon.c | 39 +++++++++++++++++--------------

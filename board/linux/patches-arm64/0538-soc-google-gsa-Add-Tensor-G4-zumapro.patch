@@ -3,17 +3,6 @@ From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 Date: Sat, 31 Oct 2026 11:16:49 -0643
 Subject: [PATCH] soc: google: gsa: Add Tensor G4 (zumapro)
 
-Match google,zumapro-gsa. The 9a's GSA answers the same mailbox and
-Trusty hwmgr commands as gs201's, and the driver already leaves the
-S2MPU alone when the node has no "s2mpu" range, as a zumapro node
-doesn't.
-
-Booted on the Pixel 9a:
-7.3.0-rc6-omamobile-tegu-s2mpg15-m1-g991042e2eff3-dirty runs this
-driver with only this match added. With it the GSA reports the AoC
-inactive, authenticates the signed AoC image and starts it, and the
-AoC comes up with its 93 services.
-
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  drivers/soc/google/gsa.c | 1 +

@@ -4,25 +4,6 @@ Date: Mon, 12 Oct 2026 16:34:10 -0400
 Subject: [PATCH] soc: google: aoc: alsa: unregister the platform drivers on
  unload
 
-aoc_alsa_dev_util registers its PCM, voice, compress, path, no-host,
-in-call and VoIP platform drivers at module init, but its exit only
-unregistered them once every AoC audio service had probed. Unloading
-it while the AoC was not online left those drivers on the platform bus
-in freed module memory, and the next deferred probe crashed in
-__device_attach_driver:
-
-  Unable to handle kernel paging request at virtual address ffffa64465e54258
-  pc : __device_attach_driver+0x14/0x178
-  lr : bus_for_each_drv+0xf4/0x14c
-  ...
-  deferred_probe_work_func+0x88/0xc4
-
-The crashed walk kept the device lock, so every later reboot hung in
-device_shutdown.
-
-Unregister them on every unload, unwind a partial registration at init,
-and return the init errors instead of ignoring them.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

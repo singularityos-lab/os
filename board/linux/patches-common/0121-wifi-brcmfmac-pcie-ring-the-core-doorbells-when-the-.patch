@@ -4,24 +4,6 @@ Date: Mon, 12 Oct 2026 01:35:25 -0400
 Subject: [PATCH] wifi: brcmfmac: pcie: ring the core doorbells when the
  firmware has no DAR
 
-For PCIe core revision 64 and later brcmfmac rings the H2D doorbells
-through the DAR ("direct access register") copies at 0xa20/0xa24.
-Broadcom's own driver uses those only when the firmware offers them
-(PCIE_SHARED_DAR, bit 31 of the shared-area flags) and the host
-enables them; otherwise it rings the core's own mailbox registers at
-0x140 (DB0) and 0x144 (DB1, host ready), whatever the core revision
-(bcmdhd dhd_pcie.c dhd_bus_db0_addr_get(), dhd_bus_db1_addr_get(),
-dhd_pcie.h DAR_ACTIVE(), pcie_core.h PCIH2D_MailBox/PCIH2D_DB1).
-
-The Pixel 7 Pro's BCM4389 (PCIe core rev 72) firmware does not offer
-DAR (shared flags 0x70050107; stock logs "FW supports DAR ? N"). With
-the DAR doorbells it never saw a ring update or the host-ready ring:
-the rxpost ring stayed unread and the first ioctl timed out.
-
-For the BCM4389 without the DAR flag, switch to the core mailbox
-registers once the shared flags are known. Other rev >= 64 chips keep
-the DAR doorbells they are known to work with.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

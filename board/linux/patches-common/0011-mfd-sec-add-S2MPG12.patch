@@ -3,23 +3,7 @@ From: Derek Ross <derekross@gmail.com>
 Date: Mon, 12 Oct 2026 12:04:01 -0400
 Subject: [PATCH] mfd: sec: add S2MPG12
 
-Add the gs201 main PMIC, for its RTC. The register layout and the
-interrupt bits are those of Google's GPL S2MPG12 driver.
-
-S2MPG12 has no common interrupt register. Its PMIC events reach the SoC
-in-band and the VGPIO2AP block raises them as one level interrupt that
-stays asserted until its pending bit is written back. So the PM status
-registers INT1-INT5 get a one-level regmap-irq chip whose pre-handler
-acknowledges the VGPIO2AP latch. The status registers clear on read and
-are read as one block. At probe the power meter's interrupts are masked
-and only the PMIC source is left unmasked in IBIM1, as the vendor driver
-does.
-
-The regmaps only allow writes to the interrupt masks and the RTC, and
-don't cache, so nothing here can change a rail; the only child is the
-RTC.
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Assisted-by: Claude:claude-opus-5-5
 ---
  drivers/mfd/sec-acpm.c              | 110 +++++++++++++++++++++++++
  drivers/mfd/sec-common.c            |  14 ++++

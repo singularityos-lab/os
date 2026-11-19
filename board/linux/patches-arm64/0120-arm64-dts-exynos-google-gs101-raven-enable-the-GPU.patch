@@ -3,12 +3,7 @@ From: saiththerobo <the.tom.sharp@gmail.com>
 Date: Tue, 20 Oct 2026 07:45:18 +0100
 Subject: [PATCH] arm64: dts: exynos: google: gs101-raven: enable the GPU
 
-The Mali-G78 runs on S2MPG11's BUCK2S (VDD_G3D), BUCK8S (VDD_G3D_L2) and
-LDO1S (VDD_G3D_M), and S2MPG10's BUCK7M (VDD_INT_M), all always-on.
-Label those four regulators in gs101-pixel-common.dtsi, in the file's
-s2mpg1x_<name> style, so the board can refer to them.
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Assisted-by: Claude:claude-opus-5-5
 Signed-off-by: saiththerobo <the.tom.sharp@gmail.com>
 ---
  .../boot/dts/exynos/google/gs101-pixel-common.dtsi     |  8 ++++----

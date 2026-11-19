@@ -4,32 +4,6 @@ Date: Mon, 9 Nov 2026 21:22:44 +0200
 Subject: [PATCH] arm64: dts: exynos: google: zuma-husky: add the BCM4775x GNSS
  node on spi21, disabled
 
-The Pixel 8 Pro's GNSS receiver is a BCM4775x on HSI0 USI3 (Google's
-spi_21). Add a gnss@0 node for the brcm,bcm4775-gnss binding, as the
-Pixel 7 Pro does, with the lines from stock's bcm4775@0: host request
-gpa5-3, mcu request gpp4-3, nstandby gph3-3 and mcu response gph3-2, and
-the three supplies from the S2MPG15 LDOs (ldo9s, ldo10s, ldo11s). The
-four pin groups sit in this file beside the Wi-Fi ones, with the pull and
-power-down states stock has.
-
-The GPIOs are raw levels with nstandby active high, not active low as
-stock writes it: the driver sets nstandby with raw values. The host
-request line is also the interrupt (level high), as on the 7 Pro.
-
-spi-max-frequency (26 MHz) and samsung,spi-feedback-delay (1) are stock's
-values for this node. Chip select is the controller's native one, as
-stock has no cs-gpios and no pin group for spi_21; the spi driver's
-manual_native_cs path handles that. Stock's node also has
-samsung,spi-chip-select-mode = <0>, which this tree's spi driver does
-not read, so it is left out.
-
-The node is status = "disabled" and sits on the pin controllers and the
-gpa5, gph3 and gpp4 banks that omamobile already has, and on spi21 and
-the S2MPG15 sub-PMIC (both already in, the latter from the S2MPG15
-commit that merged earlier).
-
-Built, not booted.
-
 Signed-off-by: Lef <me@lefteros.com>
 ---
  .../boot/dts/exynos/google/zuma-husky.dts     | 71 +++++++++++++++++++

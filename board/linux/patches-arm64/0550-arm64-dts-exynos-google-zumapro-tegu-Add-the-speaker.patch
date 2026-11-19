@@ -4,18 +4,6 @@ Date: Sat, 31 Oct 2026 11:22:26 -0643
 Subject: [PATCH] arm64: dts: exynos: google: zumapro-tegu: Add the speaker
  amplifiers
 
-The Pixel 9a's two speakers have a TI TAS2572 each on I2C19 (HSI0's
-USI4): the top one at 0x48 with its reset on gpp6-3, the bottom one at
-0x49 with its reset on gph2-1, as in Google's GPL
-zumapro-tegu-audio-common-tas2572.dtsi. Describe them one node each:
-the tas2781 driver takes one register profile (RCA file) per node, and
-the TAS2572 profiles in linux-firmware cover one device.
-
-Booted on the Pixel 9a:
-7.3.0-rc6-omamobile-tegu-s2mpg15-m1-g991042e2eff3-dirty with these
-nodes applied as an overlay at runtime: both bind to tasdev-codec, and
-with the AoC sound card both speakers play through PipeWire.
-
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  .../boot/dts/exynos/google/zumapro-tegu.dts   | 28 +++++++++++++++++++

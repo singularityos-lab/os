@@ -3,21 +3,7 @@ From: Derek Ross <derekross@gmail.com>
 Date: Sun, 11 Oct 2026 23:58:26 -0400
 Subject: [PATCH] scsi: ufs: exynos: don't enable auto-hibernate on gs201
 
-gs201 uses software Hibern8 on clock gating
-(UFSHCD_CAP_HIBERN8_WITH_CLK_GATING, set by gs101_ufs_drv_init()). If the
-controller also advertises auto-hibernate, ufshcd_init() programs a
-150 ms auto-hibernate timer on top, and the clock-gating work then sends
-DME_HIBERNATE_ENTER for a link the controller may already have put into
-Hibern8 itself.
-
-Google's driver for this SoC (ufs-exynos.c, exynos_ufs_set_features())
-sets UFSHCD_QUIRK_BROKEN_AUTO_HIBERN8 unconditionally and keeps
-HIBERN8_WITH_CLK_GATING; its gs201 calibration code has no auto-hibernate
-timer setup (only the later Zuma code programs one). Do the same, so the
-link only ever enters Hibern8 through the clock-gating path, whose PHY
-sequences (post_h8_enter/pre_h8_exit) already match Google's gs201 tables.
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Assisted-by: Claude:claude-opus-5-5
 ---
  drivers/ufs/host/ufs-exynos.c | 7 +++++++
  1 file changed, 7 insertions(+)

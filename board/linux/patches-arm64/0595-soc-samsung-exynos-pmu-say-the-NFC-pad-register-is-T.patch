@@ -4,10 +4,6 @@ Date: Sat, 7 Nov 2026 15:58:14 +0200
 Subject: [PATCH] soc: samsung: exynos-pmu: say the NFC pad register is Tensor
  G3's too
 
-The comment above the NFC clock pad register in the zuma PMU table says
-it is Tensor G4's. Stock's pmu_clk_pad is 0x3e84 on the Pixel 8 Pro too,
-so name both. Comment only, no change in the code.
-
 Signed-off-by: Lef <me@lefteros.com>
 ---
  drivers/soc/samsung/gs101-pmu.c | 2 +-

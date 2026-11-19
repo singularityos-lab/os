@@ -3,10 +3,6 @@ From: PeterXMR <xmrpeter@proton.me>
 Date: Sun, 1 Nov 2026 17:15:44 +0100
 Subject: [PATCH] dt-bindings: arm: google: Add Pixel 6a (bluejay)
 
-The Pixel 6a (bluejay) is a gs101 (Tensor) board like the Pixel 6 and
-Pixel 6 Pro, and the binding's description already names it. Add its
-compatible to the gs101 board list.
-
 Assisted-by: Claude Fable 5.1
 Signed-off-by: PeterXMR <xmrpeter@proton.me>
 ---

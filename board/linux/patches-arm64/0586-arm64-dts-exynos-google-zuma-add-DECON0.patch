@@ -3,11 +3,6 @@ From: Brett-Michael Green <brett@bmgvisualtech.com>
 Date: Sat, 31 Oct 2026 14:39:45 -0400
 Subject: [PATCH] arm64: dts: exynos: google: zuma: add DECON0
 
-Describe zuma's DECON0 with its DPP0 read DMA window and its frame start,
-frame done and extra interrupts, from the Pixel 8 Pro's stock node, as
-zumapro.dtsi does. It is disabled: a board enables it with its scanout
-pool and boot framebuffer.
-
 Assisted-by: LLM
 Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
 ---

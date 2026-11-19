@@ -4,29 +4,6 @@ Date: Fri, 6 Nov 2026 06:45:56 +0200
 Subject: [PATCH] arm64: dts: exynos: google: zuma-husky: add Bluetooth on the
  APM UART
 
-The Pixel 8 Pro's Bluetooth is the BCM4398D0 on the APM's USI1 UART
-(uart18, 0x155d0000), as in Google's GPL zuma-board-bluetooth.dtsi:
-
- - BT_REG_ON gpn8-0, BT_DEV_WAKE gpn9-0, BT_HOST_WAKE gpn6-0 (rising
-   edge);
- - the UART pads gpa3-0 to gpa3-3 in function 2 (Google's uart18_bus);
- - gpp24-3 as brcm,ble-dbo-gpios: BT_REG_ON reaches the chip through a
-   flip-flop clocked by it, as on the 9a, and hci_bcm already clocks
-   it.
-
-Without the pads or the latch the chip never answers the first command
-(0xfc18 tx timeout, then Reset failed -110). The compatible names the
-BCM4398 with the BCM4389 as fallback, as hci_bcm has no BCM4398 entry;
-the fallback only adds the 30 ms wait.
-
-Tested on a Pixel 8 Pro with 7.3.0-rc6 and the stock BCM.hcd installed
-as brcm/BCM.google,zuma-husky.hcd: hci0 comes up as "BCM4398D0
-G5SN_V17_HK3 REL BR:0169 FW:b8718197dc", discovery finds devices, and a
-pair of Soundcore A40 headphones paired and played YouTube over A2DP.
-Not tested: calls (HFP), mice and keyboards, suspend, power draw. The
-controller keeps a placeholder address until userspace sets the one in
-/chosen/config/bt_addr.
-
 Signed-off-by: Lef <me@lefteros.com>
 ---
  .../boot/dts/exynos/google/zuma-husky.dts     | 38 +++++++++++++++++

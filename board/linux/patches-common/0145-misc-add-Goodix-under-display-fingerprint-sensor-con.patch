@@ -3,20 +3,6 @@ From: Derek Ross <derekross@gmail.com>
 Date: Mon, 12 Oct 2026 01:34:20 -0400
 Subject: [PATCH] misc: add Goodix under-display fingerprint sensor control
 
-On the Pixel 7 Pro the Goodix optical sensor is captured and matched by a
-Trusty application; Linux owns only its supply, reset and interrupt. The
-vendor fingerprint HAL drives these through the interface of Goodix's GPL
-gf_spi driver (Google's goodixfp module), which this driver provides:
-/dev/goodix_fp with the GF_IOC_* ioctls, a one-byte event on netlink
-protocol 25 for each sensor interrupt, sent to the process that last
-wrote to the socket, and a goodix_fingerprint input device for the keys
-the HAL injects.
-
-Unlike the vendor driver, the supply is switched here (enabled on first
-open, disabled on last close, with the sensor held in reset while
-unpowered): on this phone the bootloader leaves it off, and the vendor
-kernel only had it on because the regulator was marked always-on.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

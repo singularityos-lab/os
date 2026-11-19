@@ -3,15 +3,6 @@ From: Derek Ross <derekross@gmail.com>
 Date: Tue, 13 Oct 2026 12:21:25 -0400
 Subject: [PATCH] PCI: dwc: gs201-cp: give the modem's function a class
 
-The S5300's ROM and boot loader report class 0 (seen in M3.1 and in
-the first modem boot). The PCI core neither sizes nor assigns the BARs
-of a class-0 device (pdev_resources_assignable()), so the modem's BAR0,
-which holds its doorbell, stayed unassigned and the bridge window was
-sized without it.
-
-Report PCI_CLASS_OTHERS for the endpoint when it reads class 0. Nothing
-binds by class: the modem driver matches 144d:a5a5 only.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

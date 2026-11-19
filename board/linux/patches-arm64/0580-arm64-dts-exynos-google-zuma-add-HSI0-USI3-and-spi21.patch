@@ -4,19 +4,6 @@ Date: Sat, 7 Nov 2026 11:42:56 +0200
 Subject: [PATCH] arm64: dts: exynos: google: zuma: add HSI0 USI3 and spi21,
  disabled
 
-A USI wrapper and the SPI controller under it for HSI0 USI3 (Google's
-spi_21, the Pixel 8 Pro's GNSS receiver bus), laid out like USI2 and its
-spi20. Both are status = "disabled", so nothing changes for any board
-that includes zuma.dtsi until one enables them.
-
-Values are from Google's zuma USI tables and the stock device tree (one
-node at 0x111e0000, split here at 0xc0 like spi20): USI registers
-0x111e00c0 and SPI registers 0x111e0000, interrupt GIC SPI 409, USI sysreg
-offset 0x1020. No DMA, no power domain and no pin group, as for
-spi20: stock's spi_21 has no pin group either.
-
-Built, not booted.
-
 Signed-off-by: Lef <me@lefteros.com>
 ---
  arch/arm64/boot/dts/exynos/google/zuma.dtsi | 31 +++++++++++++++++++++

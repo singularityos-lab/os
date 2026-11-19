@@ -3,11 +3,6 @@ From: Brett-Michael Green <brett@bmgvisualtech.com>
 Date: Sat, 31 Oct 2026 12:42:39 -0400
 Subject: [PATCH] dt-bindings: clock: google: Add the Tensor G3 G3D CMU
 
-Document zuma's (Tensor G3) CMU_G3D, which clocks the GPU, and the
-CMU_TOP clocks it takes: the G3D GLB, NOCD and SWITCH paths and the
-shared PLL dividers behind them. The inputs and their order are those of
-zumapro's CMU_G3D, which has the same layout.
-
 Assisted-by: LLM
 Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
 ---

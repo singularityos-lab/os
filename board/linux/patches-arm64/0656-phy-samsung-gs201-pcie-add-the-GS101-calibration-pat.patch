@@ -3,13 +3,6 @@ From: Chris Gray <chrisgray70@gmail.com>
 Date: Wed, 11 Nov 2026 12:20:02 -0600
 Subject: [PATCH] phy: samsung: gs201-pcie: add the GS101 calibration path
 
-Use the ordered GS101 CAL writes and its PCS, timing and power-down
-sequence. Leave the existing GS201 path selected on its compatible.
-The earlier development path ran on Bluejay; the current rebased source
-has not been booted. Keep the TCXO diagnostic unsupported for GS101.
-
-Link: https://android.googlesource.com/kernel/google-modules/soc/gs/+/204078758737776959ecc85c527a00fd2cabb62f/drivers/pci/controller/dwc-whi/pcie-exynos-gs101-rc-cal.c
-
 Assisted-by: LLM
 Signed-off-by: Chris Gray <chrisgray70@gmail.com>
 ---

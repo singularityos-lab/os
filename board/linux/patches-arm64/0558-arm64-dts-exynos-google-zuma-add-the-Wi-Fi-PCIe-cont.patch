@@ -4,16 +4,6 @@ Date: Sat, 31 Oct 2026 08:15:31 -0400
 Subject: [PATCH] arm64: dts: exynos: google: zuma: add the Wi-Fi PCIe
  controller and PHY
 
-Add zuma's second PCIe controller (stock's pcie_1, ch-num 1) and its
-Gen3 PHY, disabled, at the addresses of stock's pcie@13120000: one lane,
-Gen3, PERST# on gph3-0 and CLKREQ# on gph3-1 with stock's pin settings,
-and the PHY's isolation at PMU offset 0x3ec8. Legacy INTx is
-demultiplexed from the controller's interrupt (SPI 439). As on stock,
-the controller is not cache coherent and runs without the I/A.
-
-Its memory window and config space are at 0x60000000, so the soc bus
-now maps the first 2 GiB, as on gs201.
-
 Assisted-by: LLM
 Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
 ---

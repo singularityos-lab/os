@@ -4,20 +4,7 @@ Date: Thu, 15 Oct 2026 14:28:08 +0100
 Subject: [PATCH] dt-bindings: input: touchscreen: samsung,s6sy761: add the
  S6SY792
 
-The touchscreen in the Pixel 6 Pro speaks the S6SY761's command set over
-SPI rather than I2C. Add its compatible, the SPI peripheral properties,
-and an optional reset GPIO, which Google's sec_ts driver pulses after
-power-up.
-
-No public source names the part. The name comes from the chip itself:
-its device ID register reads 0x3792, and Google ships one firmware file,
-s6sy79x.bin, for the whole S6SY79x line, so the part is taken to be the
-S6SY792. Whoever takes this upstream may want to revisit it; an S6SY761
-reading 0x3761 from the same register would confirm the pattern. There
-is no samsung,s6sy761 fallback: the upstream S6SY761 driver is I2C-only,
-so no older driver could bind through it.
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Assisted-by: Claude:claude-opus-5-5
 Signed-off-by: saiththerobo <the.tom.sharp@gmail.com>
 ---
  .../input/touchscreen/samsung,s6sy761.yaml    | 39 ++++++++++++++++++-

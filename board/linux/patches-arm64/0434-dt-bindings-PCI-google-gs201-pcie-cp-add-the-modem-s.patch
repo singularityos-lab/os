@@ -4,12 +4,6 @@ Date: Mon, 12 Oct 2026 19:08:20 -0400
 Subject: [PATCH] dt-bindings: PCI: google,gs201-pcie-cp: add the modem's
  shared memory
 
-The S5300 exchanges its IPC messages and packets with the host through
-three reserved regions: the IPC buffers, the MSI page (which the
-controller also targets) and the packet buffers. They belong to the
-modem, as its lines do, so describe them in the "modem" child, where
-the modem driver finds both.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

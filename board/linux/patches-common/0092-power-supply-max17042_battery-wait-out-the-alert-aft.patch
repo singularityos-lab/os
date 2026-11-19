@@ -4,19 +4,6 @@ Date: Sun, 1 Nov 2026 12:41:20 -0800
 Subject: [PATCH] power: supply: max17042_battery: wait out the alert after a
  failed read too
 
-The MAX77759 sleep added at the end of max17042_thread_handler() is
-skipped when the Status read fails: the handler returns early, the
-oneshot interrupt is unmasked while ALRT is still asserted, and an I2C
-error during an alert would burst as before. Move the sleep to a common
-exit, so both paths wait one task period.
-
-Tested on a Pixel 7 (7.3.0-rc6), with only this change on top of the
-kernel it ran before: with the cable out for 15 minutes, seven alerts
-(RepSOC reaching 99 % on the cable, then six steps down to 93 %) fired
-the gauge's interrupt once each, as before this change, and the gauge
-read as before. The failed-read path itself wasn't triggered.
-
-Suggested-by: Derek Ross <derekross@gmail.com>
 Assisted-by: Claude Opus 5.5
 Signed-off-by: Alejandro Garcia <skipper.pelygro@gmail.com>
 ---

@@ -4,19 +4,7 @@ Date: Wed, 14 Oct 2026 21:05:13 -0400
 Subject: [PATCH] arm64: dts: exynos: google: gs201: add the CSIS links and the
  DC-PHY receiver
 
-Add the CSIS system registers, CSIS links 0, 1, 2 and 4 and the shared
-MIPI DC-PHY receiver, with the register ranges and interrupts of
-Google's GPL gs201 device tree (lwis CSIS and DMA nodes). Links 0 and 1
-take four D-PHY lanes or three C-PHY trios, link 2 two lanes of its own
-or four with link 3's slave, link 4 two lanes or trios. Every link
-writes through CSIS WDMA context 0 with the EBUF bypassed and votes the
-ACPM CAM and INT DVFS domains while it streams. The DC-PHY's isolation
-is the PMU register at 0x3ebc and its slave resets are in the CSIS
-sysreg at 0x500.
-
-All stay disabled; boards connect a sensor and a capture pool.
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Assisted-by: Claude:claude-opus-5-5
 ---
  arch/arm64/boot/dts/exynos/google/gs201.dtsi | 122 +++++++++++++++++++
  1 file changed, 122 insertions(+)

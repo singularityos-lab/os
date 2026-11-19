@@ -4,11 +4,6 @@ Date: Fri, 6 Nov 2026 06:50:26 +0200
 Subject: [PATCH] dt-bindings: clock: google,zuma-clock: add CMU_PERIC0 and
  PERIC1 USI0
 
-Add the clock IDs for PERIC1's USI0 (the haptics driver's I2C bus on
-the Pixel 8 Pro), the PERIC0 NoC and peripheral paths in CMU_TOP, and
-the new CMU_PERIC0 with USI14 (the rear flash LED's I2C bus), and the
-google,zuma-cmu-peric0 compatible.
-
 Signed-off-by: Lef <me@lefteros.com>
 ---
  .../bindings/clock/google,zuma-clock.yaml     | 17 ++++++++++++++

@@ -3,27 +3,7 @@ From: David Heidelberg <david@ixit.cz>
 Date: Fri, 25 Sep 2026 15:05:47 -0700
 Subject: [PATCH] Input: stmfts - wait for controller ready after reset
 
-After releasing the reset line stmfts_reset() sleeps a fixed 50 ms and
-stmfts_power_on() another 50 ms before the first I2C access.  That is
-enough for a warm reset, but when both supplies were really cut during
-system suspend the controller boots from cold and can need longer.  If
-it does, the first read fails, stmfts_resume() returns an error and the
-touchscreen is left powered off with its interrupt disabled.
-
-The controller posts a controller ready event once it has booted, and
-the event parser already completes cmd_done on it.  Enable the interrupt
-right after releasing reset and wait for that event instead of sleeping,
-giving the controller 300 ms, the total budget the vendor driver allows.
-Boards without a reset line keep the old timing.
-
-Usually phones such as Pixel 4a and Xiaomi Mi 8 needs longer delay, so
-without this change touchscreen stops working.
-
-Fixes: 8a1f9de80e45 ("Input: stmfts - add optional reset GPIO support")
-Co-developed-by: Dmitry Torokhov <dmitry.torokhov@gmail.com>
 Signed-off-by: David Heidelberg <david@ixit.cz>
-Cc: stable@vger.kernel.org
-Link: https://patch.msgid.link/20260925-stmfts5-v8-1-0fcf49e2c85f@ixit.cz
 Signed-off-by: Dmitry Torokhov <dmitry.torokhov@gmail.com>
 Signed-off-by: quatrixone <quatrix1@gmail.com>
 ---

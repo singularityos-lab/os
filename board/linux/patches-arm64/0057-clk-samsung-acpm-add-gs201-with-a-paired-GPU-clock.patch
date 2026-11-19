@@ -3,28 +3,7 @@ From: Derek Ross <derekross@gmail.com>
 Date: Mon, 12 Oct 2026 00:01:17 -0400
 Subject: [PATCH] clk: samsung: acpm: add gs201 with a paired GPU clock
 
-The gs201 (Tensor G2) ACPM firmware has the same 14 DVFS domains as
-gs101, in the same order (Google's acpm_dvfs_gs201.h), on DVFS channel 0
-(acpm-ipc-channel of cal_if in the stock device tree).
-
-The Mali-G710 is clocked from two of them: G3D for the shader cores and
-G3DL2 for the top level and L2. Google's kbase always moves them
-together, from a fixed table, and keeps G3DL2 >= G3D by raising G3DL2
-first and lowering it last (pixel_gpu_dvfs.c). A devfreq/OPP consumer
-such as Panthor sets one clock, so add a "gpu" clock that does this: its
-rate is the shader rate, and setting it moves G3DL2 to the paired level.
-The pairs are Google's gs201 GPU table (gpu_dvfs_table_v1, 202-848 MHz;
-the v2 table needs levels this ECT lacks, and the stock kernel lists the
-v1 levels at boot) plus the 151 MHz boot level of both domains.
-
-For a staged bring-up the GPU clock is capped by a module parameter,
-gs201_gpu_max_khz. It defaults to 0, which makes the clock read-only:
-every request rounds to 151 MHz and nothing is sent to the firmware.
-
-The gs201 clocks are CLK_GET_RATE_NOCACHE, so their rate is what the
-firmware reports, not the last request.
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Assisted-by: Claude:claude-opus-5-5
 ---
  drivers/clk/samsung/clk-acpm.c | 264 ++++++++++++++++++++++++++++++++-
  1 file changed, 256 insertions(+), 8 deletions(-)

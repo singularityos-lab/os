@@ -4,25 +4,6 @@ Date: Thu, 29 Oct 2026 04:58:02 -0700
 Subject: [PATCH] arm64: dts: exynos: google: gs201-panther: enable the
  MAX77759's I2C bus
 
-Enable USI13 as I2C at 400 kHz, as the Pixel 7 Pro does: the MAX77759
-(Type-C port controller at 0x25, PMIC at 0x66, fuel gauge at 0x36,
-charger at 0x69) sits there, on gpp25-0/1, in the Pixel 7's live device
-tree too. Its devices stay undescribed for now: the Type-C port
-controller would take over VBUS and the data role from the forced-VBUS
-setup the USB PHY uses, and the USB link is the only way into the
-phone.
-
-With the bus up, user space can close the MAX77759's USB2 data switch
-after a replug (TCPC vendor register 0x93), which the chip opens on
-unplug; until a Type-C driver owns it, nothing else does, and the phone
-stays off the bus.
-
-Tested on a Pixel 7 from slot B (7.3.0-rc6), with the touchscreen, GPU
-and haptics: the bus probes as i2c-1, the TCPC's USBSW_CTRL reads 0x09
-and the charger's CHG_DETAILS_00 0x60 (VBUS valid). After an unplug the
-switch read 0x00; omamobile-usb-rescue set it back to 0x09 and USB
-networking came back by itself, with no I2C errors.
-
 Assisted-by: Claude Opus 5.5
 Signed-off-by: Alejandro Garcia <skipper.pelygro@gmail.com>
 ---

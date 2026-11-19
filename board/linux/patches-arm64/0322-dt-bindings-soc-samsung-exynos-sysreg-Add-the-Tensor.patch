@@ -4,9 +4,6 @@ Date: Fri, 30 Oct 2026 16:34:26 -0400
 Subject: [PATCH] dt-bindings: soc: samsung: exynos-sysreg: Add the Tensor G3
  HSI0 sysreg
 
-HSI0's system registers hold the USI mode of the touchscreen's USI2.
-Like zuma's UFS sysreg, it takes no clock: HSI0 is firmware-owned.
-
 Assisted-by: LLM
 Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
 ---

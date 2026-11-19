@@ -4,15 +4,6 @@ Date: Wed, 28 Oct 2026 05:11:57 -0647
 Subject: [PATCH] arm64: dts: exynos: google: zumapro-tegu: Add the fuel gauge
  and USB-C port controller
 
-The Pixel 9a's MAX77779 sits on hsi2c6 (USI6, pins gpp12-0/1, 950 kHz as
-stock): its fuel gauge at 0x36 with the board's 2 mOhm shunt, and its
-USB-C port controller at 0x25, interrupting on gpa8-3 (active low, as
-stock's max77759tcpc@25). The port is described as a sink with a dual
-data role and is not linked to the USB controller's role switch yet:
-the USB controller stays a peripheral, as today.
-
-gpa8 becomes an interrupt controller with its four EINT SPIs (44-47).
-
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  .../boot/dts/exynos/google/zumapro-tegu.dts   | 65 +++++++++++++++++++

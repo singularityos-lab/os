@@ -4,11 +4,6 @@ Date: Sat, 31 Oct 2026 11:45:10 -0400
 Subject: [PATCH] wifi: brcmfmac: add the BCM4398 chip id, RAM base and
  firmware name
 
-The Pixel 8 Pro's Wi-Fi chip is a BCM4398 (PCIe device 0x4444), rev 3
-(d0). Bcmdhd puts its 4 MiB of RAM at 0x2a0000; it sizes its SYSMEM like
-the BCM4389's. Add the ids, the RAM base and the firmware name for d0
-and later. The PCI id is added once the chip is supported.
-
 Assisted-by: LLM
 Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
 ---

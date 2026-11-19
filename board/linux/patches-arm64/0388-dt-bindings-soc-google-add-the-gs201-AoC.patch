@@ -3,13 +3,6 @@ From: Derek Ross <derekross@gmail.com>
 Date: Mon, 12 Oct 2026 12:56:52 -0400
 Subject: [PATCH] dt-bindings: soc: google: add the gs201 AoC
 
-The AoC (Always-on Compute) is the gs201 audio and sensor DSP. The AP
-loads its firmware into a reserved carve-out, the GSA authenticates and
-starts it, and it reaches memory through its own System MMU. Describe
-the power request register, the AoC's S2MPU, the chip id block read for
-the firmware's boot parameters, and the links to the GSA, the System MMU
-and the carve-out.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

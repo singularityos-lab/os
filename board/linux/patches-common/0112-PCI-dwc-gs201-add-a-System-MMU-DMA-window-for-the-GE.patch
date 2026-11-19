@@ -4,38 +4,6 @@ Date: Mon, 12 Oct 2026 10:27:01 -0400
 Subject: [PATCH] PCI: dwc: gs201: add a System MMU DMA window for the GEN4A_1
  controller
 
-The Wi-Fi chip on the gs201 PCIe GEN4A_1 controller can DMA anywhere
-in RAM: there is no IOMMU in use and the HSI2 S2MPU is left open
-(CTRL0 = 0). Stock Android puts the controller's traffic through the
-HSI2 PCIe System MMU (0x145c0000, version 8.1, VID 1).
-
-Use that System MMU as a firewall rather than a translator: one
-first-level table (36-bit IOVA, 1 MiB sections, 256 KiB aligned) that
-maps a single reserved region 1:1, so the device driver keeps using
-physical addresses and nothing outside the region is reachable. The
-register map, table format and enable sequence follow Google's
-exynos-pcie-iommu-whi driver; faults are reported from the System MMU
-interrupt with the address and direction. A mode parameter stages the
-bring-up: 0 only logs the registers (default), 1 enforces, 2 enforces
-with an empty table as a negative test.
-
-The window comes from "google,dma-window", not "memory-region": for a
-restricted-dma-pool, memory-region would also make the pool the SysMMU
-node's own swiotlb, so mapping the first-level table for the walker
-would bounce it into the very window the PCIe device may write, and the
-device could rewrite its own page table. A table that was bounced or
-overlaps the window is refused.
-
-An enforced empty table did not stop the Wi-Fi chip's DMA on VID 1. No
-kernel code assigns the controller's VID (stock 1:1 maps every buffer, so
-it never notices a bypass either), so the driver also:
-- has "vids", a bitmask of VIDs to translate (default: google,vid);
-- has mode 3, a 1:1 map of everything except the window, which only
-  blocks DMA into the window and is therefore safe on every VID;
-- reads the fault address and info from the faulting VID's registers
-  (0x1000 + 0x10 * vid with VM support), not always VID 1's;
-- restores each VID's CTRL on remove rather than writing 0.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

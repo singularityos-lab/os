@@ -4,20 +4,6 @@ Date: Tue, 13 Oct 2026 12:24:01 -0400
 Subject: [PATCH] soc: google: cpif: s51xx: register the PCI driver again only
  after a failed bind
 
-register_pcie() calls s51xx_pcie_init() on every power-on until the
-endpoint has bound, and s51xx_pcie_init() registers the s51xx PCI
-driver each time. Stock's probe never fails, so stock never meets the
-second call. In the first modem boot (MODEM-PLAN M3.4.5) the probe
-failed, and every later power-on from cbd ended in "Driver 's51xx' is
-already registered" (-EBUSY) without probing again. register_pcie()'s
-error was ignored, so start_normal_boot() then polled the boot stage
-for 200 rounds although the ROM had never been given its boot image.
-
-Unregister the driver when no endpoint bound, so the next power-on
-registers and probes afresh, return the error from register_pcie(), and
-fail the ROM boot (normal and dump) at once when the endpoint is
-missing.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

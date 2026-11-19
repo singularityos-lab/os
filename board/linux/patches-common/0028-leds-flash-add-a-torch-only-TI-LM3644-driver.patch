@@ -3,19 +3,7 @@ From: Derek Ross <derekross@gmail.com>
 Date: Mon, 12 Oct 2026 01:55:04 -0400
 Subject: [PATCH] leds: flash: add a torch-only TI LM3644 driver
 
-Expose torch mode of the LM3644/LM3644TT as an LED class device, as
-used for the rear flash LED of the Pixel 7 Pro. HWEN is raised only
-while the torch is lit, so every switch-on starts from reset values;
-flash mode, the strobe pin and the flash timeout are never used.
-Brightness steps are the chip's torch current codes up to the
-led-max-microamp limit.
-
-At probe the driver identifies the variant from the device ID and
-refuses to bind unless the enable and torch registers read their
-documented reset values, so a part with another register map is never
-driven.
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Assisted-by: Claude:claude-opus-5-5
 ---
  drivers/leds/flash/Kconfig       |  13 ++
  drivers/leds/flash/Makefile      |   1 +

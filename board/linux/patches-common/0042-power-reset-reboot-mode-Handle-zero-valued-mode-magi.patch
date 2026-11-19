@@ -3,25 +3,6 @@ From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 Date: Fri, 23 Oct 2026 23:58:34 -0647
 Subject: [PATCH] power: reset: reboot-mode: Handle zero-valued mode magic
 
-The original 2016 binding required nonzero mode values, and the YAML
-conversion retained that rule even though its normal-mode example uses
-zero. Correct the binding first, then distinguish a configured zero from
-an unknown command instead of using the magic as a found flag.
-
-This changes da850-lego-ev3: its mode-normal = <0> is now written on a
-plain reboot, as its DT requests. Unmatched commands still leave the
-marker alone. Google Tensor also needs explicit zero: the GPL Pixel
-reset driver defines REBOOT_MODE_NORMAL as zero in SYSIP_DAT0 and writes
-it for from_fastboot, shell and userrequested commands. Skipping zero
-can leave a prior bootloader request in place.
-
-Return the matched mode descriptor and let the notifier write its magic.
-Keep command normalization and write-callback handling unchanged. The
-actual lookup and notifier pass 21 source-extracted behavioral cases,
-including zero/nonzero modes, unknown commands, aliases, long names and
-write errors. The old code reproduces the zero normal-mode failure.
-
-Link: https://android.googlesource.com/kernel/google-modules/power/reset/+/ae088532b5e965536723b6b649b42a5b90717287/pixel-zuma-reboot.c
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  drivers/power/reset/reboot-mode.c | 20 ++++++++++----------

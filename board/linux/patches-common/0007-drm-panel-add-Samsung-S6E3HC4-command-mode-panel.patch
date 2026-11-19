@@ -3,25 +3,7 @@ From: Derek Ross <derekross@gmail.com>
 Date: Sun, 11 Oct 2026 22:23:22 -0400
 Subject: [PATCH] drm/panel: add Samsung S6E3HC4 command-mode panel
 
-Add a driver for the Samsung S6E3HC4 DDIC and its 1440x3120 AMOLED
-panel, found in the Google Pixel 7 Pro (cheetah).
-
-The command sequences come from Google's GPL panel driver
-(panel-samsung-s6e3hc4.c), limited to the PVT panels that ship in
-phones: the cold init table, DSC enable with the vendor PPS sent as is,
-and the display on/off sets that also switch the panel's internal
-regulators.
-
-The bootloader powers the panel and leaves it scanning out. When the
-reset line reads released at probe the driver takes the panel over
-without sending anything, holding the supplies and keeping the reset
-line where it is; only brightness and power changes reach the panel.
-Brightness is a backlight device over DCS 0x51 (11 bits, normal range;
-HBM is left for later). Brightness 0 uses the all-pixels-off command
-instead of DBV 0, as the vendor driver does, and blanking the backlight
-runs the display off sequence while keeping the panel out of sleep.
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Assisted-by: Claude:claude-opus-5-5
 ---
  drivers/gpu/drm/panel/Kconfig                 |  15 +
  drivers/gpu/drm/panel/Makefile                |   1 +

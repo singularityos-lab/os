@@ -3,12 +3,6 @@ From: Derek Ross <derekross@gmail.com>
 Date: Mon, 12 Oct 2026 13:59:15 -0400
 Subject: [PATCH] dt-bindings: PCI: add Google gs201 PCIe GEN4A_0 (modem link)
 
-PCIe GEN4A_0 in the HSI1 block of gs201 is a two-lane DesignWare root
-complex that connects the Samsung S5300 modem. Its outbound address
-translation is owned by the secure monitor, which maps the endpoint's
-configuration space at a fixed window. The modem's power, reset and
-handshake lines are described in a "modem" child node.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

@@ -4,19 +4,6 @@ Date: Tue, 13 Oct 2026 08:15:07 -0400
 Subject: [PATCH] wifi: brcmfmac: pcie: let the interrupt thread finish before
  masking for D3
 
-brcmf_pcie_pm_enter_D3() masks and clears the device's interrupts once
-the D3 ACK is in. When the ACK came as a control message, it is
-published from brcmf_pcie_rx_process() in the interrupt thread, which
-then goes on: it reads the state, re-enables the interrupt while it is
-still STATE_UP and kicks the D2H poll. If that happens after the
-suspend path masked the interrupt, the device is left unmasked across
-D3, and a later interrupt in D3 runs the handler against a sleeping
-device.
-
-Synchronise with the interrupt after setting STATE_DOWN and before
-cancelling the poll and masking, so whatever the thread did is undone
-and nothing re-arms.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

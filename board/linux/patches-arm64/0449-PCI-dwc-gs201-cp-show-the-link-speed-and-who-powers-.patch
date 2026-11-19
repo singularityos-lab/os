@@ -4,15 +4,6 @@ Date: Tue, 13 Oct 2026 12:22:42 -0400
 Subject: [PATCH] PCI: dwc: gs201-cp: show the link speed and who powers the
  modem
 
-The status file's "cp" field is the debugfs steps' own power-on flag.
-When the modem driver owns the modem's lines it is always 0, which read
-as "modem off" while the modem was powered and its ROM was waiting on
-the link (first modem boot). Print "-" then.
-
-Also print the trained speed and width while the link is up: the
-LTSSM state alone does not tell the ROM's Gen1 link from the boot
-loader's Gen3 one.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

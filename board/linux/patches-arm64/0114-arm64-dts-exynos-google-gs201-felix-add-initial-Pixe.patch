@@ -4,13 +4,6 @@ Date: Sat, 17 Oct 2026 20:20:11 -0400
 Subject: [PATCH] arm64: dts: exynos: google: gs201-felix: add initial Pixel
  Fold support
 
-Bring up USB and the cover framebuffer the bootloader is already
-scanning. The splash at 0xfc000000 is reserved no-map. Neither panel
-nor either touch controller is described.
-
-Tested on slot B: USB networking, SSH, and the Linux console on the
-cover. The inner panel was not enabled.
-
 Signed-off-by: boozedog <code@booze.dog>
 ---
  arch/arm64/boot/dts/exynos/google/Makefile    |  4 +-

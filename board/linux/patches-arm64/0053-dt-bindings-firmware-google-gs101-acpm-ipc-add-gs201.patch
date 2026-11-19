@@ -3,20 +3,7 @@ From: Derek Ross <derekross@gmail.com>
 Date: Sun, 11 Oct 2026 23:58:41 -0400
 Subject: [PATCH] dt-bindings: firmware: google,gs101-acpm-ipc: add gs201
 
-The Google gs201 (Tensor G2) SoC runs the same ACPM firmware framework
-as gs101: the same shared-memory channel table at SRAM offset 0xa000, the
-same message formats and the same DVFS domain numbering (Google's
-acpm_dvfs_gs201.h lists MIF, INT, CPUCL0-2, G3D, G3DL2, TPU, INTCAM, TNR,
-CAM, MFC, DISP and BO in the gs101 order). Its PMICs are S2MPG12 and
-S2MPG13, which have no binding yet, so the gs101 PMIC child nodes are not
-allowed for it.
-
-Add the compatible and the clock IDs. On top of the DVFS domains, gs201
-exposes the GPU as one clock (GS201_CLK_ACPM_GPU) that moves the shader
-and top/L2 domains together, as the GPU needs both changed in a fixed
-pairing.
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Assisted-by: Claude:claude-opus-5-5
 ---
  .../firmware/google,gs101-acpm-ipc.yaml       | 15 ++++++++-
  include/dt-bindings/clock/google,gs201-acpm.h | 32 +++++++++++++++++++

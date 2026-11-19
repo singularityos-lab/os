@@ -3,13 +3,6 @@ From: Brett-Michael Green <brett@bmgvisualtech.com>
 Date: Sat, 31 Oct 2026 08:15:21 -0400
 Subject: [PATCH] dt-bindings: phy: Add the Google zuma PCIe Gen3 PHY
 
-zuma's (Tensor G3) second PCIe controller, the Wi-Fi chip's, has a
-one-lane Gen3 PHY clocked from an external PLL in the UDBG block and
-selected in the controller's SOC block, isolated by the PMU until it is
-released. Its registers are the PMA, the PCS, the PHY resets in the
-controller's sub-control space, the UDBG and the SOC block, at the
-addresses of stock's pcie@13120000.
-
 Assisted-by: LLM
 Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
 ---

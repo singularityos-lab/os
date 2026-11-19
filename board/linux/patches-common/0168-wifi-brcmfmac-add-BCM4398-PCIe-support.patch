@@ -3,11 +3,6 @@ From: Brett-Michael Green <brett@bmgvisualtech.com>
 Date: Sat, 31 Oct 2026 11:45:11 -0400
 Subject: [PATCH] wifi: brcmfmac: add BCM4398 PCIe support
 
-Add the BCM4398's PCIe id. On the Pixel 8 Pro (firmware 24.100.671.86.2
-from the device's factory image) it joins WPA2, passes 50 to 87 Mbit/s
-down and 47 to 70 Mbit/s up on 2.4 GHz, stays up across idle and deep
-sleep, and survives driver reloads.
-
 Assisted-by: LLM
 Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
 ---

@@ -3,24 +3,6 @@ From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 Date: Tue, 27 Oct 2026 12:29:15 -0647
 Subject: [PATCH] Bluetooth: hci_bcm: Add the BCM4383 and its REG_ON latch
 
-Add the BCM4383, the Bluetooth half of the Google Pixel 9a's Wi-Fi and
-Bluetooth combo chip. Like the BCM4389 it wants its shutdown line held
-low for 30 ms, with the UART open, before it is raised (Google's
-nitrous.c does the same for it).
-
-On the 9a BT_REG_ON reaches the chip through a flip-flop whose clock is
-brcm,ble-dbo-gpios: a level on the shutdown line only counts once that
-line rises. When a board has it, clock it after every change of the
-shutdown line, and lower DEV_WAKE before REG_ON goes low, as Google's
-driver does (toggle_dbo_ff() in nitrous.c); and latch REG_ON low again
-when the driver goes, so the chip doesn't stay powered.
-
-Tested on the Pixel 9a, reloading hci_uart with this file: the ROM
-answers as BCM4383A1, the patch loads and the controller reports
-BCM4383A3; with the board address set and BlueZ running, discovery
-finds devices.
-
-Link: https://android.googlesource.com/kernel/google-modules/bluetooth/broadcom/+/d7bd4dd23cc52fedd2e36c6e45c12f0c2a595ae0/nitrous.c
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  drivers/bluetooth/hci_bcm.c | 44 +++++++++++++++++++++++++++++++++++++

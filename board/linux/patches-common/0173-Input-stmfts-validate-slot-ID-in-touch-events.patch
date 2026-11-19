@@ -3,21 +3,6 @@ From: Dmitry Torokhov <dmitry.torokhov@gmail.com>
 Date: Tue, 3 Nov 2026 14:58:42 -0800
 Subject: [PATCH] Input: stmfts - validate slot ID in touch events
 
-Both FTS4 and FTS5 contact and release reporting functions extract a
-4-bit slot/touch ID (values 0 to 15) from the event payload. However,
-the driver initializes only STMFTS_MAX_FINGERS (10) multi-touch slots.
-
-Passing a slot ID greater than or equal to STMFTS_MAX_FINGERS to
-input_mt_slot() is silently rejected by the input core without updating
-mt->slot, which causes subsequent slot state, coordinate, or release
-reports to corrupt or release the previously active slot.
-
-Validate that the slot ID is strictly less than STMFTS_MAX_FINGERS in
-stmfts_report_contact_event(), stmfts_report_contact_release(),
-stmfts5_report_contact_event(), and stmfts5_report_contact_release(),
-logging a warning and returning early when an invalid slot ID is
-encountered.
-
 Signed-off-by: Dmitry Torokhov <dmitry.torokhov@gmail.com>
 Signed-off-by: quatrixone <quatrix1@gmail.com>
 ---

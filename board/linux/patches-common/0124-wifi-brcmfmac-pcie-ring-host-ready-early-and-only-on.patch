@@ -4,31 +4,6 @@ Date: Mon, 12 Oct 2026 01:46:53 -0400
 Subject: [PATCH] wifi: brcmfmac: pcie: ring host ready early, and only once,
  on the BCM4389
 
-Broadcom's driver rings the host-ready doorbell (DB1) right after the
-common rings are set up and before it posts any buffer (bcmdhd
-dhd_msgbuf.c dhd_prot_init(), hostrdy_after_init set in
-dhd_pcie.c dhdpcie_bus_attach()). brcmfmac rings it only in preinit,
-after the rx and control buffers are already posted. For the BCM4389,
-which is told in host_cap that host ready will come, ring it once the
-interrupt is set up as well.
-
-With the PCIe debug level on, log the host-ready doorbell.
-
-Broadcom's driver rings it only once, and brcmfmac's preinit must not
-ring it a second time: the 20.101.90 firmware dies on that, with its
-console showing
-
-  THREADX TRAP INFO: Thread: main_thread ...
-  TRAP 4(326dc8): pc 27489a, lr 27488d, sp 327020 ...  dfsr 80f, dfar 0
-
-and the firmware's symbol map puts pc/lr in _hnd_die, with
-pciedev_handle_hostready_intr+0x75 (0x2315f1) and pciedev_dpc on the
-stack: a deliberate stop in the host-ready handler, 20 ms after the
-second doorbell.
-
-So skip the preinit host ready for the BCM4389, and write the value
-Broadcom's driver writes (0x12345678, dhd_bus_hostready()).
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

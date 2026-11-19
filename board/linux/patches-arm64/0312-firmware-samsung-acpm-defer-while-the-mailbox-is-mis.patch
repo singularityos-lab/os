@@ -3,25 +3,6 @@ From: Brett-Michael Green <brett@bmgvisualtech.com>
 Date: Sat, 31 Oct 2026 11:49:20 -0400
 Subject: [PATCH] firmware: samsung: acpm: defer while the mailbox is missing
 
-The channel loop skips a channel that gets no mailbox, so that one bad
-channel doesn't fail the rest. -EPROBE_DEFER isn't such a channel: it
-only means the mailbox driver hasn't probed yet. When ACPM probes
-first, every channel is skipped, the probe succeeds with "16 channels,
-0 usable" and never retries, and everything behind ACPM fails for the
-whole boot. On the Pixel 8 Pro the touchscreen then can't enable its
-supply ("error -ENODEV: enabling vdd").
-
-This happens when a module load or `udevadm trigger` binds ACPM ahead
-of the mailbox, or with fw_devlink=permissive, which drops the
-supplier ordering.
-
-Return -EPROBE_DEFER from the probe instead, so it runs again once the
-mailbox is there. Keep skipping the channels for any other error, and
-the ones whose queues are outside the SRAM. The channels already
-requested are freed by the devm action, and the per-channel buffers
-are devm allocations.
-
-Fixes: c8e4c99a7852 ("firmware: samsung: acpm: skip channels the AP cannot use")
 Assisted-by: LLM
 Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
 ---

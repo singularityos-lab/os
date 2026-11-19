@@ -4,14 +4,6 @@ Date: Fri, 30 Oct 2026 16:36:41 -0400
 Subject: [PATCH] arm64: dts: exynos: google: zuma: add the CUSTOM_ALIVE and
  PERIC1 pin controllers
 
-Add the CUSTOM_ALIVE controller at 0x15060000 (gpn0-gpn9, one wake-up
-interrupt each, SPI 0 to 9) and PERIC1 at 0x10c40000 (gpp19-gpp24, SPI
-649), with the banks and interrupts of stock's live device tree, as
-controllers 1 and 12 of the driver's zuma data. CUSTOM_ALIVE's bus clock
-comes from CMU_APM; PERIC1 takes the bus-clock stand-in, as PERIC0 does.
-
-The touchscreen's attention line is on gpn0 and its reset on gpp21.
-
 Assisted-by: LLM
 Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
 ---

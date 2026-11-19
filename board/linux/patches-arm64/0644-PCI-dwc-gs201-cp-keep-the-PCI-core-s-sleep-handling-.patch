@@ -4,28 +4,6 @@ Date: Mon, 9 Nov 2026 20:15:16 +0900
 Subject: [PATCH] PCI: dwc: gs201-cp: keep the PCI core's sleep handling off
  the modem's root port
 
-The modem keeps its link down between transfers, and the root port's
-configuration space is unreachable while it is down. The first
-suspend-to-idle with the modem online (link down at the time) went:
-
-  pcieport 0001:00:00.0: Unable to change power state from D0 to D3hot, device inaccessible
-  pcieport 0001:00:00.0: Unable to change power state from D3cold to D0, device inaccessible
-  pcieport 0001:00:00.0: Data Link Layer Link Active not set in 100 msec
-
-The failed D3hot left the port marked D3cold, so resume waited for the
-link, which only comes back when the modem driver asks for it, and
-marked the modem disconnected. When the modem driver raised the link
-3 s later, every kernel config read of the modem returned 0xffff (a
-config read from user space still saw its vendor ID), and CPIF could not
-ring its doorbell again.
-
-Mark the root port PCI_DEV_FLAGS_NO_D3. It stays in D0, the PCI core
-skips its bus PM in suspend-to-idle (skip_bus_pm), and resume leaves
-the link to the modem driver, as at runtime.
-
-Only with sleep_guard (gs201), as the sleep callbacks: the Pixel 9a's
-root port is handled as before.
-
 Assisted-by: LLM
 Signed-off-by: Hiroyuki Ikegami <ikegam@mixallow.net>
 ---

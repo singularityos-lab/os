@@ -1,20 +1,8 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?=C3=81ngel=20Ren=C3=A9?=
- <17342133+angelrenefm@users.noreply.github.com>
 Date: Sat, 14 Nov 2026 16:03:30 +0100
 Subject: [PATCH] media: s5p-mfc: give MFC v15 the context buffer sizes of
  Google's driver
-MIME-Version: 1.0
-Content-Type: text/plain; charset=UTF-8
-Content-Transfer-Encoding: 8bit
-
-MFC v15 reused v12's instance context sizes, among them 30 KiB for the
-decoders other than H.264 and HEVC. Google's exynos-mfc driver for gs201
-gives those 60 KiB, and 50 KiB to the HEVC and other encoders. With 30
-KiB the firmware refuses to open an MPEG-2, VP8 or VP9 instance
-(OPEN_INSTANCE returns error 0x35).
-
-Use Google's sizes on v15. On the Pixel 7 those instances then open.
 
 Assisted-by: LLM
 Signed-off-by: Ángel René <17342133+angelrenefm@users.noreply.github.com>

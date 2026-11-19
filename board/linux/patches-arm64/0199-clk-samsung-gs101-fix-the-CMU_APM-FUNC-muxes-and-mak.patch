@@ -4,25 +4,7 @@ Date: Mon, 26 Oct 2026 07:47:49 +0000
 Subject: [PATCH] clk: samsung: gs101: fix the CMU_APM FUNC muxes and make them
  read-only
 
-clk-gs101 describes MUX_CLKCMU_APM_FUNC as a 1-bit select at bit 4 and
-MUX_CLKCMU_APM_FUNCSRC as a 1-bit select at bit 3. Google's GPL gs101
-CMUCAL (cal-if/gs101/cmucal-sfr.c) puts SELECT at bits [1:0] of both
-registers, with BUSY at 16 and automatic clock gating at 28, and gives
-FUNCSRC a fourth parent, PLL_ALV/8. Reading bit 4, Linux saw FUNC on the
-oscillator whatever the hardware selected, and every rate below it,
-the APM UART's baud clock among them, came out 16 times too low; an
-assigned-clock-parents written through the old field would set a
-reserved bit and leave the real select alone.
-
-Describe both selects as [1:0] with all four parents. CMU_APM is shared
-with the ACPM firmware, which runs the PMIC interface, its mailboxes
-and its own buses from these muxes, so register them read-only, as
-gs201's CMU_APM subset does: Linux reports what the firmware set up and
-never changes it. PLL_ALV/8 has no fixed-rate clock here; the mux,
-being read-only, can't move to it, and would show it as an orphan
-parent only if the firmware had selected it.
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Assisted-by: Claude:claude-opus-5-5
 Signed-off-by: saiththerobo <the.tom.sharp@gmail.com>
 ---
  drivers/clk/samsung/clk-gs101.c | 14 +++++++++-----

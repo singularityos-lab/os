@@ -3,11 +3,6 @@ From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 Date: Sat, 31 Oct 2026 11:16:20 -0643
 Subject: [PATCH] dt-bindings: clock: google,zumapro: Add the HSI0 USI4 clocks
 
-Add CMU_HSI0's USI4 clock ids, 28 to 32, appended after USI3's. On the
-Pixel 9a USI4 is I2C19, the control bus of the two TAS2572 speaker
-amplifiers.
-
-Link: https://android.googlesource.com/kernel/google-modules/soc/gs/+/204078758737776959ecc85c527a00fd2cabb62f/drivers/soc/google/cal-if/zuma/cmucal-sfr.c
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  include/dt-bindings/clock/google,zumapro.h | 5 +++++

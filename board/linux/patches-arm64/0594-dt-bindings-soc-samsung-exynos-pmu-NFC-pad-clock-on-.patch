@@ -4,10 +4,6 @@ Date: Sat, 7 Nov 2026 07:04:51 +0200
 Subject: [PATCH] dt-bindings: soc: samsung: exynos-pmu: NFC pad clock on
  Tensor G3
 
-The Tensor G3 PMU (google,zuma-pmu) gets the same clock 0, the NFC
-controller's reference clock pad, that the Tensor G4 PMU has. Only the
-description of #clock-cells changes.
-
 Signed-off-by: Lef <me@lefteros.com>
 ---
  .../devicetree/bindings/soc/samsung/exynos-pmu.yaml         | 6 +++---

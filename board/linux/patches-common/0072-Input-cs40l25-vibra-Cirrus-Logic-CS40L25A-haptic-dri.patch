@@ -3,30 +3,7 @@ From: saiththerobo <the.tom.sharp@gmail.com>
 Date: Wed, 28 Oct 2026 08:05:36 +0000
 Subject: [PATCH] Input: cs40l25-vibra - Cirrus Logic CS40L25A haptic driver
 
-The CS40L25A in the Pixel 6 Pro boots into a ROM basic mode. This
-driver resets it, hands it over from basic mode, applies the B0 errata
-and the board's boost (with its short test), loads the RAM firmware and
-the default wavetable through cs_dsp and exposes force feedback
-(FF_RUMBLE) through ff-memless: the strength sets the firmware's trigger
-gain, a start plays the continuous effect (index 0) through the trigger
-mailbox and a stop writes ENDPLAYBACK. The sequence follows Cirrus
-Logic's GPL cs40l2x driver in Google's Pixel 6 kernels.
-
-On raven the firmware idles at HALO_STATE 201 with global enable
-dropped, not the 203 cs40l2x expects, and plays from there. Themes ask
-for 7-12 ms button clicks, shorter than the actuator takes to build up,
-so a stop is held back to min_on_ms (30 ms); the strength maps onto -8
-to -18 dB (atten_strongest tunes the top). Tested on raven: probes at
-boot from the DT, feedbackd drives it, and key presses tick.
-
-The boost's peak current and voltage come from the DT; the debugfs
-registers file stays out of the DSP's memories and core registers
-(precious), which cs_dsp and the driver still read directly.
-
-Not yet: the IRQ, hibernation, the braking configuration, calibration
-and the codec path.
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Assisted-by: Claude:claude-opus-5-5
 Signed-off-by: saiththerobo <the.tom.sharp@gmail.com>
 ---
  drivers/input/misc/Kconfig         |  14 +

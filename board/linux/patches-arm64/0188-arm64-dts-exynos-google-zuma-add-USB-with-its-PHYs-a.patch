@@ -4,21 +4,6 @@ Date: Thu, 22 Oct 2026 12:43:25 -0400
 Subject: [PATCH] arm64: dts: exynos: google: zuma: add USB, with its PHYs and
  the PMU
 
-On a normal boot ABL leaves the eUSB2 PHY off, so a bare DWC3 fails
-its core soft reset (no UTMI clock). Describe the USB control block and
-the eUSB2 PHY, with the PMU for PHY isolation, hand the DWC3 its
-usb2-phy, and enable all three on husky in peripheral mode.
-
-zuma has no clock driver yet. ABL leaves CMU_HSI0 running (the DWC3 ID
-register reads back correctly), so a 19.2 MHz fixed clock stands in for
-its USB clocks: the PHY drivers need a handle and the reference rate.
-The eUSB2 PHY's supplies come from the PMIC, which has no driver yet
-either, so they are left out and the driver runs on dummy regulators.
-The eUSB2 repeater on I2C works as ABL leaves it.
-
-Tested on a Pixel 8 Pro: the host enumerates the CDC NCM + ACM gadget
-at high speed, and ssh over it works.
-
 Assisted-by: LLM
 Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
 ---

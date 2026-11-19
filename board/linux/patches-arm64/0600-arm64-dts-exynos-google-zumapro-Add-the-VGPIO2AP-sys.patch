@@ -3,10 +3,6 @@ From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 Date: Mon, 9 Nov 2026 13:35:30 -0643
 Subject: [PATCH] arm64: dts: exynos: google: zumapro: Add the VGPIO2AP sysreg
 
-The system registers that latch the main PMIC's in-band interrupt (GIC
-SPI 74 on this SoC), the way gs201.dtsi describes gs201's at 0x182f0000.
-The PMIC node points at it with google,vgpio2ap-sysreg.
-
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  arch/arm64/boot/dts/exynos/google/zumapro.dtsi | 6 ++++++

@@ -4,11 +4,6 @@ Date: Sun, 1 Nov 2026 13:14:36 +0200
 Subject: [PATCH] dt-bindings: soc: samsung: exynos-sysreg: add
  google,zuma-peric1-sysreg
 
-USI11 is at 0x10cb00c0 and its SW_CONF is at offset 0xc of the PERIC1
-sysreg (0x10c21000), as in Google's devicetree. Add the zuma compatible to
-the list of sysregs and to the condition that groups the PERIC sysregs of
-the other Google SoCs.
-
 Signed-off-by: Lef <me@lefteros.com>
 Assisted-by: LLM
 ---

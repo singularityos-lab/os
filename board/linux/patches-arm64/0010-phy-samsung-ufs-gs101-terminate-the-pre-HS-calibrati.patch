@@ -4,19 +4,7 @@ Date: Sun, 11 Oct 2026 18:11:36 -0400
 Subject: [PATCH] phy: samsung-ufs: gs101: terminate the pre-HS calibration
  table
 
-samsung_ufs_phy_calibrate() walks a calibration table until it finds an
-entry with a zero id, but tensor_gs101_pre_pwr_hs_config[] has no
-END_UFS_PHY_CFG. The walk therefore runs into whatever the compiler
-placed after the array, typically tensor_gs101_post_pwr_hs_config[],
-and programs those values too before the power mode change.
-
-Add the missing terminator so that only the two pre-HS values are
-written, matching Google's calib_of_hs_rate_{a,b} tables for gs101.
-
-The table was added with the original gs101 UFS PHY support; this tree's
-history is squashed, so there is no commit hash for a Fixes: tag.
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Assisted-by: Claude:claude-opus-5-5
 ---
  drivers/phy/samsung/phy-gs101-ufs.c | 1 +
  1 file changed, 1 insertion(+)

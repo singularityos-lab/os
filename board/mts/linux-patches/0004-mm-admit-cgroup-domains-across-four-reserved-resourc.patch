@@ -3,11 +3,6 @@ From: Mirko Brombin <9479903+mirkobrombin@users.noreply.github.com>
 Date: Sat, 18 Jul 2026 19:34:12 +0100
 Subject: [PATCH 04/11] mm: admit cgroup domains across four reserved resources
 
-Add an atomic cgroup-v2 admission ioctl over capacity, read bandwidth, write bandwidth, and queue slots. Apply the normative 20 percent headroom, retain non-preemptible reservations behind a domain fd, and roll the complete vector back on any failure.
-
-Transition dependent admitted domains to AT_RISK before an FD-scoped provider drains. Publish the five frozen tracepoint schemas and emit deterministic admission and provider-loss SLO transitions.
-
-Evidence: Linux 7.1.3 CONFIG_MTS_TIER=y make -j4 mm/mts.o mm/mts_tier.o.
 Signed-off-by: Mirko Brombin <9479903+mirkobrombin@users.noreply.github.com>
 ---
  include/trace/events/mts.h | 108 +++++++++++++++

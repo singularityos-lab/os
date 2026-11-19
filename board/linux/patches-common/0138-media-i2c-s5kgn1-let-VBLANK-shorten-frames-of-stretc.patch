@@ -4,19 +4,6 @@ Date: Wed, 14 Oct 2026 20:37:48 -0400
 Subject: [PATCH] media: i2c: s5kgn1: let VBLANK shorten frames of stretched
  lines
 
-Lines stretched to the receiver's throughput take no longer to read
-out, only to send, but the shortest frame length stayed the mode
-table's, so the frame rate topped out at the table's rate over the
-stretch: the main camera's 120 fps 2016x1136 mode at about 39 fps, its
-60 fps 2032x1536 (4:3 preview) mode at 19.5 fps, and the telephoto's
-60 fps 2016x1136 mode at about 26 fps.
-
-Shorten the shortest frame length in proportion to the stretch, down
-to the active lines and 32 lines of blanking, so VBLANK can ask for the
-table's frame time again, and let the 30 fps default use it: the
-2032x1536 mode then runs at 30 fps by default (measured at 19.5 before,
-WDMA errors 0 over 61 frames).
-
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---
  drivers/media/i2c/s5kgn1.c | 41 ++++++++++++++++++++++++++++----------

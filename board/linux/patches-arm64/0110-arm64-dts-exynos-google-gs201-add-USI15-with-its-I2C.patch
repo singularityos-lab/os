@@ -3,12 +3,7 @@ From: Derek Ross <derekross@gmail.com>
 Date: Wed, 14 Oct 2026 21:05:25 -0400
 Subject: [PATCH] arm64: dts: exynos: google: gs201: add USI15 with its I2C bus
 
-Add the PERIC1 USI15 block with its HSI2C controller and bus pins
-(gpp24-0/1, function 2), as found in the stock device tree. On the
-Pixel 7 Pro it carries the rear flash LED driver. It stays disabled
-until a board enables it.
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Assisted-by: Claude:claude-opus-5-5
 ---
  .../boot/dts/exynos/google/gs201-pinctrl.dtsi |  7 +++++
  arch/arm64/boot/dts/exynos/google/gs201.dtsi  | 28 +++++++++++++++++++

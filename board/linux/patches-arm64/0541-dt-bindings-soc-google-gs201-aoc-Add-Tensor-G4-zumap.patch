@@ -3,20 +3,6 @@ From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 Date: Sat, 31 Oct 2026 11:19:21 -0643
 Subject: [PATCH] dt-bindings: soc: google: gs201-aoc: Add Tensor G4 (zumapro)
 
-The Pixel 9a's AoC (Tensor G4, zumapro) runs the same firmware protocol
-as gs201's, but its authenticated firmware owns the AoC's memory
-protection: Linux writes neither the AoC's S2MPU nor its System MMU, so
-a zumapro node has only the power request and chip id ranges and no
-google,sysmmu. It also names its signed image (firmware-name, one per
-board), and takes the two sensor rails as supplies in their power
-order, where gs201 nodes list regulator names.
-
-Add google,gnss-type for the board's GNSS receiver, which the firmware
-takes as a boot parameter (2 on the 9a, as in Google's GPL
-zumapro-phone-ignss.dtsi), and clocks, the ACPM DVFS domains read
-before each start: on the 9a the firmware faulted at every start until
-the AP had asked ACPM for the DVFS rates first.
-
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  .../bindings/soc/google/google,gs201-aoc.yaml | 108 ++++++++++++++----

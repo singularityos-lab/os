@@ -4,22 +4,7 @@ Date: Wed, 14 Oct 2026 21:05:13 -0400
 Subject: [PATCH] arm64: dts: exynos: google: gs201-cheetah: add the ultrawide
  camera
 
-The ultrawide is a Sony IMX386 at 0x1a on USI3 (Google's I2C bus 3),
-four D-PHY lanes at 1548 Mbps per lane to CSIS link 2 (DC-PHY slaves 2
-and 3 as one four-lane receiver), then CSIS WDMA context 0 to a 128 MiB
-reusable capture pool below 4 GiB. Its master clock is CIS_CLK0 on
-gpp3-0 at 24.576 MHz, as the stock sensor settings expect, and its
-supplies come up in stock's order. The module is mounted at 270
-degrees, the other way from the main camera.
-
-Its full-resolution lines are lengthened to 330 MB/s: at 360 MB/s the
-4032x3016 mode still lost lines in the CSIS write DMA now and then.
-
-Its AF actuator is an AK7375-type VCM at 0x0f on the same bus, on L12S
-and the camera PMIC's LDO4. The DC-PHY receive settings come from the
-user's data file. Everything stays disabled.
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Assisted-by: Claude:claude-opus-5-5
 ---
  .../boot/dts/exynos/google/gs201-cheetah.dts  | 114 ++++++++++++++++++
  1 file changed, 114 insertions(+)

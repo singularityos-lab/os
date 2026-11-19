@@ -3,13 +3,6 @@ From: Alejandro Garcia <skipper.pelygro@gmail.com>
 Date: Sun, 1 Nov 2026 14:03:23 -0800
 Subject: [PATCH] arm64: dts: exynos: google: gs201-panther: add Bluetooth
 
-Enable the BCM4389's Bluetooth core on the APM USI1 UART, as on the
-Pixel 7 Pro: CMU_APM for the UART clocks, USI_APM1 and its UART, and the
-controller with BT_REG_ON and BT_DEV_WAKE on gpp16-2 and gpp16-3 and its
-host wake on gpa6-6, rising edge. The pins and their pulls are those of
-the Pixel 7's live device tree (goog,nitrous: shutdown, device-wakeup and
-host-wakeup GPIOs), which match the Pixel 7 Pro's.
-
 Assisted-by: Claude Opus 5.5
 Signed-off-by: Alejandro Garcia <skipper.pelygro@gmail.com>
 ---

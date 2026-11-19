@@ -4,18 +4,6 @@ Date: Sat, 31 Oct 2026 14:07:18 -0700
 Subject: [PATCH] arm64: dts: exynos: google: gs201-panther: wait 1 us after
  the touch chip select
 
-Stock waits 1 us from asserting the FT3658's chip select to the first
-clock: cs-clock-delay = <1> in the touch node's controller-data, in
-Google's gs201-panther-touch.dtsi and in the Pixel 7's live device tree.
-Upstream spells it spi-cs-setup-delay-ns, which the SPI core applies
-after it drives a GPIO chip select, as this one is.
-
-Tested on a Pixel 7 from slot B (7.3.0-rc6), together with the previous
-patch: the touch node has spi-cs-setup-delay-ns = 1000 in the live
-device tree, and the controller probes (chip id 0x56, firmware 0x16)
-and reports touches across the panel with no CRC errors.
-
-Suggested-by: Derek Ross <derekross@gmail.com>
 Assisted-by: Claude Opus 5.5
 Signed-off-by: Alejandro Garcia <skipper.pelygro@gmail.com>
 ---

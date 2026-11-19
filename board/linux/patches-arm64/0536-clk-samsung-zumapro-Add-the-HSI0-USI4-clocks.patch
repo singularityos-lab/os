@@ -3,25 +3,6 @@ From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 Date: Sat, 31 Oct 2026 11:16:31 -0643
 Subject: [PATCH] clk: samsung: zumapro: Add the HSI0 USI4 clocks
 
-Add CMU_HSI0's USI4, the Pixel 9a's I2C19 (the TAS2572 speaker
-amplifiers' control bus). The bootloader leaves the path running, so
-it is described read-only: the local mux and the divider take
-CLK_MUX_READ_ONLY and CLK_DIVIDER_READ_ONLY, and the source, IP and
-PCLK gates go in hsi0_ro_gates rather than hsi0_regs. The I2C driver
-derives its timing from the inherited rate.
-
-The mux (0x1024), divider (0x1824) and gates (0x2128, 0x210c, 0x2110),
-and the mux parents (HSI0 PERI user, oscclk), follow zuma's
-cmucal-sfr.c and cmucal-node.c, four bytes on from USI3's.
-
-Booted on the Pixel 9a:
-7.3.0-rc6-omamobile-tegu-s2mpg15-m1-g991042e2eff3-dirty carries these
-clocks under that tree's own ids. The bootloader's state read back as
-the PERI user route, divide by one, and the three gates on; with them
-the exynos5-hsi2c driver binds I2C19 and both TAS2572s probe and play.
-
-Link: https://android.googlesource.com/kernel/google-modules/soc/gs/+/204078758737776959ecc85c527a00fd2cabb62f/drivers/soc/google/cal-if/zuma/cmucal-sfr.c
-Link: https://android.googlesource.com/kernel/google-modules/soc/gs/+/204078758737776959ecc85c527a00fd2cabb62f/drivers/soc/google/cal-if/zuma/cmucal-node.c
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  drivers/clk/samsung/clk-zumapro.c | 16 +++++++++++++++-

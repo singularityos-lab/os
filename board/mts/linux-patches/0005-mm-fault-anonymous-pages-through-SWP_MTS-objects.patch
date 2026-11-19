@@ -3,13 +3,6 @@ From: Mirko Brombin <9479903+mirkobrombin@users.noreply.github.com>
 Date: Sat, 18 Jul 2026 19:57:13 +0100
 Subject: [PATCH 05/11] mm: fault anonymous pages through SWP_MTS objects
 
-Reserve a native software-leaf type and convert eligible single-mapped base anonymous folios through migration entries before provider I/O. The immediate TLB flush freezes writers before the immutable payload is checksummed and stored.
-
-Install generation-backed SWP_MTS PTEs, duplicate exact object references across fork, release them on zap, and promote through the anonymous major-fault path without legacy swap ownership. Provider and fault references prevent slot reuse during I/O.
-
-Keep the first reclaim path deliberately narrow: large or multiply mapped resident folios fall back instead of risking partial conversion. Nonresident objects may become shared after fork and retain lazy COW semantics.
-
-Evidence: Linux 7.1.3 CONFIG_MTS_TIER=y make -j4 mm/; checkpatch.pl --strict (clean).
 Signed-off-by: Mirko Brombin <9479903+mirkobrombin@users.noreply.github.com>
 ---
  include/linux/leafops.h |  11 ++

@@ -4,11 +4,6 @@ Date: Thu, 22 Oct 2026 15:28:28 -0400
 Subject: [PATCH] arm64: dts: exynos: google: gs201-felix: enable the hinge
  hall sensor
 
-The DRV5032 on gpa2-3 is the factory hall_sensor. It is an active-low
-lid switch with no pull, on the same gpio-keys node as the volume
-keys. gpa2 is an alive bank, so the pin group sets no sleep config.
-Closed reads as shut and open reads as open.
-
 Signed-off-by: boozedog <code@booze.dog>
 ---
  .../boot/dts/exynos/google/gs201-felix.dts    | 28 +++++++++++++++----

@@ -4,17 +4,6 @@ Date: Mon, 26 Oct 2026 13:43:40 -0647
 Subject: [PATCH] pinctrl: samsung: zumapro: accept wake requests on the
  wake-up EINTs
 
-The google,zumapro-wakeup-eint chip has no irq_set_wake, so a
-wake-enabled consumer such as gpio-keys fails its suspend callback with
--ENXIO ("failed to configure IRQ 47 as wakeup source: -6" on the Pixel
-9a) and the whole suspend aborts.
-
-The wake-up EINTs are chained on GIC SPIs, which suspend_device_irqs()
-leaves enabled, so for s2idle the pin only has to stay unmasked: reuse
-gs101_wkup_irq_set_wake(), which records the request and writes no PMU
-register. The G4 PMU system-wakeup masks remain unimplemented, and the
-comment says so.
-
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  drivers/pinctrl/samsung/pinctrl-exynos.c | 8 +++++++-

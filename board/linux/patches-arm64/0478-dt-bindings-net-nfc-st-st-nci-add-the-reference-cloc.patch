@@ -3,11 +3,6 @@ From: Derek Ross <derekross@gmail.com>
 Date: Mon, 12 Oct 2026 17:19:54 -0400
 Subject: [PATCH] dt-bindings: net: nfc: st,st-nci: add the reference clock
 
-Some boards feed the controller's reference clock from the SoC instead of
-a crystal. On Google's Pixel 7 phones the ST54J takes it from a PMU clock
-output pad, which must run while the controller is powered up. Allow one
-optional clock.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

@@ -4,28 +4,6 @@ Date: Fri, 13 Nov 2026 11:37:28 -0500
 Subject: [PATCH] Input: synaptics-tcm: Let a touch wake the system when asked
  to
 
-Double tap to wake works on a dark phone that is awake, but from
-suspend-to-idle only the power key wakes it: tcm_suspend() turns the
-attention interrupt off for the whole sleep, so that it can't fire after
-the SPI controller has suspended and leave a read half done.
-
-Make the device wakeup capable, off by default. When user space enables
-it (power/wakeup), suspend leaves the interrupt on and arms it for
-wakeup instead. From suspend to resume the IRQ thread reads nothing: an
-attention that arrives disables the (level) line without waiting,
-reports a wakeup, which also aborts a suspend still in progress, and is
-left for tcm_resume(), which turns the line back on once the bus is up,
-so the thread then reads the message that woke the system. With wakeup
-off, suspend and resume are as before.
-
-Tested on a Pixel 7 Pro (7.3.0-rc6-omamobile-push1-g2db2bc35beec-dirty,
-the omamobile branch with this change on top), with power/wakeup
-enabled and the modem off: the shell put the phone into
-suspend-to-idle, a double tap 8 s later woke it on the touchscreen's
-interrupt (pm_wakeup_irq 98, spi0.0) and lit the lock screen, with no
-desync or bus error logged. Not yet tested: a long series, touches
-during the suspend transition itself.
-
 Assisted-by: Claude Opus 5.5
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

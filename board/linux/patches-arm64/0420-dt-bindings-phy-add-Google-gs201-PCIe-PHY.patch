@@ -3,12 +3,6 @@ From: Derek Ross <derekross@gmail.com>
 Date: Sun, 11 Oct 2026 22:39:15 -0400
 Subject: [PATCH] dt-bindings: phy: add Google gs201 PCIe PHY
 
-The gs201 (Tensor G2) PCIe Gen4 PHY is a two-lane Samsung PHY with PMA
-and PCS register blocks, a debug block that selects its reference clock,
-and three reset lines inside the sub-control space of the controller it
-serves. Its isolation is a PMU register, so the PMU phandle carries the
-offset of this instance's PHY_CTRL_PCIE_GEN4_x register.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

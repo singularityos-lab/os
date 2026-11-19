@@ -4,34 +4,6 @@ Date: Mon, 12 Oct 2026 00:33:06 -0400
 Subject: [PATCH] wifi: brcmfmac: pcie: request the BCM4389 power domains after
  reset
 
-The BCM4389 splits its backplane into save/restore power domains: PCIe,
-ARM/backplane, MAC aux and MAC main. Unless the host requests them, the
-chip's PMU may keep the ARM/backplane and MAC domains off, and a chip
-reset drops the host's requests. Backplane accesses to a domain that is
-off fault and read back as 0xffffffff, which also hides behind a warm
-chip that some earlier driver had left powered.
-
-Google's driver (bcmdhd) treats the 4378/4387/4389 family as multi-
-backplane chips (siutils.h MULTIBP_CAP()). It requests all four domains
-through the powerctl register (bits 11:8, status in 19:16) of the PCIe
-core, at BAR0 + 0x2000 + 0x1e8, before it resets the chip
-(dhd_pcie.c dhd_bus_pcie_pwr_req_reload_war(), siutils.c
-si_srpwr_request() and si_srpwr_domain_all_mask()), and on PCIe core
-revision 68 and later also asserts the ARM/backplane domain in the DAR
-copy of the register, because "ARM fails to boot" from cold without it
-(dhd_pcie.c dhd_bus_pcie_pwr_req_wl_domain(), pcie_core.h
-DAR_PCIE_PWR_CTRL()). The Pixel 7 Pro's BCM4389 has PCIe core revision
-72. For the ARM CA7 it also sets the BAR coherent-access bits in PCI
-config 0x88 (dhd_pcie.c "CA7 requires coherent bits on",
-pcicfg.h PCIE_BARCOHERENTACCEN_MASK).
-
-For the BCM4389, request all four domains (and the DAR one) once the
-BARs are mapped, before brcmfmac first touches a core, and again before
-and after the watchdog reset; and set the coherent-access bits. The
-requests stay on while the driver is bound, which costs idle power but
-keeps every backplane access safe; releasing them once the firmware
-runs is left for later.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

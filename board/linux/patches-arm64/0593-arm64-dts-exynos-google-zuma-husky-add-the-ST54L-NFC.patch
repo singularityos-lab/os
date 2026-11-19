@@ -4,33 +4,6 @@ Date: Sat, 7 Nov 2026 06:58:24 +0200
 Subject: [PATCH] arm64: dts: exynos: google: zuma-husky: add the ST54L NFC
  controller, disabled
 
-An nfc@8 child of hsi2c_0 (the haptics' bus), status "disabled", so a
-normal boot is unchanged. The ST54L speaks plain NCI over I2C, so it takes
-the same compatible as the 9a and the zumapro-tegu node: st,st54l with
-nxp,nxp-nci-i2c as the fallback, for the nxp-nci driver. Pins are from the
-stock device tree: interrupt gpa7-6, enable (the chip's RST_N) gph1-6,
-power-idle gph1-3, with stock's two pin groups (power-down state only,
-no pin function). The enable line is the same pin the zumapro-tegu node
-uses.
-
-The stock node also has a PMU clock pad (CLKOUT1) as the reference clock.
-This commit has no clocks property, so the pad stays as the bootloader
-leaves it. The power-idle line has no nxp-nci property; only its pin
-group is kept. The eSE half of the chip is not described.
-
-I tried it on my Pixel 8 Pro: a test kernel (7.3-rc6,
-...-ge98a7a38a3ef) with the node switched on by an overlay, and the pad
-clock from the follow-up patches either present or left out. nxp-nci
-binds the ST54L and registers nfc0 either way. Without the clock the
-NCI power-on works (the chip answers), but a sticker tag held at the
-phone was not found in one 25 s run. With the clock a bus card (ISO-DEP,
-no NDEF data on it) and the sticker tag (Type 2, one NDEF record) were
-both found, and neard published both as tags. The no-clock result is a
-single run, and I cannot read the PMU pad register from userspace, so I
-do not know whether the bootloader leaves the pad partly set up. The
-clock is in the follow-up patches. Not tested: the eSE, or s2idle with
-the driver bound.
-
 Signed-off-by: Lef <me@lefteros.com>
 ---
  .../boot/dts/exynos/google/zuma-husky.dts     | 36 +++++++++++++++++++

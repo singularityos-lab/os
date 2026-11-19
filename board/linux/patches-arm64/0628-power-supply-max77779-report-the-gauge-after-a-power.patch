@@ -4,35 +4,6 @@ Date: Mon, 9 Nov 2026 14:05:23 +0100
 Subject: [PATCH] power: supply: max77779: report the gauge after a power-on
  reset
 
-After the pack ran completely flat, the Pixel 9a's MAX77779 fuel gauge
-restarts with Status.POR (bit 1) set and no model reloaded: nothing on
-Linux reloads Google's model. The driver then refuses the gauge for good
-("Firmware model is not ready", -EAGAIN at probe), so there is no battery
-power supply at all, and with it no low-battery shutdown. The pack can run
-flat again, and the gauge stays in that state.
-
-The gauge still measures and runs its power-on configuration. Read on a
-phone in that state (i2cget, gauge unbound): Status 0x0002, FSTAT 0x0008
-(data ready), RepSOC 0x3868 (56 %), VCell 3.90 V, Current positive while
-charging, Temp 37 C. Accept POR once FSTAT reports the data ready, behind
-a module parameter (trust_por, default on), and warn at probe. Nothing is
-written to the gauge either way, and a gauge whose data aren't ready is
-still refused.
-
-The state of charge then comes from the gauge's defaults, not Google's
-model: FullCapRep reads 8.5 Ah (the pack is about 5 Ah). While POR is
-set, withhold what is worked out from that default pack (charge_now,
-charge_full, charge_full_design, time_to_empty_avg, time_to_full_avg:
--ENODATA) and keep capacity, voltage, current, temperature and status.
-The percentage is still an estimate. Reloading the model, as the Pixel
-8 Pro's overlay does for its gauge, is the real fix.
-
-Measured on a 9a in that state, off the cable from the charger's "Full"
-to shutdown: "Full" reads 73 to 76 %, 10 % comes about five minutes
-before 0 % at roughly 0.55 A, and 0 % arrives at about 3.2 V with the
-phone still running, so a shutdown keyed on the percentage comes before
-the cell is flat.
-
 Assisted-by: LLM
 Signed-off-by: kloot <1522975+den-kloot@users.noreply.github.com>
 ---

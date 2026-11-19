@@ -4,13 +4,7 @@ Date: Sun, 11 Oct 2026 19:35:50 -0400
 Subject: [PATCH] arm64: dts: exynos: google: gs201-cheetah: enable the
  touchscreen
 
-The Pixel 7 Pro has a Synaptics S3908 touch controller on PERIC1 USI0
-SPI, with its chip select on gpp20-3 (driven as a GPIO), ATTN on gpa7-0
-and reset on gpp23-2. Its supplies, S2MPG12 LDO25M and LDO26M, are left
-on by the bootloader and are not described until there is a regulator
-driver for the PMIC.
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Assisted-by: Claude:claude-opus-5-5
 ---
  .../boot/dts/exynos/google/gs201-cheetah.dts  | 36 +++++++++++++++++++
  1 file changed, 36 insertions(+)

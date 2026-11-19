@@ -3,26 +3,7 @@ From: saiththerobo <the.tom.sharp@gmail.com>
 Date: Wed, 14 Oct 2026 22:18:19 +0100
 Subject: [PATCH] thermal: samsung: add gs101 sensors read through ACPM
 
-On gs101 the TMU belongs to the APM, and the kernel reads temperatures
-from the ACPM firmware on its TMU channel (9). The firmware operations
-are upstream (exynos-acpm-tmu.c) but nothing used them. Register an OF
-thermal zone for each of the six sensors (BIG, MID, LITTLE, G3D, ISP,
-TPU; numbering from Google's gs101 device tree) and poll them. No
-thresholds or interrupts are programmed: the firmware's own hardware
-trips stay as the bootloader set them.
-
-What the firmware's ACPM_TMU_INIT does to those trips was checked on raven
-(7.3.0-rc6-omamobile-push1-g1de37d2bef30, a NOT FOR MERGE debug build
-adding Google's TMU_IPC_REG_READ): both TMUs' CONTROL, CONTROL1,
-PROBE_EN_CON, SAMPLING_INTERVAL and EMUL_CON, and every probe's
-THRESHOLD_TEMP_RISE and INTEN registers, 170 in all, read back identical
-before and after INIT, every read through the firmware succeeding. INIT
-leaves the bootloader's trip setup alone.
-
-The channel comes from match data: gs201's ACPM serves its TMU on
-channel 9 too, so another SoC needs only an entry.
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Assisted-by: Claude:claude-opus-5-5
 Signed-off-by: saiththerobo <the.tom.sharp@gmail.com>
 ---
  MAINTAINERS                              |   1 +

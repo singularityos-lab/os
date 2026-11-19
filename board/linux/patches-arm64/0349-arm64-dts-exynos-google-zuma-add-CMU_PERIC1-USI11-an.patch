@@ -4,15 +4,6 @@ Date: Sat, 31 Oct 2026 16:39:51 +0200
 Subject: [PATCH] arm64: dts: exynos: google: zuma: add CMU_PERIC1, USI11 and
  hsi2c_11
 
-All disabled. USI11 is at 0x10cb00c0 with its SW_CONF at offset 0xc of
-the PERIC1 sysreg, and the bus is hsi2c_11 at 0x10cb0000 on GIC SPI 659,
-as in Google's device tree. Add its pins (gpp21-0/1, the board's pair)
-and the MAX77759 interrupt pins on the ALIVE banks gpa7 and gpa8.
-
-The bus pins get a pull-up. Stock's board file sets no pull (pud 0) on
-hsi2c11_bus, but its Type-C file, applied after it, sets pud 3, which is
-the final value.
-
 Signed-off-by: Lef <me@lefteros.com>
 Assisted-by: LLM
 ---

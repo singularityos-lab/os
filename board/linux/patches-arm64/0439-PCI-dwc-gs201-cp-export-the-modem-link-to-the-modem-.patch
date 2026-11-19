@@ -3,44 +3,6 @@ From: Derek Ross <derekross@gmail.com>
 Date: Mon, 12 Oct 2026 18:47:25 -0400
 Subject: [PATCH] PCI: dwc: gs201-cp: export the modem link to the modem driver
 
-Google's modem interface driver (CPIF) drives the S5300's PCIe link
-through about twenty exynos_pcie_*() calls into Google's root complex
-driver: power the link on at a given speed, off with the bus kept,
-check it, set PERST#, and get told about link-down and completion
-timeouts. Give it the same through gs201_pcie_cp_*() calls, declared in
-<linux/soc/google/gs201-pcie-cp.h>, built from the bring-up steps this
-driver already has, in Google's order:
-
-- gs201_pcie_cp_poweron(speed): link_up, the secure-ATU SMC, then the
-  bus: scanned the first time (the modem driver's PCI probe runs from
-  there) and the endpoint's configuration saved; MSI re-armed and that
-  configuration restored on later calls. Faults are cleared. The link
-  is taken down again on failure;
-- gs201_pcie_cp_poweroff(): PME_Turn_Off and the wait for L2 idle, as
-  exynos_pcie_rc_send_pme_turn_off(), then link_down;
-- gs201_pcie_cp_link_ok(): the LTSSM test of
-  exynos_pcie_rc_chk_link_status(), lock-free for the modem driver's
-  atomic paths, reading the controller only while the PHY is out of
-  isolation;
-- PERST# at a raw level, the MSI target check (the target is the
-  controller's memory-region), an L1 substate control that keeps L1SS
-  off for now, a reset before recovery, and a log dump.
-
-The controller-event interrupt ("ctrl") is enabled after link_up and
-disabled first at link_down, while ELBI is readable. It reports a
-link-down (IRQ1 bit 10) and a completion timeout (IRQ2 bit 24), as
-exynos_pcie_rc_irq_handler() does, to one registered client from a work
-item. The first fault is kept until the client clears it and later ones
-are only logged, as in Google's driver during a recovery. After a
-link-down the endpoint's configuration space reads as absent and the
-link-down source stays masked until the next link_up, so a dead link
-cannot keep interrupting. The modem driver can report a link-down it
-found itself (a doorbell reading back all ones) the same way.
-
-There is one modem link, so the calls take no handle; they return
--ENODEV while the driver is not bound, and manual unbinding is disabled
-because the modem driver depends on the bound device.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

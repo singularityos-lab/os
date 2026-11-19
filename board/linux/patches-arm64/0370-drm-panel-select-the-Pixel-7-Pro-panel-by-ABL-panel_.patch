@@ -4,20 +4,6 @@ Date: Sun, 1 Nov 2026 11:18:58 +0100
 Subject: [PATCH] drm/panel: select the Pixel 7 Pro panel by ABL panel_name at
  probe
 
-One DTB ships for every Pixel 7 Pro and the reference DT names the
-Samsung panel, so neither driver can bind by compatible alone. The
-bootloader knows the panel: Google's ABL sets exynos_drm.panel_name=
-per device (boe-nt37290 on BOE units). Bind this driver when the DT
-names it explicitly or the command line names nt37290; the Samsung
-driver bails when the command line names the BOE panel. The driver
-core then tries the next matching driver (-ENODEV fall-through).
-
-Selecting by the DDIC id (panel_id_reg 0xac, Google's approach) needs
-BTA and the RX FIFO in the DSI host, which gs-dsim-cmd does not
-implement (-EOPNOTSUPP); revisit when it does. The per-driver
-command-line parsers are interim for this tree: upstream will want
-the selection in the DSI host, where Google does it.
-
 Signed-off-by: Adrian Schupp <as@satware.com>
 Assisted-by: LLM opencode
 ---

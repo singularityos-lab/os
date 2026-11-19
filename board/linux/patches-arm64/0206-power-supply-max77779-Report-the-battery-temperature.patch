@@ -3,19 +3,6 @@ From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 Date: Tue, 27 Oct 2026 03:25:56 -0647
 Subject: [PATCH] power: supply: max77779: Report the battery temperature
 
-The gauge measures the battery thermistor in TEMP (0x1b, signed 1/256
-degC). The first version left it out because Google's driver reports a
-fixed 22 C instead on firmware revision 1 below subrevision 15, and this
-driver had no revision check.
-
-Read the revision from the chip's PMIC function (0x66, registers 0x62 and
-0x63) with plain SMBus reads, so a PMIC driver can still claim that
-address, and report TEMP only on firmware that measures it. When the
-revision can't be read, temperature stays withheld.
-
-On a Pixel 9a (firmware 3.26) TEMP reads 36.2 C on the charger, and the
-charger's step-charging table uses it.
-
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  drivers/power/supply/max77779_battery.c | 41 ++++++++++++++++++++++++-

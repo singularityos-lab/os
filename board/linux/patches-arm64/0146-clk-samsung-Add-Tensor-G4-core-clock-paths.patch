@@ -3,25 +3,6 @@ From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 Date: Thu, 22 Oct 2026 20:32:10 -0700
 Subject: [PATCH] clk: samsung: Add Tensor G4 core clock paths
 
-Describe TOP shared PLL rate paths, HSI2 storage and PCIe branch clocks,
-and the PERIC0 supply-GPIO path using the existing Samsung CMU helpers.
-Retain firmware PLL rates, mux selections and dividers; no PLL rate
-table is supplied. Only the listed branch gates enter CCF control.
-
-Register fields come from Google's cmucal-sfr.c; ordered parent lists
-come from cmucal-node.c. G4 uses the cal-if/zuma implementation as well.
-The same OSCCLK_CMU feeds TOP PLLs and oscillator mux entries, so use
-one oscclk reference instead of unverified 26 MHz CMU clock aliases.
-
-The original private implementation reached guarded UFS root on the
-Pixel 9a, but this revised oscillator description has not been tested
-on the phone. No board nodes or complete power management are added.
-The shared helper switches listed gates to manual mode, preserving
-the current CG bit; board integration must audit handoff gate states.
-
-Link: https://android.googlesource.com/kernel/google-modules/soc/gs/+/204078758737776959ecc85c527a00fd2cabb62f/drivers/soc/google/cal-if/zuma/cmucal-sfr.c
-Link: https://android.googlesource.com/kernel/google-modules/soc/gs/+/204078758737776959ecc85c527a00fd2cabb62f/drivers/soc/google/cal-if/zuma/cmucal-node.c
-Link: https://android.googlesource.com/kernel/google-modules/soc/gs/+/204078758737776959ecc85c527a00fd2cabb62f/drivers/clk/gs/clk-zuma.c#77
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  drivers/clk/samsung/Makefile      |   1 +

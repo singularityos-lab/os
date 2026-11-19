@@ -4,14 +4,6 @@ Date: Fri, 23 Oct 2026 18:10:56 -0400
 Subject: [PATCH] arm64: dts: exynos: google: gs201-felix: describe the power
  key
 
-The power key is gpa10-0, the S2MPG12 PWRONB line, active-low with
-a pull-up, the same pin as the Pixel 7 Pro. Stock dts/gs201-common.dtsi
-names this pin key_power (PMIC_PWRON_OD_L) and gives it a pull-up.
-The pin group already exists. logind ignores a short press
-(omamobile-device-felix 0.1.2, as on the Pixel 7 Pro), so describing
-the key does not power the phone off. The long press stays the PMIC
-reset.
-
 Signed-off-by: boozedog <code@booze.dog>
 ---
  arch/arm64/boot/dts/exynos/google/gs201-felix.dts | 15 ++++++++++++---

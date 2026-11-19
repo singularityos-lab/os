@@ -3,18 +3,6 @@ From: Derek Ross <derekross@gmail.com>
 Date: Thu, 29 Oct 2026 14:08:43 -0400
 Subject: [PATCH] power: supply: max77759: disable the fast-charge safety timer
 
-The driver leaves CHG_CNFG_01's FCHGTIME at the value it finds, so the
-charger's fast-charge safety timer stays armed. With the input limited
-to 500 mA a charge from empty takes longer than that timer: on a Pixel 7
-Pro charging from 0 % on a laptop port, the charger stopped after about
-12 hours at 92 %, reading offline and "Not charging" with the cable in
-and USB still working, until a reboot started it again.
-
-Google's max77759_charger.c clears FCHGTIME at probe ("disable fast
-charge safety timer"), leaving charge termination to the charger's own
-done detection and the battery's temperature limits. Do the same in
-init, inside the window where the protected registers are unlocked.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

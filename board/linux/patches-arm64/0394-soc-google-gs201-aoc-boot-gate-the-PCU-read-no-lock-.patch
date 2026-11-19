@@ -4,21 +4,6 @@ Date: Mon, 12 Oct 2026 13:35:17 -0400
 Subject: [PATCH] soc: google: gs201-aoc-boot: gate the PCU read, no lock in
  read-only views
 
-Reading the AoC PCU (0x19a00000) with BLK_AOC on and the AoC in reset
-took a synchronous external abort on cheetah. The task reading the blk
-file died holding the driver's lock, so load and start then blocked for
-the rest of the boot.
-
- - The PCU is read only with diag_pcu=1, from its own pcu file, and each
-   register is announced in the log before it is read.
- - The ramdump header is read only with diag_ramdump=1 (or from the
-   ramdump file); the System MMU's VID 0 fault registers only with
-   gs201_aoc_sysmmu dump_faults=1.
- - blk shows only what has read fine on the phone: the AoC S2MPU's
-   CTRL0 and the System MMU registers.
- - Read-only views (blk, pcu, control, ramdump) take no lock, and the
-   optional reads around start and release reset run outside it.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

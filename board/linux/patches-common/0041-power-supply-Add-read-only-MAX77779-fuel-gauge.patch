@@ -3,37 +3,6 @@ From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 Date: Fri, 23 Oct 2026 10:14:17 -0647
 Subject: [PATCH] power: supply: Add read-only MAX77779 fuel gauge
 
-Expose retained-model capacity, voltage and charge readings without
-programming a battery model, NVM or charger. Reject a reset, loading or
-not-ready gauge and keep the register interface read-only. External power
-and charging state remain unknown until their hardware has a driver.
-
-Leave temperature out. Google's driver substitutes 22 C on firmware
-revision 1 with subrevision below 15; this driver has no firmware revision
-check or independent retail temperature qualification. Neither the
-property list nor the read-only register table exposes TEMP, so it does
-not create a battery thermal zone or provide charger thermal protection.
-
-Use Google's GPL register definitions and units, with the sense resistor
-in micro-ohms. Check the u64 charge conversion against INT_MAX before
-assigning the signed power-supply value: raw 65535 with a permitted
-100 micro-ohm resistor is 3276750000 uAh and would otherwise turn negative.
-Queue periodic notifications on the freezable workqueue for system suspend.
-
-The exact source passed a manual load, two reads 31.11 seconds apart,
-unload and installed-module restoration on tegu running
-7.3.0-rc6-omamobile-tegu-g7e457a96fc45. The retained firmware model reported
-93%, 4.340390 V and 4720/5045/5120 mAh remaining/full/design at 2000 micro-ohms,
-with presence set and no TEMP attribute. Fresh root/guard, six protected
-checksums and five B payload hashes passed. Charging, current direction,
-firmware temperature equivalence and suspend remain unqualified.
-
-Exact-source host tests cover physical unit anchors, the signed boundary,
-983040 charge cases, I/O errors, absence and readiness with a mocked regmap;
-they do not substitute for hardware qualification of those other paths.
-
-Link: https://android.googlesource.com/kernel/google-modules/bms/+/183509aff980610401869deca9f6ce8836980fe7/max77779_fg.c
-Link: https://android.googlesource.com/kernel/google-modules/bms/+/183509aff980610401869deca9f6ce8836980fe7/maxfg_common.h
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  MAINTAINERS                             |   1 +

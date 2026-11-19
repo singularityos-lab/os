@@ -3,23 +3,6 @@ From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 Date: Tue, 27 Oct 2026 08:53:52 -0647
 Subject: [PATCH] clk: samsung: zumapro: Add the PERIC0 USIs
 
-Describe USI2 to USI6 in CMU_PERIC0, the Pixel 9a's I2C buses for the
-three cameras, the camera power chips and torch, and the battery fuel
-gauge and charger, and CMU_TOP's PERIC0 IP branch that feeds them.
-Firmware sets them up: the USI user muxes and dividers are read-only,
-and each USI's IPCLK, PCLK and RSTNSYNC gates and the PERIC0 sysreg gate
-are read-only gates. The GPIO gate stays as it was.
-
-Every offset, width and parent list was checked against zuma's
-cmucal-sfr.c and cmucal-node.c.
-
-Booted on the Pixel 9a:
-7.3.0-rc6-omamobile-tegu-s2mpg15-m1-g991042e2eff3-dirty, whose
-clk-zumapro.c (blob c1db3a4a7736) carries these clocks under that
-tree's own clock ids.
-
-Link: https://android.googlesource.com/kernel/google-modules/soc/gs/+/204078758737776959ecc85c527a00fd2cabb62f/drivers/soc/google/cal-if/zuma/cmucal-sfr.c
-Link: https://android.googlesource.com/kernel/google-modules/soc/gs/+/204078758737776959ecc85c527a00fd2cabb62f/drivers/soc/google/cal-if/zuma/cmucal-node.c
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  drivers/clk/samsung/clk-zumapro.c | 80 +++++++++++++++++++++++++++++--

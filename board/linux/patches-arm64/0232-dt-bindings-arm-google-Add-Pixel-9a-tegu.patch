@@ -3,13 +3,6 @@ From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 Date: Mon, 26 Oct 2026 15:35:40 -0647
 Subject: [PATCH] dt-bindings: arm: google: Add Pixel 9a (tegu)
 
-Add the Pixel 9a, the first Tensor G4 (zumapro) board. Its bootloader
-picks the base DTB by /soc_compatible, which this schema already
-describes for every Google board, and it boots with an empty /ect node,
-so the zuma-only ECT parameters stay zuma-only.
-
-Link: https://android.googlesource.com/kernel/devices/google/zumapro/+/8831630eee2ad095b85ed452944e6353940966a5/dts/zumapro-a0-ipop.dts
-Link: https://android.googlesource.com/kernel/devices/google/zumapro/+/8831630eee2ad095b85ed452944e6353940966a5/dts/zumapro-a1-ipop.dts
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  Documentation/devicetree/bindings/arm/google.yaml | 5 +++++

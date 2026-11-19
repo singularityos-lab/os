@@ -1,16 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?=C3=81ngel=20Ren=C3=A9?=
- <17342133+angelrenefm@users.noreply.github.com>
 Date: Fri, 13 Nov 2026 21:06:23 +0100
 Subject: [PATCH] dt-bindings: media: s5p-mfc: Add the Google GS201 MFC
-MIME-Version: 1.0
-Content-Type: text/plain; charset=UTF-8
-Content-Transfer-Encoding: 8bit
-
-The Google GS201 SoC (Pixel 7) has an MFC v15.6 (MFC_VERSION reads
-0x15060000). Like the Tesla FSD one it takes a single "mfc" clock and
-sits behind up to two System MMUs. On GS201 that clock is the ACPM
-firmware's MFC DVFS domain, which sets the voltage with the rate.
 
 Assisted-by: LLM
 Signed-off-by: Ángel René <17342133+angelrenefm@users.noreply.github.com>

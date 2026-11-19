@@ -4,20 +4,7 @@ Date: Wed, 11 Nov 2026 01:40:35 -0700
 Subject: [PATCH] arm64: dts: exynos: google: zuma-husky: Give the main PMIC
  its interrupt
 
-Without an interrupt the S2MPG14 driver supplies its rails but none of
-the PMIC's events reach the host ("no interrupt, so no RTC alarm" at
-boot), so rtc0 has no wake alarm on the Pixel 8 Pro. The interrupt is
-GIC SPI 74, as stock's s2mpg14mfd node has it on this board
-(interrupts = <0 0x4a 4>), latched by the VGPIO2AP sysreg, as the gs201
-boards and the Pixel 9a have it; wakeup-source makes the alarm a wake
-source for suspend, which has not been run on this phone yet.
-
-On a Pixel 8 Pro (G1MNW) with these three commits on the display and
-GPU test tree: no "no RTC alarm" line, rtc0 has wakealarm, the
-s2mpg14-pmic interrupt line counts 0 until an alarm armed with
-rtcwake -m no -s 60 fires on time (rtc-alarm0 0 to 1), no failed units.
-
-Co-Authored-By: Claude Fable 5.2 <noreply@anthropic.com>
+Assisted-by: Claude:claude-fable-5-2
 Signed-off-by: Colin Lundholm <265166644+gitColinX@users.noreply.github.com>
 ---
  arch/arm64/boot/dts/exynos/google/zuma-husky.dts | 3 +++

@@ -4,15 +4,7 @@ Date: Sun, 11 Oct 2026 23:42:48 -0400
 Subject: [PATCH] arm64: dts: exynos: google: gs201-cheetah: add the battery
  and its gauge model
 
-Describe the 4926 mAh battery and give the fuel gauge the ModelGauge m5
-model that the stock kernel loads for the pack with a 1 kOhm ID
-resistor. RelaxCfg and FilterCfg take the values stock writes over the
-model at boot.
-
-With the model, the gauge measures the battery thermistor and its
-capacity unit becomes 2 mAh (TaskPeriod 0x2d00).
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Assisted-by: Claude:claude-opus-5-5
 ---
  .../boot/dts/exynos/google/gs201-cheetah.dts  | 56 +++++++++++++++++++
  1 file changed, 56 insertions(+)

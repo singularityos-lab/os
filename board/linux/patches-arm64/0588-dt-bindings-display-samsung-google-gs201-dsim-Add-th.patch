@@ -4,13 +4,6 @@ Date: Mon, 9 Nov 2026 13:06:14 -0500
 Subject: [PATCH] dt-bindings: display: samsung: google,gs201-dsim: Add the
  Tensor G3
 
-The Tensor G3 (zuma) DSIM0 has gs201's register layout for the command
-path: Google's cal_9865/regs-dsim.h, which its display driver builds for
-zuma, has cal_9845's offsets for every register gs-dsim-cmd uses, and on
-the Pixel 8 Pro they hold the bootloader's command-mode setup (version
-0x02090100). Add google,zuma-dsim next to google,zumapro-dsim, with
-google,gs201-dsim as the fallback of both.
-
 Assisted-by: LLM
 Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
 ---

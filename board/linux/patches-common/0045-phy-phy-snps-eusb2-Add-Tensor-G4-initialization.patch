@@ -3,31 +3,6 @@ From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 Date: Thu, 22 Oct 2026 21:08:06 -0700
 Subject: [PATCH] phy: phy-snps-eusb2: Add Tensor G4 initialization
 
-Google's zumapro USB description selects eUSB PHY version 0x701.
-In its GPL CAL, only clearing the seven-bit PLL charge-pump bias is
-conditional on minor version 1 or 2; minor version 0 keeps the default.
-
-The explicit PHY disable, PHY-reset-only release with its override
-retained, 10 us REXT wait and 1000+28+2500 us calibration wait run for
-every eUSB revision in Google's initiate routine, including zuma's
-0x700. They are not version-0x701-specific behavior.
-
-Add a G4-specific match sharing the Exynos reference-clock setup and
-clocks, clear only the seven-bit bias field and apply that common CAL
-initialization sequence to G4. Keep these sequence additions scoped to
-G4 here so the existing Exynos2200/zuma write and delay path stays
-unchanged. This is a compatibility choice, not a claim that Google's
-older revisions omit the calibration steps.
-
-A host-only trace of the actual init functions matches the existing
-Exynos2200/zuma writes and delays exactly; the G4 trace checks adjacent
-PLL bits, reset ordering and calibration delays. W=1, bindings and the
-combined link pass. No board node is enabled or hardware qualified.
-
-Link: https://android.googlesource.com/kernel/devices/google/zumapro/+/8831630eee2ad095b85ed452944e6353940966a5/dts/zumapro-usb.dtsi#10
-Link: https://android.googlesource.com/kernel/devices/google/zuma/+/42395e8adcb880aa336f0da6bb2a19ed53929c40/dts/zuma-usb.dtsi#276
-Link: https://android.googlesource.com/kernel/google-modules/soc/gs/+/204078758737776959ecc85c527a00fd2cabb62f/drivers/phy/samsung/phy-exynos-eusb.c
-Link: https://android.googlesource.com/kernel/google-modules/soc/gs/+/204078758737776959ecc85c527a00fd2cabb62f/drivers/phy/samsung/eusb-con-reg.h
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  drivers/phy/phy-snps-eusb2.c | 36 ++++++++++++++++++++++++++++++++++--

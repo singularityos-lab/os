@@ -4,27 +4,6 @@ Date: Sun, 1 Nov 2026 11:12:03 -0647
 Subject: [PATCH] arm64: dts: exynos: google: zumapro: Add PCIe channel 1 and
  its PHY
 
-Add zumapro's second PCIe controller (stock's pcie_1, ch-num 1, the
-Wi-Fi chip's link) and its Gen3 PHY, disabled. Both are zuma's: the same
-registers as stock's pcie@13120000 and zuma's nodes, the controller
-interrupt on SPI 439 with legacy INTx demultiplexed from it, PERST# on
-gph3-0 and CLKREQ# on gph3-1 with stock's pin settings, and the PHY's
-isolation at PMU offset 0x3ec8. So both nodes carry zuma's compatible as
-a fallback, and the gs201 host and zuma PHY drivers run them on zuma's
-data. As on stock and on zuma, the controller runs without the I/A and
-is not cache coherent.
-
-Unlike zuma, zumapro has a CMU_HSI2 driver, so the controller lists the
-PCIe1 gates it uses, up to the seven the DesignWare binding allows: its
-APB, DBI, slave and master clocks, and the PHY's UDBG, PAL and reference
-clocks. The PHY bridge and test APB, I/A, SSMT, System MMU and PMMU
-gates stay out; all of these gates are CLK_IGNORE_UNUSED, and stock
-lists no PCIe clocks at all (pcie-clk-num 0).
-
-Tested on a Pixel 9a with the same description applied as an overlay
-(that overlay listed all fourteen PCIe1 gates): the link trained at
-Gen2 x1, the limit of the BCM4383 behind it.
-
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  .../arm64/boot/dts/exynos/google/zumapro.dtsi | 79 +++++++++++++++++++

@@ -4,15 +4,7 @@ Date: Mon, 12 Oct 2026 00:34:34 -0400
 Subject: [PATCH] power: supply: max77759: zero the regulator and power supply
  configs
 
-max77759_charger_probe() fills in only some fields of its struct
-regulator_config and struct power_supply_config, both on the stack.
-The remaining fields (init_data, regmap, ena_gpiod, attr_grp,
-supplied_to, ...) are then whatever the stack held, unless the kernel
-happens to be built with CONFIG_INIT_STACK_ALL_ZERO.
-
-Zero-initialise both.
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Assisted-by: Claude:claude-opus-5-5
 ---
  drivers/power/supply/max77759_charger.c | 4 ++--
  1 file changed, 2 insertions(+), 2 deletions(-)

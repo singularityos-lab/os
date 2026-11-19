@@ -4,18 +4,7 @@ Date: Sat, 31 Oct 2026 20:07:19 -0400
 Subject: [PATCH] arm64: dts: exynos: google: gs201: add the ACPM TMU and
  thermal zones
 
-Add the ACPM TMU sensor under acpm_ipc and a thermal zone for each of
-the six sensors that gs101 also has (big, mid and little CPU clusters,
-GPU, ISP, TPU), in the order of Google's gs201 tmuctrl ids. The driver
-only reads temperatures and programs no hardware thresholds.
-
-Every zone is critical at 110 C. Stock's own trips are higher: its CPU
-and GPU zones start throttling at 100 C and are "hot" at 120 C (Google's
-gs201-b0.dts). The CPU zones poll every 250 ms, and every 100 ms once a
-passive trip is crossed, as on gs101, where a big cluster burst outran
-slower polling; the cooling maps come with CPU DVFS.
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Assisted-by: Claude:claude-opus-5-5
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---
  arch/arm64/boot/dts/exynos/google/gs201.dtsi | 97 ++++++++++++++++++++

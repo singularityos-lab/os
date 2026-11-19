@@ -4,23 +4,7 @@ Date: Mon, 12 Oct 2026 00:36:53 -0400
 Subject: [PATCH] phy: samsung: usbdrd: keep VBUS valid until Type-C reports a
  connection
 
-On PHYs with an orientation switch (gs101 and gs201), the PHY stops
-forcing VBUS valid and leaves it to the Type-C port controller driver,
-which sets it through the orientation callback. If that driver is not
-loaded, fails to probe or is unloaded, USB device mode never sees VBUS
-and the gadget never connects. On a phone that is reached over USB
-during bring-up, that means losing the only link.
-
-Keep forcing VBUS valid, as without a switch, until the port
-controller has reported an orientation for the first time. From then
-on, VBUS valid follows the reported connection exactly as before.
-
-Add a writable force_vbus_valid module parameter that forces VBUS valid
-again at runtime, regardless of what Type-C reports, so that a
-misbehaving port controller can be taken out of the loop without a
-reboot.
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Assisted-by: Claude:claude-opus-5-5
 ---
  drivers/phy/samsung/phy-exynos5-usbdrd.c | 146 ++++++++++++++++++-----
  1 file changed, 116 insertions(+), 30 deletions(-)

@@ -4,35 +4,6 @@ Date: Sat, 31 Oct 2026 13:51:54 -0400
 Subject: [PATCH] arm64: dts: exynos: google: zuma: Add CPU DVFS and thermal
  zones
 
-Run the three CPU clusters on their ACPM DVFS clocks (cpucl0-2) through
-cpufreq-dt, and add thermal zones for them on the ACPM TMU's big, mid
-and little sensors (0-2):
-
-- the operating points are the ACPM firmware's own levels, read from
-  the ECT the bootloader leaves at 0x90000000, up to each cluster's
-  max-freq in stock's exynos-acme domains: 1704 MHz little, 2367 MHz
-  mid and 2914 MHz big. The ECT's little levels up to 1704 MHz are the
-  ones stock's cpufreq statistics list;
-- the energy model is stock's: each level's opp-microwatt is its power
-  in the default pixel-em profile of Google's zuma-b0-ipop.dts, which
-  the Pixel 8 Pro's own device tree has too. A dynamic power
-  coefficient can't be used, since the firmware sets the voltages and
-  there is no opp-microvolt: with one, the energy model fails to
-  register ("EM: invalid perf. state: -22"). The CPUs get #cooling-cells
-  for cpufreq cooling;
-- the levels above stock's battery current limiter caps (1945 MHz mid,
-  2294 MHz big, from Google's zuma-shusky-bcl.dtsi) are turbo-mode, as
-  on gs201: with no BCL driver nothing pulls the clusters down when the
-  battery voltage droops, so they are only used with boost enabled.
-  Those caps are the Pixel 8 Pro's, so the tables stay in zuma.dtsi but
-  only zuma-husky.dts points its CPUs at them: the Pixel 8a's caps in
-  Google's zuma-akita-bcl.dtsi are lower, and it needs its own;
-- a CPU zone throttles its cluster from 80 C, forces its lowest level
-  from 95 C and is critical at 105 C, as zumapro.dtsi does. The TMU
-  sensor and the zones are shared by all zuma boards.
-
-The ACPM clock ids header moves from the board to zuma.dtsi.
-
 Assisted-by: LLM
 Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
 ---

@@ -4,27 +4,6 @@ Date: Mon, 12 Oct 2026 14:54:52 -0400
 Subject: [PATCH] soc: google: aoc: port Google's AoC core to gs201 on Linux
  7.3
 
-Build Google's AoC core, mailbox and service character devices on this
-kernel and wire them to the gs201 pieces already here:
-
- - firmware: GSA load (mailbox) and start through Trusty's hwmgr.aoc
-   (gsa.c), the AoC S2MPU opened and the System MMU windows from the
-   image header installed (gs201-aoc-sysmmu) once aoc_req is
-   acknowledged;
- - vendor interfaces without a mainline counterpart (debug-snapshot,
-   power modes, PMU, ACPM channel 13, sscoredump, ITMON, physical
-   dma-buf heaps) stubbed in aoc-compat.h; crash restart off by default
-   (aoc_disable_restart), no panic on aoc_req time-outs;
- - the AoC SRAM is not mapped (its registers abort with the A32 in
-   reset); gs201 constants replace the vendor DT properties; chip ids
-   read from the chip id block;
- - 7.3 API updates (bus match, class_create, devnode, void remove,
-   sched_set_fifo_low).
-
-Bindings: the AoC mailbox blocks (google,gs201-aoc-mbox) and the AoC
-node's 48 mailbox channels, through which the bring-up driver finds the
-mailboxes. The device tree nodes come with the AoC's own commit.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

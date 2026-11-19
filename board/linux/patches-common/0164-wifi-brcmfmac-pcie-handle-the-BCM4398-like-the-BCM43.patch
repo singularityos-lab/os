@@ -3,15 +3,6 @@ From: Brett-Michael Green <brett@bmgvisualtech.com>
 Date: Sat, 31 Oct 2026 11:45:10 -0400
 Subject: [PATCH] wifi: brcmfmac: pcie: handle the BCM4398 like the BCM4389
 
-The BCM4398 follows the BCM4389 in Broadcom's driver: it is reset with
-an FLR, told the host is ready with the same value, and serviced with
-the same INTx follow-ups and ring polling. It also splits its
-backplane into save/restore power domains, with two more than the
-BCM4389: the scan MAC and the SAQM (si_srpwr_domain_all_mask()).
-
-Key those paths on a helper covering both chips, and request the
-BCM4398's six domains.
-
 Assisted-by: LLM
 Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
 ---

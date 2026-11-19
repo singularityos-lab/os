@@ -3,18 +3,7 @@ From: Derek Ross <derekross@gmail.com>
 Date: Mon, 12 Oct 2026 01:47:53 -0400
 Subject: [PATCH] dt-bindings: display: samsung: add Google gs201 DECON
 
-The DECON is the display controller of the gs201 (Tensor G2) display
-pipeline: it blends windows fed by the DPP read DMA channels, compresses
-with DSC and hands the result to a DSIM. Describe its main registers,
-the DPP0 read DMA it scans out through, its frame start, frame done and
-extra interrupts, a scanout buffer pool and the framebuffer the
-bootloader left running, and the MIF and DISP DVFS domains that set the
-bandwidth it can rely on.
-
-The DECON driver switches the panel's refresh rate through the DSIM
-that drives it, so link the two with an OF graph port on both nodes.
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Assisted-by: Claude:claude-opus-5-5
 ---
  .../display/samsung/google,gs201-decon.yaml   | 103 ++++++++++++++++++
  .../display/samsung/google,gs201-dsim.yaml    |  11 ++

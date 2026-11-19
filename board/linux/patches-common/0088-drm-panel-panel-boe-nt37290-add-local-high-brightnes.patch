@@ -3,15 +3,6 @@ From: Adrian Schupp <as@satware.com>
 Date: Sat, 31 Oct 2026 20:59:34 +0100
 Subject: [PATCH] drm/panel: panel-boe-nt37290: add local high brightness mode
 
-Google's local_hbm_mode attribute, as in the s6e3hc4 driver: the
-fingerprint sensor lights a bright circle through sysfs, with a hard
-timeout and the allow_lhbm module gate. The calibration tables are
-already loaded at cold init; switching uses the vendor sequence
-(page-0 LHBM DBV at 4x the normal level, FPS gamma, 0x85/0x86).
-
-remove() ends a lit circle before devres tears down the LHBM
-attributes and the off timer.
-
 Signed-off-by: Adrian Schupp <as@satware.com>
 Assisted-by: LLM opencode
 ---

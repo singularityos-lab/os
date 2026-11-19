@@ -4,15 +4,6 @@ Date: Mon, 2 Nov 2026 13:18:57 -0647
 Subject: [PATCH] arm64: dts: exynos: google: zumapro: Add PCIe channel 0 and
  its PHY
 
-zumapro's first PCIe controller (stock's pcie_0, HSI1 GEN3A_0) connects
-the modem on the Pixel 9a: the zuma family's root complex with two Gen3
-lanes and its two-lane PHY. Describe both, disabled, with stock's
-CLKREQ# and PERST# pin states, from Google's GPL zumapro-pcie.dtsi,
-zumapro-pinctrl.dtsi and zumapro-board-pcie-cp-s5300.dtsi: the
-registers, the controller and MSI interrupts (SPI 414, 416-420), the
-memory window the host maps to PCI 0x14e00000, and the PMU's PHY
-control word 0x3ec4. Stock's node names no clocks, and none are given.
-
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  .../arm64/boot/dts/exynos/google/zumapro.dtsi | 66 +++++++++++++++++++

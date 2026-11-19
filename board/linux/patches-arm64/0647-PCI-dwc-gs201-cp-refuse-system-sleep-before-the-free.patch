@@ -4,38 +4,6 @@ Date: Sat, 14 Nov 2026 19:55:19 +0900
 Subject: [PATCH] PCI: dwc: gs201-cp: refuse system sleep before the freeze
  while the link is up
 
-With the modem online, systemd's sleeps were refused only in this driver's
-noirq callback: after every task was frozen and every device suspended,
-which the PM core then resumed again. On the maintainer's Pixel 7 Pro
-(2026-11-13) six such refusals in a row were followed by a downlink that
-received nothing until a reboot, and each real sleep logged
-"pcieport ... Unable to change power state from D3cold to D0": the root
-port had been marked D3cold by a sleep with the link down, so the next
-sleep, a refused one included, ran the PCI core's whole resume of it on a
-live link.
-
-Refuse earlier, from a PM_SUSPEND_PREPARE notifier, while the link is up or
-the PHY is out of isolation: a refusal then costs one notifier call, before
-the freeze. Stock gets the same from CPIF's wake lock under Android's
-autosleep, which systemd doesn't use. The noirq check stays, for a link
-that comes up during the freeze.
-
-Leave the root port out of system sleep too (dev_pm_syscore_device()), as
-the previous commit does for the modem. Its windows are this driver's and
-are restored at every link up (cp_root_win_restore());
-PCI_DEV_FLAGS_NO_D3 stays for runtime PM.
-
-Tested on a second Pixel 7 Pro (2026-11-14, on top of omamobile at
-2db2bc35beec): three real sleeps (9.7 s, 43.7 s to the RTC, 4.2 s), then
-five requests under a 1 s ping, all ten attempts refused before the
-freeze, ping 138 of 141 and 3 of 3 afterwards, no pcieport line. On a
-Pixel 9a with sleep_guard set for zumapro (W4HO): 14 refusals with data
-alive, then 22 of 23 sleeps entered.
-
-The notifier and the root port change are Derek Ross's, from his review
-of this series.
-
-Suggested-by: Derek Ross <derekross@gmail.com>
 Assisted-by: LLM
 Signed-off-by: Hiroyuki Ikegami <ikegam@mixallow.net>
 ---

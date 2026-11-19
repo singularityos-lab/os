@@ -4,14 +4,6 @@ Date: Sat, 7 Nov 2026 07:04:51 +0200
 Subject: [PATCH] arm64: dts: exynos: google: zuma: give the NFC controller its
  clock pad
 
-Give the zuma PMU node its #clock-cells, and the Pixel 8 Pro's ST54L node
-clock 0, the PMU's NFC pad (stock: pmu_clk_pad 0x3e84), as on the
-zumapro-tegu node. The node stays disabled.
-
-The #clock-cells are in zuma.dtsi, so the clkout driver also binds on the
-Pixel 8a (zuma-akita). It writes nothing there: the 8a has no NFC node, so
-nothing enables the pad clock.
-
 Signed-off-by: Lef <me@lefteros.com>
 ---
  arch/arm64/boot/dts/exynos/google/zuma-husky.dts | 12 +++++++-----

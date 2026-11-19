@@ -3,9 +3,6 @@ From: Alejandro Garcia <skipper.pelygro@gmail.com>
 Date: Tue, 27 Oct 2026 21:02:25 -0700
 Subject: [PATCH] dt-bindings: arm: google: Add Pixel 7 (panther)
 
-The Pixel 7 (panther) is a gs201 (Tensor G2) board like the Pixel 7 Pro,
-Pixel Fold and Pixel 7a. Add its compatible to the gs201 board list.
-
 Assisted-by: Claude Opus 5.5
 Signed-off-by: Alejandro Garcia <skipper.pelygro@gmail.com>
 ---

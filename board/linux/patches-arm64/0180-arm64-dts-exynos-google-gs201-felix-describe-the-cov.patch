@@ -4,13 +4,6 @@ Date: Fri, 23 Oct 2026 13:27:35 -0400
 Subject: [PATCH] arm64: dts: exynos: google: gs201-felix: describe the cover
  touch
 
-The cover controller is an ST SALIXP on USI6 SPI, chip select
-gpp12-3, reset gpp23-3, attention gpa6-7, supplies LDO25M and
-LDO26M. The node stays disabled. The SPI bus pins use the SoC
-spi6_bus group at 5 mA. Reset direction is left to the GPIO
-request. The inner panel and its touch controller are not
-described.
-
 Signed-off-by: boozedog <code@booze.dog>
 ---
  .../boot/dts/exynos/google/gs201-felix.dts    | 80 +++++++++++++++++--

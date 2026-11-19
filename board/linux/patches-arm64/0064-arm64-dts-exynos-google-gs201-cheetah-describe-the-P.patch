@@ -3,23 +3,7 @@ From: Derek Ross <derekross@gmail.com>
 Date: Wed, 14 Oct 2026 21:05:04 -0400
 Subject: [PATCH] arm64: dts: exynos: google: gs201-cheetah: describe the PMICs
 
-Add the S2MPG12 main PMIC and the S2MPG13 sub-PMIC under ACPM.
-
-The S2MPG12 is described for its RTC. It has no interrupt line of its
-own: its events arrive in-band and the VGPIO2AP registers raise them as
-GIC SPI 72, level high, as on the stock phone.
-
-The S2MPG13 is described for its LDOs and its GPIO block. Only rails
-with a consumer are listed: the GNSS core, RF and aux rails (L9S-L11S),
-the fingerprint sensor's analog supply (L15S) and the camera I/O rail
-(L12S), with the stock voltages or ranges, so nothing sets a voltage at
-probe. Its GPIOs 0, 1 and 3 wake the camera PMIC and enable the camera
-supplies. The rest of the rails have no constraints and stay as the
-bootloader set them.
-
-Both stay disabled until they are proven on the phone.
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Assisted-by: Claude:claude-opus-5-5
 ---
  .../boot/dts/exynos/google/gs201-cheetah.dts  | 90 +++++++++++++++++++
  1 file changed, 90 insertions(+)

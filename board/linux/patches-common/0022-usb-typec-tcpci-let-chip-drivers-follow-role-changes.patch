@@ -3,16 +3,7 @@ From: Derek Ross <derekross@gmail.com>
 Date: Mon, 12 Oct 2026 00:35:46 -0400
 Subject: [PATCH] usb: typec: tcpci: let chip drivers follow role changes
 
-Some TCPCs have vendor specific switches for the USB data lines that the
-chip driver has to close once a partner is attached, independently of
-any USB PD exchange: data over D+/D- is part of a plain Type-C
-connection.
-
-Add an optional set_roles() callback to struct tcpci_data, called from
-tcpci_set_roles() after the message header has been written, with the
-same arguments TCPM passes.
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Assisted-by: Claude:claude-opus-5-5
 ---
  drivers/usb/typec/tcpm/tcpci.c | 3 +++
  include/linux/usb/tcpci.h      | 6 ++++++

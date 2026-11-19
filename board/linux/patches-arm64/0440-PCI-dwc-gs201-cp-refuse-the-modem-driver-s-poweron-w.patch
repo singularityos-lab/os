@@ -4,14 +4,6 @@ Date: Mon, 12 Oct 2026 19:36:20 -0400
 Subject: [PATCH] PCI: dwc: gs201-cp: refuse the modem driver's poweron without
  allow_hw
 
-The bring-up steps in debugfs only touch the hardware when the module is
-loaded with allow_hw=1. The modem driver's gs201_pcie_cp_poweron() did
-not check it, so binding the modem driver to test its probe would have
-let it bring the link up as soon as it asked.
-
-Refuse poweron with -EPERM unless allow_hw=1, so the first test of the
-modem driver can bind it with the link provably left down.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

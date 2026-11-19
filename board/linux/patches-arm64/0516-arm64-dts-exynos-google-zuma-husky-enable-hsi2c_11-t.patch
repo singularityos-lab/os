@@ -4,30 +4,6 @@ Date: Fri, 6 Nov 2026 08:17:39 +0200
 Subject: [PATCH] arm64: dts: exynos: google: zuma-husky: enable hsi2c_11, the
  MAX77759 bus
 
-The MAX77759 (PMIC, charger, fuel gauge, Type-C port controller) sits on
-USI11 / hsi2c_11. The bus, USI11, CMU_PERIC1 and its SYSREG were left
-disabled and a bring-up overlay switched them on. Move that into the
-board file: the USB replug rescue in the husky device package needs the
-bus, because the Type-C side opens its USB2 data switch on an unplug and,
-with no Type-C driver, the phone stays off the USB bus after a replug
-until something closes it again.
-
-Binding the PMIC at 0x66 also creates its charger cell, and the charger
-driver programs charge limits from the battery node. max77759_charger,
-gpio_max77759, nvmem_max77759 and tcpci_maxim stay out of the way
-through the husky device package's omamobile-max77759.conf (blacklist
-only, a manual modprobe still works), so this DTB goes with that
-package. The Type-C controller node stays disabled.
-
-Update the comment that said the bus is enabled by an overlay and that
-the package does not block the drivers yet.
-
-Tested on a Pixel 8 Pro: the same four nodes were enabled by the
-bring-up overlay for days; with them on, the fuel gauge, the PMIC and
-the USB replug rescue work. This commit moves them into the board file
-and was only built (W=1, dt-validate shows the two existing eusb2-phy
-messages), not booted by itself.
-
 Signed-off-by: Lef <me@lefteros.com>
 ---
  .../boot/dts/exynos/google/zuma-husky.dts     | 28 ++++++++++++++-----

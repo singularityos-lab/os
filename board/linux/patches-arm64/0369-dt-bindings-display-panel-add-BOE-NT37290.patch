@@ -3,12 +3,6 @@ From: Adrian Schupp <as@satware.com>
 Date: Sun, 1 Nov 2026 17:54:19 +0100
 Subject: [PATCH] dt-bindings: display: panel: add BOE NT37290
 
-checkpatch flags the boe,nt37290 compatible as undocumented. Add the
-schema, modeled on samsung,s6e3hc4: the same Pixel 7 Pro panel hardware
-(1440x3120 command-mode AMOLED, four DSI lanes, TE line), BOE DDIC
-variant. The panel variant on a device is named by the bootloader on
-the kernel command line, not by the DT.
-
 Signed-off-by: Adrian Schupp <as@satware.com>
 Assisted-by: LLM opencode
 ---

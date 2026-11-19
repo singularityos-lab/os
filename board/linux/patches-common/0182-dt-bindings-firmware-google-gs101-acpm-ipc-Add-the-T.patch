@@ -4,14 +4,6 @@ Date: Sat, 31 Oct 2026 12:44:04 -0400
 Subject: [PATCH] dt-bindings: firmware: google,gs101-acpm-ipc: Add the Tensor
  G3 clock ids
 
-The Tensor G3 (zuma) ACPM firmware numbers its DVFS domains as Google's
-enum acpm_dvfs_id for zuma: MIF, INT, CPUCL0-2, DSU, BCI, G3D, G3DL2,
-TPU, INTCAM, TNR, CAM, MFC, DISP, AOC and BW, the same 17 as the
-Tensor G4's. Add their clock ids, and the paired GPU clock after them
-(17), as the gs201 and zumapro headers do, so device trees can name
-them.
-
-Link: https://android.googlesource.com/kernel/google-modules/soc/gs/+/refs/heads/android-gs-shusky-6.1-android16/drivers/soc/google/cal-if/zuma/acpm_dvfs_zuma.h
 Assisted-by: LLM
 Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
 ---

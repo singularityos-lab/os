@@ -4,17 +4,7 @@ Date: Sun, 11 Oct 2026 23:59:34 -0400
 Subject: [PATCH] firmware: samsung: acpm: check the channel table read from
  SRAM
 
-The channel count, the channel table and every queue offset come from
-the firmware's SRAM and are used as-is for MMIO and as a divisor. On a
-new SoC, or with a wrong initdata base, they are garbage, and the first
-transfer writes outside the SRAM mapping or divides by zero.
-
-Reject a channel count of 0 or above 64, a channel table or queue that
-does not fit in the SRAM, and a channel with messages but no queue.
-Print each channel at debug level and the channel count once, so that a
-bring-up can be checked before any message is sent.
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Assisted-by: Claude:claude-opus-5-5
 ---
  drivers/firmware/samsung/exynos-acpm.c | 52 ++++++++++++++++++++++++--
  1 file changed, 48 insertions(+), 4 deletions(-)

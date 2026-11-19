@@ -4,12 +4,6 @@ Date: Mon, 26 Oct 2026 07:32:48 -0400
 Subject: [PATCH] arm64: dts: exynos: google: gs201-felix: size the cover
  touchscreen
 
-The cover is 1080 by 2092. Google's st,sensor_inverted_x and
-st,sensor_inverted_y only reorder heatmap frames for touch offload.
-Coordinates are reported raw, so this node does not set
-touchscreen-inverted-x or touchscreen-inverted-y. The node stays
-disabled.
-
 Signed-off-by: boozedog <code@booze.dog>
 Assisted-by: LLM
 ---

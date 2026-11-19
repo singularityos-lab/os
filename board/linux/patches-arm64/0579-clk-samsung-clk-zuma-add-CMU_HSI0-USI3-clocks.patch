@@ -3,22 +3,6 @@ From: Lef <me@lefteros.com>
 Date: Sat, 7 Nov 2026 11:42:48 +0200
 Subject: [PATCH] clk: samsung: clk-zuma: add CMU_HSI0 USI3 clocks
 
-Add the USI3 mux, divider and gates next to USI2's, with the same
-shape, parents and flags, so a spi21 node can take its clocks. The
-registers are Google's, from the zuma CMU_HSI0 tables: the mux
-CLK_CON_MUX_MUX_CLK_HSI0_USI3 at 0x1020, the divider
-CLK_CON_DIV_DIV_CLK_HSI0_USI3 at 0x1820, the source gate
-CLK_CON_GAT_GATE_CLK_HSI0_USI3 at 0x2124, the IP clock gate at 0x2104
-and the PCLK gate at 0x2108, bit 21 as for USI2.
-
-CLK_IGNORE_UNUSED keeps the gates as the bootloader left them until a
-spi21 node is enabled; nothing consumes them in the default device
-tree. The three gate registers join hsi0_regs, as USI2's did. As for
-USI2, the divider is not in that list and the RSTNSYNC gate is not
-described.
-
-Built, not booted.
-
 Signed-off-by: Lef <me@lefteros.com>
 ---
  drivers/clk/samsung/clk-zuma.c | 17 ++++++++++++++---

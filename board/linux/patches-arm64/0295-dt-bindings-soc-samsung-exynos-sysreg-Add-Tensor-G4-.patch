@@ -4,12 +4,6 @@ Date: Tue, 27 Oct 2026 09:53:40 -0647
 Subject: [PATCH] dt-bindings: soc: samsung: exynos-sysreg: Add Tensor G4 APM,
  HSI0 and PERIC1
 
-Add the Tensor G4 (zumapro) system-register blocks the SoC's USIs select
-their mode through: APM (one UART), HSI0 (two SPI buses and an I2C
-bus) and PERIC1 (one I2C bus). Each block's interface clock is
-a gate the Tensor G4 clock driver exports, so they list clocks, as
-PERIC0 and UFS do.
-
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  .../bindings/soc/samsung/samsung,exynos-sysreg.yaml         | 6 ++++++

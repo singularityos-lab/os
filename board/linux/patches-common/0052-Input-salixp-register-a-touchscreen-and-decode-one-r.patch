@@ -3,12 +3,6 @@ From: boozedog <code@booze.dog>
 Date: Mon, 26 Oct 2026 07:32:55 -0400
 Subject: [PATCH] Input: salixp: register a touchscreen and decode one report
 
-After the chip id matches, register a multitouch device. One 8-byte
-report becomes a slot, a position, and a pressure. Attention stays
-unrequested, so this decode is not called yet. The Kconfig text
-matches that: it registers a touchscreen, and it does not read the
-FIFO, send a scan command, or request the interrupt.
-
 Signed-off-by: boozedog <code@booze.dog>
 Assisted-by: LLM
 ---

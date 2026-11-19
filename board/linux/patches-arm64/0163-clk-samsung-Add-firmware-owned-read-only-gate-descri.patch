@@ -3,28 +3,6 @@ From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 Date: Fri, 23 Oct 2026 01:01:01 -0700
 Subject: [PATCH] clk: samsung: Add firmware-owned read-only gate descriptions
 
-Some firmware-owned paths need a real gate description without permitting
-CCF to switch them. Add an opt-in read-only gate list alongside existing
-gate descriptions; taking and releasing references leaves hardware alone.
-
-CG_VAL controls a gate only when MANUAL is set. In automatic mode it is
-not an availability bit: hardware may gate an idle clock on demand or
-bypass automatic gating. Rejecting CG_VAL=0 there can leave the running
-watchdogs without a Linux owner. Report manual gates from CG_VAL, honoring
-inverted and big-endian flags, and automatic gates as available.
-
-Google's ra_get_gate()/ra_set_gate() distinguish the same modes; the
-latter toggles ENABLE_AUTOMATIC_CLKGATING instead of CG_VAL in automatic
-mode. The existing Samsung automatic gate's enable is likewise a no-op.
-Keep ordinary gate code and gs101/gs201 registrations unchanged.
-
-Accept samsung_clk_init's ERR_PTR(-ENOENT) slots for absent clocks, reject
-occupied/out-of-range IDs and free allocations on registration failure.
-Source-extracted sanitizer checks cover constructor failures and gate
-mode/endian/inversion states without writes; ARM64 W=1 builds pass.
-These are source checks, not an additional hardware qualification.
-
-Link: https://android.googlesource.com/kernel/google-modules/soc/gs/+/204078758737776959ecc85c527a00fd2cabb62f/drivers/soc/google/cal-if/ra.c
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  drivers/clk/samsung/clk.c | 88 +++++++++++++++++++++++++++++++++++++++

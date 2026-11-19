@@ -3,20 +3,7 @@ From: saiththerobo <the.tom.sharp@gmail.com>
 Date: Thu, 15 Oct 2026 14:29:36 +0100
 Subject: [PATCH] drm/panfrost: add Google gs101
 
-gs101's Mali-G78 needs four rails on (VDD_G3D, VDD_G3D_L2, VDD_G3D_M,
-VDD_INT_M); there is no DVFS yet, so they stay where the bootloader put
-them.
-
-The G78 is a Valhall v9 GPU like the G57 that the MediaTek mt8188,
-mt8192 and mt8370 entries describe, and those all set
-GPU_QUIRK_FORCE_AARCH64_PGTABLE. Without it the G78 walked the legacy
-Mali LPAE tables: every fragment job failed with DATA_INVALID_FAULT at
-its own job header, and the header read back with a zero job type. With
-the quirk, clears, solid, blended and textured draws (up to 4096x4096,
-mipmapped) render the expected pixels and the GPU reports no fault;
-Hyprland runs on the G78.
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Assisted-by: Claude:claude-opus-5-5
 Signed-off-by: saiththerobo <the.tom.sharp@gmail.com>
 ---
  drivers/gpu/drm/panfrost/panfrost_drv.c | 11 +++++++++++

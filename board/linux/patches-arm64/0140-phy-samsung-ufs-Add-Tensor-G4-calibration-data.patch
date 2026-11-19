@@ -3,24 +3,6 @@ From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 Date: Thu, 22 Oct 2026 16:18:53 -0700
 Subject: [PATCH] phy: samsung-ufs: Add Tensor G4 calibration data
 
-Add Tensor G4 PMA calibration, per-lane calibration-done polling and PMU
-isolation data using the existing Samsung UFS PHY framework. The 36 PMA
-settings come from Google's GPL zuma calibration tables, whose EVT0 and
-EVT1 values agree; retain Samsung's source attribution. Convert byte
-offsets to the word units used by the common configuration macros.
-
-Returning -ETIMEDOUT after the 4 ms calibration wait is deliberate.
-Google's __UFS_CAL_FW__ path returns a timeout, but its kernel build
-continues after 100 polls of 40 us. Fail link startup when calibration
-does not complete instead of using an unqualified PHY.
-
-The driver data matches the private Pixel 9a bring-up source that
-reached internal UFS and guarded native root on two equalised-firmware
-boots. This series does not enable board nodes or qualify
-suspend/resume.
-
-Link: https://android.googlesource.com/kernel/google-modules/soc/gs/+/204078758737776959ecc85c527a00fd2cabb62f/drivers/ufs/zuma/ufs-cal.h
-Link: https://android.googlesource.com/kernel/google-modules/soc/gs/+/204078758737776959ecc85c527a00fd2cabb62f/drivers/ufs/zuma/ufs-cal-if.c
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  MAINTAINERS                           |  1 +

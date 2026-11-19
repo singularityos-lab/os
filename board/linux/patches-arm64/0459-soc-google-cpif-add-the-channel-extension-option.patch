@@ -3,20 +3,6 @@ From: Derek Ross <derekross@gmail.com>
 Date: Tue, 13 Oct 2026 08:43:04 -0400
 Subject: [PATCH] soc: google: cpif: add the channel extension option
 
-Google's CPIF tests CONFIG_CH_EXTENSION to treat channels 181-211
-(SIPC_CH_EX_ID_PDP_*) as packet data and to set AP_CAP_0_CH_EXTENSION
-in the AP capability word it hands the modem at boot. The port has the
-code but no Kconfig symbol, so it was always off.
-
-The S5300 firmware on gs201 uses the extended range: stock's device tree
-puts the 30 rmnet devices on channels 181 and up, and stock builds the
-option (pantah_defconfig: CONFIG_CH_EXTENSION=m). Without it only
-channels 10-24 count as packet data, the modem is not told about the
-extended range, and the rmnet interfaces carry nothing although
-registration and the IPC channels work.
-
-Add the symbol, on by default with the driver.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

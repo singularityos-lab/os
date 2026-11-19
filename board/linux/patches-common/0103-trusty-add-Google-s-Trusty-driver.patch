@@ -3,24 +3,6 @@ From: Derek Ross <derekross@gmail.com>
 Date: Mon, 12 Oct 2026 01:33:49 -0400
 Subject: [PATCH] trusty: add Google's Trusty driver
 
-Add the Trusty driver from Google's GPL Pixel kernel (google-modules/trusty,
-the version the Pixel 7 Pro's stock kernel runs, negotiating API version 5
-with the secure world): the SMC and FF-A memory sharing core with per-CPU
-nop threads and IRQ forwarding (trusty-core), the secure log (trusty-log),
-the virtio transport (trusty-virtio) and the IPC device that trusted
-applications are reached through, /dev/trusty-ipc-dev0 (trusty-ipc). The
-stdcall test module is left out.
-
-Changes from Google's code are only for this kernel's APIs: void remove
-callbacks, the virtqueue_info form of find_vqs, class_create() without an
-owner, map_phys instead of map_page in the IPC buffer DMA ops, the
-_unlocked dma-buf mapping calls, strscpy, the DMA_BUF namespace as a
-string, MODULE_DEVICE_TABLE types, and the vmalloc and string includes.
-
-On gs201 Trusty's IPIs 8-15 map to GIC SGIs 8-15 (ipi-range = <8 15 8>);
-mainline GICv3 accepts one-cell SGI specifiers and keeps SGIs 0-7 for its
-own IPIs, so the stock description works unchanged.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

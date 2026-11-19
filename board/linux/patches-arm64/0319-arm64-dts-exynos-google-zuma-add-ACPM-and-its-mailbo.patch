@@ -3,11 +3,6 @@ From: Brett-Michael Green <brett@bmgvisualtech.com>
 Date: Fri, 30 Oct 2026 16:23:47 -0400
 Subject: [PATCH] arm64: dts: exynos: google: zuma: add ACPM and its mailbox
 
-Add CMU_APM, the AP-to-APM mailbox (SPI 80), the APM SRAM and the ACPM
-firmware node, at the addresses stock's acpm_ipc node gives them. CMU_APM
-is read-only: it only names the mailbox's and the SRAM's clocks, which
-the always-on domain keeps running.
-
 Assisted-by: LLM
 Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
 ---

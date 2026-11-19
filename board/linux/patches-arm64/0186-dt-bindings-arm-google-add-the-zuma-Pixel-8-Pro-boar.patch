@@ -3,21 +3,6 @@ From: Brett-Michael Green <brett@bmgvisualtech.com>
 Date: Thu, 22 Oct 2026 16:06:01 -0400
 Subject: [PATCH] dt-bindings: arm: google: add the zuma Pixel 8 Pro board
 
-Document google,zuma-husky with the google,zuma fallback, for the
-Google Tensor G3 (zuma) Pixel 8 Pro.
-
-zuma's bootloader picks the base DTB by matching the SoC against the
-children of a /soc_compatible node (product_id, major, minor,
-pkg_mode), the way gs101 and gs201 use /soc_id. The Pixel 7a's
-bootloader does too. Describe that node. Stock trees also give each
-child a "description" label, which a schema cannot name, so further
-properties are allowed there.
-
-zuma's bootloader also expects /ect to carry the location of the ECT
-(parameter_address, parameter_size), as stock's base DTBs do, rather
-than the empty node gs101 and gs201 use. Allow the two properties on
-zuma only.
-
 Assisted-by: LLM
 Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
 ---

@@ -4,18 +4,6 @@ Date: Tue, 10 Nov 2026 15:57:46 +0000
 Subject: [PATCH] arm64: dts: exynos: google: zuma-akita: Default to
  suspend-to-idle
 
-The firmware advertises PSCI SYSTEM_SUSPEND, so the kernel offers deep
-sleep and makes it the default: /sys/power/mem_sleep reads
-"s2idle [deep]" on the Pixel 8a. Linux has no zuma sleep sequence yet,
-so a deep suspend would not wake. Pass mem_sleep_default=s2idle, as the
-Pixel 7 Pro and the Pixel 7 do, so a suspend that names no state stays
-in s2idle. The omamobile-device-akita package already asks systemd for
-s2idle; this covers anything that writes "mem" directly.
-
-Tested on a Pixel 8a from slot B (7.3.0-rc6): /proc/cmdline carries
-mem_sleep_default=s2idle and /sys/power/mem_sleep reads "[s2idle] deep".
-
-Suggested-by: Derek Ross <derekross@gmail.com>
 Assisted-by: Claude Opus 5.5
 Signed-off-by: DarekM <149845949+aninmucek@users.noreply.github.com>
 ---

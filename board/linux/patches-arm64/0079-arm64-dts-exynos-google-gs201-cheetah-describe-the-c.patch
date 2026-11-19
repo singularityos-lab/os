@@ -4,16 +4,7 @@ Date: Wed, 14 Oct 2026 21:05:13 -0400
 Subject: [PATCH] arm64: dts: exynos: google: gs201-cheetah: describe the
  camera power path
 
-As in Google's GPL pantah camera PMIC device tree: two fixed supplies,
-PP3200_BB_CAM and PP1300_CAM, switched by S2MPG13 GPIOs 1 and 3, feed
-the SLG51002 camera PMIC at 0x75 on I2C bus 8 (USI8), whose chip select
-is S2MPG13 GPIO 0. Its eight LDOs and four switches, together with the
-sub-PMIC's L12S, power the camera modules. Voltages are stock's.
-
-Enable the PERIC0 pin controller, USI8 and its I2C bus for it. The
-supplies and the camera PMIC stay disabled.
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Assisted-by: Claude:claude-opus-5-5
 ---
  .../boot/dts/exynos/google/gs201-cheetah.dts  | 131 ++++++++++++++++++
  1 file changed, 131 insertions(+)

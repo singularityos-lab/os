@@ -3,10 +3,6 @@ From: Brett-Michael Green <brett@bmgvisualtech.com>
 Date: Fri, 30 Oct 2026 16:34:26 -0400
 Subject: [PATCH] dt-bindings: soc: samsung: exynos-usi: Add the Tensor G3 USI
 
-zuma's (Tensor G3) USI blocks are Exynos850-style, like Tensor G4's:
-the mode lives in a system register, and the block's own control sits
-at offset 0xc0. Document zuma's compatible with the Exynos850 fallback.
-
 Assisted-by: LLM
 Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
 ---

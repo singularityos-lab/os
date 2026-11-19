@@ -3,12 +3,6 @@ From: quatrixone <quatrix1@gmail.com>
 Date: Mon, 9 Nov 2026 21:45:38 +0100
 Subject: [PATCH] arm64: dts: qcom: reserve Dipper firmware memory
 
-The stock removed region spans 0x85fc0000-0x8a900000. The existing
-AOP, SMEM and old RMTFS nodes already reserve portions of it, so
-reserve the remaining ranges around those nodes. The complete firmware
-carve-out then stays out of System RAM without overlapping the named
-reservations.
-
 Assisted-by: LLM Codex
 Signed-off-by: quatrixone <quatrix1@gmail.com>
 ---

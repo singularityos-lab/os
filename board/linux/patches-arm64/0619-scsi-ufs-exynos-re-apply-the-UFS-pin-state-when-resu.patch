@@ -4,34 +4,6 @@ Date: Mon, 9 Nov 2026 09:00:51 -0643
 Subject: [PATCH] scsi: ufs: exynos: re-apply the UFS pin state when resuming
  with the link down
 
-On the Pixel 9a (zumapro) the UFS pads, gph5-0 (the device's reference
-clock) and gph5-1 (its reset), came back from a system suspend as plain
-inputs (CON 0) on about one wake in a hundred. The device then gets no
-clock and no reset, the host reports no device present through every
-link startup (HCS 0x8, no DP), and the resume fails with the root
-filesystem read-only until a reboot reprograms the pads. No host-side
-retry reaches a device whose pads are disconnected: a host reset, a
-longer reset pulse, a PHY power cycle, waits of up to 1.6 s between
-tries and a real VCC power cycle were each tried and each failed the
-same way.
-
-pinctrl-samsung's own save and restore of the bank is not enough here:
-its restore wrote the pads' CON back as 0x22 at every wake, and on the
-failing wakes the pads still read as inputs afterwards, so whatever
-takes their function away does it after that restore.
-
-Select the UFS node's pin state again in the resume callback whenever
-the link is down (hibern8 included, so at rpm_lvl 3 every runtime
-resume does it too), once the host's clocks are on. The node needs a
-"sleep" pin state for this, selected in the suspend callback, because
-pinctrl_select_state() is a no-op for an unchanged state; the zumapro
-device tree gets it in the next commit.
-
-With this change 300 RTC-woken s2idle cycles completed on a Pixel 9a,
-on the integration tree with the cores kept out of C2 for the sleep,
-with no storage failure (2026-11-07/08); before it one wake in 15 to
-215 lost the storage.
-
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  drivers/ufs/host/ufs-exynos.c | 18 ++++++++++++++++--

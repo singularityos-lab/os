@@ -4,27 +4,6 @@ Date: Mon, 2 Nov 2026 16:16:28 -0647
 Subject: [PATCH] soc: google: cpif: pktproc: allow an uncached link without IO
  coherency
 
-The packet processor refused any device tree whose
-pktproc_dl_use_hw_iocc differed from CONFIG_LINK_DEVICE_PCIE_IOCC, and
-that option is always on. zumapro's modem link turns IO coherency on
-only when the device tree gives it samsung,sysreg, which the Pixel 9a's
-doesn't yet, so its cpif node says use_hw_iocc 0 with every region
-uncached, as the 9a's bring-up stack runs it (CP ONLINE and thousands of
-link cycles, with cpif built without LINK_DEVICE_PCIE_IOCC). The
-in-tree cpif refused that node:
-
-  cpif: pktproc_get_info: iocc:0 max_packet_size:1584 baaw:0
-  cpif: pktproc_get_info: PCIe IOCC config and dt are inconsistent
-
-What the option decides is whether the software cache maintenance for a
-cached downlink buffer region is built. A link without IO coherency
-needs it only when that region is cached, so refuse just that case, and
-keep refusing use_hw_iocc 1 without the option. The uplink has no such
-maintenance in either build, so refuse its cached regions without IO
-coherency whatever the option, not only when it is off.
-
-gs201's device tree (use_hw_iocc 1, regions cached) passes as before.
-
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  drivers/soc/google/cpif/Kconfig           |  5 ++++-

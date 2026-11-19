@@ -3,20 +3,7 @@ From: Derek Ross <derekross@gmail.com>
 Date: Mon, 12 Oct 2026 13:26:26 -0400
 Subject: [PATCH] mfd: sec: add S2MPG13
 
-Add the gs201 sub-PMIC, for its LDOs. Register addresses, the ACPM bus
-(speedy channel 1) and the LDO layout are those of Google's GPL S2MPG13
-driver.
-
-Only what the regulators need: the common block is read-only, the PM
-block can only be written in its LDO control registers, and its interrupt
-status registers (clear on read) are never read. So nothing here can
-change a buck converter or lose an interrupt.
-
-No interrupt is wired up yet (stock routes it to gpa0-1), so let an ACPM
-PMIC have neither an interrupt nor a meter regmap, and skip the IRQ wake
-handling in suspend and resume when a PMIC has no interrupt.
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Assisted-by: Claude:claude-opus-5-5
 ---
  drivers/mfd/sec-acpm.c              |  90 +++++++++++++++++++--
  drivers/mfd/sec-common.c            |  16 ++++

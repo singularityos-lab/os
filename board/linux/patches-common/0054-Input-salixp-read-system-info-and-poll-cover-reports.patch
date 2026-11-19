@@ -3,36 +3,6 @@ From: boozedog <code@booze.dog>
 Date: Mon, 26 Oct 2026 13:49:38 -0400
 Subject: [PATCH] Input: salixp: read system info and poll cover reports
 
-The chip-id reader stopped after the CRC register. The report path
-reads the request-0 system-info block, polls config, CX, and panel
-CRC events after a GPIO reset, sends the scan command once, and
-polls the FIFO for touch reports. It does not write the flash, run
-a panel init, or request attention.
-
-Probe fails before the scan command, and does not register an input
-device, where stock would repair. A non-zero CRC status is the
-reflash path (fts.c:4224). Config CRC events 0x20 and 0x21 are the
-same class: fts_crc_check returns CRC_CONFIG and fts_fw_update sets
-reflash_fw (ftsCore.c:957, 979-982, ftsSoftware.h:456-458). A header
-other than a5 01 is not a loaded system-info block. A missing
-controller-ready is not the full panel init: stock skips init
-because the state is unknown (fts.c:4325). A CX CRC event 0xa0,
-0xa1, 0xa5, or 0xa6 is the full panel init under
-COMPUTE_INIT_METHOD (fts.c:4307-4321). A panel CRC event 0x22 or
-0x23 is the panel init that follows that poll (fts.c:4293-4304,
-ftsSoftware.h:460-463). An AFE mismatch or an MP flag other than
-0xa5, 0x5a, or 0xdf is the same function's panel-init selection
-(fts.c:4330-4361). Felix does not set st,skip-fpi-for-unset-mpflag,
-so an unset flag is included. A missing scan echo fails probe.
-Stock retries that write. This sends it once. The Kconfig text
-lists the four SPI sends and the things this driver never sends.
-
-On the Fold the header matched, the MP flag was a5, and a finger
-produced enter and motion. Position axes are advertised so the
-device is tagged as a touchscreen. Step 8 booted this path as a
-packed image, release 7.3.0-rc6-omamobile-push1-gaa42f8a8c1bf,
-salixp.c blob c1752a85. Slot B was not marked successful.
-
 Signed-off-by: boozedog <code@booze.dog>
 Assisted-by: LLM
 ---

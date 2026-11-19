@@ -4,18 +4,6 @@ Date: Tue, 27 Oct 2026 04:57:39 -0647
 Subject: [PATCH] nfc: nci: don't log unhandled proprietary notifications as
  errors
 
-A notification in the proprietary group (GID 0xF) that the driver has
-no handler for is the controller vendor's own and is dropped anyway, but
-nci_ntf_packet() logs each one with pr_err(). Some controllers send them
-continuously: the ST54L on the Pixel 9a, driven by nxp-nci as a plain NCI
-controller, sends opcode 0xf02 on every discovery cycle, about 14 times a
-second while polling, so the kernel log filled with
-
-  nci: nci_ntf_packet: unsupported ntf opcode 0xf02
-
-Log them at debug level instead. Unknown notifications outside the
-proprietary group still go through the switch below.
-
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  net/nfc/nci/ntf.c | 12 ++++++++----

@@ -3,35 +3,7 @@ From: Derek Ross <derekross@gmail.com>
 Date: Wed, 14 Oct 2026 21:05:12 -0400
 Subject: [PATCH] media: i2c: add a SEMCO SEM1215SA lens driver
 
-The Pixel 7 Pro's telephoto focuses through a SEM1215SA, which also
-runs the module's optical image stabilisation. Add a V4L2 lens subdev
-for its focus part only, so libcamera's contrast autofocus can drive it
-like the voice coil drivers of the other two rear cameras.
-
-Power-up follows the stock order (board supply, I/O supply, 1 ms,
-actuator supply, switched supply), then waits for the controller to
-boot (boot_ms, 20 ms by default) and polls it until it reports ready
-(0x0201 = 1). The focus servo is then switched on (0x0200 = 1) with its
-status monitor (0x0b00 = 1), and the lens moves to the control's value:
-a 10-bit position, low byte (0x0204) then high byte (0x0205). Power-off
-switches the servo off first.
-
-The controller is powered through runtime PM only, not on subdev open:
-it NACKs when powered on its own, and stock powers it inside the
-sensor's sequence, so the sensor driver holds a reference on its
-lens-focus device while it streams. At the first power-up the driver
-reads the module's factory focus calibration (infinity and macro
-positions, big-endian, at 0xc7b6 and 0xc7bc) and narrows the focus
-control's range to that span plus a margin; values that make no sense
-leave the whole 0-1023. Only these registers are touched: the
-calibration memory and the OIS are never written. debug_position logs
-the read-back position after each move.
-
-The actuator registers (mode, status, target low and high, position
-read-back, status monitor) are named in the stock camera software's
-register table for this controller family.
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Assisted-by: Claude:claude-opus-5-5
 ---
  drivers/media/i2c/Kconfig   |  11 ++
  drivers/media/i2c/Makefile  |   1 +

@@ -3,14 +3,6 @@ From: Brett-Michael Green <brett@bmgvisualtech.com>
 Date: Sat, 31 Oct 2026 15:05:12 -0400
 Subject: [PATCH] drm: google: gs-dsim-cmd: Add the Pixel 8 Pro's link timers
 
-Add the command-mode timers for the Pixel 8 Pro's HK3 link, so gs-decon
-can switch it between 60 and 120 Hz. The 60 Hz pair is the bootloader's
-(UNDERRUN_CTRL 0x2235, CMD_TE_CTRL1 0x34c53c1e). At 120 Hz the TE
-protect and timeout fields are halved, as for the other two links, and
-the underrun is Google's dsim_calc_underrun() for 4 lanes at 1368
-Mbit/s, DSC 3:1, 1344x2992 and HK3's TE idle of 350 us with a 1 %
-variance: the same formula gives the bootloader's 60 Hz value exactly.
-
 Assisted-by: LLM
 Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
 ---

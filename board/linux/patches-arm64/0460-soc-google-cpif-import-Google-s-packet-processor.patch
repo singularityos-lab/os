@@ -3,24 +3,6 @@ From: Derek Ross <derekross@gmail.com>
 Date: Tue, 13 Oct 2026 08:43:50 -0400
 Subject: [PATCH] soc: google: cpif: import Google's packet processor
 
-Import the packet processor of Google's modem interface driver
-(google-modules/radio/samsung/s5300 of Google's GPL gs-6.1 kernel, the
-version stock cheetah runs, CPIF-20220408R1):
-
-- link_rx_pktproc.c: the downlink queues, descriptor rings in the
-  modem's PKTPROC region that the S5300 fills, read out with NAPI;
-- link_tx_pktproc.c: the uplink queues in the PKTPROC_UL region.
-
-Stock runs four downlink and two uplink queues on gs201, each downlink
-queue on its own MSI vector. Their headers came with the first import.
-Google's page pool (cpif_page.c, CONFIG_CPIF_PAGE_RECYCLING) is left
-out: only the network buffer manager of the CPIF IOMMU path allocates
-from it, and that is not ported; without it the downlink copies each
-packet out of the reserved buffer region into a NAPI skb.
-
-The files are unchanged and not built yet; the next commits port them to
-this kernel.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

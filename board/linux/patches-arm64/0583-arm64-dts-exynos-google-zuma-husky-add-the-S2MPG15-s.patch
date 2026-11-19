@@ -4,17 +4,6 @@ Date: Sat, 7 Nov 2026 11:53:54 +0200
 Subject: [PATCH] arm64: dts: exynos: google: zuma-husky: add the S2MPG15
  sub-PMIC with the GNSS supplies, disabled
 
-The Pixel 8 Pro's GNSS receiver is fed by three LDOs of the S2MPG15
-sub-PMIC (Google's L9S_GNSS_CORE, L10S_GNSS_RF and L11S_GNSS_AUX), which
-stock leaves always on. Add the sub-PMIC as pmic-2 under the ACPM node,
-status "disabled", with only those three rails and stock's voltage
-ranges, as the 7 Pro does for its S2MPG13. The ACPM channel the driver
-uses (2, speedy 1) is the one Google's zuma device tree gives
-s2mpg15mfd.
-
-Disabled, so nothing changes at boot; the GNSS node that takes these
-supplies comes separately. Built, not booted.
-
 Signed-off-by: Lef <me@lefteros.com>
 ---
  .../boot/dts/exynos/google/zuma-husky.dts     | 34 +++++++++++++++++++

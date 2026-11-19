@@ -4,32 +4,6 @@ Date: Sun, 8 Nov 2026 11:36:36 -0500
 Subject: [PATCH] power: supply: max17042_battery: retry a failed MAX77759
  model load
 
-When the MAX77759 model load fails at probe, the driver keeps POR set
-so that the next probe tries again, and until then reports from the
-gauge's default model: on a Pixel 7 Pro (gs201) half the design
-capacity, 0 %, and a charge_now that means nothing (issue #169). The
-next probe is the next boot. The failure is seen on the first boot
-after the battery ran flat, and the same kernel loads the model on a
-later boot once the cell has charged.
-
-Try again from the init work instead. A retry waits for the cell
-voltage to rise 100 mV above the model's VEmpty (3.30 V on the 7 Pro),
-reading VCell once a minute, since the load waits for a RepCap that an
-empty cell does not have. Then it loads the model again, with 30 s
-between attempts doubling to at most 5 minutes, and gives up after 8
-attempts; POR stays set, so the next probe still retries.
-
-The battery stays readable meanwhile: init_complete is set after the
-first attempt as before, so voltage, current and temperature keep
-coming from the gauge, which the charger's temperature guard needs.
-power_supply_changed() is sent after the first attempt and after the
-load that succeeds. The retries run on the freezable workqueue, so a
-load never overlaps system suspend.
-
-Only gauges with a battery model in the device tree (maxim,fg-model,
-the MAX77759 on gs201 phones) take this path; the others are
-unchanged, and a load that succeeds at probe behaves as before.
-
 Assisted-by: Claude Opus 5.5
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

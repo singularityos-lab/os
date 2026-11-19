@@ -3,14 +3,7 @@ From: Derek Ross <derekross@gmail.com>
 Date: Fri, 23 Oct 2026 23:36:55 -0400
 Subject: [PATCH] dt-bindings: soc: samsung: exynos-pmu: add google,gs201-pmu
 
-gs201 (Tensor G2) has gs101's PMU: the same secure register access
-through the EL3 monitor, the same CPU hotplug and reboot-mode controls
-and the same PMU interrupt generator, so exynos-pmu uses gs101's data
-for it. Document it with google,gs101-pmu as the fallback, so the
-gs101 rules (no syscon, the required interrupt generator phandle, the
-reboot modes) apply.
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Assisted-by: Claude:claude-opus-5-5
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---
  Documentation/devicetree/bindings/soc/samsung/exynos-pmu.yaml | 3 +++

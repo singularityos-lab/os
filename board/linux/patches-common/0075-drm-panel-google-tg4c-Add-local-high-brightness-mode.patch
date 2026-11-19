@@ -3,35 +3,6 @@ From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 Date: Wed, 28 Oct 2026 19:32:14 -0647
 Subject: [PATCH] drm/panel: google-tg4c: Add local high brightness mode
 
-The Pixel 9a's under-display fingerprint sensor needs the panel to light
-the finger: local high brightness mode (LHBM), a bright circle over the
-sensor. Add it as Google's panel-gs-tg4c.c does it, and expose it as
-their panels do, through local_hbm_mode and local_hbm_max_timeout on
-the backlight device, which the fingerprint HAL uses.
-
-Turning it on selects CMD2 page 2, sets the LHBM gamma for the current
-brightness (0x6F 0x07, then 0x87 0x01-0x04 by Google's thresholds) and
-writes 0x87 0x05; 0x87 0x00 turns it off. The circle keeps the panel's
-own per-band LHBM brightness. Google raises those by an overdrive
-offset for the first frames and then writes the panel's values back;
-with the overdrive kept on, the sensor's captures were too poor to
-match, and with the panel's values they match.
-
-LHBM needs the panel on and at 120 Hz, as on stock, so it is refused
-otherwise, turned off before a switch away from 120 Hz or the panel
-turning off, and turned off by a timer after 3 s. The timer belongs to
-the current circle: turning LHBM on restarts it and turning it off
-cancels it, so an earlier circle's timer can't cut a new one short. On
-remove the attributes go first, then the circle is turned off and the
-timer stopped, so nothing can queue it afterwards. It is off unless the
-allow_lhbm module parameter is set.
-
-Tested on the Pixel 9a: with the fingerprint stack running, the
-enrolled finger matches and a different finger is refused, and the lock
-screen unlocks by fingerprint. The tested panel-google-tg4c.c is this
-commit's file (blob d591bc3d1bf1).
-
-Link: https://android.googlesource.com/kernel/google-modules/display/panels/tegu/+/e3a801fb038fdd1bbaec36d387f27bd99f10757a/panel-gs-tg4c.c
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  .../testing/sysfs-class-backlight-google-tg4c |  23 +++

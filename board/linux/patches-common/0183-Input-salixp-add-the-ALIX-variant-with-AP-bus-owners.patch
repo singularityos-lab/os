@@ -3,23 +3,6 @@ From: Chris Gray <chrisgray70@gmail.com>
 Date: Sat, 14 Nov 2026 09:32:29 -0600
 Subject: [PATCH] Input: salixp: add the ALIX variant with AP bus ownership
 
-Match ALIX chip ID 36:48 separately from SALIXP 36:40 and negotiate
-AP bus ownership with a bounded 500 ms acknowledgment before hardware
-initialization. The normal path keeps the identity, CRC, system-info
-and repair-refusal gates, then starts the qualified polling input path.
-
-Drop the development stage parameter and leave the shared USI driver
-unchanged. The address-based hold staged early bring-up; the saved
-evidence does not establish a normal-probe hardware defect.
-
-The revised normal path ran on the Pixel 6a in the signed integration
-linked below on November 12, 2026: two contacts held and released, with
-zero SPI errors or timeouts. The folded header
-correction changes documentation only. The board nodes stay disabled;
-this does not qualify Fold/SALIXP runtime or suspend.
-
-Link: https://android.googlesource.com/kernel/google-modules/touch/fts_touch/+/2a0089b3c7b9f1f1dbb52a1460a26621e50f61cf/
-Link: https://github.com/latentoperator/linux-omarchy-mobile/commit/720a495233734e4328a09c33c095d72a8291e1c4
 Assisted-by: LLM
 Signed-off-by: Chris Gray <chrisgray70@gmail.com>
 ---

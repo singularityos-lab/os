@@ -4,17 +4,7 @@ Date: Sun, 11 Oct 2026 16:32:07 -0400
 Subject: [PATCH] arm64: dts: exynos: google: add gs201 and Pixel 7 Pro
  (cheetah)
 
-Minimal description for early bring-up of the Pixel 7 Pro: CPUs, GIC,
-timer, PMU with reboot mode, both watchdogs, the USB DRD controller in
-peripheral mode, a ramoops region shared with stock Android, and the
-bootloader framebuffer as simple-framebuffer at 0xfac00000.
-
-The bootloader (ABL) selects the base DTB by /soc_id and applies board
-overlays from dtbo, so build with symbols. Clocks are placeholders until
-a gs201 clock driver exists, and the boot arguments carry
-clk_ignore_unused and pd_ignore_unused.
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Assisted-by: Claude:claude-opus-5-5
 ---
  arch/arm64/boot/dts/exynos/google/Makefile    |   6 +-
  .../boot/dts/exynos/google/gs201-cheetah.dts  |  68 +++++

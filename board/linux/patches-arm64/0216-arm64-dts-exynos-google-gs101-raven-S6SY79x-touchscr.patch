@@ -4,15 +4,7 @@ Date: Thu, 15 Oct 2026 14:28:35 +0100
 Subject: [PATCH] arm64: dts: exynos: google: gs101-raven: S6SY79x touchscreen
  on SPI 11
 
-From Google's GPL gs101-sec-touch.dtsi, gs101-common-touch.dtsi and
-gs101-raven-touch.dtsi: SPI 11 in SPI mode with a GPIO chip select, the
-controller at 10 MHz, mode 3, interrupt on gpa9-0 (level low), an
-active-low reset on gpp26-0 (sec_ts holds it at 0 while the controller
-is unpowered and drives 1, 0, 1 after power-up), DVDD on LDO25M pinned
-to 1.8 V and AVDD on LDO26M pinned to 3.3 V, and TS_SPI_SEL (gpp26-1)
-hogged low so the touch bus belongs to the AP rather than the AoC.
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Assisted-by: Claude:claude-opus-5-5
 Signed-off-by: saiththerobo <the.tom.sharp@gmail.com>
 ---
  .../boot/dts/exynos/google/gs101-raven.dts    | 54 +++++++++++++++++++

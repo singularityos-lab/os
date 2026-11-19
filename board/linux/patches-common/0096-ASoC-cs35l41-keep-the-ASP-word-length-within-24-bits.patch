@@ -3,26 +3,6 @@ From: Derek Ross <derekross@gmail.com>
 Date: Tue, 13 Oct 2026 10:14:39 -0400
 Subject: [PATCH] ASoC: cs35l41: keep the ASP word length within 24 bits
 
-cs35l41_pcm_hw_params() writes params_width() into both the ASP slot
-width (ASP_WIDTH_RX/TX) and the received/transmitted word length
-(ASP_RX_WL/ASP_TX_WL). For a 32-bit sample format that puts 32 into the
-word-length fields, which only take 12 to 24 bits. On a TDM bus with
-32-bit slots (S32_LE, as the Pixel 7 Pro's audio DSP drives it) the
-amplifier then runs with SP_RX_WL = 0x20 (read back on the phone).
-
-Program the slot width from params_physical_width() and clamp the word
-length to 24, so a 32-bit sample is received as its 24 most significant
-bits. This is what the HDA configuration of this part already does
-(32-bit slots, 24-bit words) and what Google's GPL cs35l41 driver for
-this phone does in hw_params.
-
-For S24_LE (24 valid bits in a 32-bit container) the slot width becomes
-32 rather than 24, which matches the format's physical width.
-
-Evidence: static on the Pixel 7 Pro's bottom speaker at every gain, which
-scales with digital volume and analog gain, and remains with the
-protection DSP bypassed.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

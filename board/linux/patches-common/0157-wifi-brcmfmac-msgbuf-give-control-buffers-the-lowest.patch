@@ -4,17 +4,6 @@ Date: Sat, 31 Oct 2026 11:45:09 -0400
 Subject: [PATCH] wifi: brcmfmac: msgbuf: give control buffers the lowest
  packet IDs
 
-Broadcom's driver numbers the ioctl response and event buffers in a map
-of their own, of 1024 IDs (dhd_msgbuf.c pktid_ctrl_map), and the
-BCM4398's firmware checks them against that: with data, ioctl response
-and event buffers sharing one pool, the first event buffer posted after
-1023 data buffers got ID 1025 and the firmware trapped
-("pciedev_host_pktid_audit(pktid_type=0): Invalid pktid<1025>").
-
-Reserve IDs 1 to 2 * (ioctl response + event buffers) for the control
-buffers (each is reposted before it is freed), and keep the data
-buffers above them.
-
 Assisted-by: LLM
 Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
 ---

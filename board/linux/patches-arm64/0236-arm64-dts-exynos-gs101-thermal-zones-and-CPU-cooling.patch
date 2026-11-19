@@ -3,13 +3,7 @@ From: saiththerobo <the.tom.sharp@gmail.com>
 Date: Wed, 14 Oct 2026 22:18:19 +0100
 Subject: [PATCH] arm64: dts: exynos: gs101: thermal zones and CPU cooling
 
-Add the ACPM TMU sensor (disabled), a thermal zone per sensor, and the
-CPUs' #cooling-cells so cpufreq-dt registers them as cooling devices.
-Each CPU cluster throttles from 85 C (passive, 5 C hysteresis) through
-its own cooling map; every zone is critical at 110 C, below the
-firmware's hardware trips.
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Assisted-by: Claude:claude-opus-5-5
 Signed-off-by: saiththerobo <the.tom.sharp@gmail.com>
 ---
  arch/arm64/boot/dts/exynos/google/gs101.dtsi | 146 +++++++++++++++++++

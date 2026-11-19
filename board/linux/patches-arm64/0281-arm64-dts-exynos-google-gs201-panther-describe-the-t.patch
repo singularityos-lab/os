@@ -4,25 +4,6 @@ Date: Tue, 27 Oct 2026 21:04:27 -0700
 Subject: [PATCH] arm64: dts: exynos: google: gs201-panther: describe the touch
  rails
 
-LDO25M and LDO26M on the main PMIC (S2MPG12) are the supplies of the
-FocalTech FT3658 touch controller, its VDD and AVDD; nothing else on the
-stock board uses them. Stock constrains them to 1.6-1.95 V and
-2.5-3.0 V. Describe those two rails under pmic-1, as the Pixel Fold
-does. The sub-PMIC is not described. Leave the node disabled: it is
-switched on with the touch controller.
-
-ABL leaves both rails off, LDO25M programmed at 1.8 V and LDO26M at
-3.3 V, above stock's range. LDO25M gets no voltage, so the PMIC keeps
-its 1.8 V. LDO26M is fixed at 3.0 V, the top of stock's range: stock's
-regulator core moves it there before the touch driver switches it on,
-and this tree's does the same while the rail is still off.
-
-Tested on a Pixel 7 from slot B, with the node enabled: the S2MPG12
-regulators register; vdd-ts reads 1.8 V and avdd-ts 3.0 V, both off,
-and no other LDO changes. With the touch controller described as well
-(not in this series), both rails come up in order and the controller
-answers.
-
 Assisted-by: Claude Opus 5.5
 Signed-off-by: Alejandro Garcia <skipper.pelygro@gmail.com>
 ---

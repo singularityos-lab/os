@@ -3,14 +3,6 @@ From: Brett-Michael Green <brett@bmgvisualtech.com>
 Date: Sat, 31 Oct 2026 11:45:09 -0400
 Subject: [PATCH] wifi: brcmfmac: fall back to event_msgs_ext
 
-The BCM4398's 24.100 firmware has dropped the "event_msgs" iovar
-(getting it fails, and brcmfmac stopped there: "Get event_msgs error
-(-52)"). Broadcom's driver uses "event_msgs_ext", whose mask is preceded
-by a small header, as brcmfmac's Cypress code already sends it.
-
-When the firmware rejects "event_msgs", read the mask with
-"event_msgs_ext" and keep using it to set the mask.
-
 Assisted-by: LLM
 Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
 ---

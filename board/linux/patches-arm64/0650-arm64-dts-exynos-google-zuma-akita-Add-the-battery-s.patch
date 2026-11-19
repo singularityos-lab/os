@@ -4,20 +4,6 @@ Date: Thu, 12 Nov 2026 20:34:17 +0000
 Subject: [PATCH] arm64: dts: exynos: google: zuma-akita: Add the battery's
  fuel gauge and PMIC
 
-The Pixel 8a's battery chips are the Pixel 8 Pro's: a MAX77759 fuel
-gauge at 0x36 and PMIC at 0x66 (its charger at 0x69) on hsi2c_11, with
-the gauge's interrupt on gpa7-7, the PMIC's on gpa8-0 and a 5 mOhm
-sense resistor (Google's zuma-akita-battery.dtsi). Enable CMU_PERIC1,
-its sysreg, USI11 and hsi2c_11, and describe the gauge and the PMIC as
-zuma-husky does. Google's file leaves the bus pins without a pull, but
-the stock phone's live device tree has them pulled up, as
-zuma-pinctrl.dtsi does, so akita needs no override.
-
-The battery node carries the 8a's pack: 4486 mAh, the design capacity
-the stock gauge reports, and 4.48 V design maximum (google,fv-max-uv).
-The charge limits are 4.2 V and about 0.3 C (1.32 A), below stock's,
-as on the 8 Pro. The Type-C controller (0x25) isn't described yet.
-
 Assisted-by: Claude Opus 5.5
 Signed-off-by: DarekM <149845949+aninmucek@users.noreply.github.com>
 ---

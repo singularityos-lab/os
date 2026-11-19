@@ -3,13 +3,7 @@ From: saiththerobo <the.tom.sharp@gmail.com>
 Date: Mon, 26 Oct 2026 07:51:07 +0000
 Subject: [PATCH] arm64: dts: exynos: google: gs101-raven: Bluetooth pin states
 
-Give the three Bluetooth control lines a pinctrl state, as Google's
-gs101-common-bluetooth.dtsi does and as cheetah's gs201 tree has:
-BT_REG_ON (gpp16-2) and BT_DEV_WAKE (gpp14-3) as outputs without a pull,
-BT_HOST_WAKE (gpa6-6) as an external interrupt with a pull-down, all at
-2.5 mA. Until now they kept whatever the bootloader left.
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Assisted-by: Claude:claude-opus-5-5
 Signed-off-by: saiththerobo <the.tom.sharp@gmail.com>
 ---
  .../boot/dts/exynos/google/gs101-raven.dts    | 28 +++++++++++++++++++

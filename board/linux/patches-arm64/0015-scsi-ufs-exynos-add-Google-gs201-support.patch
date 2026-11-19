@@ -3,36 +3,7 @@ From: Derek Ross <derekross@gmail.com>
 Date: Sun, 11 Oct 2026 18:17:21 -0400
 Subject: [PATCH] scsi: ufs: exynos: add Google gs201 support
 
-Add support for the UFS host controller of the Google gs201 (Tensor G2)
-SoC. It is the gs101 controller, and the gs101 callbacks are reused,
-with two differences, both taken from Google's GPL-2.0 gs201 sources:
-
- 1. Descriptor quirks. Google's gs201-ufs.dtsi sets
-    "fixed-prdt-req_list-ocs" ("UTRD bug fixed"); gs101-ufs.dtsi doesn't,
-    and that is the only difference between the two host nodes. The same
-    property is in the device tree the bootloader hands over on a Pixel
-    7 Pro. When it is present, Google's driver (ufs-exynos.c,
-    exynos_ufs_set_features()) clears UFSHCD_QUIRK_PRDT_BYTE_GRAN,
-    UFSHCI_QUIRK_BROKEN_REQ_LIST_CLR, UFSHCD_QUIRK_BROKEN_OCS_FATAL_ERROR
-    and UFSHCI_QUIRK_SKIP_RESET_INTR_AGGR. gs201 therefore uses the
-    gs101 quirks minus those four. Byte-granular UTRD offsets would make
-    the controller fetch the response UPIU and PRDT from the wrong
-    place.
-
- 2. Reference clock. gs201 boards use a 38.4 MHz UFS reference clock
-    (gs201/ufs-cal.h: USE_UFS_REFCLK = USE_38_4_MHZ). For that clock,
-    init_cfg_evt{0,1}[] in gs201/ufs-cal-if.c program PCS attribute 0x202
-    to 0x2 inside the 0x200 = 0x40 window. gs101's tables have no such
-    row. gs201_ufs_pre_link() does that write, then runs the gs101
-    sequence.
-
-Everything else matches gs101. Google uses one SoC-independent host
-driver for both. The IO-coherency register is HSI2 sysreg 0x710 with mask
-0x3 (gs201-ufs.dtsi ufs-iocc). The bootloader-provided tree on a Pixel 7
-Pro shows the same values, and the stock kernel log reports a 177.664 MHz
-UniPro clock with two lanes at HS-G4 rate B.
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Assisted-by: Claude:claude-opus-5-5
 ---
  drivers/ufs/host/ufs-exynos.c | 33 +++++++++++++++++++++++++++++++++
  1 file changed, 33 insertions(+)

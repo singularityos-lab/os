@@ -3,26 +3,6 @@ From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 Date: Tue, 27 Oct 2026 09:53:53 -0647
 Subject: [PATCH] arm64: dts: exynos: google: Add the Pixel 9a
 
-Add a first-light board file for the Pixel 9a (tegu): ABL's selector
-nodes for its A0 and A1 IPOP parts, the clocks, pins, system registers
-and PMU, both watchdogs, ACPM with the S2MPG14's two eUSB2 supplies,
-UFS behind its GPIO-switched VCC, USB 2.0 peripheral and the three
-keys. That is enough to boot the root file system from UFS and reach it
-over USB networking. Display, touch, battery, sound and the radios
-follow in their own changes. The bootargs pick suspend to idle: the
-firmware advertises PSCI SYSTEM_SUSPEND, but Linux has no Tensor SoC
-sleep sequence for "deep".
-
-The USB core also holds CMU_HSI0's sub-control clock: it clocks the
-link's registers, the PHY turns it off in suspend, and dwc3 touches
-those registers before it initialises the PHY again on resume.
-
-Tested on the Pixel 9a: a kernel built from this tree with its
-zumapro-tegu.dtb boots to the root file system on UFS, reachable over USB
-networking, and stays up past the bootloader watchdogs (85 s at the
-check). tools/phone-smoke passes boot, the storage guard, root, kernel
-health and USB gadget.
-
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  arch/arm64/boot/dts/exynos/google/Makefile    |   4 +-

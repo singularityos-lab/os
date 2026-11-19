@@ -4,9 +4,6 @@ Date: Thu, 22 Oct 2026 21:34:48 -0400
 Subject: [PATCH] dt-bindings: mfd: samsung,s2mpg12: describe the LDO
  regulators
 
-Document the 28 LDOs. A rail with no child node has no constraints, so
-the regulator core never touches it. The buck converters stay out.
-
 Signed-off-by: boozedog <code@booze.dog>
 ---
  .../bindings/mfd/samsung,s2mpg12-pmic.yaml    |  7 +++++

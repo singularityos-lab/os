@@ -1,20 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?=C3=81ngel=20Ren=C3=A9?=
- <17342133+angelrenefm@users.noreply.github.com>
 Date: Sat, 14 Nov 2026 19:27:02 +0100
 Subject: [PATCH] media: s5p-mfc: flag the last buffer of an encoder drain
-MIME-Version: 1.0
-Content-Type: text/plain; charset=UTF-8
-Content-Transfer-Encoding: 8bit
-
-After V4L2_ENC_CMD_STOP the encoder returns an empty CAPTURE buffer
-without V4L2_BUF_FLAG_LAST, so clients that wait for that flag (as the
-stateful encoder interface asks) never see the end of the drain. And
-when no CAPTURE buffer is queued at that moment, nothing is returned at
-all.
-
-Set V4L2_BUF_FLAG_LAST on that buffer and, when none is queued, return
-the next queued one empty with the flag.
 
 Assisted-by: LLM
 Signed-off-by: Ángel René <17342133+angelrenefm@users.noreply.github.com>

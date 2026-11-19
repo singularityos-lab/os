@@ -4,12 +4,6 @@ Date: Mon, 26 Oct 2026 07:32:40 -0400
 Subject: [PATCH] dt-bindings: input: touchscreen: allow SALIXP touchscreen
  properties
 
-The report path needs the standard size properties, so the binding
-references touchscreen.yaml. This binding describes the part, not
-the Linux driver. The sizes are not required yet, and the example
-does not set them. The interrupt stays described and is not
-requested.
-
 Signed-off-by: boozedog <code@booze.dog>
 Assisted-by: LLM
 ---

@@ -3,35 +3,6 @@ From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 Date: Mon, 2 Nov 2026 13:18:57 -0647
 Subject: [PATCH] PCI: dwc: gs201-cp: add the zumapro (Pixel 9a) modem link
 
-The Pixel 9a's S5300 modem hangs off zumapro's HSI1 GEN3A_0, the zuma
-family's root complex, with the two-lane PHY that phy-zuma-pcie drives
-as google,zumapro-pcie-gen3x2-phy. Add it as a second compatible of this
-driver, selected through of_device_id data, with the PHY taken through
-the generic PHY API as on gs201. What stays in the host, from Google's
-GPL zuma driver (pcie-exynos-rc.c):
-
-- RC mode, the soft power reset pulse and the slave NAK are written
-  before phy_power_on(). zuma's CAL writes them inside its PHY
-  configuration, which the PHY driver leaves to the host; pcie-gs201.c
-  does the same on zuma's Wi-Fi link. ELBI is clocked then because the
-  PHY's power_off returns its input clock (SOC 0x4000) to the
-  oscillator, as Google's poweroff does.
-- APP_XFER_PENDING is raised from training to the end of link_up, and
-  around each read of the endpoint's configuration space, as
-  exynos_pcie_rc_rd_other_conf() does.
-- Two lanes are set in the port logic, and phy_calibrate() holds the
-  PHY's PLL and bias on once the link has trained.
-- The PHY leaves isolation at the first link_up and stays out, as
-  stock's zumapro node has no use-phy-isol-en: link_down runs the
-  controller's power-down steps and phy_power_off(), nothing else.
-- There is no secure-ATU SMC: the host writes the unrolled outbound
-  iATU, config space to bus 1 and the first 2 MiB of the memory window.
-- I/O coherency only when samsung,sysreg is given.
-
-The new fields go at the end of struct gs201_pcie_cp, and gs201's steps
-are unchanged; the exported calls are the same, so cpif drives either
-link.
-
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  drivers/pci/controller/dwc/Kconfig         |  12 +-

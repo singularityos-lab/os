@@ -3,11 +3,6 @@ From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 Date: Fri, 23 Oct 2026 17:43:33 -0647
 Subject: [PATCH] dt-bindings: display: google: Describe Tensor G4 DECON
 
-Add the zumapro identity for the firmware-configured G4 display path.
-Its fourteen-window layout is not register-compatible with the gs201
-fallback, so give it an independent compatible. The existing gs201
-resource contract remains unchanged.
-
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  .../bindings/display/samsung/google,gs201-decon.yaml  | 11 +++++++----

@@ -4,29 +4,6 @@ Date: Mon, 12 Oct 2026 15:16:10 -0400
 Subject: [PATCH] soc: google: aoc: port the AoC sound card to Linux 7.3 with
  speaker limits
 
-Build Google's AoC ALSA driver on this kernel:
-
- - ASoC API updates: snd_soc_rtd_to_cpu(), pcm_new and copy (iov_iter)
-   component callbacks, playback_only/capture_only links,
-   compress_new in the DAI ops, hrtimer_setup(), 64-bit compress
-   timestamps, the DPCM BESPOKE trigger mapped to POST, void remove;
- - USB and DisplayPort offload (Android USB audio hooks) and the vendor
-   PDM error callback are left out; stubs keep the rest linking;
- - codec TDM slots from google,tdm-rx-slots/google,tdm-tx-slots, for
-   codecs such as mainline cs35l41 that only set channel maps.
-
-Speaker limits for cheetah's CS35L41 amplifiers (AUDIO-PLAN section 4),
-in the card's late probe: "Digital PCM Volume" capped at 0 dB and set
-to -20 dB, "Analog PCM Volume" capped at 10 unless
-speaker_protection=1 (17). The boost limits stay in the device tree.
-
-The card tells the modem interface driver when a call's audio path
-starts and stops, through modem_voice_call_notify_event(). That
-function belongs to Google's modem control notifier
-(CONFIG_GOOGLE_MODEMCTL), which this kernel does not have, so the call
-depends on that option rather than on CONFIG_EXYNOS_MODEM_IF. Nothing
-changes until the notifier is ported: the voice path is not used yet.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

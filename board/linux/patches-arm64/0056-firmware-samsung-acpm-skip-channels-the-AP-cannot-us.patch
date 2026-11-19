@@ -3,20 +3,7 @@ From: Derek Ross <derekross@gmail.com>
 Date: Mon, 12 Oct 2026 11:21:57 -0400
 Subject: [PATCH] firmware: samsung: acpm: skip channels the AP cannot use
 
-On gs201 the first probe failed with "Channel 3 queues outside the
-SRAM": the firmware describes at least one channel whose queue offsets
-do not fall inside the APM SRAM window (0x18500000, 0x48000 bytes, the
-same window Google's driver maps). Google's driver never validates the
-table and simply never uses such channels; failing the whole probe over
-one of them also takes away the DVFS and PMIC channels.
-
-Skip a channel whose queues are outside the SRAM, or that gets no
-mailbox channel, with a warning that prints its raw descriptor, and
-refuse transfers on it with -ENODEV. Report how many channels are
-usable. A dump_chans module parameter prints every raw descriptor at
-probe; it only reads the SRAM.
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Assisted-by: Claude:claude-opus-5-5
 ---
  drivers/firmware/samsung/exynos-acpm.c | 63 ++++++++++++++++++++++----
  1 file changed, 53 insertions(+), 10 deletions(-)

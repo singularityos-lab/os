@@ -3,23 +3,6 @@ From: Derek Ross <derekross@gmail.com>
 Date: Mon, 12 Oct 2026 09:36:18 -0400
 Subject: [PATCH] wifi: brcmfmac: pcie: reset the BCM4389 with an FLR
 
-brcmfmac resets the chip with the ChipCommon watchdog, at probe and at
-remove. On the Pixel 7 Pro that is enough for a chip fresh from
-WL_REG_ON, but after "modprobe -r brcmfmac; modprobe brcmfmac" (the
-chip stays powered) the next download fails:
-
-  brcmf_pcie_download_fw_nvram: FW failed to initialize
-
-Broadcom's driver never uses the watchdog on this chip: it resets the
-function with an FLR, both when it attaches and when it is removed
-(bcmdhd dhd_pcie.c dhdpcie_dongle_reset() -> dhd_bus_perform_flr(),
-which sets Initiate FLR, waits 70 ms, clears it, polls the subsystem
-reset status in config 0x88 bit 13 and restores the config space); the
-stock boot log shows that sequence ("Perform FLR", "FLR Succedeed").
-
-Do the same for the BCM4389, keeping the power-domain requests around
-it and falling back to the watchdog if the function cannot do FLR.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

@@ -3,16 +3,6 @@ From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 Date: Sun, 1 Nov 2026 13:58:38 -0647
 Subject: [PATCH] scsi: ufs: exynos: Give Tensor G3 its own host data
 
-The Pixel 8 Pro's UFS host is "google,zuma-ufs", "google,zumapro-ufs",
-and the driver matches only the fallback, so Tensor G3 and Tensor G4
-share one set of host data and anything enabled for G4 reaches G3 too.
-Idle Hibern8 has not been tried on G3 yet, and the next patch turns on
-idle clock gating with the link in Hibern8 on G4.
-
-Match "google,zuma-ufs", which the binding already documents, with a
-copy of today's data, and rename the shared drv_init to the SoC that
-keeps it. No functional change.
-
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  drivers/ufs/host/ufs-exynos.c | 29 ++++++++++++++++++++++++++---

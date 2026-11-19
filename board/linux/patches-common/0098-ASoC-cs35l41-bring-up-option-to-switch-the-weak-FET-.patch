@@ -4,17 +4,6 @@ Date: Tue, 27 Oct 2026 11:34:31 -0400
 Subject: [PATCH] ASoC: cs35l41: bring-up option to switch the weak-FET output
  mode off
 
-The CS35L41 drives the load through a reduced output stage at low
-signal levels (PWR_CTRL3 bit 24, WKFET_AMP_EN in Google's driver, on by
-default and left on by stock). On the Pixel 7 Pro at the everyday level
-(digital -10 dB, analog 10) both speakers distort heavily (10-50 % THD
-on a 1 kHz tone) once the load current passes a few tens of mA, at a
-fixed output level per speaker, after the DSP and independent of
-frequency, while the same tone 6 dB lower is clean (AOC-PLAN C9j,
-2026-10-27). A module parameter, wkfet_amp (default Y), lets the mode be
-switched off on the phone for a comparison without a rebuild. Not for
-upstream as is.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

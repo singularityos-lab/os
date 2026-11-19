@@ -4,31 +4,6 @@ Date: Mon, 26 Oct 2026 10:28:24 -0647
 Subject: [PATCH] wifi: brcmfmac: pcie: support shared-memory version 9
  firmware
 
-The Pixel 9a's BCM4383 firmware (20.123.13) speaks shared-memory
-("PCIe IPC") version 9. Accept it next to version 7, keyed on the version
-the firmware reports rather than on a chip, and do what Broadcom's
-driver does for it:
-
- - read the EWP info block the shared area points to (offset 128) and
-   refuse to go on unless the firmware says its initialisation ended,
-   so a stalled firmware fails cleanly instead of leaving rings pointing
-   nowhere;
- - bound every ring-info read and the fallback TCM index arrays to the
-   chip's RAM before trusting them;
- - ring host-ready right after the common rings are set up, before any
-   buffer is posted (the 4389 path, now keyed on the version too), and
-   leave the aggregation host capability byte (offset 133) at zero;
- - the no-DAR doorbells by the same test.
-
-Version 8 stays refused: its layout is not known here. For the BCM4389
-nothing changes: brcmf_pcie_early_hostready() is true for it by device
-id as before, and the version 9 checks do not run on its version 7
-firmware.
-
-Tested on the Pixel 9a (BCM4383, API9): the firmware comes up, scans,
-joins a WPA2 network and passes traffic. Not yet booted on the Pixel 7
-Pro.
-
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  .../broadcom/brcm80211/brcmfmac/pcie.c        | 145 ++++++++++++++++--

@@ -1,20 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?=C3=81ngel=20Ren=C3=A9?=
- <17342133+angelrenefm@users.noreply.github.com>
 Date: Sat, 14 Nov 2026 19:27:21 +0100
 Subject: [PATCH] media: s5p-mfc: single-buffer NV12 encoder input on MFC v15
-MIME-Version: 1.0
-Content-Type: text/plain; charset=UTF-8
-Content-Transfer-Encoding: 8bit
-
-Offer V4L2_PIX_FMT_NV12 in one buffer as the encoder input on MFC v15,
-laid out as the decoder's NV12 output: 64 byte aligned stride, chroma
-right after bytesperline * height, and room after it for the rows the
-MFC reads past the chroma and its 256 byte padding.
-
-NV12M and NV21M are not offered on v15. GStreamer always prefers the
-non-contiguous variant and then places the chroma at stride * height,
-ignoring the padded luma sizeimage, so it writes past the luma buffer.
 
 Assisted-by: LLM
 Signed-off-by: Ángel René <17342133+angelrenefm@users.noreply.github.com>

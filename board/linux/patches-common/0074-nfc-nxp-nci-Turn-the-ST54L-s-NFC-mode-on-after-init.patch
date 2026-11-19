@@ -3,34 +3,6 @@ From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 Date: Wed, 28 Oct 2026 23:01:29 -0647
 Subject: [PATCH] nfc: nxp-nci: Turn the ST54L's NFC mode on after init
 
-On the Pixel 9a the ST54L stops answering on I2C about 2-3 s after init
-whenever no discovery runs: the next command gets no ACK, retries don't
-help, and every NCI request times out until the adapter is powered off
-and on. Its clock and the set-config sent after init aren't the cause.
-
-ST's HAL does one more step after CORE_INIT: PROP_NFC_MODE_SET with mode
-on (2f 02 02 02 01), after which the controller resets and is
-initialised again. Do the same from post_setup, before the set-config:
-the mode command, whose request ends with the controller's
-CORE_RESET_NTF rather than with its response (the HAL waits for that
-notification too; the NCI core completes the request from the
-notification, and nci_prop_cmd()'s timeout bounds the wait), then
-CORE_INIT again in the NCI 2.0 form, which nci_core_init() doesn't send
-(the ST54L rejects the 1.x form as a syntax error). The proprietary
-response handler refuses other NXP parts, so their behaviour doesn't
-change.
-
-Tested on the Pixel 9a, with the board's reference clock enabled: polling
-now starts 3, 10, 30, 60 s and 3 minutes after power-on with no NACK,
-where it failed every time from 3 s on, and stopping the poll loop no
-longer times out. Across two RTC-woken s2idle cycles (one with the adapter
-powered off around the sleep, one left powered) polling started again 20 s
-after the wake, with no NACK. With the request ending on the
-notification, six power-ons in a row each completed in about 60 ms, and
-polling started at 3 s and at 30 s after power-on, with no NACK.
-
-Link: https://android.googlesource.com/platform/hardware/st/nfc/+/91b182c6f6efcfb2b01ce0f77930c6a814314b5c/st21nfc/hal_wrapper.cc
-Link: https://github.com/derekross/omarchy-mobile/issues/132
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  drivers/nfc/nxp-nci/core.c | 58 +++++++++++++++++++++++++++++++++++---

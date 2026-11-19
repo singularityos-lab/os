@@ -4,14 +4,6 @@ Date: Fri, 23 Oct 2026 13:27:29 -0400
 Subject: [PATCH] dt-bindings: input: touchscreen: document the ST SALIXP SPI
  controller
 
-SALIXP is the FTS part whose chip id is 36 40. Google's FTM5 header
-calls that id SALIXP and 36 48 ALIX. The expected id lives in the
-driver's match data, not a DT property.
-
-The factory node used the family compatible st,fts. This binding
-names the part. It describes the chip-id read: supplies, reset, and
-attention. It does not describe firmware or touch reports.
-
 Signed-off-by: boozedog <code@booze.dog>
 ---
  .../bindings/input/touchscreen/st,salixp.yaml | 71 +++++++++++++++++++

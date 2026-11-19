@@ -3,17 +3,6 @@ From: Brett-Michael Green <brett@bmgvisualtech.com>
 Date: Thu, 22 Oct 2026 16:06:45 -0400
 Subject: [PATCH] arm64: dts: exynos: google: zuma-husky: reboot warm
 
-A cold PSCI SYSTEM_RESET clears the reason in SYSIP_DAT0 before ABL
-reads it, so the phone only boots the same slot again. With reboot=warm
-the kernel resets through SYSTEM_RESET2 (PSCI 1.1), which keeps it.
-
-This relies on restarts reaching PSCI with the zuma watchdog driver
-bound: its restart handler has priority 128 and PSCI's 129, so PSCI's
-runs first.
-
-Tested on a Pixel 8 Pro: reboot-to bootloader reaches fastboot in about
-20 s, where the cold reset booted slot B again.
-
 Assisted-by: LLM
 Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
 ---

@@ -4,28 +4,6 @@ Date: Sun, 1 Nov 2026 17:10:24 -0800
 Subject: [PATCH] arm64: dts: exynos: google: gs201: give the CPU levels a
  power model
 
-The CPU nodes have a dynamic-power-coefficient, but the operating points
-have no opp-microvolt, since the ACPM firmware sets the rail voltages.
-dev_pm_opp_of_register_em() then registers the energy model with
-dev_pm_opp_calc_power(), which fails on the first level's zero voltage,
-so every boot logs "EM: invalid perf. state: -22" once per cluster and
-no energy model exists (issue #182).
-
-Give every CPU level its power instead, with opp-microwatt, which
-dev_pm_opp_of_register_em() prefers. The values are the energy model
-Google ships for gs201's B0 IPOP package: the default profile of
-pixel_em_table in gs201-b0_v2-ipop.dts (kernel/devices/google/gs201,
-branch android-gs-pantah-6.1-android16), per CPU, at exactly these 11,
-15 and 18 levels. On the B0 package these phones use (gs201-b0.dtb),
-stock computes the model from the same coefficients and each chip's
-fused voltages, which the ACPM firmware reports, so these values are
-one chip's: a stand-in with the same shape as stock's model, until the
-voltages are read from the firmware. Drop dynamic-power-coefficient,
-which nothing reads then.
-
-With a valid energy model, asymmetric CPU capacities and schedutil, the
-scheduler turns energy-aware scheduling on, as stock runs.
-
 Assisted-by: Claude Opus 5.5
 Signed-off-by: Alejandro Garcia <skipper.pelygro@gmail.com>
 ---

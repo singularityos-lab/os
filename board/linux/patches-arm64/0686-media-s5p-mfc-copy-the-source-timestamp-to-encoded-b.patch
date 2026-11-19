@@ -1,19 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?=C3=81ngel=20Ren=C3=A9?=
- <17342133+angelrenefm@users.noreply.github.com>
 Date: Sat, 14 Nov 2026 19:27:01 +0100
 Subject: [PATCH] media: s5p-mfc: copy the source timestamp to encoded buffers
-MIME-Version: 1.0
-Content-Type: text/plain; charset=UTF-8
-Content-Transfer-Encoding: 8bit
-
-The encoder never sets the timestamp of a CAPTURE buffer, so every
-encoded frame comes out with timestamp 0. GStreamer's V4L2 encoders
-match encoded frames to their input by timestamp and attach all of them
-to frame 0.
-
-Give the encoded buffer the timestamp of the source buffer the firmware
-reports as done with it.
 
 Assisted-by: LLM
 Signed-off-by: Ángel René <17342133+angelrenefm@users.noreply.github.com>

@@ -3,16 +3,6 @@ From: Brett-Michael Green <brett@bmgvisualtech.com>
 Date: Sat, 31 Oct 2026 11:45:10 -0400
 Subject: [PATCH] wifi: brcmfmac: pcie: wait for the BCM4398's boot interrupt
 
-The BCM4398's firmware writes an interim address to the last word of
-RAM before its shared area's, and signals the end of its boot with a
-mailbox interrupt, which Broadcom's driver waits for before it reads
-the address (dhdpcie_wait_readshared_area_addr(), "recd. boot intr").
-brcmfmac took the interim address and failed the firmware's API checks.
-
-Interrupts are not set up yet at that point, so poll the PCIe core's
-mailbox status through BAR0's fixed window onto it, then read the
-address.
-
 Assisted-by: LLM
 Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
 ---

@@ -3,18 +3,7 @@ From: saiththerobo <the.tom.sharp@gmail.com>
 Date: Thu, 15 Oct 2026 04:55:37 +0100
 Subject: [PATCH] Input: s6sy761 - reset a controller that stops answering
 
-On the Pixel 6 Pro, switching the S6E3HC3's display off and on once left
-the S6SY79x failing every event read and then silent, until the module
-was reloaded. After five failed reads in a row, power cycle the chip
-from a work item, as probe does, start sensing again, and release all
-contacts. Three further display off/on cycles kept touch working
-without needing it.
-
-The reset also reaches the I2C boards (dreamlte, starqltechn, the
-Xperias): a controller there that fails five event reads in a row is now
-power cycled too, instead of being left alone.
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Assisted-by: Claude:claude-opus-5-5
 Signed-off-by: saiththerobo <the.tom.sharp@gmail.com>
 ---
  drivers/input/touchscreen/s6sy761.c | 69 ++++++++++++++++++++++++++++-

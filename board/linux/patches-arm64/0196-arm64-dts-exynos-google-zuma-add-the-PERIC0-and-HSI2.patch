@@ -4,21 +4,6 @@ Date: Mon, 26 Oct 2026 09:37:42 -0400
 Subject: [PATCH] arm64: dts: exynos: google: zuma: add the PERIC0 and HSI2UFS
  pin controllers
 
-Describe the two pin controllers UFS needs, with stock's banks: PERIC0
-(gpp0-gpp17), which holds the UFS supply's enable GPIO, and HSI2UFS
-(gph5), which holds the UFS reset and reference-clock pins, with stock's
-UFS pin groups. Their aliases keep Tensor G4's numbering, which the
-driver data follows.
-
-Stock's pin controllers take no clock: the bootloader leaves their bus
-clocks running. zuma has no clock driver yet, so a fixed clock stands
-in.
-
-The other pin controllers come later; nothing uses them yet.
-
-Tested on a Pixel 8 Pro: both controllers probe, the UFS pins come up
-in their UFS function, and the supply's GPIO switches the UFS device on.
-
 Assisted-by: LLM
 Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
 ---

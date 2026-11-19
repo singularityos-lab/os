@@ -3,15 +3,6 @@ From: Derek Ross <derekross@gmail.com>
 Date: Mon, 12 Oct 2026 18:42:52 -0400
 Subject: [PATCH] PCI: dwc: gs201-cp: leave the modem lines to the modem driver
 
-The modem's lines are described in the "modem" child node so that the
-cp_on/cp_off bring-up steps can power the S5300 without a modem driver.
-Google's modem interface driver drives the same lines itself, from its
-own node, and two owners of a reset line cannot work.
-
-Take the lines only when the "modem" child is present and available.
-Without it the link driver still probes, cp_on/cp_off return -ENODEV,
-the status file says who owns the lines, and watch_lines does nothing.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

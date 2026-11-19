@@ -3,10 +3,6 @@ From: Alejandro Garcia <skipper.pelygro@gmail.com>
 Date: Sat, 31 Oct 2026 21:27:54 -0700
 Subject: [PATCH] dt-bindings: display: panel: add Samsung S6E3FC3 P10
 
-The S6E3FC3 is a Samsung Mobile Display DDIC; the P10 panel is its
-1080x2400 command-mode AMOLED panel in the Google Pixel 7. Its
-compatible string is the one the Pixel 7's own device tree uses.
-
 Assisted-by: Claude Opus 5.5
 Signed-off-by: Alejandro Garcia <skipper.pelygro@gmail.com>
 ---

@@ -4,17 +4,7 @@ Date: Mon, 12 Oct 2026 19:46:14 -0400
 Subject: [PATCH] clk: samsung: gs201: round the camera master clock dividers
  to the closest rate
 
-The CIS_CLK0-7 dividers feed the camera sensors' master clocks, which
-device trees and sensor drivers ask for by their nominal rate (24 or
-26 MHz). None of the dividers' mux parents (the 24.576 MHz oscillator,
-SHARED0/3, SHARED1/3, SHARED2/2, SHARED3/2, SPARE) gives those exactly,
-and a plain divider rounds down: 24 MHz from the oscillator becomes
-12.288 MHz, half of what the sensor expects.
 
-Google's clock code for these dividers picks the closest ratio, so a
-24 MHz request on the oscillator gets 24.576 MHz there. That is what
-the Pixel 7 Pro's ultrawide runs at on stock: its own external-clock
-registers are set for 24.574 MHz. Round to the closest rate too.
 ---
  drivers/clk/samsung/clk-gs201.c | 46 +++++++++++++++++++++------------
  1 file changed, 30 insertions(+), 16 deletions(-)

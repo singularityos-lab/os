@@ -3,9 +3,6 @@ From: Brett-Michael Green <brett@bmgvisualtech.com>
 Date: Fri, 30 Oct 2026 16:23:48 -0400
 Subject: [PATCH] arm64: dts: exynos: google: zuma-husky: add the main PMIC
 
-Describe the S2MPG14 behind ACPM. No regulators yet: each will come with
-its consumer, starting with the touchscreen's.
-
 Assisted-by: LLM
 Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
 ---

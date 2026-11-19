@@ -4,11 +4,6 @@ Date: Sat, 31 Oct 2026 08:09:56 -0400
 Subject: [PATCH] soc: samsung: gs101-pmu: zuma: allow the Wi-Fi PCIe PHY's
  isolation register
 
-zuma's PCIe PHY for its second controller (the Wi-Fi chip's) is
-isolated through PMU offset 0x3ec8, as stock's pcie@13120000 gives it
-(pmu-offset). Its PHY driver releases the isolation, so add the register
-to zuma's PMU regmap, next to UFS's.
-
 Assisted-by: LLM
 Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
 ---

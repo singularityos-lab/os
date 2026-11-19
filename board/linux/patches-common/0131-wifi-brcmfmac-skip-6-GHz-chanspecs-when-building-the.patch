@@ -4,10 +4,6 @@ Date: Mon, 12 Oct 2026 11:26:37 -0400
 Subject: [PATCH] wifi: brcmfmac: skip 6 GHz chanspecs when building the
  channel list
 
-brcmf_construct_chaninfo() only fills the 2.4 and 5 GHz bands. Now that
-6 GHz chanspecs decode as such, skip them quietly instead of logging
-"Invalid channel Spec." for each one, until 6 GHz support is added.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

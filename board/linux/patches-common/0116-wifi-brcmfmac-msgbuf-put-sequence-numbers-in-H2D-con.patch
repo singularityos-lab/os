@@ -4,22 +4,6 @@ Date: Mon, 12 Oct 2026 00:33:49 -0400
 Subject: [PATCH] wifi: brcmfmac: msgbuf: put sequence numbers in H2D control
  messages
 
-Broadcom's driver puts a sequence number in the common header of every
-message it writes to the H2D control submit and rxpost submit rings:
-the byte brcmfmac calls rsvd0 is cmn_msg_hdr_t.epoch, set to the ring's
-seqnum modulo 253, with seqnum starting at 254 and counting up per
-message (bcmdhd bcmmsgbuf.h H2D_EPOCH_MODULO/H2D_EPOCH_INIT_VAL,
-dhd_msgbuf.c dhd_prot_h2d_sync_init() and every ioctl, buffer post and
-flow ring create/delete request). Tx flow rings carry none.
-
-The BCM4389 firmware Google ships (20.101.90) checks these numbers: it
-has an "h2d livelock error" trap for messages whose number does not
-arrive, and brcmfmac leaves the byte at 0. Number the messages the same
-way, after a message is final so a cancelled slot does not use a number.
-While here, clear the ioctl and flow ring create/delete slots before
-filling them, as the buffer posts already do, so no stale bytes from an
-earlier message are left in the fields brcmfmac does not set.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

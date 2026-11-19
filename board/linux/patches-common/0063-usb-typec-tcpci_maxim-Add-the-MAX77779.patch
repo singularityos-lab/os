@@ -3,23 +3,6 @@ From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 Date: Tue, 27 Oct 2026 05:32:46 -0647
 Subject: [PATCH] usb: typec: tcpci_maxim: Add the MAX77779
 
-The MAX77779 (the Pixel 9a's charger, fuel gauge and Type-C controller)
-has the MAX77759's TCPC, product ID 0x79, with a few vendor registers
-moved: the ADC status at 0x89 is a SAR ADC rather than the FLADC the
-contaminant detection reads, and CCOVPDIS is bit 7 of CC_CTRL2 instead
-of bit 6. Google's driver handles both chips in tcpci_max77759.c and
-keys the differences on the product ID.
-
-Add a variant for the new compatible that runs without the contaminant
-detection until that part is ported, and keep the MAX33359 behaviour as
-it is.
-
-Tested on the Pixel 9a (TCPC at 0x25 on the gauge's I2C bus, interrupt
-gpa8-3, sink only): the port registers, a USB-C laptop port is found as
-partner, and TCPM takes a PD contract at 5 V 3 A in device and sink
-roles, with the USB link to the laptop kept up throughout. The TCPC
-interrupt goes quiet once the contract is in place.
-
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  drivers/usb/typec/tcpm/tcpci_maxim.h      |  6 +++++

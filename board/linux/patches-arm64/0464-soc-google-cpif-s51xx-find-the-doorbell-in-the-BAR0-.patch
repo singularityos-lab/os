@@ -4,26 +4,6 @@ Date: Tue, 13 Oct 2026 12:23:30 -0400
 Subject: [PATCH] soc: google: cpif: s51xx: find the doorbell in the BAR0 the
  PCI core assigned
 
-Stock's probe writes pci_db_addr into BAR0, then "disables" every BAR
-by rewriting pdev->resource[] in place and calling
-pci_assign_resource(), re-assigns a 4 KiB BAR0 at pci_db_addr, and maps
-the doorbell at the root port's window start plus the doorbell's offset
-in BAR0. In the first modem boot (MODEM-PLAN M3.4.5) every one of those
-assignments failed ("can't assign; no space") and the window was empty,
-so the probe refused to map the doorbell and the modem never booted.
-
-The resource rewrite edits resources the PCI core has already inserted
-in its resource tree, and the window start is BAR0 only where the core
-happened to put BAR0 first. With the root port and the modem now given
-a class by the host driver, the core assigns BAR0 itself.
-
-Keep that assignment: require BAR0 to be an assigned memory BAR, take
-the doorbell at pci_db_addr's offset within it (0x60000 for the 1 MiB
-BAR), and record BAR0's bus address for restore_state's BAR0 check.
-Fail the probe if the device cannot be enabled, since without memory
-decode no doorbell reaches the modem. This replaces the bridge-window
-check added earlier.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

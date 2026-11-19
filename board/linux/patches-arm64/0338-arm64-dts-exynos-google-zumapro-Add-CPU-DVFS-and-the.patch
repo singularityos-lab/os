@@ -4,21 +4,6 @@ Date: Tue, 27 Oct 2026 11:51:28 -0647
 Subject: [PATCH] arm64: dts: exynos: google: zumapro: Add CPU DVFS and thermal
  zones
 
-Give the three CPU clusters their ACPM DVFS clocks (cpucl0-2, by the
-zumapro ACPM clock ids) and operating points for cpufreq-dt, with
-capacities and power coefficients for the energy model from Google's
-zumapro-cpu.dtsi, and add the ACPM TMU sensor and the big, mid, little
-and GPU thermal zones.
-
-The CPU levels are the APM firmware's own (its DVFS table, read on the
-Pixel 9a), up to the 9a's thermal headroom: 1950 MHz little (Google's
-max-freq for that cluster), 2367 MHz mid and 2687 MHz big. The little
-cluster's 324 and 610 MHz lie below stock's 820 MHz floor. Each CPU zone
-throttles its cluster from 80 C, forces the cluster's lowest levels
-from 95 C and shuts down at 105 C, all below stock's 112 C (CPU) and
-115 C (GPU) hot trips. gpu-thermal throttles panthor's devfreq from
-85 C.
-
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  .../arm64/boot/dts/exynos/google/zumapro.dtsi | 378 ++++++++++++++++++

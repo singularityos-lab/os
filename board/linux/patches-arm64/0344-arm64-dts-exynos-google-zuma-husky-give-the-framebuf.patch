@@ -4,35 +4,6 @@ Date: Sat, 31 Oct 2026 15:45:11 +0200
 Subject: [PATCH] arm64: dts: exynos: google: zuma-husky: give the framebuffer
  a panel size
 
-The framebuffer node has no panel, so simpledrm estimates the display's
-physical size from its pixels at 96 dpi. On the 1344x2992 panel that is
-355x791 mm instead of about 70x155 mm. Hyprland reports it, and
-squeekboard sizes the on-screen keyboard with it: 105 of 935 logical
-pixels (11% of the screen) instead of 196 (21%) with the real size.
-
-Add a panel node at the root with width-mm and height-mm and point the
-framebuffer at it. The node is disabled and not under /chosen, whose
-schema only allows framebuffer and pinctrl children. The
-simple-framebuffer binding has simpledrm read the size from the node it
-points to, but with an enabled node without a driver fw_devlink makes the
-framebuffer wait for ever (no DRM device appears and the screen stays on
-the boot logo), and booting with fw_devlink=permissive instead takes
-away the ordering that acpm-protocol needs after exynos-mailbox (16
-channels, 0 usable, so no PMIC and no touch). of_link_to_phandle()
-creates no link to a supplier that has no device and is not available,
-and simpledrm reads the two properties without looking at the status.
-
-70x155 mm is Google's own value for this panel: HK3_WIDTH_MM and
-HK3_HEIGHT_MM in panel-gs-hk3.c (kernel/devices/google/shusky).
-
-Tested on a Pixel 8 Pro (Kioxia UFS 4.0) on the husky-test-20261031-c6
-kernel with the same node and property added by a device tree overlay:
-simpledrm initialises, acpm-protocol reports 16 channels, 16 usable,
-salixp binds, Hyprland reports 70x155 mm and the keyboard layer is
-196 px tall. The commit as it stands (the node at the root) builds
-and adds no dtbs_check error for the node; it has not been booted as
-a built-in node.
-
 Signed-off-by: Lef <me@lefteros.com>
 Assisted-by: LLM
 ---

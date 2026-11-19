@@ -3,13 +3,7 @@ From: saiththerobo <the.tom.sharp@gmail.com>
 Date: Fri, 16 Oct 2026 14:05:32 +0100
 Subject: [PATCH] Input: s6sy761 - resume asynchronously
 
-Powering the SPI controller up and polling for its boot-complete event
-takes about 190 ms on a Pixel 6 Pro. Resumed in order, that held up the
-whole system resume, and with it the display and the key press that
-woke the phone. Let it resume asynchronously; its SPI controller, the
-parent, still resumes first.
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Assisted-by: Claude:claude-opus-5-5
 Signed-off-by: saiththerobo <the.tom.sharp@gmail.com>
 ---
  drivers/input/touchscreen/s6sy761.c | 7 +++++++

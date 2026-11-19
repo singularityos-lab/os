@@ -4,27 +4,6 @@ Date: Tue, 13 Oct 2026 08:50:35 -0400
 Subject: [PATCH] PCI: dwc: gs201-cp: give MSI blocks 1-4 to the modem's packet
  queues
 
-Stock runs the S5300's downlink packet processor with one interrupt per
-queue: Google's root complex driver for this link keeps only MSI block 0
-for the modem's PCI function, and hands blocks 1-4, each with its own
-GIC SPI, to the modem driver's queues through
-register_separated_msi_vector() (pcie-exynos-rc.c). The modem signals
-queue n with block n + 1. Here all five blocks were one 160-vector MSI
-domain, so the queues could not get their interrupts.
-
-Give the DWC MSI domain block 0 only (32 vectors; the modem's function
-uses 4). Request "msi1".."msi4" at probe, disabled, and switch them on
-and off with block 0's chained handler at link up and down, as they read
-DBI. gs201_pcie_cp_register_queue() gives a queue the next free block,
-returns its interrupt and Google's MSI data value, and arms the block;
-every link_up re-arms the registered blocks after the controller reset.
-The interrupt clears the block's status and calls the queue's handler.
-
-Unlike stock, a registered block has all 32 vectors unmasked, and a
-vector other than 0 is logged: it costs nothing and shows it if the
-modem's vector numbering differs from what Google's driver assumes. The
-debugfs status reports the blocks.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

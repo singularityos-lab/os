@@ -4,12 +4,7 @@ Date: Mon, 12 Oct 2026 01:55:02 -0400
 Subject: [PATCH] dt-bindings: soc: samsung: exynos-sysreg: add gs201 PERIC0
  compatible
 
-Add google,gs201-peric0-sysreg for the PERIC0 system register block of
-the Google Tensor G2, which holds the USI mode registers of the PERIC0
-serial interfaces. Like its gs101 and PERIC1 counterparts it needs its
-bus clock.
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Assisted-by: Claude:claude-opus-5-5
 ---
  .../devicetree/bindings/soc/samsung/samsung,exynos-sysreg.yaml  | 2 ++
  1 file changed, 2 insertions(+)

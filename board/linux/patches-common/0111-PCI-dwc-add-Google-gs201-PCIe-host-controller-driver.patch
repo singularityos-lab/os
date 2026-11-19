@@ -3,40 +3,6 @@ From: Derek Ross <derekross@gmail.com>
 Date: Sun, 11 Oct 2026 22:39:17 -0400
 Subject: [PATCH] PCI: dwc: add Google gs201 PCIe host controller driver
 
-Add a host driver for the PCIe controllers of the Google gs201 (Tensor
-G2) SoC. Pixel 7 phones connect their BCM4389 Wi-Fi to the HSI2
-controller (GEN4A_1), one lane at Gen2.
-
-The sequence follows the driver Google builds for gs201
-(google-modules/soc/gs/drivers/pci/controller/dwc-whi/pcie-exynos-rc.c:
-resumed_phydown(), poweron() and establish_link()). Order matters: the
-bootloader leaves the PHY isolated, and any access to the controller's
-ELBI registers hangs the SoC until the PHY driver has released it. So:
-PHY init (isolation off, power-down) before the first ELBI access, then
-endpoint power through the pwrctrl core (WL_REG_ON, 200 ms), the PHY
-configuration and the I/A sequencer, the soft power and non-sticky
-resets with the device type set to root complex, PERST# release and
-20 ms, the wrapper setup (exit-L1 request, manual link-down reset, no
-Q-channel clock gating, NAK on pending AXI), Gen3 equalization off, DMA
-cache coherency through the HSI2 sysreg, and finally the LTSSM, polled
-for L0 in the ELBI. As on stock, a failed attempt redoes the PHY and
-controller sequence; the last failure prints the LTSSM history buffer.
-
-Only INTx is supported, which is what the stock Wi-Fi driver uses: the
-ELBI interrupt status is demultiplexed into a four-line INTx domain, and
-link-down and completion-timeout events are logged. The chained handler
-is installed only once ELBI is reachable. A no-op msi_init keeps the
-DesignWare core from claiming the shared interrupt for its iMSI-RX, so
-devices fall back to INTx.
-
-Bring-up aids: the sequence runs in numbered stages and stop_after=N
-ends probe after stage N without binding (0 resources, 1 clocks, 2 PHY
-isolation off and first register access, 3 PHY configuration, 4
-controller setup, 5 link); trace=1 logs every hardware step before it
-happens; use_ia=0 skips the I/A sequencer; cmu_acg_off=1 clears the
-CMU_HSI2 global automatic clock gating, as Google's driver does, through
-the optional samsung,cmu phandle.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

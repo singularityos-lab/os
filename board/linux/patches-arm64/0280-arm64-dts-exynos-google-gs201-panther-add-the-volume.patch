@@ -4,15 +4,6 @@ Date: Tue, 27 Oct 2026 21:03:51 -0700
 Subject: [PATCH] arm64: dts: exynos: google: gs201-panther: add the volume and
  power keys
 
-Add gpio-keys for volume down (gpa10-1), volume up (gpa8-5) and power
-(gpa10-0, the S2MPG12 PWRONB line, also wired to the SoC). The node is
-cheetah's, with the same pins and pin states, which Google's
-gs201-common.dtsi gives every gs201 board. It is added enabled, as the
-Pixel Fold's volume keys were, since it passed on this phone.
-
-Tested on a Pixel 7 from slot B: each key reports press and release on
-the gpio-keys input device, and the power key wakes the screen.
-
 Assisted-by: Claude Opus 5.5
 Signed-off-by: Alejandro Garcia <skipper.pelygro@gmail.com>
 ---

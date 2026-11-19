@@ -4,24 +4,7 @@ Date: Mon, 12 Oct 2026 01:47:53 -0400
 Subject: [PATCH] drm/panel: samsung-s6e3hc4: set the operating features and
  switch the refresh rate
 
-Google's driver writes the panel's operating features (TE width and
-mode, TE2, IR compensation, HS operation, early exit) and its refresh
-rate on every enable, and again on a rate change, ending with a
-frequency update (0xf7 0x0f). The cold init here stopped before that,
-leaving those registers at their reset values after a sleep-in.
-
-Send the full set after the cold init, at 60 Hz as the vendor driver
-does, for HS operation, HBM off, IRC on and a manual refresh rate:
-fixed TE with early exit at 120 Hz, changeable TE without at 60 Hz.
-
-Implement set_refresh_rate() with the same 60/120 Hz set and list both
-modes. The sequence is always sent in full, since the caller may not
-know what the panel runs at (after a kexec, for example). Serialise
-multi-command sequences, which rely on 0xb0 offsets, with brightness
-updates. The display controller switches the DSI host's TE and
-underrun timers and the memory bus floor together with it.
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Assisted-by: Claude:claude-opus-5-5
 ---
  drivers/gpu/drm/panel/panel-samsung-s6e3hc4.c | 154 ++++++++++++++++--
  1 file changed, 137 insertions(+), 17 deletions(-)

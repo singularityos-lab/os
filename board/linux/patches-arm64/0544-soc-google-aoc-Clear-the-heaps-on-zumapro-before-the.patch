@@ -4,19 +4,6 @@ Date: Sat, 31 Oct 2026 11:20:19 -0643
 Subject: [PATCH] soc: google: aoc: Clear the heaps on zumapro before the first
  start
 
-Android creates the AoC's sensor, playback and capture heaps with its
-physical-heap constructors, which clear them at probe. This port lays
-the heaps out without creating them, so on zumapro clear the three
-together (they're contiguous at the top of the carve-out) before the
-firmware is first authenticated.
-
-On the Pixel 9a this is part of the composition that runs,
-7.3.0-rc6-omamobile-tegu-s2mpg15-m1-g991042e2eff3-dirty, where the
-same clearing is behind a bring-up parameter that every start since
-2026-10-25 has set. On its own it didn't fix the firmware's startup
-fault (that was the DVFS query); it is kept so the firmware sees the
-memory Android gives it.
-
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  drivers/soc/google/aoc/aoc.c | 14 ++++++++++++++

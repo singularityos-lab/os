@@ -4,21 +4,6 @@ Date: Sun, 1 Nov 2026 18:38:17 -0647
 Subject: [PATCH] soc: google: gnssif_spi: bind gnssif only once the SPI device
  is there
 
-gnssif reads and writes through functions gnss_spi.ko exports, which
-use the SPI device gnss_spi stored at probe. Loading gnssif loads
-gnss_spi for its symbols, but nothing makes the SPI device bind first:
-if gnssif binds before it (built in, or the SPI controller probing
-later), the first request from the core makes the read work call
-spi_sync() on a NULL device. Google's header also defines that device
-holder static, so every file that includes it gets an unused copy.
-
-Keep the holder in gnss_spi.c, export gnss_spi_bound(), and defer
-gnssif's probe until it is true; the SPI device's binding retries the
-deferred probe. The transfer functions return -ENODEV without a device,
-and gnss_spi's remove() clears it. The exports become
-EXPORT_SYMBOL_GPL, and the driver structure loses .owner, which the SPI
-core sets.
-
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  drivers/soc/google/gnssif_spi/gnss_main.c |  9 +++++++++

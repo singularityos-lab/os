@@ -4,28 +4,6 @@ Date: Tue, 13 Oct 2026 12:20:57 -0400
 Subject: [PATCH] PCI: dwc: gs201-cp: set up the root port as
  dw_pcie_setup_rc() does
 
-Google's exynos_pcie_rc_establish_link() runs dw_pcie_setup_rc() before
-its own exynos_pcie_setup_rc(): the root port gets the PCI-to-PCI bridge
-class, bus numbers, memory and bus-master enable, and no BARs. This
-driver only ported the second half, so after every controller reset the
-root port read as class 0.
-
-The PCI core does not size or assign the resources of a class-0 device
-(pdev_resources_assignable()), so the root port's memory window stayed
-unassigned and the modem's BARs had nowhere to go. In the first modem
-boot (MODEM-PLAN M3.4.5), the s51xx probe found the window empty, could
-not map its doorbell, and the modem's ROM was never told where its boot
-image was. The root port also lost Bus Master Enable at each link
-down, which a root port needs to forward the modem's DMA and MSI writes
-upstream.
-
-Write the root port part of dw_pcie_setup_rc() (the iATU part belongs
-to the secure monitor here) on every link up. With a bridge class the
-port driver binds to the root port: keep AER, PME, DPC and hotplug off
-the port, as the link goes down whenever the modem driver decides and
-the modem driver gets link-down and completion-timeout events from this
-driver.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

@@ -4,23 +4,6 @@ Date: Tue, 13 Oct 2026 15:24:32 -0400
 Subject: [PATCH] PCI: dwc: gs201-cp: drop DBI accesses while the PHY is
  isolated
 
-The modem now idles its link as on stock: the modem driver powers the
-link down and this driver isolates the PHY until the next link up. A DBI
-access while the PHY is isolated hangs the SoC, and DesignWare's MSI
-code makes them on its own: it masks, unmasks and acknowledges vectors
-in DBI from free_irq(), disable_irq() and the interrupt path, whatever
-the link state. A reboot with the modem ONLINE and its link idle hung
-hard before the restart (MODEM-PLAN M4.1i). The shutdown path tears
-down the PCI devices behind the link and frees their MSI vectors; that
-is the DBI access we found there, the rest of it being config space
-(already refused while the link is down) or ELBI only with the PHY up.
-
-Route the DesignWare DBI helpers through read_dbi/write_dbi ops that
-drop the access while the PHY is isolated (reads return 0), switched
-under a raw spinlock when phy_init() releases the isolation and before
-it is set again. This driver's own DBI and ELBI sequences already run
-only with the link up.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

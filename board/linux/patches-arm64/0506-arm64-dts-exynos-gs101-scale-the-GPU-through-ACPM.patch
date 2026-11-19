@@ -3,16 +3,6 @@ From: saiththerobo <the.tom.sharp@gmail.com>
 Date: Wed, 4 Nov 2026 07:56:37 +0000
 Subject: [PATCH] arm64: dts: exynos: gs101: scale the GPU through ACPM
 
-Use the ACPM GPU clock for the Mali-G78 instead of the fixed oscillator
-stand-in, with Google's gs101 levels (gpu_dvfs_table_v2 capped at
-gpu_dvfs_max_freq, 800 MHz) as the OPP table. Setting the clock moves
-G3D and pairs G3DL2 with it, and ACPM applies the voltages, so the
-table has rates only.
-
-Stock's gpu_dvfs_min_freq is 250 MHz; the 151 and 202 MHz levels are
-kept, as gs201's are. Stock also raises the memory interface (MIF) to
-845 MHz for the top three levels; that isn't done here.
-
 Assisted-by: Claude Opus 5.5
 Signed-off-by: saiththerobo <the.tom.sharp@gmail.com>
 ---

@@ -4,14 +4,6 @@ Date: Tue, 3 Nov 2026 16:39:54 -0700
 Subject: [PATCH] arm64: dts: exynos: google: gs101-oriole: add disabled
  Bluetooth
 
-Describe the BCM4389 on the existing APM USI1 UART, including the pin
-states required when the device is enabled later. The control lines and
-3 Mbaud rate match Raven and Google's common gs101 Bluetooth wiring.
-
-Keep the controller disabled until this kernel and its native CMU_APM
-baud clock path have been qualified on Oriole. Historical bring-up used
-a different dirty kernel and a clock workaround.
-
 Signed-off-by: Garrett lindquist <gr_link@hotmail.com>
 ---
  .../boot/dts/exynos/google/gs101-oriole.dts   | 41 +++++++++++++++++++

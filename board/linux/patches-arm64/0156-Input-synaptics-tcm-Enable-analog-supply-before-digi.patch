@@ -4,33 +4,6 @@ Date: Thu, 22 Oct 2026 16:18:24 -0700
 Subject: [PATCH] Input: synaptics-tcm: Enable analog supply before digital
  supply
 
-Enable AVDD and VDD sequentially while reset remains asserted. The bulk
-regulator helper enables asynchronously, so array order does not fix
-supply order. Follow the order in tegu's syna_gtd driver; a failure of
-the bulk-enable version has not been established.
-
-Tegu builds syna_gtd, whose syna_spi_enable_regulator() enables avdd
-before vdd. Its board DT declares synaptics,power-delay-ms = <200>.
-Retain that declared 200 ms settling policy here. At the linked vendor
-revision the general power_delay_ms sleep is commented out, so the DT
-value is not proof of an active vendor wait or a minimum hardware delay.
-
-Pantah instead builds syna_c10: vdd first, then avdd, followed by its
-power-on delay. The cheetah DT also declares 200 ms. Its mainline node
-has no supplies, so both requests are dummies today. Once those rails
-are described, this driver's analog-first order will differ from stock;
-it is not established as the required order for every supported board.
-
-This changes neither the TouchComm v1 protocol nor the SPI host. The
-sequential sequence supplies physical input on the private Pixel 9a
-bring-up kernel; regulator selectors and firmware remain unchanged.
-
-Link: https://android.googlesource.com/kernel/devices/google/tegu/+/6276884d9940694b25a6934671918ec8ac412ee8/BUILD.bazel
-Link: https://android.googlesource.com/kernel/google-modules/touch/synaptics_touch/+/a5d225cc4034f3e98c6f7f0c0c7e182c254a517f/syna_gtd/syna_tcm2_platform_spi.c
-Link: https://android.googlesource.com/kernel/devices/google/tegu/+/6276884d9940694b25a6934671918ec8ac412ee8/dts/zuma-tegu-common-touch.dtsi
-Link: https://android.googlesource.com/kernel/devices/google/pantah/+/9810b5840267f30cd3cc81d6b054de313140af58/BUILD.bazel
-Link: https://android.googlesource.com/kernel/google-modules/touch/synaptics_touch/+/a5d225cc4034f3e98c6f7f0c0c7e182c254a517f/syna_c10/syna_tcm2_platform_spi.c
-Link: https://android.googlesource.com/kernel/devices/google/pantah/+/9810b5840267f30cd3cc81d6b054de313140af58/dts/gs201-cheetah-touch.dtsi
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  drivers/input/touchscreen/synaptics_tcm.c | 12 +++++++-----

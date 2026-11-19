@@ -3,15 +3,6 @@ From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 Date: Thu, 22 Oct 2026 20:23:08 -0700
 Subject: [PATCH] dt-bindings: firmware: Describe Tensor G4 ACPM transport
 
-Add the Tensor G4 ACPM compatible and its main S2MPG14 PMIC child.
-Keep the existing gs101 and gs201 child constraints unchanged.
-
-Stock zumapro has an S2MPG15 sub-PMIC. Leave its child properties
-unconstrained until the dedicated schema exists; a driver supporting
-only the main PMIC must not exclude that hardware from the binding.
-No board nodes are added.
-
-Link: https://android.googlesource.com/kernel/devices/google/zumapro/+/8831630eee2ad095b85ed452944e6353940966a5/dts/zumapro-pmic.dtsi
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  .../firmware/google,gs101-acpm-ipc.yaml       | 25 +++++++++++++------

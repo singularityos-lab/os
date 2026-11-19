@@ -4,20 +4,6 @@ Date: Sun, 1 Nov 2026 16:49:44 -0500
 Subject: [PATCH] soc: google: aoc: send at most one doorbell behind the one in
  flight
 
-A doorbell (a mailbox message with no data) only tells the AoC to look
-at its rings, and signal_aoc() rang one after every message written and
-every read from a full ring. During AoC start-up the services wrote
-faster than the AoC took its interrupts, so doorbells piled up in the
-mailbox core's 20-entry queue, which refused the rest with -ENOBUFS and
-an error line each.
-
-Count the doorbells sent or queued per channel and skip one when two are
-already outstanding: the queued one reaches the AoC after everything
-written before it, so it covers the skipped ones. tx_done counts them
-back down (data messages from aoc_v1.c are not counted), a refused send
-is not counted, and the count is reset when the channel is requested,
-since freeing a channel drops its queue without tx_done.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

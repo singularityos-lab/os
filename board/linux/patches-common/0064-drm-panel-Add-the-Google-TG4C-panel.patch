@@ -3,31 +3,6 @@ From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 Date: Tue, 27 Oct 2026 12:05:24 -0647
 Subject: [PATCH] drm/panel: Add the Google TG4C panel
 
-Add a driver for the Google Pixel 9a's TG4C command-mode AMOLED panel.
-The bootloader powers the panel, initialises it and leaves it running
-at 60 Hz; the driver takes it over as it is, as the S6E3HC4 driver does,
-and never resets it or touches its supplies:
-
- - sleep in and out around a power cycle of the display pipeline,
-   keeping the panel's registers;
- - 60 and 120 Hz through drm_panel_set_refresh_rate() (0x2f 0x02 and
-   0x2f 0x00, Google's tg4c_change_frequency());
- - the brightness as a DCS backlight over Google's normal range, levels
-   1 to 3628 (up to 1200 nits), with Google's default of 1829. The
-   levels above 3628 are high brightness mode and are left for a later
-   control of their own.
-
-Command sequences, modes and sizes from Google's MIT-licensed panel
-driver.
-
-Tested on the Pixel 9a (7.3.0-rc6-omamobile-tegu-s2mpg15-m1, this file
-at blob 19c89b162a5e, which used 4095 as maximum and default) with
-gs-dsim-cmd and gs-decon: the desktop runs at 120 Hz, DPMS off puts the
-panel to sleep and DPMS on wakes it, and the brightness follows the
-backlight across its range. This version changes only the brightness
-range and default and the physical size, and drops an unused flag.
-
-Link: https://android.googlesource.com/kernel/google-modules/display/panels/tegu/+/e3a801fb038fdd1bbaec36d387f27bd99f10757a/panel-gs-tg4c.c
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  MAINTAINERS                               |   6 +

@@ -4,11 +4,6 @@ Date: Sun, 1 Nov 2026 14:59:20 +0200
 Subject: [PATCH] dt-bindings: clock: google,zuma-clock: add the CMU_PERIC1
  USI9 clocks
 
-USI9 is the I2C bus (hsi2c_9) of the Pixel 8 Pro's battery pack EEPROM,
-which holds the battery ID that picks the fuel gauge model. It sits on
-CMU_PERIC1 like USI11: a user mux, a divider and the IPCLK, PCLK and
-RSTNSYNC gates. Add the five ids after USI11's.
-
 Signed-off-by: Lef <me@lefteros.com>
 Assisted-by: LLM
 ---

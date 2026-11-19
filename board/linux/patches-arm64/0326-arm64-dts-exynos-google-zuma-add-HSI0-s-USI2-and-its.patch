@@ -3,10 +3,6 @@ From: Brett-Michael Green <brett@bmgvisualtech.com>
 Date: Fri, 30 Oct 2026 16:36:41 -0400
 Subject: [PATCH] arm64: dts: exynos: google: zuma: add HSI0's USI2 and its SPI
 
-Add HSI0's system registers and USI2 at 0x111d00c0 with its SPI
-controller (SPI 408), clocked from CMU_HSI0, as stock's spi@111D0000
-(usi-offset 0x101c). This is the touchscreen's bus.
-
 Assisted-by: LLM
 Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
 ---

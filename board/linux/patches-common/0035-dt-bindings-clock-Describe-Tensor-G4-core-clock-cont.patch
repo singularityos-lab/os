@@ -3,15 +3,6 @@ From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 Date: Thu, 22 Oct 2026 20:32:09 -0700
 Subject: [PATCH] dt-bindings: clock: Describe Tensor G4 core clock controllers
 
-Describe TOP, HSI2 and PERIC0 clock interfaces, including HSI2's PCIe
-parent input. Keep the tested clock IDs stable. HSI0 USI2 leaf control
-is a separate staged dependency and is not advertised here.
-
-Use one external oscillator reference for the PLL and oscillator mux
-paths. Google's CMUCAL uses OSCCLK_CMU for both, and a separate 26 MHz
-CMU input has not been established. The stock external PLL clock is
-24.576 MHz; its nominal CMUCAL entry alone does not prove another rate.
-
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  .../bindings/clock/google,zumapro-clock.yaml  | 125 ++++++++++++++++++

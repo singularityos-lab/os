@@ -4,18 +4,6 @@ Date: Mon, 12 Oct 2026 17:13:58 -0400
 Subject: [PATCH] PCI: dwc: gs201-cp: optionally log the modem's cp2ap line
  changes
 
-During the first link tests UFS ran its error handler twice around modem
-power changes (a PA-layer LINERESET indication, recovered at once), once
-about 21 s after the modem was powered with nothing else happening on
-the AP side. To see whether the modem itself changes state at those
-moments (its ROM giving up on the link and resetting, for example), the
-cp2ap lines need timestamps on the same clock as the UFS messages;
-polling the status file cannot give that.
-
-With watch_lines=1 the driver requests both-edge interrupts on the four
-cp2ap inputs, as Google's CPIF does for three of them, and logs each edge
-(rate-limited). The lines are only read. Off by default.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

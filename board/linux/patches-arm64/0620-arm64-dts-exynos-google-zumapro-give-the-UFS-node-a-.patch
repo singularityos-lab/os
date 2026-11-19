@@ -4,13 +4,6 @@ Date: Mon, 9 Nov 2026 09:00:51 -0643
 Subject: [PATCH] arm64: dts: exynos: google: zumapro: give the UFS node a
  sleep pin state
 
-The UFS host re-applies its pin state when it resumes with the link
-down, so that the pads come back as the UFS function after a system
-suspend (on the Pixel 9a they read as plain inputs on about one wake in
-a hundred). pinctrl_select_state() does nothing for an unchanged state,
-so the node needs a second state to switch away to: the "sleep" state
-names the same pin groups as the default.
-
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  arch/arm64/boot/dts/exynos/google/zumapro.dtsi | 3 ++-

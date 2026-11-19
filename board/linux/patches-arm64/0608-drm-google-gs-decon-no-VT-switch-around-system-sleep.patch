@@ -4,17 +4,6 @@ Date: Fri, 16 Oct 2026 13:54:46 +0100
 Subject: [PATCH] drm: google: gs-decon: no VT switch around system sleep
  without fbdev
 
-With no fbdev console the suspend VT switch has nothing to show, but it
-still takes the session away from the compositor: logind deactivates and
-reactivates it, Hyprland (libseat) drops its input devices and reopens
-them, and the power-key press that woke the Pixel 6 Pro from s2idle is
-lost with the old device. Every wake needed a second press.
-
-Tell the PM core a VT switch is only needed with the fbdev console, and
-stop tracking the device on remove. Only on gs101 for now: the Pixel 7
-Pro (gs201) runs without fbdev too, and its validated s2idle path keeps
-its VT switch until this has been tested there.
-
 Assisted-by: Claude Opus 5.5
 Signed-off-by: saiththerobo <the.tom.sharp@gmail.com>
 ---

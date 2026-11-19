@@ -3,19 +3,7 @@ From: Derek Ross <derekross@gmail.com>
 Date: Wed, 14 Oct 2026 21:05:06 -0400
 Subject: [PATCH] dt-bindings: phy: add the Google gs201 MIPI DC-PHY receiver
 
-The camera block of Google's gs201 (Tensor G2) SoC has one Samsung
-DC-PHY slave (a combined D-PHY/C-PHY receiver) per CSIS link, a shared
-bias block and one PMU isolation control. One node covers them all; the
-PHY cell selects the link.
-
-Each slave also has a reset bit in the camera block's system registers
-(google,reset-sysreg). The receive settings - the analog words of the
-bias block and of each lane, and the HS settle count and skew delay by
-lane or symbol rate - are not public, so they come from a data file
-named by firmware-name, which the user generates from their own
-phone's camera software.
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Assisted-by: Claude:claude-opus-5-5
 ---
  .../phy/google,gs201-mipi-dcphy-rx.yaml       | 79 +++++++++++++++++++
  1 file changed, 79 insertions(+)

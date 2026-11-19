@@ -3,11 +3,6 @@ From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 Date: Thu, 22 Oct 2026 20:13:17 -0700
 Subject: [PATCH] dt-bindings: spi: samsung: Describe Tensor G4
 
-Add the Tensor G4 SPI integration compatible with the gs101 fallback.
-The fallback lets older kernels bind, but their automatic native CS
-still prevents the Pixel 9a touchscreen from working. The specific
-match selects message-level manual native CS in the G4-aware driver.
-
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  Documentation/devicetree/bindings/spi/samsung,spi.yaml | 4 +++-

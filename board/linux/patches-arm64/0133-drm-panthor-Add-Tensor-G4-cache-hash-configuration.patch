@@ -3,22 +3,6 @@ From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 Date: Thu, 22 Oct 2026 16:14:16 -0700
 Subject: [PATCH] drm/panthor: Add Tensor G4 cache hash configuration
 
-The Tensor G4 Mali-G715 needs its integration-specific ASN hash values
-programmed before L2 power-up. Google's GPL device tree supplies these
-values, and its kbase driver configures them before powering the cache.
-The generic Valhall match leaves the custom hash disabled.
-
-On a Pixel 9a, the generic configuration repeatedly failed CSF startup
-with a GPU bus fault. Selecting the documented hashes through Panthor's
-existing SoC-data mechanism allowed CSF firmware, interfaces and scheduler
-to initialize. Separate readback confirmed L2_CONFIG 0x01140000 and hash
-words 0x0036db6d, 0x005b6db6 and 0. Subsequent Mesa tests rendered on G715.
-
-Add the zumapro match and data. No clock, voltage, firmware, DMA-mask or
-protection-setting change is part of this driver fix. Testing used fixed
-clocks; this does not establish DVFS or suspend support.
-
-Link: https://android.googlesource.com/kernel/devices/google/zuma/+/42395e8adcb880aa336f0da6bb2a19ed53929c40/dts/zuma-gpu.dtsi
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  drivers/gpu/drm/panthor/panthor_drv.c | 9 +++++++++

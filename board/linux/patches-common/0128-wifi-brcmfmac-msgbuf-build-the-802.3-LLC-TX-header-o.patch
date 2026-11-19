@@ -4,22 +4,6 @@ Date: Mon, 12 Oct 2026 10:14:28 -0400
 Subject: [PATCH] wifi: brcmfmac: msgbuf: build the 802.3/LLC TX header on the
  host for the BCM4389
 
-Firmware that advertises the "host_sfhllc" capability (the BCM4389's
-20.101.90 does) expects the host to turn each TX frame into
-802.3 + LLC/SNAP itself: Broadcom's driver then posts the whole
-converted frame, keeps the original Ethernet header in the post's
-txhdr, and sets BCMPCIE_TXPOST_FLAGS_HOST_SFH_LLC (0x10) (bcmdhd
-dhd_msgbuf.c dhd_prot_txdata(), dhd_common.c dhd_ether_to_8023_hdr(),
-and the reverse on TX completion). brcmfmac posts the payload only,
-behind the Ethernet header.
-
-Add a HOST_SFHLLC feature from the "cap" string, BCM4389 only (it can
-be turned off with feature_disable), and when it is set convert TX
-frames that way (RFC 1042, or bridge-tunnel for the 802.1H types) and
-convert them back before completion, so the 802.1X pending count still
-sees ETH_P_PAE. At the msgbuf debug level, log EAPOL frames in both
-directions.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

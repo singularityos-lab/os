@@ -3,16 +3,6 @@ From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 Date: Thu, 22 Oct 2026 20:25:11 -0700
 Subject: [PATCH] mfd: sec: Add S2MPG14
 
-Add the S2MPG14 device type, regulator child and common-register map.
-Expose read-only CHIPID access and keep common writes explicitly
-rejected: an empty regmap access table would permit writes.
-
-Keep S2MPG12 and S2MPG13 behavior unchanged. The G4 ACPM transport is
-a separate prerequisite. This does not add PMIC interrupts, RTC, GPIO
-or protection programming. The corrected common-map write restriction
-has not been tested on the phone.
-
-Link: https://android.googlesource.com/kernel/google-modules/soc/gs/+/204078758737776959ecc85c527a00fd2cabb62f/include/linux/mfd/samsung/s2mpg14-register.h
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  drivers/mfd/sec-acpm.c              | 58 +++++++++++++++++++++++++++++

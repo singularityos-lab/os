@@ -4,22 +4,6 @@ Date: Thu, 12 Nov 2026 12:36:43 +0900
 Subject: [PATCH] PCI: dwc: gs201-cp: leave the modem itself out of system
  sleep
 
-On a Pixel 7 Pro a suspend-to-idle was refused twice in a row: by the
-sleep callback (the link came up 8 ms in), then by the modem driver
-with the link down. That resume logged
-
-  s51xx 0001:01:00.0: Unable to change power state from D3hot to D0, device inaccessible
-
-and the modem stopped answering until a reboot. Its driver has no PM
-ops, so the PCI core disabled, saved, powered up, restored and
-re-enabled it behind the driver's back, while the driver manages the
-modem's power and PCI state itself. Make the devices below the root
-port syscore devices, so the PM core skips them. PCI_DEV_FLAGS_NO_D3
-would also refuse the driver's own runtime D3hot.
-
-With this: 60 refused attempts with data after each, and 8 quiet
-cycles woken by cp2ap_wakeup. Only with sleep_guard (gs201).
-
 Assisted-by: LLM
 Signed-off-by: Hiroyuki Ikegami <ikegam@mixallow.net>
 ---

@@ -3,17 +3,6 @@ From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 Date: Tue, 27 Oct 2026 20:54:58 -0647
 Subject: [PATCH] arm64: dts: exynos: google: zumapro: Enable ramoops
 
-The region stock uses for ramoops was only reserved, because zuma's
-user-build bootloader doesn't keep it across a warm reset. zumapro's
-does: on the Pixel 9a, after a hang that ended in a watchdog reset,
-the console zone held the previous kernel's log up to the hang (after
-the bootloader's own log, which it writes at the start of the zone).
-
-Describe it as ramoops with stock zumapro's layout, which every other
-Google board in this tree also uses: console-size 0x200000 and pmsg-size
-0x200000, with no record-size, so the console zone starts where the
-bootloader writes its log.
-
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  .../boot/dts/exynos/google/zumapro-reserved-memory.dtsi  | 9 ++++++++-

@@ -1,19 +1,8 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?=C3=81ngel=20Ren=C3=A9?=
- <17342133+angelrenefm@users.noreply.github.com>
 Date: Sat, 14 Nov 2026 19:27:08 +0100
 Subject: [PATCH] media: s5p-mfc: do not write the encoder frame size on MFC
  v15
-MIME-Version: 1.0
-Content-Type: text/plain; charset=UTF-8
-Content-Transfer-Encoding: 8bit
-
-MFC v15 has no E_FRAME_WIDTH and E_FRAME_HEIGHT: 0xF770 and 0xF774 are
-the decoder's payload registers there. The encoder takes the cropped size
-only, as in Google's exynos-mfc driver (kernel/google-modules/soc/gs,
-drivers/media/platform/exynos/mfc/, branch
-android-gs-pantah-6.1-android16). The other encoder registers that
-s5p-mfc writes match that driver's mfc_regs.h by address, 76 of 76.
 
 Assisted-by: LLM
 Signed-off-by: Ángel René <17342133+angelrenefm@users.noreply.github.com>

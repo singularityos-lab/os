@@ -4,13 +4,6 @@ Date: Mon, 12 Oct 2026 12:56:53 -0400
 Subject: [PATCH] soc: google: add the gs201 AoC supplies over ACPM for
  bring-up
 
-The AoC's digital microphones and sensors are fed by five S2MPG12 and
-S2MPG13 LDOs (LDO20M, LDO19S, LDO20S, LDO7S, LDO5S) that the AP switches,
-and there is no S2MPG12/13 regulator driver yet. Read them over ACPM
-channel 2 and, only with enable=1, set their enable bits, the 1.8 V
-sensor rail before the 3.3 V one. Voltages are never changed, and a rail
-outside the stock device tree's range is not enabled.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

@@ -3,16 +3,6 @@ From: Brett-Michael Green <brett@bmgvisualtech.com>
 Date: Fri, 30 Oct 2026 16:19:47 -0400
 Subject: [PATCH] clk: samsung: Add the Tensor G3 touchscreen SPI clocks
 
-zuma has no clock driver, and the bootloader leaves HSI0's USI2, the
-touchscreen's SPI, at 399.36 MHz (PLL_SHARED2 / 2). The SPI controller
-takes its rate from the CMU, so the bus would run at a quarter of that,
-far above the 10 MHz stock gives the touch controller.
-
-Describe the path from CMU_TOP's shared PLLs to USI2, with registers and
-parents from Google's GPL CMUCAL tables for zuma. Only USI2's divider and
-its three gates are written; the PLLs, muxes and the other dividers and
-gates are read-only and keep their firmware settings.
-
 Assisted-by: LLM
 Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
 ---

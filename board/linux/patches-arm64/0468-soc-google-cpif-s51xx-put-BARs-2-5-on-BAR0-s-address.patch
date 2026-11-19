@@ -4,24 +4,6 @@ Date: Tue, 13 Oct 2026 14:27:56 -0400
 Subject: [PATCH] soc: google: cpif: s51xx: put BARs 2-5 on BAR0's address, as
  stock does
 
-Stock's probe "disables" BARs 0-5 by rewriting their resources and
-calling pci_assign_resource(), which gives BARs 2-5 one-byte resources
-at the bridge window's start: on the modem all five BARs then decode the
-same 1 MiB at the doorbell's bus address. d1fe3981d kept the PCI core's
-assignment instead, BARs 2-5 in their own windows above BAR0.
-
-The modem's boot stages take the doorbell at BAR0 + 0x60000 either way.
-After INIT_END, with that layout, the modem's main firmware never takes
-an IPC frame, and each doorbell ends in a Completer Abort: one AT query
-set Signaled Target Abort on the modem and Received Target Abort on the
-root port, both clear before (MODEM-PLAN M4.1e). Stock's CP serves IPC
-within seconds of INIT_END.
-
-Release the core's resources for BARs 2-5 and point their registers at
-BAR0's bus address in the probe, before the configuration is saved, and
-again after each restore, as stock's layout. Nothing on the AP maps
-BARs 2-5.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

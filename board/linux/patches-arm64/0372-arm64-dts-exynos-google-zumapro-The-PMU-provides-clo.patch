@@ -3,9 +3,6 @@ From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 Date: Tue, 27 Oct 2026 19:56:39 -0647
 Subject: [PATCH] arm64: dts: exynos: google: zumapro: The PMU provides clocks
 
-The Tensor G4 (zumapro) PMU provides the NFC controller's clock pad as
-clock 0; give its node #clock-cells.
-
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  arch/arm64/boot/dts/exynos/google/zumapro.dtsi | 1 +

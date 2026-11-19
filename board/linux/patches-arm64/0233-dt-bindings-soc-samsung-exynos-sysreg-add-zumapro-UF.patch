@@ -4,16 +4,6 @@ Date: Mon, 26 Oct 2026 15:35:40 -0647
 Subject: [PATCH] dt-bindings: soc: samsung: exynos-sysreg: add zumapro UFS
  sysreg
 
-The Pixel 9a's stock device tree describes the system-register block
-at 0x13020000 exactly as zuma's: sysreg_ufs@13020000,
-"google,zuma-sysreg-ufs", one 4 KiB window. Name it after zuma's
-google,zuma-ufs-sysreg.
-
-Unlike zuma's entry, it lists its interface clock: the block is clocked
-through CMU_HSI2's GOUT_SYSREG_HSI2 gate, which the Tensor G4 clock
-driver exports.
-
-Link: https://android.googlesource.com/kernel/devices/google/zumapro/+/8831630eee2ad095b85ed452944e6353940966a5/dts/zumapro.dtsi
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  .../devicetree/bindings/soc/samsung/samsung,exynos-sysreg.yaml  | 2 ++

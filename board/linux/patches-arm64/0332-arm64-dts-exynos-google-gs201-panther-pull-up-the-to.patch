@@ -4,19 +4,6 @@ Date: Sat, 31 Oct 2026 14:07:18 -0700
 Subject: [PATCH] arm64: dts: exynos: google: gs201-panther: pull up the touch
  interrupt
 
-Google's panther touch file sets a pull-up on the FT3658's interrupt
-pin, gpa7-0 (&ts_irq in gs201-panther-touch.dtsi, EXYNOS_PIN_PULL_UP),
-and the Pixel 7's live device tree has it (ts-irq, samsung,pin-pud = 3).
-The shared gs201 group has no pull, as the Pixel 7 Pro wants, so
-override it in this board file only. Touch worked without it, since the
-controller drives the line; this matches stock.
-
-Tested on a Pixel 7 from slot B (7.3.0-rc6), together with the next
-patch: the live device tree has samsung,pin-pud = 3 in ts-irq-pins,
-pinctrl reports gpa7-0 in that group, and the controller probes (chip
-id 0x56, firmware 0x16) and reports touches across the panel.
-
-Suggested-by: Derek Ross <derekross@gmail.com>
 Assisted-by: Claude Opus 5.5
 Signed-off-by: Alejandro Garcia <skipper.pelygro@gmail.com>
 ---

@@ -4,17 +4,6 @@ Date: Sat, 24 Oct 2026 12:33:37 -0647
 Subject: [PATCH] dt-bindings: power: reset: reboot-mode: Allow zero mode
  values
 
-The binding has required a nonzero magic since its original text, but its
-own normal-mode example uses zero. The da850-lego-ev3 board also declares
-mode-normal = <0>. Google Tensor firmware uses zero for normal reboot in
-SYSIP_DAT0: the GPL Pixel reset driver defines REBOOT_MODE_NORMAL as zero
-and writes it for from_fastboot, shell and userrequested commands.
-
-Explicitly allow zero and state that it is written like other values.
-The core can then distinguish an absent mode from a configured zero,
-rather than leaving a previous bootloader marker in place.
-
-Link: https://android.googlesource.com/kernel/google-modules/power/reset/+/ae088532b5e965536723b6b649b42a5b90717287/pixel-zuma-reboot.c
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  Documentation/devicetree/bindings/power/reset/reboot-mode.yaml | 3 ++-

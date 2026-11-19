@@ -4,38 +4,6 @@ Date: Mon, 2 Nov 2026 21:08:14 +0000
 Subject: [PATCH] arm64: dts: exynos: google: Add Pixel 8a (akita) first-light
  board
 
-Add a first-light board file for the Pixel 8a: husky's first-light file
-with akita's model, compatible and /soc_compatible children, and USB.
-zuma.dtsi already describes the first DRAM bank (ABL adds the others),
-the fixed reservations, the watchdogs, and the PMU with its reboot
-mode; this file switches on the DWC3 and its two PHYs and carries
-husky's bootargs.
-
-akita's ABL picks the base DTB by /soc_compatible, as husky's does, but
-a retail 8a has the IPOP package: its live tree's children are B0_IPOP
-and B1_IPOP (product id 0x9865, pkg_mode 1), the two that Google's
-zuma-b0-ipop.dts carries, where husky's are FOPLP.
-
-Every fixed DRAM reservation in the 8a's live tree lies inside one of
-zuma.dtsi's, at husky's addresses, except the four that ABL inserts
-itself (pkvm_guest_firmware, sec_dram, sec_pt and
-debug_kinfo_reserved). The DWC3, the USB DRD PHY, the UART, the PMU and
-the watchdogs are at zuma.dtsi's addresses.
-
-There is no framebuffer yet: the splash address is read from DPP0 on a
-running 8a before a carve-out goes in, as on husky. UFS, the buttons,
-the PMICs, touch and the MAX77759 follow, each once it has run on the
-phone.
-
-Tested on a Pixel 8a (bootloader akita-17.0-15681527): the bootloader
-boots this tree from slot B, all nine CPUs come up, the watchdog
-driver stops both cluster watchdogs, and the initramfs brings up the
-USB gadget and SSH 0.4 s into boot. The booted tree has the
-bootloader's DRAM banks and its four reservations added, and the
-kernel reports no reserved-memory overlap.
-
-Link: https://android.googlesource.com/kernel/devices/google/akita/+/refs/tags/android-16.0.0_r0.10/dts/zuma-akita-mp.dts
-Link: https://android.googlesource.com/kernel/devices/google/zuma/+/refs/tags/android-16.0.0_r0.10/dts/zuma-b0-ipop.dts
 Assisted-by: Claude Opus 5.5
 Signed-off-by: DarekM <149845949+aninmucek@users.noreply.github.com>
 ---

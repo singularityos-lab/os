@@ -4,16 +4,6 @@ Date: Mon, 12 Oct 2026 20:10:02 -0400
 Subject: [PATCH] soc: google: cpif: s51xx: map the doorbell only inside the
  bridge window
 
-The modem's doorbell is a register at BAR0 + offset. The endpoint driver
-computes its CPU address from the start of the root port's memory window
-and maps it whatever the result. If that window is not assigned (its
-start is 0), the "doorbell" is a low physical address, and every message
-to the modem would write it.
-
-Refuse the probe unless the window is assigned and contains the
-doorbell, fail it when the mapping or the allocation fails, and leave
-the modem control without a PCI device then, as it already expects.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

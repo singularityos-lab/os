@@ -4,13 +4,6 @@ Date: Tue, 27 Oct 2026 12:35:06 -0647
 Subject: [PATCH] dt-bindings: input: cirrus,cs40l26: Add the VP brownout
  threshold
 
-The CS40L26 can attenuate its output in hardware when its amplifier and
-boost input supply drops below a threshold (VP brownout prevention).
-Google's Pixel 9a enables it at 3.008 V. Add
-cirrus,vpbr-threshold-microvolt, the threshold in the chip's 47 mV
-steps from 2.497 to 3.874 V; without it the setting is left alone.
-
-Link: https://android.googlesource.com/kernel/devices/google/tegu/+/6276884d9940694b25a6934671918ec8ac412ee8/dts/zumapro-tegu-haptics.dtsi
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  .../devicetree/bindings/input/cirrus,cs40l26.yaml        | 9 +++++++++

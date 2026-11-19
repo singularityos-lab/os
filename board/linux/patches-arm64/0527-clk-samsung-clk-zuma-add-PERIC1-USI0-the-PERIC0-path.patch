@@ -4,17 +4,6 @@ Date: Wed, 4 Nov 2026 22:55:42 +0200
 Subject: [PATCH] clk: samsung: clk-zuma: add PERIC1 USI0, the PERIC0 paths and
  CMU_PERIC0
 
-PERIC1's USI0: user mux 0x620, divider 0x1808, gates 0x2038, 0x203c and
-0x208c. CMU_TOP's PERIC0 paths: muxes 0x10f0 and 0x10ec, gates 0x2114
-and 0x2110, dividers 0x18e8 and 0x18e4. CMU_PERIC0 at 0x10800000: NoC
-user mux 0x600, USI14 user mux 0x640, USI14 divider 0x180c, USI14 gates
-0x2068, 0x206c and 0x20cc, and the read-only GPIO and sysreg gates
-0x20b8 and 0x20f0.
-
-All offsets are from Google's GPL zuma cal-if (cmucal-sfr.c) and match
-the PERIC1 ones that are already here. Tested on a Pixel 8 Pro:
-haptics (USI0) and the torch (USI14) both probe on these clocks.
-
 Signed-off-by: Lef <me@lefteros.com>
 ---
  drivers/clk/samsung/clk-zuma.c | 80 +++++++++++++++++++++++++++++++++-

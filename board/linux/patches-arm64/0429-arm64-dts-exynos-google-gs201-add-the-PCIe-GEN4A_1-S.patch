@@ -4,12 +4,6 @@ Date: Mon, 12 Oct 2026 10:27:01 -0400
 Subject: [PATCH] arm64: dts: exynos: google: gs201: add the PCIe GEN4A_1
  System MMU
 
-Describe the HSI2 PCIe System MMU (stock: sysmmu@145C0000, SPI 446,
-port PCIe_CH1, VID 1) with its two HSI2 clocks, disabled, and point it
-at the Wi-Fi DMA pool on cheetah through google,dma-window, so the
-SysMMU device gets no restricted DMA pool of its own and its page table
-stays outside the Wi-Fi window.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

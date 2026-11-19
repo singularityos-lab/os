@@ -3,23 +3,6 @@ From: Derek Ross <derekross@gmail.com>
 Date: Mon, 12 Oct 2026 13:59:15 -0400
 Subject: [PATCH] PCI: dwc: add a gs201 modem-link bring-up driver
 
-Bring up PCIe GEN4A_0 of gs201 towards the S5300 modem one step at a
-time, from debugfs, and only with allow_hw=1: the modem's power-on and
-power-off sequences on its control lines (Google's CPIF,
-modem_ctrl_s5100.c), link training (Google's gs201 RC driver,
-exynos_pcie_rc_establish_link() and exynos_pcie_setup_rc() for a Samsung
-modem endpoint), the secure-ATU SMC, and reading the endpoint's ID through
-the config window. The PHY is the gs201 PCIe PHY already used for Wi-Fi,
-with two lanes.
-
-Probe only maps registers and takes the lines as they are; the PHY stays
-isolated until the first step, and the status file reads controller
-registers only once it is not, since an ELBI access to an isolated
-controller hangs the SoC.
-
-It does not register a PCI host or MSI yet; that comes with the modem
-interface driver.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

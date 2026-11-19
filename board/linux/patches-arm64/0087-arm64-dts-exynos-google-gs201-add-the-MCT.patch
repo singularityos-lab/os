@@ -3,18 +3,7 @@ From: Derek Ross <derekross@gmail.com>
 Date: Wed, 14 Oct 2026 21:05:16 -0400
 Subject: [PATCH] arm64: dts: exynos: google: gs201: add the MCT
 
-Describe the multi-core timer at 0x10050000: interrupts GIC SPI 785-796,
-clocked from OSCCLK and the CMU_MISC MCT gate, as in the device tree the
-bootloader hands over on a Pixel 7 Pro (stock Android uses it as its
-per-CPU tick).
-
-On arm64 the driver ranks below the architected timer, so it doesn't
-replace the tick; its global comparator becomes the broadcast clock event
-device that the C2 idle state needs, because the per-core generic timer
-stops while a core is powered down. On a Pixel 7 Pro the clocksource
-stays arch_sys_counter and mct-comp is the broadcast device.
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Assisted-by: Claude:claude-opus-5-5
 ---
  arch/arm64/boot/dts/exynos/google/gs201.dtsi | 23 ++++++++++++++++++++
  1 file changed, 23 insertions(+)

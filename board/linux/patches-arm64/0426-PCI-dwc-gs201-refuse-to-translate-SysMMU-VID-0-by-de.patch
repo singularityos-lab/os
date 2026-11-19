@@ -3,14 +3,6 @@ From: Derek Ross <derekross@gmail.com>
 Date: Mon, 12 Oct 2026 11:15:06 -0400
 Subject: [PATCH] PCI: dwc: gs201: refuse to translate SysMMU VID 0 by default
 
-Negative tests on cheetah showed that the PCIe controller's DMA (AxID
-0x0) and the UFS host controller's (AxID 0x2) both arrive on VID 0. An
-empty or window-only table on VID 0 blocked the UFS transfer request
-list, storage stalled and the phone wedged.
-
-Refuse any mode that would translate VID 0 unless the debug parameter
-allow_vid0 is set, and document the measurement.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

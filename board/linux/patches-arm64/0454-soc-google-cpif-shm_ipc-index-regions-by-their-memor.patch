@@ -4,13 +4,6 @@ Date: Mon, 12 Oct 2026 18:59:40 -0400
 Subject: [PATCH] soc: google: cpif: shm_ipc: index regions by their
  memory-region position
 
-Stock gives each of the modem's reserved-memory nodes an "rmem_index"
-property, and shm_ipc fails without it. Those are generic
-reserved-memory nodes here, shared with nothing but still not the place
-for a driver's numbering. Use the position in the shared-memory node's
-memory-region list when the property is absent (stock lists them in
-index order, so the result is the same), and drop the node references.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

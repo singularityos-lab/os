@@ -3,31 +3,6 @@ From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 Date: Wed, 28 Oct 2026 19:18:29 -0647
 Subject: [PATCH] drm: google: gs-dsim-cmd: Support DCS reads
 
-Panel drivers need reads: a read of the panel's ID would let the tg4c
-driver tell the Pixel 9a's three panels (TG4A, TG4B, TG4C) apart. Reads
-returned -EOPNOTSUPP until now.
-
-Do them as Google's dsim_read_data() does: set the maximum return
-packet size, send the read request with the PKTHDR bus-turnaround bit
-(24), wait for RX_DATA_DONE, then parse the short or long response from
-the RX FIFO. Without the BTA bit the panel never answers and the read
-times out. RX_DATA_DONE is polled: it is unmasked in INTMSK only for the
-read, so it latches in INTSRC, and the mask is put back afterwards. If
-the bootloader left DSIM_TIMEOUT at zero, it gets the vendor driver's
-BTA and LP RX timeouts. Reads take the same lock and the same packet-go
-check as writes.
-
-The RX FIFO is emptied before the request as well as after the
-response, so a panel that answers after its read timed out can't have
-that answer taken for the next read's. A short response returns the
-number of bytes it carried. An acknowledge-and-error report and an EoTp
-packet fail the read with -EIO, which is stricter than the vendor
-driver.
-
-Tested on the Pixel 9a with a tg4c build that reads its five LHBM
-brightness bands (six bytes each) at every boot: the reads succeed, and
-the desktop and 120 Hz are unaffected.
-
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  drivers/gpu/drm/google/gs-dsim-cmd.c | 151 ++++++++++++++++++++++++++-

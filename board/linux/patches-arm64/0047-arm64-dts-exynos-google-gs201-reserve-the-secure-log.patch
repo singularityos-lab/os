@@ -4,13 +4,7 @@ Date: Sun, 11 Oct 2026 23:33:50 -0400
 Subject: [PATCH] arm64: dts: exynos: google: gs201: reserve the secure log,
  modem, AoC and ECT regions
 
-Stock keeps seclog (written by the secure world at runtime), the modem's
-shared memory, AoC's xHCI DMA buffer and the ECT clock tables out of the
-kernel. Without them these 45 MB were ordinary System RAM, so the
-allocator could hand them out while firmware writes there. Found by
-comparing every stock reserved-memory node against /proc/iomem.
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Assisted-by: Claude:claude-opus-5-5
 ---
  arch/arm64/boot/dts/exynos/google/gs201.dtsi | 12 ++++++++++++
  1 file changed, 12 insertions(+)

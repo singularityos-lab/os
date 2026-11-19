@@ -4,16 +4,6 @@ Date: Fri, 30 Oct 2026 14:45:25 -0400
 Subject: [PATCH] arm64: dts: exynos: google: zuma: add the ALIVE pin
  controller
 
-Add zuma's ALIVE pin controller at 0x154d0000, controller 0 of the
-driver's zuma data, with its ten banks (gpa0-gpa4, gpa6-gpa10) and its
-wake-up interrupt controller. As in stock's live device tree, each of
-the 50 pins has its own interrupt, SPI 10 to 59 in pin order, level
-high. Like PERIC0 and HSI2UFS, the controller takes the bus-clock
-stand-in, since zuma has no clock driver yet and ABL leaves the clock
-running.
-
-The power and volume keys are on this controller.
-
 Assisted-by: LLM
 Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
 ---

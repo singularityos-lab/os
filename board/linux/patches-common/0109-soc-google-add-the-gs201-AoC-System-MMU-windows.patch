@@ -3,20 +3,6 @@ From: Derek Ross <derekross@gmail.com>
 Date: Mon, 12 Oct 2026 12:56:52 -0400
 Subject: [PATCH] soc: google: add the gs201 AoC System MMU windows
 
-The AoC firmware addresses its carve-out and a few AP peripherals at
-fixed AoC addresses, and its image header lists the map: six windows,
-all multiples of 1 MiB (for example the 48 MiB carve-out at 0x94000000
-seen at 0x98000000). Install exactly those as first-level sections and
-nothing else, instead of a full IOMMU driver.
-
-The block is in BLK_AOC, whose registers abort while it is off, so the
-driver touches no register on its own: the AoC driver calls
-aoc_sysmmu_dump() and aoc_sysmmu_enable() once BLK_AOC is on. The enable
-sequence, QoS and TLB setup follow Google's samsung-iommu driver and the
-stock device tree. VID 0 is translated by default, with stall on fault;
-faults are logged with their VID and AxID. The empty=1 parameter installs
-an empty table as a negative test.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

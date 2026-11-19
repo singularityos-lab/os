@@ -4,10 +4,6 @@ Date: Sat, 31 Oct 2026 09:30:49 -0643
 Subject: [PATCH] soc: samsung: exynos-pmu: zuma: allow the NFC clock pad
  register
 
-Tensor G4's NFC controller takes its reference clock from a PMU pad,
-PAD_CTRL 0x3e84, which clk-exynos-clkout drives through this regmap.
-zuma's access tables admit only the registers in use, so add that one.
-
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  drivers/soc/samsung/gs101-pmu.c | 3 +++

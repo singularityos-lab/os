@@ -3,14 +3,7 @@ From: Derek Ross <derekross@gmail.com>
 Date: Sun, 11 Oct 2026 20:25:47 -0400
 Subject: [PATCH] drm/sysfb: simpledrm: map dumb buffers write-combined
 
-With a render-only GPU (Mesa kmsro), scanout buffers are allocated as
-simpledrm dumb buffers and rendered by the GPU. If the GPU is not
-cache-coherent, the damage blit's CPU reads can hit stale cache lines,
-since begin_cpu_access only covers imported buffers. On the Pixel 7 Pro
-(Mali-G710 + simplefb) this shows as short dashes wherever the image
-changes. Map the buffers write-combined so the blit reads memory.
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Assisted-by: Claude:claude-opus-5-5
 ---
  drivers/gpu/drm/sysfb/simpledrm.c | 21 +++++++++++++++++++++
  1 file changed, 21 insertions(+)

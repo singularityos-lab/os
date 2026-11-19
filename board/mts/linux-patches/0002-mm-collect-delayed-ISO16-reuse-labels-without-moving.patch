@@ -4,19 +4,6 @@ Date: Sat, 18 Jul 2026 17:26:31 +0100
 Subject: [PATCH 02/11] mm: collect delayed ISO16 reuse labels without moving
  pages
 
-Add the MTS M0 observe-mode collector behind CONFIG_MTS_OBSERVE. An
-eight-byte page_ext descriptor records the v0.2 metadata word. Hooks in the
-classic and multi-generation reclaim paths update age and access evidence
-without changing any reclaim or placement decision.
-
-Use a bounded lock-free sample table to label reuse after a configurable
-horizon. A pool-adjacent-violators pass calibrates the 16 age buckets.
-Debugfs and tracepoints expose sample collisions, labels, and Brier error.
-This keeps the hot path allocation-free and predictor quality measurable.
-
-Document both boot parameters. Define sample_shift=0 as sample-all mode to
-avoid a zero-width hash operation.
-
 Signed-off-by: Mirko Brombin <9479903+mirkobrombin@users.noreply.github.com>
 ---
  .../admin-guide/kernel-parameters.txt         |   9 +

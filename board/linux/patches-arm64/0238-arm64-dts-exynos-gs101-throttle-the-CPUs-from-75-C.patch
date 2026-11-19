@@ -3,16 +3,8 @@ From: saiththerobo <the.tom.sharp@gmail.com>
 Date: Tue, 20 Oct 2026 07:59:16 +0100
 Subject: [PATCH] =?UTF-8?q?arm64:=20dts:=20exynos:=20gs101:=20throttle=20t?=
  =?UTF-8?q?he=20CPUs=20from=2075=20=C2=B0C?=
-MIME-Version: 1.0
-Content-Type: text/plain; charset=UTF-8
-Content-Transfer-Encoding: 8bit
 
-Under a busy shell the Pixel 6 Pro's big cluster reached the 110 °C
-critical trip and the phone shut down: the CPU zones only began to
-throttle at 85 °C. Move the three CPU zones' passive trips to 75 and
-85 °C. The critical trips stay at 110 °C.
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Assisted-by: Claude:claude-opus-5-5
 Signed-off-by: saiththerobo <the.tom.sharp@gmail.com>
 ---
  arch/arm64/boot/dts/exynos/google/gs101.dtsi | 12 ++++++------

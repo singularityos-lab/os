@@ -4,35 +4,6 @@ Date: Sun, 1 Nov 2026 18:37:29 -0647
 Subject: [PATCH] soc: google: gnssif_spi: release everything on probe failure
  and remove
 
-Google's gnssif leaves most of what it sets up behind:
-
-- Every create_*_device() returns NULL on failure and the probe returns
-  -ENOMEM, so an -EPROBE_DEFER from the GPIO lookup is lost. On the
-  Pixel 9a the core's request line is on GPA5 of the FAR_ALIVE pin
-  controller, which can bind after this driver; the driver would then
-  never bind. Return the error and pass it on with dev_err_probe().
-- A failure after the interrupt is requested frees the control data
-  with the handler still installed, and the probe's last message
-  dereferences pdata, which is NULL when the node is missing.
-- The work queue, the wakeup source and the character device are never
-  released, on a failed probe or on remove, so after rmmod
-  /dev/gnss_ipc points at freed memory. remove() does not stop the read
-  work either, which enables the interrupt again when it ends.
-- gif_disable_irq_sync() takes the interrupt's lock without disabling
-  interrupts, and the handler takes the same lock (through
-  gif_disable_irq_nosync()): a deadlock if the interrupt arrives on that
-  CPU.
-
-Use devm for the interrupt (and its wake setting), the work queue (an
-ordered one, the current form of Google's unbound queue with one active
-work item), the wakeup source and the character device. In remove(),
-disable the interrupt, wait for the read work, and disable it again
-before devm releases the rest. The coredump attribute moves to the
-driver's dev_groups. Take the lock with interrupts disabled in
-gif_disable_irq_sync(). Suppress the bind attributes, as gnss_spi
-already does: the module can't be removed while the GNSS daemon holds
-/dev/gnss_ipc open, but a manual unbind could.
-
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  .../soc/google/gnssif_spi/gnss_io_device.c    | 30 ++++++++--

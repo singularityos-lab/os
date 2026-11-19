@@ -3,32 +3,7 @@ From: Derek Ross <derekross@gmail.com>
 Date: Mon, 12 Oct 2026 12:59:56 -0400
 Subject: [PATCH] power: supply: max77759: add a battery temperature guard
 
-Nothing limits charging by temperature on a mainline Pixel: the stock
-phone does it in software (Google's google_battery), from a step
-charging table in its device tree. Outside 0-55 C it doesn't charge;
-elsewhere the float voltage and the charge current depend on the
-temperature band and on how far the cell has charged:
-
-  0-10 C:  up to 4.30 V, 30 %/10 % of capacity
-  10-20 C: up to 4.45 V, 50 %/30 %/30 %
-  20-42 C: up to 4.45 V, 100 %/70 %/50 %
-  42-46 C: up to 4.45 V, 80 %/50 %/50 %
-  46-48 C: up to 4.30 V, 50 %/50 %
-  48-55 C: up to 4.20 V, 30 %
-
-for voltage tiers up to 4.20, 4.30 and 4.45 V.
-
-Add that policy behind a temp_guard module parameter, off by default.
-Every 30 s it reads the battery's temp and voltage_now from the power
-supply named by guard_psy, picks the band (moving to a more restrictive
-one at once, to a less restrictive one only 2 C inside it) and the tier
-(rising only, within a band), and sets the float voltage and fast charge
-current, never above the battery description's limits. Outside the
-bands, or without a reading, it puts the charger in buck-only mode (0x4):
-the phone keeps running from USB and the battery rests. Turning the
-parameter off restores the description's limits.
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Assisted-by: Claude:claude-opus-5-5
 ---
  drivers/power/supply/max77759_charger.c | 232 +++++++++++++++++++++++-
  include/linux/mfd/max77759.h            |   1 +

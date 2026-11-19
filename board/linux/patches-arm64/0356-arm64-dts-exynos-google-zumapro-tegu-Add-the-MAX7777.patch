@@ -4,18 +4,6 @@ Date: Sat, 31 Oct 2026 11:02:24 -0643
 Subject: [PATCH] arm64: dts: exynos: google: zumapro-tegu: Add the MAX77779
  charger
 
-The MAX77779's charger answers at 0x69 on the same bus as its fuel gauge
-and USB-C port controller. Describe it, and name it as the fuel gauge's
-power supply, so the max77779-charger driver binds from the device tree
-and the battery reports charging through it.
-
-This node has no interrupt yet; the chip charges on its own, and the
-driver reports its state and offers charge inhibit.
-
-power-supplies is also a device link: the fuel gauge now waits for the
-charger to probe, so if the charger driver is missing or fails to probe,
-the battery stays deferred with it.
-
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  arch/arm64/boot/dts/exynos/google/zumapro-tegu.dts | 10 ++++++++--

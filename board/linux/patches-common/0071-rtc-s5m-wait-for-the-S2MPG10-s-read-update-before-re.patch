@@ -4,19 +4,6 @@ Date: Wed, 28 Oct 2026 13:43:08 +0000
 Subject: [PATCH] rtc: s5m: wait for the S2MPG10's read update before reading
  the time
 
-On the Pixel 6 Pro (S2MPG10, through ACPM), reading the RTC returned a
-stale time now and then: of 20 reads half a second apart, three were 1 s
-behind the system clock and one 5 s, and an alarm set 60 s ahead with
-rtcwake landed 31 s late. rtcwake sets its alarm relative to that read,
-so the alarm fired early in one suspend and not at all in another,
-leaving the phone asleep for 558 s instead of 20.
-
-The S2MPG10 copies its counters into the time registers on a rising edge
-of RUDR, and the copy takes time. The driver only sets the bit, which
-writes nothing while it still reads 1, and reads the registers at once.
-Do what Google's s2mpg10 driver does (s2m_rtc_update()): clear RUDR,
-wait 50 us, set it, and wait 1 ms before the read.
-
 Assisted-by: Claude Opus 5.5
 Signed-off-by: saiththerobo <the.tom.sharp@gmail.com>
 ---

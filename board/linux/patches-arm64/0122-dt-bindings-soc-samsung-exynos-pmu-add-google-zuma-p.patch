@@ -3,11 +3,6 @@ From: Brett-Michael Green <brett@bmgvisualtech.com>
 Date: Thu, 22 Oct 2026 12:43:01 -0400
 Subject: [PATCH] dt-bindings: soc: samsung: exynos-pmu: add google,zuma-pmu
 
-zuma (Tensor G3) has gs101's PMU arrangement: PMU_ALIVE is writable only
-from EL3. Add its compatible on its own: the register map differs from
-gs101's, and it needs no pmu-intr-gen syscon for now (no CPU idle or
-hotplug support yet).
-
 Assisted-by: LLM
 Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
 ---

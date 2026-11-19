@@ -3,18 +3,6 @@ From: Brett-Michael Green <brett@bmgvisualtech.com>
 Date: Thu, 22 Oct 2026 16:07:02 -0400
 Subject: [PATCH] arm64: dts: exynos: google: zuma-husky: panic on lockups
 
-The zuma watchdog driver stops the cluster watchdogs the bootloader
-leaves running, so on husky a hang that never panics lasts until
-someone holds Power and Volume Up, for 15 to 30 seconds. Ask for a
-panic on soft and hard lockups and on RCU stalls, so that panic=10
-resets the phone by itself and, after its retries, the bootloader falls
-back to the other slot.
-
-The lockup detectors need CONFIG_SOFTLOCKUP_DETECTOR and
-CONFIG_HARDLOCKUP_DETECTOR (the buddy detector on arm64 without pseudo
-NMIs), which arm64's defconfig lacks; RCU stall detection is always
-built.
-
 Assisted-by: LLM
 Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
 ---

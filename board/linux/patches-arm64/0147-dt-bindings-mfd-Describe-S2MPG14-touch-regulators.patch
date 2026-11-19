@@ -3,10 +3,6 @@ From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 Date: Thu, 22 Oct 2026 20:25:11 -0700
 Subject: [PATCH] dt-bindings: mfd: Describe S2MPG14 touch regulators
 
-Describe the S2MPG14 main PMIC and the two outputs used by the Pixel
-9a touchscreen. Include a main-PMIC example with both supply outputs.
-The G4 ACPM parent binding is a separate prerequisite.
-
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  .../bindings/mfd/samsung,s2mpg14-pmic.yaml    | 44 +++++++++++++++++++

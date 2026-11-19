@@ -4,16 +4,6 @@ Date: Mon, 12 Oct 2026 19:08:20 -0400
 Subject: [PATCH] soc: google: cpif: take the lines and regions from the
  board's modem node
 
-In Google's device tree the modem's lines and its reserved regions are
-properties of the CPIF and cp_shmem nodes. Here the board describes the
-S5300 once, in the "samsung,s5300-modem" node under its PCIe link, which
-the link driver uses for bring-up and which is disabled for it when CPIF
-runs. CPIF's own nodes carry only its configuration.
-
-When a CPIF node has no lines (or no memory-region), take them from the
-modem node, whatever its status. A CPIF node that has its own still uses
-them.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

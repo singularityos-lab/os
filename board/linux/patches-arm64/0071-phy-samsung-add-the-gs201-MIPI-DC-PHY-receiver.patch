@@ -3,39 +3,7 @@ From: Derek Ross <derekross@gmail.com>
 Date: Wed, 14 Oct 2026 21:05:07 -0400
 Subject: [PATCH] phy: samsung: add the gs201 MIPI DC-PHY receiver
 
-The gs201 CSIS camera receiver links each sit behind a slave of the
-Samsung MIPI DC-PHY: links 0 and 1 with four data lanes, links 2-7 with
-two. An even two-lane slave and the odd one after it combine into one
-four-lane receiver for the even link (the odd slave's two data lanes
-come first in its window and its clock lane is unused). A bias block and
-one PMU isolation bit are shared. Mainline only has the transmit
-(master) side of this PHY family, in phy-rockchip-samsung-dcphy.
-
-Add a generic PHY driver for the receive side. Power-on releases the
-PMU isolation and the slave's reset bit in the CSIS sysreg (the lane
-registers must not be touched while it is held), resets the analog part
-with the lanes off, and programs the bias block, the clock lane and
-each data lane. The register layout and sequence follow Google's GPL
-phy-exynos-mipi.c for DC-PHY version 0x0504 and what the stock camera
-software writes on Pixel 7 phones.
-
-D-PHY and C-PHY are both supported. Google's GPL driver leaves C-PHY
-unimplemented; a consumer selects it with
-phy_set_mode_ext(PHY_MODE_MIPI_DPHY, PHY_TYPE_CPHY), and
-phy_configure()'s lanes are then trios, one data lane block each, with
-no clock lane and no four-lane pairing, and hs_clk_rate is the symbol
-rate.
-
-The receive settings themselves (the bias and per-lane analog words,
-and the settle count and skew delay by rate) differ from Google's GPL
-values and are not public, so they are not in this driver: it loads
-them from a data file named by firmware-name at the first power-on, in
-a small format of its own (an ordered list of writes per block and a
-table by rate). The file is checked whole before anything is written,
-and without it no link powers on. Lane registers can be dumped through
-debugfs.
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Assisted-by: Claude:claude-opus-5-5
 ---
  drivers/phy/samsung/Kconfig                   |  11 +
  drivers/phy/samsung/Makefile                  |   1 +

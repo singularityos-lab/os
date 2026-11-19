@@ -3,12 +3,6 @@ From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 Date: Tue, 27 Oct 2026 16:34:05 -0647
 Subject: [PATCH] dt-bindings: net: nfc: nxp,nci: Add the ST ST54L
 
-The ST54L in the Google Pixel 9a speaks plain NCI over I2C with an
-enable line and an interrupt, the transport the nxp-nci driver
-implements, rather than the NDLC framing of ST's ST21NFCB family
-(st,st21nfcb-i2c), whose initialisation timed out on it. Add it as a
-compatible with nxp,nxp-nci-i2c as the fallback.
-
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  Documentation/devicetree/bindings/net/nfc/nxp,nci.yaml | 5 +++++

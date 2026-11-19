@@ -3,11 +3,6 @@ From: Derek Ross <derekross@gmail.com>
 Date: Mon, 12 Oct 2026 09:47:34 -0400
 Subject: [PATCH] arm64: dts: exynos: google: gs201: add USI7 SPI
 
-Add PERIC0 USI7 (system register offset 0x1018, GIC SPI 680) with its
-SPI controller and the gpp14 bus pins, as found in the stock device
-tree. Pixel 7 Pro has its two speaker amplifiers on this bus. Disabled
-until a board enables it.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

@@ -4,19 +4,6 @@ Date: Thu, 22 Oct 2026 13:22:55 -0400
 Subject: [PATCH] arm64: dts: exynos: google: zuma-husky: add the boot
  framebuffer
 
-ABL hands over with its splash still scanned out: on a booted phone
-DPP0's RDMA_BASEADDR_P0 (0x19900040) reads 0xfac00000, as on the Pixel
-7 Pro. Describe it as a simple-framebuffer at the panel's native
-1344x2992 (a8r8g8b8), with a no-map carve-out so the kernel leaves it
-alone, and pick a console font that reads at this density.
-
-The panel is in DSI command mode and ABL leaves DECON0's hardware
-trigger masked (TRIG_CON 0x19470030 reads 0x3070), so frames reach the
-panel only once userspace unmasks it, as on gs201.
-
-Tested on a Pixel 8 Pro: simpledrm binds, and with the trigger unmasked
-the console shows on the panel.
-
 Assisted-by: LLM
 Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
 ---

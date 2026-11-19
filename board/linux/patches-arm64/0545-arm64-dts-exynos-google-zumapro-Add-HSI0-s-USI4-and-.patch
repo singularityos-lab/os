@@ -4,18 +4,6 @@ Date: Sat, 31 Oct 2026 11:21:32 -0643
 Subject: [PATCH] arm64: dts: exynos: google: zumapro: Add HSI0's USI4 and its
  I2C controller
 
-Describe CMU_HSI0's USI4 in I2C mode and its controller, the Pixel 9a's
-I2C19 (the speaker amplifiers' control bus), as USI3's SPI is: the USI
-control registers at 0x111f00c0 apart from the controller's, the HSI0
-sysreg's selector at 0x1024, GIC SPI 410. Both stay disabled.
-
-Booted on the Pixel 9a:
-7.3.0-rc6-omamobile-tegu-s2mpg15-m1-g991042e2eff3-dirty has these two
-nodes, enabled by an overlay at runtime; exynos-usi and exynos5-hsi2c
-bind them and the two TAS2572s answer at 0x48 and 0x49.
-
-Address, selector and interrupt from Google's GPL zumapro-usi.dtsi.
-
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  .../arm64/boot/dts/exynos/google/zumapro.dtsi | 28 +++++++++++++++++++

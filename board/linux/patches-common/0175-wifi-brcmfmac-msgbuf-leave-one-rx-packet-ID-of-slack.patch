@@ -4,30 +4,6 @@ Date: Mon, 2 Nov 2026 09:27:29 +0200
 Subject: [PATCH] wifi: brcmfmac: msgbuf: leave one rx packet ID of slack for
  the refill
 
-The rx packet IDs are shared by the data, ioctl response and event
-buffers. max_rxbufpost is capped so that the data buffers get IDs
-nr_ctrl + 1 .. NR_RX_PKTIDS - 1, exactly as many IDs as buffers that
-may be posted. That is one too few when the ring is refilled.
-
-brcmf_msgbuf_process_rx_complete() calls
-brcmf_msgbuf_update_rxbufpost_count() before it frees the completed
-buffer's ID with brcmf_msgbuf_get_pktid(). When the posted count drops
-to max_rxbufpost - BRCMF_MSGBUF_RXBUFPOST_THRESHOLD, the refill tries
-to post 32 buffers while the buffer being completed still holds its
-ID, so only 31 IDs are free and the 32nd allocation fails with
-"No PKTID available". The refill posts 31 and logs, and the retry for the
-last buffer logs again. The posted count then sits one under the cap,
-so the next refill, 31 completions later, is short the same way: two
-lines for every 31 received buffers.
-
-On a BCM4398 (Pixel 8 Pro) a 300 MB download produced one
-"No PKTID available !!" line per 15.7 received packets (13,250 lines
-for 208,529 packets); the refill reading predicts one per 15.5.
-I saw no throughput problem, which fits: each short refill leaves at
-most one buffer unposted.
-
-Cap max_rxbufpost one lower so a full refill always finds an ID.
-
 Signed-off-by: Lef <me@lefteros.com>
 ---
  drivers/net/wireless/broadcom/brcm80211/brcmfmac/msgbuf.c | 8 ++++++--

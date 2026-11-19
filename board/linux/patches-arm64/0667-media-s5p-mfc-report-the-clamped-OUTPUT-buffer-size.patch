@@ -1,24 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?=C3=81ngel=20Ren=C3=A9?=
- <17342133+angelrenefm@users.noreply.github.com>
 Date: Sat, 14 Nov 2026 11:43:52 +0100
 Subject: [PATCH] media: s5p-mfc: report the clamped OUTPUT buffer size
-MIME-Version: 1.0
-Content-Type: text/plain; charset=UTF-8
-Content-Transfer-Encoding: 8bit
-
-S_FMT on the OUTPUT queue caps the bitstream buffer at the variant's
-CPB size, but hands the application back the size it asked for. The
-buffers then come out smaller than the format says.
-
-GStreamer asks for width * height for a 4K H.264 stream (8294400
-bytes), the MFC v15 caps it at 7 MiB, and v4l2h264dec gives up with
-"buffer size 7340032 is smaller then negotiated size 8294400" and
-"Failed to allocate required memory". Return the clamped size, as the
-default branch already does.
-
-On the Pixel 7 a 3840x2160 High profile clip then decodes in full and
-its frames match FFmpeg's software decoder bit for bit.
 
 Assisted-by: LLM
 Signed-off-by: Ángel René <17342133+angelrenefm@users.noreply.github.com>

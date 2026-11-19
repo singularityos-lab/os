@@ -4,10 +4,6 @@ Date: Tue, 27 Oct 2026 11:51:28 -0647
 Subject: [PATCH] arm64: dts: exynos: google: zumapro-tegu: Add the GPU's
  levels to 890 MHz
 
-With gpu-thermal throttling the GPU, add the 9a's GPU levels above 649
-MHz: 723, 807, 850 and 890 MHz. The table's top, 940 MHz, stays out
-until it has run on the 9a.
-
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  .../boot/dts/exynos/google/zumapro-tegu.dts   | 21 +++++++++++++++++--

@@ -4,12 +4,6 @@ Date: Mon, 12 Oct 2026 19:08:20 -0400
 Subject: [PATCH] arm64: dts: exynos: google: gs201-cheetah: describe the
  modem's shared memory
 
-Give the modem node the three regions stock's cp_shmem node lists for
-the S5300, in stock's index order: IPC buffers (0xea400000, 8 MiB), the
-MSI page (0xf6200000) and the packet buffers (0xe8000000, 32 MiB). All
-three are reserved no-map already; nothing maps them until the modem
-driver runs.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

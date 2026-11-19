@@ -4,16 +4,7 @@ Date: Thu, 15 Oct 2026 20:54:59 +0100
 Subject: [PATCH] arm64: dts: exynos: google: gs101-raven: add the rear flash
  LED
 
-The Pixel 6 Pro's rear flash LED driver is a TI LM3644 at 0x63 on I2C 7
-(USI7), with its HWEN on gpp23-6, as stock's raven device tree describes
-it. Torch only, capped at 50 mA per channel (a bring-up limit).
-
-Tested on raven (7.3.0-rc6): the driver reads the LM3644TT (device ID
-0x04) and offers 17 torch steps, 2550-49110 uA per channel; the LED
-turns on and off by hand and from the shell's torch tile (brightnessctl
-through logind, no udev rule needed).
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Assisted-by: Claude:claude-opus-5-5
 Signed-off-by: saiththerobo <the.tom.sharp@gmail.com>
 ---
  .../boot/dts/exynos/google/gs101-raven.dts    | 30 +++++++++++++++++++

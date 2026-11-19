@@ -3,11 +3,6 @@ From: Brett-Michael Green <brett@bmgvisualtech.com>
 Date: Fri, 30 Oct 2026 14:45:25 -0400
 Subject: [PATCH] arm64: dts: exynos: google: zuma-husky: add the buttons
 
-Describe the power and volume keys as gpio-keys, as stock does: power
-on gpa4-0 (pulled up), volume down on gpa4-1 and volume up on gpa6-2,
-all active low and in their wake-up interrupt function. Values come
-from a retail Pixel 8 Pro's live device tree.
-
 Assisted-by: LLM
 Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
 ---

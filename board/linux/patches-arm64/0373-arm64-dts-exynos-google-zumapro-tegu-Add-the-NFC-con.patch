@@ -4,18 +4,6 @@ Date: Tue, 27 Oct 2026 19:56:39 -0647
 Subject: [PATCH] arm64: dts: exynos: google: zumapro-tegu: Add the NFC
  controller
 
-The Pixel 9a's ST54L sits at 0x08 on hsi2c9, its interrupt on gpa7-5
-(level high), its RST_N on gph1-6, and its reference clock from the PMU's
-clock pad. Its chip enable (gpa0-1) powers the whole chip and is held
-high by a hog: stock's eSE driver raises it, and nothing here drives the
-eSE.
-
-Tested on the Pixel 9a: on this tree the controller probes on nxp-nci
-and neard polls with the clock enabled, with no I2C errors. The read of
-a contactless card (ISO-DEP over NFC-A) was on the earlier version of
-the series, which took the clock from a different provider.
-
-Link: https://android.googlesource.com/kernel/devices/google/tegu/+/6276884d9940694b25a6934671918ec8ac412ee8/dts/zuma-tegu-nfc.dtsi
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  .../boot/dts/exynos/google/zumapro-tegu.dts   | 43 +++++++++++++++++++

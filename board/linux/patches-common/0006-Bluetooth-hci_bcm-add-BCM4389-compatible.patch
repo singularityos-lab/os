@@ -3,12 +3,7 @@ From: Derek Ross <derekross@gmail.com>
 Date: Sun, 11 Oct 2026 20:21:32 -0400
 Subject: [PATCH] Bluetooth: hci_bcm: add BCM4389 compatible
 
-Add the BCM4389 Bluetooth controller found in Google's Pixel 7 and
-Pixel 7 Pro. btbcm has no name for its LMP subversion yet, so it loads
-brcm/BCM.<board>.hcd or brcm/BCM.hcd, which is also what Google calls
-the firmware file.
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Assisted-by: Claude:claude-opus-5-5
 ---
  drivers/bluetooth/hci_bcm.c | 1 +
  1 file changed, 1 insertion(+)

@@ -4,12 +4,6 @@ Date: Fri, 23 Oct 2026 01:01:02 -0700
 Subject: [PATCH] dt-bindings: clock: google,zumapro: Describe MISC watchdog
  clocks
 
-Describe CMU_MISC and its oscillator/NoC inputs, and append IDs for its
-watchdog bus paths and the TOP branch. Preserve every existing clock ID.
-These descriptions do not enable a watchdog or power-domain operation.
-
-Full binding/example validation passes with the ARM64 build tools.
-
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  .../bindings/clock/google,zumapro-clock.yaml   | 18 +++++++++++++++---

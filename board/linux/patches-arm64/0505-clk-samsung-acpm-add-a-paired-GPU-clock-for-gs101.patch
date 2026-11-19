@@ -3,23 +3,6 @@ From: saiththerobo <the.tom.sharp@gmail.com>
 Date: Wed, 4 Nov 2026 07:56:16 +0000
 Subject: [PATCH] clk: samsung: acpm: add a paired GPU clock for gs101
 
-The Mali-G78 in gs101 is clocked from two DVFS domains, G3D for the
-shader cores and G3DL2 for the top level and L2. Google's driver moves
-them together from a fixed table and keeps G3DL2 at or above G3D
-throughout (gpu_dvfs_set_new_level() in pixel_gpu_dvfs.c: "When clocking
-down we must set G3D CLK first"). Setting the two clocks one after the
-other from the GPU driver can't keep that order in both directions.
-
-Add gs101 a "gpu" clock as gs201 and zumapro have: its rate is the
-shader rate, and setting it moves G3DL2 to the paired level, raising it
-first going up and lowering it last going down. The pairs are Google's
-gs101 table (gpu_dvfs_table_v2 up to gpu_dvfs_max_freq, 800 MHz), with
-the 151 and 202 MHz rows that stock's 250 MHz gpu_dvfs_min_freq leaves
-out. Unlike gs201's, the clock is writable from the start: the levels
-were run on a Pixel 6 Pro (raven) through devfreq.
-
-The other gs101 clocks are unchanged.
-
 Assisted-by: Claude Opus 5.5
 Signed-off-by: saiththerobo <the.tom.sharp@gmail.com>
 ---

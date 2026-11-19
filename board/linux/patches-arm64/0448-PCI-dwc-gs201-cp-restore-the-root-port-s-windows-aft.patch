@@ -4,18 +4,6 @@ Date: Tue, 13 Oct 2026 12:22:24 -0400
 Subject: [PATCH] PCI: dwc: gs201-cp: restore the root port's windows after a
  link down
 
-Link down ends in a controller soft power reset, which clears the root
-port's configuration. The bus and the modem's pci_dev outlive it, so on
-the next link up the PCI core does not program the root port again:
-the endpoint's saved state was restored, but the root port's memory
-window stayed empty. The modem driver takes the link down and up during
-every boot (ROM at Gen1, boot loader at Gen3), and the modem's BAR0
-must be reachable through the window afterwards.
-
-Save the windows and bridge control the core programmed at the scan and
-write them back whenever the bus step finds the bus registered. The rest
-of the root port's setup is redone by link up.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

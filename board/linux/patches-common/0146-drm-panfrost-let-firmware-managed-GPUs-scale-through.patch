@@ -3,15 +3,6 @@ From: saiththerobo <the.tom.sharp@gmail.com>
 Date: Wed, 4 Nov 2026 07:56:27 +0000
 Subject: [PATCH] drm/panfrost: let firmware-managed GPUs scale through devfreq
 
-On gs101 the APM firmware (ACPM) sets the G3D voltages together with the
-G3D and G3D L2 clock rates, so the four GPU rails need no OPP voltages,
-and panfrost skipped devfreq altogether because the GPU has more than
-one supply: the GPU ran at the 151 MHz the bootloader left.
-
-Add GPU_PM_FW_DVFS for such GPUs: devfreq then sets rates only. The L2
-clock is the clock provider's business: on gs101 one ACPM clock moves
-both domains together, in the order the firmware needs.
-
 Assisted-by: Claude Opus 5.5
 Signed-off-by: saiththerobo <the.tom.sharp@gmail.com>
 ---

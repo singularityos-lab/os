@@ -4,16 +4,6 @@ Date: Sun, 1 Nov 2026 20:03:09 -0647
 Subject: [PATCH] soc: samsung: gs101-pmu: zuma: allow the modem PCIe PHY's
  isolation register
 
-zuma's PCIe PHY for its first controller (the S5300 modem's) is isolated
-through PMU offset 0x3ec4, as stock's pcie@12100000 gives it
-(pmu-offset). Its PHY driver releases the isolation and sets bit 10 once
-the PHY is configured, so add the register to zuma's PMU regmap, next to
-the Wi-Fi PHY's 0x3ec8.
-
-On the Pixel 9a, the modem link's bring-up driver read the register as
-0xc0 at boot, 0x1 out of isolation and 0x401 after configuration, and
-the link came up at Gen1 x1.
-
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  drivers/soc/samsung/gs101-pmu.c | 2 ++

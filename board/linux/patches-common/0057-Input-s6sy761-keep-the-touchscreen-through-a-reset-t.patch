@@ -4,22 +4,7 @@ Date: Fri, 16 Oct 2026 12:40:55 +0100
 Subject: [PATCH] Input: s6sy761 - keep the touchscreen through a reset that
  races an open
 
-After a resume the SPI controller sometimes stops answering, and the
-driver resets it from a work item. On a Pixel 6 Pro userspace opened the
-device while that reset had the controller powered down: the open's
-SENSE_ON failed, the open returned -EIO, and userspace dropped the
-touchscreen. The reset, finding the device not open, then skipped
-SENSE_ON and left the controller idle, so no touch was reported until
-the driver was rebound.
-
-Serialise the reset with open and close under the input mutex, and turn
-a failed SENSE_ON in open or resume into a reset rather than an error,
-so userspace keeps the device. Cancel a pending reset before suspend,
-which powers the controller off, and retry a reset that fails a few
-times, a second apart. On the I2C boards an open no longer fails either:
-a controller that doesn't take SENSE_ON is reset instead.
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Assisted-by: Claude:claude-opus-5-5
 Signed-off-by: saiththerobo <the.tom.sharp@gmail.com>
 ---
  drivers/input/touchscreen/s6sy761.c | 67 +++++++++++++++++++++--------

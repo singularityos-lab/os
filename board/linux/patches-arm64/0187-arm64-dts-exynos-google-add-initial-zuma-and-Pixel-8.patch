@@ -4,40 +4,6 @@ Date: Thu, 22 Oct 2026 16:06:21 -0400
 Subject: [PATCH] arm64: dts: exynos: google: add initial zuma and Pixel 8 Pro
  support
 
-A minimal zuma (Tensor G3) description: nine CPUs (4x Cortex-A510,
-4x Cortex-A715, 1x Cortex-X3) on PSCI, the GICv3, the architected
-timer, the fixed DRAM carve-outs firmware owns, ramoops in stock's
-layout, and the DWC3 controller, added disabled (the next commits
-give it its PHYs and enable it). Values come from a retail Pixel 8
-Pro's live device tree and Google's GPL zuma tree.
-
-The parts of stock's base DTB the bootloader reads or patches follow
-stock: /ect carries the ECT location (stock's base DTBs have size
-0x53000, which the bootloader rewrites to 0x14000), /memory has the
-first DRAM bank, and none of the reservations the bootloader inserts
-itself (pkvm_guest_firmware, sec_dram, sec_pt) are listed. Nor is
-debug_kinfo_reserved, the page at 0xfd3fe000: stock's base DTB carries
-it, and the bootloader adds it to a tree without it. The debug
-carve-out ends there, as stock's dss_log_reserved does, so the two
-don't overlap.
-
-zuma's bootloader matches the base DTB on a /soc_compatible node
-rather than /soc_id; the husky board file carries the B0/B1 FOPLP
-entries a retail phone matches. Label stubs let the bootloader's
-debug-policy overlay apply.
-
-No clock, pinctrl or power-domain providers yet. The framebuffer, the
-watchdogs and the reboot mode come in later commits.
-
-dtbs_check: only the two stock-style "description" labels in
-/soc_compatible remain unvalidated.
-
-Tested on a Pixel 8 Pro, with the DWC3 enabled: the bootloader boots
-the kernel with this description and the initramfs runs (the DWC3
-fails to probe until its PHYs are described). With the debug carve-out
-ending at 0xfd3fe000, the bootloader's debug_kinfo_reserved node is in
-the booted tree and the kernel reports no reserved-memory overlap.
-
 Assisted-by: LLM
 Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
 ---

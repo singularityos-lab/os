@@ -3,12 +3,6 @@ From: Brett-Michael Green <brett@bmgvisualtech.com>
 Date: Thu, 22 Oct 2026 12:54:14 -0400
 Subject: [PATCH] arm64: dts: exynos: google: zuma: add the cluster watchdogs
 
-ABL hands over with both cluster watchdogs counting a 30 s timeout;
-without a driver taking them over, the phone resets about 80 s into
-boot (stock then reports watchdog,apc,early). Describe both. As for
-USB, a fixed clock stands in for their clocks until zuma has a clock
-driver: stock runs both counters from the 24.576 MHz oscillator.
-
 Assisted-by: LLM
 Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
 ---

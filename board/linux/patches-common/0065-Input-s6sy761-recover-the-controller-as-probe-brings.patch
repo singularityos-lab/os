@@ -3,27 +3,7 @@ From: saiththerobo <the.tom.sharp@gmail.com>
 Date: Tue, 27 Oct 2026 16:51:26 +0000
 Subject: [PATCH] Input: s6sy761 - recover the controller as probe brings it up
 
-On raven a run of failed event reads made the driver reset the touch
-controller with its rails off for only 50 ms and then sense again,
-without probe's bring-up. One boot logged 113 failed reads and 29 resets
-in its first six minutes, with taps lost and doubled, where a fresh
-probe of the same driver (a module reload) gave one failed read and no
-reset in the next minutes. A 100 ms power cycle had also been too short
-for probe once after a warm reset.
-
-So the recovery now leaves the rails off longer on each try (100, 500,
-1500 ms) and runs hw_init() as probe does (power-on, device ID, panel
-info, firmware integrity) before sensing again, and probe's own retry
-uses the same lengthening off times. A reply that carries the right
-sync code but an earlier request's register, seen on raven (an event
-read's reply to a status read), is read once more, so it can't put the
-later replies a command behind.
-
-Tested on raven as a module (7.3.0-rc6, g64b532aaf7e8): no failed read
-and no reset in the first minutes of use; not yet seen across a
-recovery.
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Assisted-by: Claude:claude-opus-5-5
 Signed-off-by: saiththerobo <the.tom.sharp@gmail.com>
 ---
  drivers/input/touchscreen/s6sy761.c | 46 ++++++++++++++++++++++-------

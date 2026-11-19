@@ -4,17 +4,7 @@ Date: Wed, 14 Oct 2026 21:05:26 -0400
 Subject: [PATCH] arm64: dts: exynos: google: gs201-cheetah: enable the haptics
  and the flash LED
 
-Describe the CS40L26A haptics driver at 0x43 on USI8 I2C (interrupt
-gpa8-1, reset gpp24-3) with the stock boost and actuator values
-(Google's gs201-cs40l26a-config.dtsi), and the LM3644TT flash LED
-driver at 0x63 on USI15 I2C (HWEN gpp8-2) as a white torch, capped at
-50 mA per channel.
-
-Both have been tested on the phone: the CS40L26 runs its firmware and
-vibrates through feedbackd, and the LM3644 lights the rear flash in
-torch mode. Enable USI15 and its I2C bus with them.
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Assisted-by: Claude:claude-opus-5-5
 ---
  .../boot/dts/exynos/google/gs201-cheetah.dts  | 67 ++++++++++++++++++-
  1 file changed, 65 insertions(+), 2 deletions(-)

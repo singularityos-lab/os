@@ -3,16 +3,6 @@ From: Derek Ross <derekross@gmail.com>
 Date: Mon, 12 Oct 2026 12:07:02 -0400
 Subject: [PATCH] arm64: dts: exynos: google: gs201: add HSI1 pinctrl
 
-Describe the HSI1 pin controller at 0x11840000 (banks gph0 and gph1,
-wake-up interrupt GIC SPI 387, from Google's gs201 device tree). It
-carries the modem's PCIe GEN4A_0 CLKREQ#/PERST# and control lines, and
-the NFC controller's reset and power-idle lines. The driver already has
-the bank data (gs201 reuses gs101's HSI1 table); only the node was
-missing.
-
-As on gs101 there is no CMU_HSI1 driver yet, so the bus clock is left
-empty. The node is disabled until a board enables it.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

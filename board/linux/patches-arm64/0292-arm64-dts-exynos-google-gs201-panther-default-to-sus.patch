@@ -4,16 +4,6 @@ Date: Wed, 28 Oct 2026 22:28:00 -0700
 Subject: [PATCH] arm64: dts: exynos: google: gs201-panther: default to
  suspend-to-idle
 
-The firmware advertises PSCI SYSTEM_SUSPEND, so the kernel offers deep
-sleep and makes it the default: /sys/power/mem_sleep reads
-"s2idle [deep]" on the Pixel 7. Linux has no gs201 sleep sequence yet,
-and the phone never wakes from deep. Pass mem_sleep_default=s2idle, as
-the Pixel 7 Pro does, so a suspend that names no state stays in s2idle.
-
-Tested on a Pixel 7 from slot B (7.3.0-rc6): /sys/power/mem_sleep reads
-"[s2idle] deep".
-
-Suggested-by: Derek Ross <derekross@gmail.com>
 Assisted-by: Claude Opus 5.5
 Signed-off-by: Alejandro Garcia <skipper.pelygro@gmail.com>
 ---

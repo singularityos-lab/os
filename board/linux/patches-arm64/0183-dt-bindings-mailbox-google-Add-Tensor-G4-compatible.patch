@@ -3,23 +3,6 @@ From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 Date: Fri, 23 Oct 2026 02:27:50 -0700
 Subject: [PATCH] dt-bindings: mailbox: google: Add Tensor G4 compatible
 
-Describe the Tensor G4 AP-to-APM mailbox with the gs101 fallback. It uses
-the same interrupt-mask register at 0x28 and outgoing doorbell at 0x40,
-with sixteen flag bits. The complete public transport driver is byte-
-identical to the one used by the qualified tegu private kernel, whose
-DT already has this exact compatible pair. No new driver data is needed.
-
-The existing schema rejects that pair. Extend its gs201 fallback pattern
-without changing any legacy layout. Meta-schema and W=1 example checks
-pass. Independent scoped validation accepts the actual cached G4 node,
-preserves the gs101, gs201 and exynos850 cases, and rejects a missing or
-wrong G4 fallback. No hardware operation or clock-provider qualification
-is performed by this binding-only change.
-
-Source: Google's GPL SoC modules at
-204078758737776959ecc85c527a00fd2cabb62f,
-drivers/soc/google/acpm/acpm_ipc.h; own qualified tegu DT capture.
-
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  .../devicetree/bindings/mailbox/google,gs101-mbox.yaml        | 4 +++-

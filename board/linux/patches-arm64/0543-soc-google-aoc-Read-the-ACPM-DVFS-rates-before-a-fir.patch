@@ -4,27 +4,6 @@ Date: Sat, 31 Oct 2026 11:19:48 -0643
 Subject: [PATCH] soc: google: aoc: Read the ACPM DVFS rates before a firmware
  start
 
-On the Pixel 9a the AoC firmware faulted at every start (a DSP watchdog
-right after it announced its services) until the AP had asked ACPM for
-the DVFS domains' rates first. With one GET-rate request for each of
-the 17 domains before the firmware request the start is stable: 93
-services, no watchdog interrupt, online indefinitely. Stock does the
-same query at boot (cal-if's vclk_get_boot_freq() calls
-exynos_acpm_get_rate()), so the APM's DVFS plugin evidently expects it
-before it serves the AoC's own votes. Which domain matters hasn't been
-narrowed down.
-
-Take the domains as clocks: the ACPM clocks have CLK_GET_RATE_NOCACHE,
-so clk_get_rate() sends the same request. The rates are read in the
-firmware callback before the power request; a node without clocks
-(every gs201 one) reads nothing.
-
-Tested on the Pixel 9a,
-7.3.0-rc6-omamobile-tegu-s2mpg15-m1-g991042e2eff3-dirty, with the same
-requests sent through the exynos-acpm handle by a helper module just
-before the firmware request: the AoC came up and stayed up on every
-start since (the first two runs, then seven fresh boots in a row).
-
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  drivers/soc/google/aoc/aoc.c | 22 ++++++++++++++++++++++

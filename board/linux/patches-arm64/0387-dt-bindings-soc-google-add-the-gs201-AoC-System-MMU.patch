@@ -3,10 +3,6 @@ From: Derek Ross <derekross@gmail.com>
 Date: Mon, 12 Oct 2026 12:56:52 -0400
 Subject: [PATCH] dt-bindings: soc: google: add the gs201 AoC System MMU
 
-The AoC (audio and sensor DSP) reaches memory and a few AP peripherals
-through its own Samsung System MMU, version 8. Only the AoC is behind
-it.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

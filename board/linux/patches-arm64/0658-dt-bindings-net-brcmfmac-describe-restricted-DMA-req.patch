@@ -4,11 +4,6 @@ Date: Wed, 11 Nov 2026 12:20:03 -0600
 Subject: [PATCH] dt-bindings: net: brcmfmac: describe restricted DMA
  requirements
 
-Describe an endpoint that requires verified restricted DMA attachment,
-its qualified maximum packet buffer and the bootloader's ASCII MAC ABI.
-The pool itself supplies its address and size through memory-region.
-No new property changes an existing board unless its DT opts in.
-
 Assisted-by: LLM
 Signed-off-by: Chris Gray <chrisgray70@gmail.com>
 ---

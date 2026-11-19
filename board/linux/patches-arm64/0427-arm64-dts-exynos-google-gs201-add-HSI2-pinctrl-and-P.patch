@@ -4,23 +4,6 @@ Date: Sun, 11 Oct 2026 22:39:18 -0400
 Subject: [PATCH] arm64: dts: exynos: google: gs201: add HSI2 pinctrl and PCIe
  GEN4A_1
 
-Add the PCIe CLKREQ# and PERST# pins to the HSI2 pin controller, and
-the HSI2 PCIe controller (GEN4A_1, Google's pcie_1) with its PHY.
-Addresses, the interrupt and the PMU and sysreg offsets are those of
-Google's gs201 device tree; the clocks are the CMU_HSI2 gates of the x2
-controller (PCIE_003), its I/A and its PHY.
-
-The interrupt-map numbers INTA..INTD 1..4: the controller's INTx domain
-translates with pci_irqd_intx_xlate(), which takes the values of the
-PCI_INTERRUPT_PIN register and rejects 0, as on other DesignWare hosts
-with this translation (dra7.dtsi).
-
-The soc node now maps up to 0x80000000 so that the PCIe windows at
-0x40000000-0x7fffffff are reachable.
-
-Both PCIe nodes stay disabled: until the HSI2 S2MPU is programmed, a
-device on this link can DMA anywhere in RAM.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

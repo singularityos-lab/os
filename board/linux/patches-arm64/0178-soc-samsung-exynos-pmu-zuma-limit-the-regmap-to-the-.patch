@@ -4,34 +4,6 @@ Date: Thu, 22 Oct 2026 16:11:48 -0400
 Subject: [PATCH] soc: samsung: exynos-pmu: zuma: limit the regmap to the
  registers in use
 
-zuma's PMU regmap had no access tables, so its debugfs registers file
-read all 64 KiB of the PMU. zuma's map is not documented, and on gs201
-a single PMU read has taken the phone down. Allow only the registers
-zuma's drivers use: SYSIP_DAT0 (the reboot mode), the cluster
-watchdogs' NONCPU_OUT and NONCPU_INT_EN and the reset status, and the
-USB and UFS PHY isolation, and HSI0's power status. The reset status
-and the HSI0 status are read only, and any other offset fails with
--EIO.
-
-With the reboot mode and the watchdogs, the regmap now serves more than
-PHY isolation. The watchdog and PHY isolation registers are below
-0x4000, so their updates go through gs101's set/clear aliases; zuma's
-EL3 accepts those too. SYSIP_DAT0 uses the read-modify-write call.
-
-Tensor G4's PMU binding falls back to google,zuma-pmu, so these tables
-serve it too. Its merged users sit at the same offsets: the watchdogs
-and the USB PHY through their zuma fallbacks, and its UFS PHY's
-isolation at 0x3ec0. Its HSI0 clock driver reads HSI0's power status
-at 0x2a84, which is HSI0's status on zuma as well: Google's zuma DT
-puts the HSI0 power domain at PMU 0x2a80.
-
-Tested on a Pixel 8 Pro: through these tables the USB PHY's isolation
-works at boot and across a DWC3 unbind and bind, both cluster watchdogs
-probe, the reboot mode takes reboot-to bootloader to fastboot, and UFS
-comes up through its PHY's isolation; dmesg shows no regmap or SMC
-error. The HSI0 status entry came after that test; nothing on zuma
-reads it yet.
-
 Assisted-by: LLM
 Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
 ---

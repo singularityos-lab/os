@@ -4,21 +4,7 @@ Date: Mon, 12 Oct 2026 13:08:57 -0400
 Subject: [PATCH] drm: google: gs-dsim-cmd: switch the link and the panel
  between 60 and 120 Hz
 
-In command mode the DSIM's LP underrun reference (UNDERRUN_CTRL) and its
-TE protect/timeout timers (CMD_TE_CTRL1) depend on the refresh rate. Keep
-a table of both for the link the bootloader sets up for the S6E3HC4 (4
-lanes at 1346 Mbps, DSC 3:1): 0x1f09/0x33eb3b26 at 60 Hz, 0x3ec/0x19f51d93
-at 120 Hz, which ran clean on cheetah when written by hand. The driver
-recognises the boot rate from these registers and refuses to switch a
-link it has no values for.
-
-Export gs_dsim_get()/gs_dsim_put() and the rate calls for gs-decon. A
-switch up writes the timers and then the panel's rate set, a switch down
-the other way round, as Google's driver does; a failed panel switch is
-rolled back. The panel is looked up when it attaches and dropped when it
-detaches.
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Assisted-by: Claude:claude-opus-5-5
 ---
  drivers/gpu/drm/google/gs-dsim-cmd.c | 229 ++++++++++++++++++++++++++-
  drivers/gpu/drm/google/gs-dsim.h     |  23 +++

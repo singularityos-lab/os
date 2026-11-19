@@ -3,13 +3,6 @@ From: Lef <me@lefteros.com>
 Date: Sun, 1 Nov 2026 13:14:36 +0200
 Subject: [PATCH] dt-bindings: clock: google,zuma-clock: add CMU_PERIC1
 
-CMU_PERIC1 supplies USI11, the I2C bus of the Pixel 8 Pro's MAX77759
-fuel gauge, charger, Type-C controller and PMIC. Its NoC and USI input
-clocks come from CMU_TOP.
-
-Register layout and parents are from Google's GPL cal-if/zuma tables
-(android-gs-shusky-6.1-android16).
-
 Signed-off-by: Lef <me@lefteros.com>
 Assisted-by: LLM
 ---

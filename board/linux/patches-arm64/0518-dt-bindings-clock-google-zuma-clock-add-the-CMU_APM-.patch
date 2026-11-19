@@ -4,11 +4,6 @@ Date: Fri, 6 Nov 2026 06:45:36 +0200
 Subject: [PATCH] dt-bindings: clock: google,zuma-clock: add the CMU_APM USI1
  UART and SYSREG clocks
 
-The Pixel 8 Pro's Bluetooth chip sits on the APM's USI1 UART at
-0x155d0000. Its divider and gates are at the same CMU_APM offsets as
-Google's GPL zuma cal-if (cmucal-sfr.c: DIV_CLK_APM_USI1_UART 0x1818,
-IPCLK 0x20f4, PCLK 0x20f8, RSTNSYNC 0x2148, SYSREG_APM 0x2168).
-
 Signed-off-by: Lef <me@lefteros.com>
 ---
  include/dt-bindings/clock/google,zuma.h | 7 ++++++-

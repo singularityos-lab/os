@@ -4,10 +4,6 @@ Date: Thu, 22 Oct 2026 15:28:07 -0400
 Subject: [PATCH] arm64: dts: exynos: google: gs201-felix: enable the volume
  keys
 
-Volume down is gpa10-1 with a pull-up and volume up is gpa8-5 with
-no pull. Both are active-low and match the factory overlay and the
-Pixel 7 Pro keys. Each reported a press and a release on slot B.
-
 Signed-off-by: boozedog <code@booze.dog>
 ---
  .../boot/dts/exynos/google/gs201-felix.dts    | 32 +++++++++++++++++--

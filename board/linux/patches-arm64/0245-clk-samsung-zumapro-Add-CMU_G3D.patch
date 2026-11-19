@@ -3,34 +3,6 @@ From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 Date: Tue, 27 Oct 2026 08:23:02 -0647
 Subject: [PATCH] clk: samsung: zumapro: Add CMU_G3D
 
-Register CMU_G3D, the Mali GPU's clock unit, on the common
-exynos_arm64_register_cmu() path with its bus input, and CMU_TOP's three
-G3D branches it takes its inputs from. Firmware sets G3D up and keeps
-its domain on: the two PLLs (PLL0822x, no rate table), the muxes and the
-dividers are read-only, and the GPU's core, coregroup and stacks gates
-and the CMU's own gate are read-only gates, as are CMU_TOP's three G3D
-gates. The STACKS and L2_GLB dividers have no ratio field in the CAL
-(only busy and auto-gating bits), so they are 1:1 factors. The GPU's
-rate changes go through the ACPM firmware, not this CMU.
-
-Every offset, width and parent list was checked against zuma's cmucal-
-sfr.c and cmucal-node.c. On the Pixel 9a the integration kernel
-7.3.0-rc6-omamobile-tegu-s2mpg15-m1-g991042e2eff3-dirty, whose clk-
-zumapro.c (blob ae4948e0dd60) has these G3D and CMU_TOP G3D tables,
-registers the 30 G3D clocks and runs Panthor on the core, coregroup and
-stacks gates (fout_g3d at 149.9 MHz, gout_g3d_core at 159.7 MHz).
-
-CMU_TOP's G3D GLB and SWITCH muxes also select SHARED0 and SHARED1
-divided by 2 and 3, which the driver didn't register, so a mux left
-on one of them would be an orphan reading 0 Hz. Add the four fixed
-factors (the CAL's PLL_SHARED0_D2 and _D3, PLL_SHARED1_D2 and _D3).
-On the Pixel 9a the bootloader leaves the GLB mux on SHARED0_D2:
-mout/gout_g3d_glb read 1065.984 MHz and dout_g3d_glb 532.992 MHz;
-NOCD and SWITCH are on SHARED2 (798.72 MHz), dout_g3d_nocd 133.12
-and dout_g3d_switch 266.24 MHz.
-
-Link: https://android.googlesource.com/kernel/google-modules/soc/gs/+/204078758737776959ecc85c527a00fd2cabb62f/drivers/soc/google/cal-if/zuma/cmucal-sfr.c
-Link: https://android.googlesource.com/kernel/google-modules/soc/gs/+/204078758737776959ecc85c527a00fd2cabb62f/drivers/soc/google/cal-if/zuma/cmucal-node.c
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  drivers/clk/samsung/clk-zumapro.c | 126 +++++++++++++++++++++++++++++-

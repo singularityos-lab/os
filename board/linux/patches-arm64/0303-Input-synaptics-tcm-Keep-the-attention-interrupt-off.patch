@@ -4,18 +4,6 @@ Date: Tue, 27 Oct 2026 10:55:37 -0647
 Subject: [PATCH] Input: synaptics-tcm: Keep the attention interrupt off across
  system sleep
 
-The driver had no PM callbacks, so its attention interrupt stayed armed
-through system suspend. On the Pixel 9a a touch while the system was
-going down raised it after the SPI controller had suspended: the read
-failed part way ("Attempted to sync while suspend"), every read after
-that saw "bad message header a5 03 00 00", and the touchscreen stayed
-dead after resume until the driver was rebound.
-
-Disable the interrupt in suspend and enable it again in resume. A
-report that arrives in between keeps the level-triggered line asserted
-and is read once the interrupt is back on, with the bus already
-resumed.
-
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  drivers/input/touchscreen/synaptics_tcm.c | 24 +++++++++++++++++++++++

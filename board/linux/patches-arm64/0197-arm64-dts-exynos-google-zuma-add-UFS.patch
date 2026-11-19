@@ -3,27 +3,6 @@ From: Brett-Michael Green <brett@bmgvisualtech.com>
 Date: Thu, 22 Oct 2026 14:32:03 -0400
 Subject: [PATCH] arm64: dts: exynos: google: zuma: add UFS
 
-Describe zuma's UFS host (0x13200000, SPI 466, stock's register map),
-its PHY (0x13204000, isolation through the PMU) and its own sysreg
-block, and enable them on husky. Host and PHY fall back to Tensor G4's,
-whose driver data comes from the same Google calibration source.
-
-The bootloader hands UFS over powered down: the device's VCC (switched
-by gpp0-1) is off and its reference clock pin (gph5-0) is a GPIO driven
-low. So the host takes stock's two pin groups, and VCC is stock's
-GPIO-switched fixed regulator, which the UFS driver turns on.
-
-zuma has no clock driver yet, and ABL leaves the UFS clocks running, so
-fixed clocks stand in: the UniPro clock at stock's 178 MHz (its driver
-logs it), the link core clock at a rate inside the driver's range (it
-is only checked against it), which also stands in for the FMP, bus and
-sysreg gates, and the PHY's reference at the 38.4 MHz its CAL is
-written for.
-
-Tested on a Pixel 8 Pro: the link comes up at HS-G4 on two lanes, rate
-series B, as on stock, and all four LUNs and their 62 partitions
-enumerate, with the same names on the same devices as stock.
-
 Assisted-by: LLM
 Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
 ---

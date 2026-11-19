@@ -3,29 +3,7 @@ From: Derek Ross <derekross@gmail.com>
 Date: Sun, 11 Oct 2026 16:42:56 -0400
 Subject: [PATCH] clk: samsung: add Google gs201 clock driver
 
-Add clock support for the CMUs of the Google gs201 (Tensor G2) SoC
-needed for bring-up of the Pixel 7 / 7 Pro:
-
-  CMU_TOP:    6 PLLs, 76 muxes, 74 dividers, 2 fixed factors, 75 gates
-  CMU_MISC:   2 muxes, 4 dividers, 84 gates (watchdogs, MCT, GIC, OTP)
-  CMU_HSI0:   1 PLL, 11 muxes, 3 dividers, 47 gates (USB 3.1 DRD)
-  CMU_HSI2:   4 muxes, 2 dividers, 63 gates (UFS, PCIe, MMC)
-  CMU_PERIC0: 12 muxes, 12 dividers, 58 gates (USI, I3C)
-  CMU_PERIC1: 10 muxes, 10 dividers, 39 gates (USI, I3C, PWM)
-
-The driver is structured like clk-gs101.c and uses the same Exynos
-ARM64 helpers, with hardware automatic clock gating enabled as on
-gs101 and in Google's kernel. CMU_TOP and CMU_MISC are registered
-early; the others are platform drivers.
-
-The gs201 register map differs from gs101 in most places (an extra
-PLL_LF_MIF in CMU_TOP shifts the shared PLLs, gate offsets moved, PERIC
-gates are per USI), so all register offsets, mux parents and divider
-widths were taken from Google's GPL-2.0 gs201 CMUCAL tables
-(cal-if/gs201/cmucal-sfr.c and cmucal-node.c). PLLs are read-only for
-now (no rate tables).
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Assisted-by: Claude:claude-opus-5-5
 ---
  MAINTAINERS                     |    1 +
  drivers/clk/samsung/Makefile    |    1 +

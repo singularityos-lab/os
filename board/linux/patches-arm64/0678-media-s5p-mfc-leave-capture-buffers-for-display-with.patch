@@ -1,24 +1,8 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?=C3=81ngel=20Ren=C3=A9?=
- <17342133+angelrenefm@users.noreply.github.com>
 Date: Sat, 14 Nov 2026 19:47:24 +0100
 Subject: [PATCH] media: s5p-mfc: leave capture buffers for display with
  dynamic DPB
-MIME-Version: 1.0
-Content-Type: text/plain; charset=UTF-8
-Content-Transfer-Encoding: 8bit
-
-With dynamic DPB the firmware may keep its whole minimum DPB as
-references at once. A client that allocates only that minimum plus one
-or two buffers then has almost none left to display while the next
-frame decodes. Chromium allocates the driver's minimum plus 2: for a
-3840x2160 VP9 clip on the Pixel 7 (minimum 10) it decoded at about
-24 fps and dropped 131 of 468 frames at 30 fps.
-
-Give such clients at least four buffers more than the minimum. With it
-Chromium drops 4 of 582 frames of the same clip (looping, the drops are
-at the loop points), and H.264 3840x2160 still drops none. GStreamer's
-output stays bit-exact against vp9dec and avdec_h264 at 3840x2160.
 
 Assisted-by: LLM
 Signed-off-by: Ángel René <17342133+angelrenefm@users.noreply.github.com>

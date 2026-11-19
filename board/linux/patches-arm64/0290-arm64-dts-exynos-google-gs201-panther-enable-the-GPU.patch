@@ -3,19 +3,6 @@ From: Alejandro Garcia <skipper.pelygro@gmail.com>
 Date: Wed, 28 Oct 2026 14:02:30 -0700
 Subject: [PATCH] arm64: dts: exynos: google: gs201-panther: enable the GPU
 
-Enable the Mali-G710 that gs201.dtsi describes, as the Pixel 7 Pro does.
-Its clock is the ACPM GPU clock, which this board already gets through
-acpm_ipc, and as on the Pixel 7 Pro there is no mali-supply: the G3D rails
-follow the PMU power domain and ACPM, and the bootloader leaves the GPU
-powered.
-
-Tested on a Pixel 7 from slot B (7.3.0-rc6), with the device package's
-rule that keeps the GPU powered: panthor probes the Mali-G710 (id 0xa862,
-shader_present 0x1110055), boots the CSF firmware (interface v1.5.0) and
-registers renderD128, and Hyprland renders on it through Mesa's panfrost
-("Mali-G710 MC7 (Panfrost)") with no MMU faults or GPU resets. As on the
-Pixel 7 Pro, probe prints "no regulator (mali)" from the OPP core.
-
 Assisted-by: Claude Opus 5.5
 Signed-off-by: Alejandro Garcia <skipper.pelygro@gmail.com>
 ---

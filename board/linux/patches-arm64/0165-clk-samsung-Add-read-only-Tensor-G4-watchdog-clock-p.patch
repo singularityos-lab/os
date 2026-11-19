@@ -3,32 +3,6 @@ From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 Date: Fri, 23 Oct 2026 01:01:02 -0700
 Subject: [PATCH] clk: samsung: Add read-only Tensor G4 watchdog clock paths
 
-Describe the TOP mux/gate/divider and MISC user mux/NOCP divider and two
-watchdog PCLK gates from the pinned GPL CMUCAL tables. Reuse the existing
-PLL outputs and preserve the exact ordered parent selection. Keep all
-seven nodes read-only and add none to manual or suspend register lists.
-
-The legacy CMU helper continues after parent-clock enablement fails.
-Use a separate MISC probe that returns on that error before mapping or
-registering its clocks, and retains the successful bus reference. Probe
-only during initialization so deferred binding cannot reach freed clock
-tables. Existing controller probe behavior is unchanged.
-
-Source-extracted sanitizer tests verify six failure/success paths. Table,
-style, ARM64 W=1 object, binding and combined Image/modules link checks
-pass without new diagnostics. No board node is enabled or hardware
-qualified. New TOP fields still require per-register access qualification
-before deploying a kernel that registers them.
-
-Source: Google's GPL SoC modules at
-204078758737776959ecc85c527a00fd2cabb62f,
-drivers/soc/google/cal-if/zuma/cmucal-{node,sfr}.c and
-drivers/clk/gs/clk-zuma.c.
-
-Register the probe-once MISC driver at subsys init, after normal OF
-population at arch init, so the matching platform device exists before
-the one-shot probe. The ordinary legacy CMU init phase stays unchanged.
-
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  drivers/clk/samsung/clk-zumapro.c | 82 ++++++++++++++++++++++++++++++-

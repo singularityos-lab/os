@@ -3,14 +3,6 @@ From: Brett-Michael Green <brett@bmgvisualtech.com>
 Date: Thu, 22 Oct 2026 12:43:01 -0400
 Subject: [PATCH] phy: exynos5-usbdrd: add zuma
 
-zuma's USB control block matches Exynos 2200's: LINKCTRL 0x04,
-LINK_CLKRST 0x0c, UTMI_CTRL 0x10 and HSP_MISC 0x114, with the same bits
-the Exynos 2200 code uses. Its PMU isolation register is at 0x3eb0, as
-on gs101. Reuse the Exynos 2200 ops with that offset.
-
-Tested on a Pixel 8 Pro: with the eUSB2 PHY behind it, the DWC3 core
-comes out of soft reset and enumerates as a high-speed gadget.
-
 Assisted-by: LLM
 Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
 ---

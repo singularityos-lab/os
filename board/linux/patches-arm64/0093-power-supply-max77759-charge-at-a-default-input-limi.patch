@@ -4,28 +4,7 @@ Date: Mon, 12 Oct 2026 00:35:33 -0400
 Subject: [PATCH] power: supply: max77759: charge at a default input limit
  without a source report
 
-The charger turns charging off at probe and turns it back on only when a
-"tcpm-source" power supply reports an online source with a non-zero
-current limit. That leaves two cases where a plugged-in phone does not
-charge:
-
- - there is no Type-C port controller driver (yet), so nothing ever
-   reports a source;
- - the source advertises Type-C default power (plain USB ports and
-   USB-A to C cables): TCPM reports it online with a current limit of 0,
-   as TCPCI cannot measure BC1.2/USB default current.
-
-Add a default_ilim_ua module parameter. When set, the charger starts
-charging at that input current limit at probe, uses it for an online
-source without a current limit, and leaves charging on when it is
-unbound. It is capped at 900 mA, the USB 3.x default power, which any
-port has to supply. The default (0) keeps the current behaviour.
-
-Also log the mode, float voltage, fast charge current and input limit
-found at probe and those programmed, so the result of the bootloader's
-and the driver's settings can be checked.
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Assisted-by: Claude:claude-opus-5-5
 ---
  drivers/power/supply/max77759_charger.c | 90 ++++++++++++++++++++++++-
  1 file changed, 89 insertions(+), 1 deletion(-)

@@ -3,9 +3,7 @@ From: Derek Ross <derekross@gmail.com>
 Date: Mon, 12 Oct 2026 19:06:11 -0400
 Subject: [PATCH] regulator: dt-bindings: add Dialog SLG51002
 
-The SLG51002 is a camera power management IC with eight LDOs and four
-load switches, woken from a low power reset by a chip select input.
-Google's Pixel 7 boards power their four camera modules from it.
+
 ---
  .../bindings/regulator/dlg,slg51002.yaml      | 113 ++++++++++++++++++
  1 file changed, 113 insertions(+)

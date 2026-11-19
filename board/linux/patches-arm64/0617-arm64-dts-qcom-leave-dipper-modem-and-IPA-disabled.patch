@@ -3,9 +3,6 @@ From: quatrixone <quatrix1@gmail.com>
 Date: Sun, 8 Nov 2026 16:55:00 +0100
 Subject: [PATCH] arm64: dts: qcom: leave dipper modem and IPA disabled
 
-Keep the modem and IPA unavailable until their runtime services and
-NV handling are reviewed on the phone.
-
 Assisted-by: LLM Codex
 Signed-off-by: quatrixone <quatrix1@gmail.com>
 ---

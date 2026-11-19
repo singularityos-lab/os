@@ -3,9 +3,6 @@ From: Brett-Michael Green <brett@bmgvisualtech.com>
 Date: Fri, 30 Oct 2026 16:23:41 -0400
 Subject: [PATCH] dt-bindings: mfd: samsung,s2mpg14-pmic: Tensor G3 uses it too
 
-The Pixel 8 Pro's (Tensor G3) main PMIC is the S2MPG14, at the same
-ACPM channel and with the same touchscreen rails on LDO4M and LDO25M.
-
 Assisted-by: LLM
 Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
 ---

@@ -3,13 +3,6 @@ From: Brett-Michael Green <brett@bmgvisualtech.com>
 Date: Sat, 31 Oct 2026 14:40:41 -0400
 Subject: [PATCH] arm64: dts: exynos: google: zuma-husky: enable DECON0
 
-Turn on DECON0 on the Pixel 8 Pro with a 64 MiB reusable scanout pool
-below 4 GiB, for DPP0's 32-bit DMA, in RAM that stock leaves free, and
-the bootloader's splash as its boot framebuffer. DPP0 already scans the
-splash out by its physical address (RDMA_BASEADDR_P0 reads 0xfac00000).
-There is no DSIM on its output port yet, so gs-decon stays at the
-bootloader's 60 Hz.
-
 Assisted-by: LLM
 Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
 ---

@@ -3,16 +3,6 @@ From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 Date: Tue, 27 Oct 2026 08:21:27 -0647
 Subject: [PATCH] dt-bindings: clock: google,zumapro: Add CMU_G3D
 
-CMU_G3D clocks the Tensor G4's Mali GPU: two PLLs (the stacks' and the
-L2's), user muxes for CMU_TOP's G3D NoC, global and switch clocks, and
-the GPU's core, coregroup and stacks clocks. Describe it in the common
-Tensor G4 clock binding with its four inputs, and add CMU_TOP's three
-G3D branches (mux, gate and divider each) and the SHARED0 and SHARED1
-halves and thirds those branches select at the end of the TOP block
-and the 19 CMU_G3D identifiers in a new block, leaving the existing ones
-unchanged.
-
-Link: https://android.googlesource.com/kernel/google-modules/soc/gs/+/204078758737776959ecc85c527a00fd2cabb62f/drivers/soc/google/cal-if/zuma/cmucal-node.c
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  .../bindings/clock/google,zumapro-clock.yaml  | 31 ++++++++++++++++-

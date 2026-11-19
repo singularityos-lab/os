@@ -1,21 +1,8 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?=C3=81ngel=20Ren=C3=A9?=
- <17342133+angelrenefm@users.noreply.github.com>
 Date: Sat, 14 Nov 2026 14:37:31 +0100
 Subject: [PATCH] media: s5p-mfc: set the DPB plane sizes for every frame on
  MFC v15
-MIME-Version: 1.0
-Content-Type: text/plain; charset=UTF-8
-Content-Transfer-Encoding: 8bit
-
-With dynamic DPB the plane sizes and strides are only written at
-INIT_BUFFERS. Under Chromium's V4L2 decoder the first frame decodes, but
-at the second one those registers read back as 0 and the firmware fails
-it with error 57, INSUFFICIENT_DPB_SIZE (the name in Google's exynos-mfc
-driver). The same stream through GStreamer never shows it.
-
-Write the sizes and strides again before every frame, next to the
-frame's DPB addresses.
 
 Assisted-by: LLM
 Signed-off-by: Ángel René <17342133+angelrenefm@users.noreply.github.com>

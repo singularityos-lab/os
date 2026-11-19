@@ -3,17 +3,7 @@ From: Derek Ross <derekross@gmail.com>
 Date: Sun, 11 Oct 2026 16:42:56 -0400
 Subject: [PATCH] dt-bindings: clock: google: add gs201 clock IDs and binding
 
-Add a binding for the Google gs201 (Tensor G2) CMUs needed for early
-bring-up (TOP, MISC, HSI0, HSI2, PERIC0, PERIC1) and the clock IDs
-consumers use.
-
-The binding follows google,gs101-clock.yaml. It is a separate document
-because the gs201 clock IDs differ and samsung,sysreg is optional: the
-dynamic root clock gating sysreg registers are not described for gs201
-yet. IDs follow the google,gs101.h conventions, with names derived from
-the CMU register names in Google's GPL-2.0 gs201 CMUCAL tables.
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Assisted-by: Claude:claude-opus-5-5
 ---
  .../bindings/clock/google,gs201-clock.yaml    | 190 ++++++
  MAINTAINERS                                   |   2 +

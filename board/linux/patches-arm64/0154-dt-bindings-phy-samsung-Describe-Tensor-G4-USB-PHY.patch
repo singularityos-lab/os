@@ -3,17 +3,6 @@ From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 Date: Thu, 22 Oct 2026 20:10:33 -0700
 Subject: [PATCH] dt-bindings: phy: samsung: Describe Tensor G4 USB PHY
 
-The stock zumapro-usb.dtsi includes zuma-usb.dtsi, whose USB PHY
-uses PMU isolation offset 0x3eb0. Describe the G4 identity with the
-zuma fallback so the existing driver data applies without another
-match entry. Keep the specific compatible for future differences.
-
-This describes the USB DRD wrapper, not the underlying eUSB2 PHY.
-The latter has a separate G4 version change requiring its own review.
-No board node, Type-C policy or charging behavior is added.
-
-Link: https://android.googlesource.com/kernel/devices/google/zumapro/+/8831630eee2ad095b85ed452944e6353940966a5/dts/zumapro-usb.dtsi#9
-Link: https://android.googlesource.com/kernel/devices/google/zuma/+/42395e8adcb880aa336f0da6bb2a19ed53929c40/dts/zuma-usb.dtsi#274
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  .../bindings/phy/samsung,usb3-drd-phy.yaml    | 34 +++++++++++--------

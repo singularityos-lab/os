@@ -3,25 +3,7 @@ From: Derek Ross <derekross@gmail.com>
 Date: Wed, 14 Oct 2026 21:05:17 -0400
 Subject: [PATCH] arm64: dts: exynos: google: gs201: add the C2 CPU idle states
 
-Add one PSCI idle state per core type: core power-down ("c2"),
-power_state 0x10000, with the entry/exit latencies and minimum residencies
-of Google's gs201 device tree (also in the tree the bootloader hands over
-on a Pixel 7 Pro): Cortex-A55 70/160/2000 us, Cortex-A78 150/190/2500 us,
-Cortex-X1 235/220/3500 us. All cores get them together: cpuidle-psci
-tears down every CPU if one of them has no idle state.
-
-The firmware only powers a core down when the CPU_INFORM hint and the PMU
-interrupt-generator wake-up bits have been programmed; the exynos-pmu
-driver already does that from its CPU PM notifier for gs201, through the
-pmu-intr-gen syscon. The per-core generic timer stops in C2, hence
-local-timer-stop: the MCT provides the broadcast timer.
-
-Tested on a Pixel 7 Pro: psci_idle registers C2 on all eight CPUs, idle
-CPUs spend about 85-90% of the time in C2, the firmware rejects 1-7% of
-the entries, and an all-core load followed by idle shows no RCU stall,
-lockup or secure PMU write failure.
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Assisted-by: Claude:claude-opus-5-5
 ---
  arch/arm64/boot/dts/exynos/google/gs201.dtsi | 49 ++++++++++++++++++++
  1 file changed, 49 insertions(+)

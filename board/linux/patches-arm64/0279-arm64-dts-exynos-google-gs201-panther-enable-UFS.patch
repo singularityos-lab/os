@@ -3,19 +3,6 @@ From: Alejandro Garcia <skipper.pelygro@gmail.com>
 Date: Tue, 27 Oct 2026 21:03:34 -0700
 Subject: [PATCH] arm64: dts: exynos: google: gs201-panther: enable UFS
 
-Enable the UFS host and its PHY. VCC is the fixed always-on regulator
-cheetah and lynx use: stock drives it from gpp0-1 (boot-on), and the
-bootloader leaves it on.
-
-omamobile.ufs-probe tells the omarchy-mobile initramfs to load the UFS
-drivers and apply its storage guard, which leaves only slot B's boot
-images and userdata writable.
-
-Tested on a Pixel 7 from slot B: four LUNs and 55 partitions enumerate,
-with the same names and numbers as stock's by-name map, and the guard
-leaves sda20-24 (slot B's boot images) and sda31 (userdata) read-write.
-The Arch root on userdata boots from it.
-
 Assisted-by: Claude Opus 5.5
 Signed-off-by: Alejandro Garcia <skipper.pelygro@gmail.com>
 ---

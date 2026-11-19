@@ -4,18 +4,6 @@ Date: Mon, 12 Oct 2026 17:18:53 -0400
 Subject: [PATCH] soc: google: gs201-aoc-rails: power-cycle the sensor rails on
  request
 
-The sensor supplies (LDO7S, LDO5S) stay on through a warm reboot. The
-LSM6DSV accelerometer on the AoC's I3C bus then keeps the state the
-previous AoC session gave it, and the new AoC never finds it, while the
-I2C sensors come up: on every boot where the rails read "on" before the
-AoC start the accelerometer was missing, and on the boot where they read
-"off" it was there.
-
-Google's AoC driver power-cycles these supplies around an AoC restart
-(reset_sensor_power(): off in reverse order, 150 ms, then on). Add
-cycle=1, used with enable=1, which does the same before the first start
-when the rails are already on; cycle_ms sets the off time.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

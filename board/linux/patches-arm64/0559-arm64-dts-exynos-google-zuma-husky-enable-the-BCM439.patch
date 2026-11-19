@@ -4,12 +4,6 @@ Date: Sat, 31 Oct 2026 08:15:31 -0400
 Subject: [PATCH] arm64: dts: exynos: google: zuma-husky: enable the BCM4398
  Wi-Fi
 
-The Pixel 8 Pro's BCM4398 sits on pcie_1. As stock's wlan node gives
-them: WL_REG_ON on gph3-4 (as the root port's supply, so the PCI
-pwrctrl core switches it around link training, with bcmdhd's 200 ms),
-device wake on gph3-5 and host wake on gpa5-1. Its DMA buffers come from
-a restricted pool below 4 GiB, as on the Pixel 7 Pro.
-
 Assisted-by: LLM
 Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
 ---

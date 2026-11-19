@@ -3,31 +3,7 @@ From: Derek Ross <derekross@gmail.com>
 Date: Sun, 11 Oct 2026 18:17:21 -0400
 Subject: [PATCH] phy: samsung-ufs: add Google gs201 UFS PHY support
 
-The gs201 (Tensor G2) UFS M-PHY is the gs101 PHY with a different
-reference clock. Add a "google,gs201-ufs-phy" compatible that reuses the
-gs101 data with one extra PMA write.
-
-Everything here comes from Google's GPL-2.0 gs201 UFS calibration code
-(google-modules/soc/gs/drivers/ufs/gs201/):
-
- - ufs-cal.h sets USE_UFS_REFCLK to USE_38_4_MHZ. gs101 uses 26 MHz.
- - init_cfg_evt0[] and init_cfg_evt1[] in ufs-cal-if.c are identical to
-   each other. Google's gs201 device tree uses evt-ver 0, and so does the
-   tree the bootloader hands over on a Pixel 7 Pro. Apart from the
-   refclk-dependent rows, the PMA rows match gs101's init_cfg_evt1[]
-   row for row and value for value. The upstream gs101 table is that
-   table.
- - The 38.4 MHz branch adds PMA common register 0x0a4 = 0x22 (index 0x29)
-   before the other PMA writes, so it goes first in the gs201 pre-init
-   table. Its PCS counterpart (attribute 0x202) is written by the host
-   driver.
- - The pre/post power mode change and hibernate tables match gs101's,
-   apart from rows that only apply to Google's emulator board.
-
-The PMU isolation register (0x3ec8, bit 0) is the same as gs101
-(gs201-ufs.dtsi ufs-phy-iso).
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Assisted-by: Claude:claude-opus-5-5
 ---
  drivers/phy/samsung/phy-gs101-ufs.c   | 96 ++++++++++++++++++++++++++-
  drivers/phy/samsung/phy-samsung-ufs.c |  3 +

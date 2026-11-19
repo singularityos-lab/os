@@ -3,23 +3,6 @@ From: Alejandro Garcia <skipper.pelygro@gmail.com>
 Date: Wed, 28 Oct 2026 14:02:55 -0700
 Subject: [PATCH] arm64: dts: exynos: google: gs201-panther: add the haptics
 
-Describe the CS40L26A haptics driver at 0x43 on USI8 I2C, as on the
-Pixel 7 Pro: the same bus (gpp16-0/1 at 400 kHz), interrupt (gpa8-1)
-and reset (gpp24-3) as the Pixel 7 Pro, and the same stock boost and
-actuator values (peak current 2.5 A, boost 11 V, f0 145 Hz, ReDC
-13 ohm), all read from the Pixel 7's live device tree. Enable the
-PERIC0 pin controller, USI8 and its I2C bus with it.
-
-The driver loads its RAM firmware (cs40l26.wmfw) and, if present, the
-wavetable (cs40l26.bin), from the phone's own vendor files; without the
-firmware it does not probe.
-
-Tested on a Pixel 7 from slot B (7.3.0-rc6), with the GPU enabled as
-well: cs40l26-vibra probes the CS40L26 (ID 0x40a260, revision A1), loads
-cs40l26.wmfw (v7.2.91) and cs40l26.bin, and registers cs40l26_vibra;
-FF_RUMBLE effects of 100-500 ms at 25-80 % play through tools/ff-rumble
-and are felt, with no errors from the driver.
-
 Assisted-by: Claude Opus 5.5
 Signed-off-by: Alejandro Garcia <skipper.pelygro@gmail.com>
 ---

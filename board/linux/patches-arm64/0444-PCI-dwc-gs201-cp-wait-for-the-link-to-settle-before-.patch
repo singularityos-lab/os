@@ -4,19 +4,6 @@ Date: Tue, 13 Oct 2026 08:56:08 -0400
 Subject: [PATCH] PCI: dwc: gs201-cp: wait for the link to settle before using
  it
 
-The first L0 after training can be a transient: the S5300's firmware
-asks for Gen3 and the link retrains from Gen1, passing through Recovery.
-Google's exynos_pcie_rc_establish_link() waits 3 ms after L0, retries
-the link while it is below its target speed, and waits for L0 (to
-L1_IDLE) again before anything touches the endpoint. Here the link
-waited 3 ms and only logged the speed, so the secure ATU setup and the
-first configuration reads could meet a link in Recovery.
-
-After the 3 ms, wait up to 48 ms (Google's MAX_TIMEOUT polls) for the
-LTSSM to be in L0 to L1_IDLE with link training over, and fail the try
-otherwise. Retry a link below the target speed, as Google does, but keep
-it on the last try rather than failing the power-on.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

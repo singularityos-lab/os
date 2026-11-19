@@ -3,17 +3,6 @@ From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 Date: Thu, 22 Oct 2026 22:00:02 -0700
 Subject: [PATCH] mfd: sec: Expose S2MPG14 eUSB2 supply controls
 
-Add the exact LDO8M, LDO9M and LDO19M USB-supply control addresses.
-LDO8M's voltage selector is in its own register; its two-bit enable
-field shares LDO_CTRL1 with LDO11M and LDO12M (CPU cluster rails) and
-LDO13M (TPU) in Google's board description.
-
-Keep the selector-only LDO8M register outside the bulk-write table and
-retain narrow read/write ranges. The existing uncached ACPM regmap uses
-the firmware masked-update command for enable changes, preserving the
-other fields in the shared enable register.
-
-Link: https://android.googlesource.com/kernel/google-modules/soc/gs/+/204078758737776959ecc85c527a00fd2cabb62f/include/linux/mfd/samsung/s2mpg14-register.h
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  drivers/mfd/sec-acpm.c              | 32 +++++++++++++++++++++--------

@@ -4,38 +4,6 @@ Date: Mon, 26 Oct 2026 10:54:19 -0647
 Subject: [PATCH] scsi: ufs: exynos: Ungate Tensor G4 host clocks after
  enabling them
 
-On system resume ufshcd_resume() calls ufshcd_setup_clocks(hba, true),
-whose PRE_CHANGE hook writes the host's clock-stop registers before the
-clocks themselves are enabled. On gs101 and gs201 that works because
-their clock drivers register CMU_HSI2 with automatic gating
-(.auto_clock_gate = true in hsi2_cmu_info in clk-gs101.c and
-clk-gs201.c): the gates follow Q-channel requests and their bits are
-bookkeeping. clk-zumapro.c registers CMU_HSI2's gates as manual gates,
-so on zumapro (Pixel 9a) the UFS gates are real: with the link off
-across suspend (spm_lvl 5) the first HCI access on resume hits a block
-without its bus clock and the SoC hangs, with no way back but the
-watchdog. That is also why this isn't wanted on every SoC: with
-automatic gating the clock-stop registers stay reachable either way.
-
-Add EXYNOS_UFS_OPT_UNGATE_POST_CHANGE, which moves the ungate to
-POST_CHANGE, after clk_prepare_enable(), and set it for zumapro. The
-gating side is unchanged (CLKSTOP_PRE_CHANGE: gate while the clocks are
-still on).
-
-Found on the Pixel 9a with pm_test=devices and the pstore console kept
-awake (console_suspend=N): every device's suspend callback returned, and
-the resume stopped at "exynos-ufshc 13200000.ufs: PM: calling
-platform_pm_resume", with an RCU stall 30 s later. With this change the
-host resumes, the device WLUN re-initialises the link ("Power mode
-changed to : FAST series_B G_4 L_2") and the well-known and sd LUNs
-resume.
-
-The probe path is unchanged: the link setup still turns off the broken
-automatic clock control (exynos7, exynosautov9, FSD, exynosautov920)
-and ungates before the UniPro configuration. It now does both through
-exynos_ufs_ungate_host_clks(), which the clock setup and the hibernate
-exit, which open-coded the same pair, use too.
-
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  drivers/ufs/host/ufs-exynos.c | 35 +++++++++++++++++++++++++----------

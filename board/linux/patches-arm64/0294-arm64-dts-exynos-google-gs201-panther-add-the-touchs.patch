@@ -4,23 +4,6 @@ Date: Wed, 28 Oct 2026 22:28:37 -0700
 Subject: [PATCH] arm64: dts: exynos: google: gs201-panther: add the
  touchscreen
 
-Describe the FocalTech FT3658 on USI0 SPI, with the focaltech,ft3658
-binding: the Pixel 7 Pro's S3908 wiring (chip select gpp20-3, interrupt
-gpa7-0 falling, reset gpp23-2, gs201-pinctrl.dtsi's ts_irq and
-ts_reset), 10 MHz, and the 1080x2400 panel. Enable the main PMIC, whose
-only regulators here are the controller's rails: LDO25M as VDD and LDO26M
-as AVDD. LDO26M's 3.0 V is Google's own value for this phone:
-gs201-panther-pmic.dtsi in kernel/devices/google/pantah sets
-regulator-max-microvolt = <3000000> on m_ldo26_reg ("Panther touch
-controller requires 3.0v typ").
-
-Tested on a Pixel 7 from slot B (7.3.0-rc6), with the GPU, the haptics
-and the driver's pending DMA-safe buffer and fsleep() fixes: the ft3658
-module loads at boot and reads chip id 0x56, firmware 0x16; vdd-ts reads
-1.8 V and avdd-ts 3.0 V; touches across the panel, the four corners
-included, drive Hyprland and unlock the PIN screen, with no SPI or CRC
-errors. The GPU and the haptics keep working.
-
 Assisted-by: Claude Opus 5.5
 Signed-off-by: Alejandro Garcia <skipper.pelygro@gmail.com>
 ---

@@ -4,47 +4,7 @@ Date: Wed, 14 Oct 2026 21:05:07 -0400
 Subject: [PATCH] media: samsung: add the gs201 CSIS receiver and CSIS WDMA
  driver
 
-The gs201 (Tensor G2) camera block receives MIPI CSI-2 on eight CSIS
-links, a newer version (0x05040000) of the receiver in imx-mipi-csis,
-and its DMA block's CSIS WDMA contexts write a link's frames straight
-to memory. Stock uses that path for its RAW output, without the rest of
-the ISP, which is all a software ISP needs.
-
-Add a driver for one link and one WDMA context as a media device:
-sensor -> CSIS subdev -> video node, raw Bayer 8 and 10 bit packed as
-on the bus (the WDMA has no packed 12-bit format), D-PHY or C-PHY from
-the endpoint's bus type. Several links may share a WDMA context (the
-four cameras of the Pixel 7 Pro all use context 0) and the routing
-registers are shared, so one instance streams at a time.
-
-At stream on the driver votes the ACPM CAM and INT DVFS domains (a
-C-PHY link needs a higher CAM rate: the main camera's three trios
-overflowed the link's image FIFO at the D-PHY vote), powers and
-configures the DC-PHY, releases the link reset in the CSIS sysreg,
-routes the link to its WDMA context with the EBUF bypassed, and
-programs the link (channel configuration with the pixel mode and
-virtual channel, the separate shadow update, the PHY common control)
-and the WDMA (control, format code, width-only resolution, a 64-byte
-aligned stride, the slot mask and the common DMA setup).
-
-Buffers come from vb2-dma-contig in a reserved pool below 4 GiB, since
-the WDMA takes 32-bit addresses and its System MMU stays in bypass.
-They are allocated cached by default and synced at dequeue: libcamera's
-software ISP reads every frame with the CPU, and an uncached mapping
-cost tens of milliseconds a frame. A buffer whose frame end never comes
-is completed with an error, so stop_streaming finds none left behind;
-buffers queued before start_streaming are taken only once it runs.
-Frame-sync events on the subdev pace the sensor's controls.
-
-The register offsets and interrupt bits are from Google's GPL gs201
-device tree and lwis headers; the link and WDMA programming follows what
-the stock camera software writes. gs201-csis-regs.h marks what is known
-and what is inferred. Error, frame and line counters and the link,
-WDMA and sysreg registers are in debugfs, and a number of module
-parameters (all off or at the working value by default) override single
-programming choices for bring-up.
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Assisted-by: Claude:claude-opus-5-5
 ---
  drivers/media/platform/samsung/Kconfig        |    1 +
  drivers/media/platform/samsung/Makefile       |    1 +

@@ -4,6 +4,7 @@ Date: Thu, 19 Nov 2026 12:27:29 +0100
 Subject: [PATCH] fix: copy the AoC float coefficients bit for bit instead of
  through a float cast
 
+
 ---
  drivers/soc/google/aoc/alsa/aoc_alsa_hw.c | 8 ++++----
  1 file changed, 4 insertions(+), 4 deletions(-)

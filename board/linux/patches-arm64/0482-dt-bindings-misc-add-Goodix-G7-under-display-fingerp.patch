@@ -4,11 +4,6 @@ Date: Mon, 12 Oct 2026 01:34:19 -0400
 Subject: [PATCH] dt-bindings: misc: add Goodix G7 under-display fingerprint
  sensor
 
-The Goodix optical fingerprint sensor under the Pixel 7 Pro's OLED panel
-is on an SPI bus owned by a trusted application in the secure world. The
-application processor drives only its supply, reset line and interrupt
-line, so the node sits outside any SPI controller.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

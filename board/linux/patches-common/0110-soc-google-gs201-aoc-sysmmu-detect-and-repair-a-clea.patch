@@ -4,12 +4,6 @@ Date: Mon, 12 Oct 2026 13:22:55 -0400
 Subject: [PATCH] soc: google: gs201-aoc-sysmmu: detect and repair a cleared
  setup
 
-A reset of the AoC block may clear the System MMU's registers while the
-table is still in memory. Add aoc_sysmmu_lost(), which compares the
-global enable, VID 0's enable and its table base with what was
-programmed, and aoc_sysmmu_reprogram(), which writes the same setup
-again. The register dump now includes VID 0's fault address and info.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

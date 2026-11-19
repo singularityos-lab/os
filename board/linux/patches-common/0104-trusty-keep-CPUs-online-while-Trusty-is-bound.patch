@@ -3,23 +3,6 @@ From: Derek Ross <derekross@gmail.com>
 Date: Mon, 12 Oct 2026 01:34:08 -0400
 Subject: [PATCH] trusty: keep CPUs online while Trusty is bound
 
-Trusty schedules its threads only on the CPU whose nop thread calls into
-it, and a trusted application can be pinned to a CPU. While that CPU is
-offline the application never runs and its clients wait forever. Android
-does not offline CPUs at runtime, so the vendor driver never hit this;
-Linux userspace can.
-
-Refuse runtime CPU offlining with -EBUSY while Trusty is bound, unless
-trusty_core.allow_cpu_offline is set. Suspend and hibernation
-(cpuhp_tasks_frozen), shutdown, reboot and kexec (system_state past
-SYSTEM_RUNNING) and the driver's own instance removal still take CPUs
-down.
-
-Also address the per-CPU nop thread by the CPU going up or down rather
-than by the CPU the callback runs on, so the state used does not depend
-on where the hotplug core invokes it; kthread_unpark() rebinds the
-thread to its CPU.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

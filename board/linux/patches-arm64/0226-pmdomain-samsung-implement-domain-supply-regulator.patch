@@ -2,21 +2,8 @@ From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Andr=C3=A9=20Draszik?= <andre.draszik@linaro.org>
 Date: Wed, 18 Mar 2026 11:33:11 -0400
 Subject: [PATCH] pmdomain: samsung: implement domain-supply regulator
-MIME-Version: 1.0
-Content-Type: text/plain; charset=UTF-8
-Content-Transfer-Encoding: 8bit
-
-Some power domains on Exynos are fed by a regulator rail and therefore
-regulator control needs be implemented for Exynos power domains.
-
-On Google gs101, HSI0 (USB) is one example of such a power domain.
-
-While at it, add a to_exynos_pd() to avoid direct use of
-container_of() in various additional places, and update existing code
-to use it.
 
 Signed-off-by: André Draszik <andre.draszik@linaro.org>
-Link: https://lore.kernel.org/r/20260318-gs101-pd-v8-10-241523460b10@linaro.org
 Signed-off-by: saiththerobo <the.tom.sharp@gmail.com>
 ---
  drivers/pmdomain/samsung/exynos-pm-domains.c | 53 ++++++++++++++++++--

@@ -4,38 +4,7 @@ Date: Sat, 31 Oct 2026 20:09:03 -0400
 Subject: [PATCH] arm64: dts: exynos: google: gs201: add CPU DVFS and CPU
  cooling
 
-Run the three CPU clusters on their ACPM DVFS clocks (cpucl0-2) through
-cpufreq-dt, with the CPUs as cooling devices of their thermal zones.
-Until now every core stayed at the bootloader's rate: about 1.2 GHz
-little, 0.9-1.2 GHz mid and 1.0-1.1 GHz big.
-
-- The operating points are the ACPM firmware's own levels, from the ECT
-  the bootloader leaves at 0x90000000, up to each cluster's max-freq in
-  stock's exynos-acme domains (Google's gs201-cpu.dtsi): 300-1803 MHz
-  little (11 levels), 400-2348 MHz mid (15) and 500-2850 MHz big (18).
-  These are also the levels of stock's pixel-em table. The ECT's levels
-  above those maximums are listed in comments and left out, as stock
-  leaves them out. The firmware sets the rail voltages from its fused
-  ASV tables, so there is no opp-microvolt.
-
-- Stock's battery current limiter caps the mid and big clusters at 1999
-  and 2252 MHz while the battery voltage droops (Google's
-  gs201-cloudripper-bcl.dtsi). Without a BCL driver, the levels above
-  those caps (2130-2348 MHz mid, 2401-2850 MHz big) are turbo-mode, so
-  they stay off until boost is enabled in sysfs.
-
-- opp-suspend is stock's resume-freq for each cluster (1197, 1491 and
-  1826 MHz), the level stock's cpufreq driver holds through suspend.
-
-- The dynamic power coefficients are stock's (89, 513 and 757).
-
-- The CPU zones throttle from 75 C, as on gs101: at 75 C the mid and
-  big clusters leave their turbo levels at once, and at 85 C each
-  cluster drops to stock's battery-overcurrent caps (930, 1197 and
-  1426 MHz). Every zone stays critical at 110 C. Stock throttles from
-  100 C.
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Assisted-by: Claude:claude-opus-5-5
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---
  arch/arm64/boot/dts/exynos/google/gs201.dtsi | 394 +++++++++++++++++++

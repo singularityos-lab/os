@@ -4,23 +4,6 @@ Date: Sun, 1 Nov 2026 09:52:13 -0800
 Subject: [PATCH] arm64: dts: exynos: google: gs201-panther: add the DSI
  command path to the panel
 
-Enable the DPU and DISP clock controllers and DSIM0, and describe the
-panel on it: the Samsung S6E3FC3 P10 with its reset on gpa7-1, as in the
-Pixel 7's live device tree. The bootloader leaves DECON0, DSIM0 and the
-panel running in command mode, and simplefb keeps scanning out its
-buffer; the DSIM command driver and the panel driver take the link and
-the panel over without sending anything, so that brightness and display
-on/off can go over DCS. DECON0 stays disabled.
-
-The panel's supplies, vci on S2MPG12 LDO27 and vddi on S2MPG13 BUCKA
-(Google's gs201-panther-display.dtsi and the live tree), have no driver
-yet and are left as the bootloader set them.
-
-Tested on a Pixel 7 from slot B (7.3.0-rc6): DSIM0 and the panel bind,
-the panel is taken over from the bootloader, the screen stays as it was
-on simplefb, and the backlight device appears. Brightness and display
-off/on over DCS then work (see the panel driver's commit).
-
 Assisted-by: Claude Opus 5.5
 Signed-off-by: Alejandro Garcia <skipper.pelygro@gmail.com>
 ---

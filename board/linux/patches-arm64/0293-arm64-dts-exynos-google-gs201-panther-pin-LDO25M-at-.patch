@@ -4,18 +4,6 @@ Date: Wed, 28 Oct 2026 22:28:09 -0700
 Subject: [PATCH] arm64: dts: exynos: google: gs201-panther: pin LDO25M at 1.8
  V
 
-LDO25M is the touch controller's VDD. It has no voltage here, so the
-regulator core leaves it at whatever the PMIC holds. Google's common
-gs201-pmic.dtsi constrains it to 1.6-1.95 V, panther's
-gs201-panther-pmic.dtsi doesn't narrow that, and ABL leaves it at
-1.8 V, which vdd-ts reads on the phone. Fix it at 1.8 V, as the Pixel
-Fold describes its own LDO25M, so the touch controller gets stock's
-voltage whatever the PMIC held before.
-
-Tested on a Pixel 7 from slot B (7.3.0-rc6): vdd-ts reads 1.8 V, with the
-touch controller as its only user, and the controller probes as before.
-
-Suggested-by: Derek Ross <derekross@gmail.com>
 Assisted-by: Claude Opus 5.5
 Signed-off-by: Alejandro Garcia <skipper.pelygro@gmail.com>
 ---

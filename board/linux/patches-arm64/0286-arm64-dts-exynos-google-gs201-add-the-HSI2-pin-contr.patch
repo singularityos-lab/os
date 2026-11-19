@@ -4,19 +4,7 @@ Date: Wed, 28 Oct 2026 16:22:42 -0400
 Subject: [PATCH] arm64: dts: exynos: google: gs201: add the HSI2 pin
  controller
 
-Add the HSI2 pin controller with its GPIO banks gph2 and gph4, as in
-Google's gs201 device tree (reg 0x14440000, GIC SPI 421, the CMU_HSI2
-GPIO clock). The driver already has gs201's HSI2 bank data; the alias
-pinctrl7 selects it, since pinctrl-samsung picks a controller's entry
-by its alias and HSI2 is the eighth entry of gs201_pin_ctrl.
-
-The Pixel 7a's Bluetooth enable and Wi-Fi power pins (gph2-4, gph2-5)
-and the PCIe CLKREQ# and PERST# pins sit on this controller.
-
-The pin controller stays disabled here; boards that use HSI2 pins
-enable it.
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Assisted-by: Claude:claude-opus-5-5
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---
  .../boot/dts/exynos/google/gs201-pinctrl.dtsi    | 16 ++++++++++++++++

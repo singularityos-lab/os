@@ -4,12 +4,6 @@ Date: Sat, 31 Oct 2026 13:03:23 -0400
 Subject: [PATCH] arm64: dts: exynos: google: zuma: add the ACPM TMU and a GPU
  thermal zone
 
-Add zuma's TMU sensor under acpm_ipc and a gpu-thermal zone on its G3D
-sensor (3). It throttles panthor's devfreq from 85 C and shuts down at
-105 C, as zumapro.dtsi does, below the stock Pixel 8 Pro's own GPU
-trips (passive from 100 C, hot at 115 C). For that, the GPU node
-gets #cooling-cells.
-
 Assisted-by: LLM
 Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
 ---

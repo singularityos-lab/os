@@ -3,11 +3,6 @@ From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 Date: Tue, 27 Oct 2026 12:16:31 -0647
 Subject: [PATCH] arm64: dts: exynos: google: zumapro: Add DSIM0
 
-Add DSIM0, the DSI master between DECON0 and the panel: its link and
-D-PHY register windows and its interrupt (GIC SPI 252), as in Google's
-GPL zumapro device tree, disabled until a board names its panel.
-
-Link: https://android.googlesource.com/kernel/devices/google/zumapro/+/8831630eee2ad095b85ed452944e6353940966a5/dts/zumapro.dtsi
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  arch/arm64/boot/dts/exynos/google/zumapro.dtsi | 12 ++++++++++++

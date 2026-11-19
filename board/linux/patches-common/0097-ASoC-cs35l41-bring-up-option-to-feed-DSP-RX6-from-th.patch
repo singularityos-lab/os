@@ -4,12 +4,6 @@ Date: Tue, 13 Oct 2026 10:14:40 -0400
 Subject: [PATCH] ASoC: cs35l41: bring-up option to feed DSP RX6 from the class
  H target
 
-Google's cs35l41 driver routes DSP1 RX6 from the class H target (0x21),
-which the Pixel 7 Pro's speaker protection firmware and tunings were
-made with; mainline routes VBSTMON (0x29). Add a module parameter,
-dsp_rx6_classh (default off), so the two can be compared on the phone
-without a rebuild. Not for upstream as is.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

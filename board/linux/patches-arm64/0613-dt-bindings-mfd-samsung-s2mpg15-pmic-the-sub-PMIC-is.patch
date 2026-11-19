@@ -4,10 +4,6 @@ Date: Tue, 10 Nov 2026 19:00:07 +0200
 Subject: [PATCH] dt-bindings: mfd: samsung,s2mpg15-pmic: the sub-PMIC is on
  Tensor G3 and G4
 
-The Pixel 8 Pro (Tensor G3) has an S2MPG15 sub-PMIC too, with the same
-three GNSS LDOs, as its zuma-husky node shows. Say G3 and G4 in the
-descriptions of the PMIC and of its regulators. No property changes.
-
 Signed-off-by: Lef <me@lefteros.com>
 ---
  Documentation/devicetree/bindings/mfd/samsung,s2mpg15-pmic.yaml | 2 +-

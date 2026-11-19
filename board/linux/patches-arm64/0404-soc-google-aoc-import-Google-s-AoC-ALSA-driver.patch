@@ -3,11 +3,6 @@ From: Derek Ross <derekross@gmail.com>
 Date: Mon, 12 Oct 2026 15:10:14 -0400
 Subject: [PATCH] soc: google: aoc: import Google's AoC ALSA driver
 
-Import the AoC sound card and its DAI, PCM, control and path drivers
-from Google's GPL gs201 kernel (google-modules/aoc/alsa, the android14
-gs-6.1 tree that matches the stock AoC firmware). Unchanged and not
-built yet; the next commit ports them.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

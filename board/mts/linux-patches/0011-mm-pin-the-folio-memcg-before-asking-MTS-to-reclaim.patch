@@ -3,9 +3,7 @@ From: Mirko Brombin <9479903+mirkobrombin@users.noreply.github.com>
 Date: Fri, 6 Nov 2026 13:00:00 +0100
 Subject: [PATCH 11/11] mm: pin the folio memcg before asking MTS to reclaim
 
-mts_try_demote_folio() passed folio_memcg() straight into
-mts_can_reclaim(), which may sleep, without RCU or a css reference, so the
-memcg could be freed underneath it. Take a css reference under RCU first.
+
 ---
  mm/vmscan.c | 19 ++++++++++++++++++-
  1 file changed, 18 insertions(+), 1 deletion(-)

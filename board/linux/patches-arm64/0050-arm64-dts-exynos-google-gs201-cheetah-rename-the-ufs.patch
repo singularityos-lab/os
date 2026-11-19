@@ -4,12 +4,7 @@ Date: Tue, 13 Oct 2026 16:15:52 -0400
 Subject: [PATCH] arm64: dts: exynos: google: gs201-cheetah: rename the
  ufs-probe boot flag
 
-The project is renamed from Omandroid to Omarchy Mobile, and its
-initramfs (device/cheetah/initramfs/init) now reads the flag as
-omamobile.ufs-probe. Rename it in /chosen/bootargs to match, or the
-initramfs no longer sees it. Bring-up only, not for upstream.
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Assisted-by: Claude:claude-opus-5-5
 ---
  arch/arm64/boot/dts/exynos/google/gs201-cheetah.dts | 2 +-
  1 file changed, 1 insertion(+), 1 deletion(-)

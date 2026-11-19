@@ -4,12 +4,6 @@ Date: Thu, 22 Oct 2026 16:19:56 -0700
 Subject: [PATCH] clk: samsung: Return zero for an unconfigured PLL0822x
  divider
 
-An unconfigured PLL can report a zero pre-divider. Avoid dividing by
-zero when recalculating its rate and report an unavailable clock instead.
-The existing Tensor G4 bring-up source carries this guard, while the
-0516x/0517x/0518x PLL types themselves already exist in the public base.
-This does not program PLLs or establish power-management support.
-
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  drivers/clk/samsung/clk-pll.c | 3 +++

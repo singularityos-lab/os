@@ -3,17 +3,6 @@ From: boozedog <code@booze.dog>
 Date: Fri, 23 Oct 2026 13:27:32 -0400
 Subject: [PATCH] Input: add a SALIXP SPI chip-id reader
 
-Read the two-byte id at 0x20000000. The match data expects 36 40.
-Reset is asserted before either rail. The reader then enables vdd,
-waits 1 ms, enables avdd, and waits 15 ms before releasing reset.
-Remove asserts reset while the rails are still on.
-
-A Pixel Fold cover answered 36 40 from this read. One boot had the
-rails already held on. A later boot of the previous head enabled the
-rails from the driver. This copy does not request attention: after
-reset the line falls and stays low, and a level interrupt would
-storm before firmware.
-
 Signed-off-by: boozedog <code@booze.dog>
 ---
  drivers/input/touchscreen/Kconfig  |  12 ++

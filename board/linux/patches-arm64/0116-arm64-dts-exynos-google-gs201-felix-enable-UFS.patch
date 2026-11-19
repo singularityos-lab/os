@@ -3,16 +3,6 @@ From: boozedog <code@booze.dog>
 Date: Sat, 17 Oct 2026 08:07:45 -0400
 Subject: [PATCH] arm64: dts: exynos: google: gs201-felix: enable UFS
 
-The Pixel Fold's UFS controller is the same gs201 block as the Pixel 7
-Pro. Describe VCC as an always-on fixed regulator, the way the
-bootloader leaves it, and enable ufs_0 and ufs_0_phy.
-
-On the 2026-10-16 boot
-(7.3.0-rc6-omandroid-push1-g056bfe463354-dirty, built 2026-10-13) the
-link came up FAST series_B G_4 L_2. The device is a Micron
-MT256GAXAT4U31. Four LUNs attached: sda (256 GB, 31 partitions), sdb
-and sdc (32 MiB, 10 partitions each), and sdd (4 MiB, 4 partitions).
-
 Signed-off-by: boozedog <code@booze.dog>
 ---
  .../boot/dts/exynos/google/gs201-felix.dts    | 38 ++++++++++++++-----

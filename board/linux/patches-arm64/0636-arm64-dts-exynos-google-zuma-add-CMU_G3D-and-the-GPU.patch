@@ -3,14 +3,6 @@ From: Brett-Michael Green <brett@bmgvisualtech.com>
 Date: Sat, 31 Oct 2026 12:45:40 -0400
 Subject: [PATCH] arm64: dts: exynos: google: zuma: add CMU_G3D and the GPU
 
-Describe CMU_G3D and the Mali-G715 at 0x1f000000, both disabled, as
-zumapro does: the GPU's registers, its JOB, MMU and GPU interrupts
-(SPI 347, 348 and 346) and its size come from the Pixel 8 Pro's stock
-mali node, and its core, coregroup and stacks clocks from CMU_G3D.
-
-There is no power domain: stock's own power-domain driver reports
-pd-g3d on at probe, so the bootloader leaves G3D powered.
-
 Assisted-by: LLM
 Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
 ---

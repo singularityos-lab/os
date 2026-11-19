@@ -3,17 +3,6 @@ From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 Date: Wed, 28 Oct 2026 09:26:09 -0647
 Subject: [PATCH] arm64: dts: exynos: google: zumapro-tegu: Add Bluetooth
 
-The Pixel 9a's BCM4383 sits on the APM's UART (USI1, uart18) at 3 Mbaud.
-BT_REG_ON is gpn8-0 behind the chip's latch, clocked by gpp24-3 (the
-binding's brcm,ble-dbo-gpios), device wake is gpn9-0 and host wake is
-gpa5-6 (EINT with a pull-down, as stock's bt_host_wake), as in Google's
-GPL zumapro Bluetooth device tree that tegu includes. With host wake as
-its interrupt, hci_bcm runs the controller with runtime PM and lets it
-wake the system.
-
-gpa5 becomes an interrupt controller with its eight EINT SPIs (60-67).
-
-Link: https://android.googlesource.com/kernel/devices/google/zumapro/+/8831630eee2ad095b85ed452944e6353940966a5/dts/zumapro-board-bluetooth_wakectrl.dtsi
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  .../boot/dts/exynos/google/zumapro-tegu.dts   | 60 +++++++++++++++++++

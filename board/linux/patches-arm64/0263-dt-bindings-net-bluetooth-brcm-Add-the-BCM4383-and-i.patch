@@ -4,19 +4,6 @@ Date: Tue, 27 Oct 2026 12:28:33 -0647
 Subject: [PATCH] dt-bindings: net: bluetooth: brcm: Add the BCM4383 and its
  REG_ON latch
 
-Add brcm,bcm4383-bt, the Bluetooth half of the Google Pixel 9a's
-BCM4383 Wi-Fi and Bluetooth combo chip.
-
-On that board BT_REG_ON reaches the chip through a flip-flop: the
-level on the shutdown line is only taken on a rising edge of a second
-line, the BLE DBO latch enable. Describe it as brcm,ble-dbo-gpios; a
-board that has it also needs the shutdown and device-wakeup lines.
-
-Google's board tree calls the line bt-ble-dbo-le-gpios, and its driver
-toggles it around every REG_ON change (toggle_dbo_ff() in nitrous.c).
-
-Link: https://android.googlesource.com/kernel/devices/google/zumapro/+/8831630eee2ad095b85ed452944e6353940966a5/dts/zumapro-board-bluetooth.dtsi
-Link: https://android.googlesource.com/kernel/google-modules/bluetooth/broadcom/+/d7bd4dd23cc52fedd2e36c6e45c12f0c2a595ae0/nitrous.c
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  .../devicetree/bindings/net/bluetooth/brcm,bluetooth.yaml | 8 ++++++++

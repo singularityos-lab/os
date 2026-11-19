@@ -3,11 +3,6 @@ From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 Date: Tue, 27 Oct 2026 12:20:29 -0647
 Subject: [PATCH] dt-bindings: power: supply: Add the Maxim MAX77779 charger
 
-The MAX77779 power management IC's switching charger sits on the same
-I2C bus as its fuel gauge (maxim,max77779-fg), at 0x69. It charges the
-battery from USB and powers the system; the gauge names it in its
-power-supplies.
-
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  .../power/supply/maxim,max77779-charger.yaml  | 58 +++++++++++++++++++

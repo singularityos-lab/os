@@ -4,29 +4,6 @@ Date: Sat, 31 Oct 2026 18:05:20 -0700
 Subject: [PATCH] arm64: dts: exynos: google: gs201-panther: give the fuel
  gauge its battery model
 
-Give the gauge the ModelGauge m5 model that the stock kernel loads for
-the pack with a 1 kOhm ID resistor (Coslight, cos-a1-1k in Google's
-gs201-panther-battery-data.dtsi), as the Pixel 7 Pro does with its own.
-The phone's pack is that one: under stock's driver the gauge's TempCo
-read 0x1a02, this model's, where the 0 and 3 kOhm models have 0x223e and
-0x1802. RelaxCfg takes the value stock writes over the model at boot
-(r_regval_1720x in the live device tree); the rest, FilterCfg included,
-is Google's, and the same as the live tree's.
-
-On a POR, the driver writes the model into the gauge's RAM and clears
-POR. With it, the gauge measures the battery thermistor, and one
-capacity LSB becomes 2 mAh (TaskPeriod 0x2d00).
-
-Tested on a Pixel 7 from slot B (7.3.0-rc6), on top of the previous
-patch, with the gauge in POR: the driver logs "battery model loaded
-(DesignCap 0x873, TaskPeriod 0x2d00)". On the cable it then read 92 %
-(99 % with the default model), 4.33 V, 33.1 C (22.0 C before),
-charge_full 4324 mAh of 4326 mAh design, and Charging. upower and the
-shell show 92 %. With the cable out for a minute, btop showed a
-discharge of 1.38-1.67 W from it. No I2C errors. The gauge's interrupt
-fired in bursts, about 1300 times while the model loaded and about 400
-during the unplug, and was quiet otherwise.
-
 Assisted-by: Claude Opus 5.5
 Signed-off-by: Alejandro Garcia <skipper.pelygro@gmail.com>
 ---

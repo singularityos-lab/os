@@ -3,11 +3,7 @@ From: Derek Ross <derekross@gmail.com>
 Date: Mon, 12 Oct 2026 01:55:03 -0400
 Subject: [PATCH] dt-bindings: leds: add TI LM3644
 
-The LM3644 and LM3644TT are I2C dual-channel flash LED drivers with an
-HWEN pin. Describe one LED fed by one or both current sinks, with its
-torch current limit.
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Assisted-by: Claude:claude-opus-5-5
 ---
  .../devicetree/bindings/leds/ti,lm3644.yaml   | 81 +++++++++++++++++++
  1 file changed, 81 insertions(+)

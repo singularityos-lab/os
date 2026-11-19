@@ -1,41 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?=C3=81ngel=20Ren=C3=A9?=
- <17342133+angelrenefm@users.noreply.github.com>
 Date: Fri, 13 Nov 2026 21:07:14 +0100
 Subject: [PATCH] media: s5p-mfc: decode with dynamic DPB on MFC v15
-MIME-Version: 1.0
-Content-Type: text/plain; charset=UTF-8
-Content-Transfer-Encoding: 8bit
-
-Google's exynos-mfc driver always sets DYNAMIC_DPB (bit 3 of
-D_INIT_BUFFER_OPTIONS) on v15 and gives the firmware one capture buffer
-per FRAME_START, through D_DYNAMIC_DPB_FLAG and D_AVAILABLE_DPB_FLAG;
-D_USED_DPB_FLAG then tells which buffers the firmware still holds as
-references or for display. Mainline programs every DPB address once at
-INIT_BUFFERS (static DPB).
-
-Do as the vendor driver on v15: skip the DPB addresses at INIT_BUFFERS,
-and before each frame pick a queued capture buffer that the firmware
-does not hold (mfc_search_for_dpb() in the vendor driver). If it holds
-all of them it frees one by displaying it, so any queued buffer may be
-given then. A frame is not started while no buffer can be given.
-
-Tested on a Pixel 7 (panther, MFC v15.6, firmware version 0x44250901),
-module built from this series on omamobile, node applied as a runtime
-DT overlay on the "camera-pool" reserved region:
-
-- H.264 320x240 Baseline (30 frames), 1920x1080 High (60 frames) and a
-  hard 1920x1080 High stream (300 frames, ~20 Mbit/s): every frame
-  bit-exact against FFmpeg's software decoder.
-- 1080p at ~70 fps with ~0.09 s of CPU time for the 300 frames, against
-  8.3 s of CPU time for FFmpeg's software decoder (8 threads).
-- Clients: a small V4L2 stateful test client, FFmpeg's h264_v4l2m2m
-  (300/300 frames bit-exact with -fps_mode passthrough) and GStreamer's
-  v4l2h264dec.
-
-Not tested: VP8/VP9/HEVC/MPEG-4 decode, interlaced or MVC streams, a
-resolution change in the middle of a stream, seeking (decoder stop and
-restart in the middle of a stream).
 
 Assisted-by: LLM
 Signed-off-by: Ángel René <17342133+angelrenefm@users.noreply.github.com>

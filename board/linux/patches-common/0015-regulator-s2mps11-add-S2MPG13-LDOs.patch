@@ -3,16 +3,7 @@ From: Derek Ross <derekross@gmail.com>
 Date: Mon, 12 Oct 2026 13:26:26 -0400
 Subject: [PATCH] regulator: s2mps11: add S2MPG13 LDOs
 
-Describe the 28 LDOs of the gs201 sub-PMIC, from Google's GPL
-s2mpg13-regulator.c: four voltage groups, a 6-bit selector in each LDO's
-control register (7-bit for LDO1S and LDO23S-LDO26S), and an enable bit
-or a two-bit operating mode, where 0b11 is normal operation. LDO1S and
-LDO23S-LDO26S are switched from the shared LDO_CTRL1/LDO_CTRL2 registers.
-
-A rail without a device tree node gets no constraints, so the core never
-switches it.
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Assisted-by: Claude:claude-opus-5-5
 ---
  drivers/regulator/s2mps11.c | 78 +++++++++++++++++++++++++++++++++++++
  1 file changed, 78 insertions(+)

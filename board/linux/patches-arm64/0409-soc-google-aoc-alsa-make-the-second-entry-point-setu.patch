@@ -4,13 +4,6 @@ Date: Mon, 12 Oct 2026 16:56:53 -0400
 Subject: [PATCH] soc: google: aoc: alsa: make the second entry point setup
  optional
 
-The android14 gs-6.1 driver follows CMD_AUDIO_OUTPUT_EP_SETUP with
-CMD_AUDIO_OUTPUT_EP_SETUP2 (buffer and period size) at playback
-prepare; the gs-5.10 driver of the same branch sends only the first.
-On gs201 the AoC accepts both commands but then never reads the
-playback ring. Add ep_setup2 (default on, as before) so that bring-up
-can compare the two sequences with the running firmware.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

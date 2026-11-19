@@ -3,12 +3,7 @@ From: saiththerobo <the.tom.sharp@gmail.com>
 Date: Mon, 26 Oct 2026 08:19:24 +0000
 Subject: [PATCH] arm64: dts: exynos: gs101: describe the PMU's address space
 
-The google,gs101-pmu binding now describes the power domains as children
-of the PMU, addressed by their offset in it, and requires the address
-and size cells and ranges on the PMU node. Add them, with the PMU's
-64 KiB mapped from offset 0. No child uses them yet.
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Assisted-by: Claude:claude-opus-5-5
 Signed-off-by: saiththerobo <the.tom.sharp@gmail.com>
 ---
  arch/arm64/boot/dts/exynos/google/gs101.dtsi | 3 +++

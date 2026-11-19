@@ -3,12 +3,6 @@ From: Derek Ross <derekross@gmail.com>
 Date: Mon, 12 Oct 2026 13:04:26 -0400
 Subject: [PATCH] soc: google: gsa: unload AoC firmware
 
-Add gsa_unload_aoc_fw_image(): the GSA unlocks the carve-out and the
-AoC state goes back to inactive. Google's aoc_take_offline() sends it
-after GSA_AOC_SHUTDOWN, through Trusty's hwmgr.aoc (UNLOAD_IMG); with
-aoc_cmd_mbox=1 it is mailbox command 92 instead. Shutdown and unload
-make a clean AoC restart possible without the APM's reset path.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

@@ -4,30 +4,6 @@ Date: Fri, 23 Oct 2026 22:57:04 -0500
 Subject: [PATCH] arm64: dts: exynos: google: Add Pixel 7a (lynx) first-light
  board
 
-Add a first-light board file for the Pixel 7a: USB (NCM and ACM
-gadget) and the cluster watchdogs from gs201.dtsi. UFS, the panel,
-touch and the GPU stay disabled.
-
-lynx has the IPOP package of gs201 (ro.boot.hw.soc.pkg_mode is 1).
-Stock's vendor_kernel_boot carries three DTBs: soc_id 0x9855000,
-soc_id 0x9855001, and one matched by /soc_compatible/B0_IPOP. The live
-tree on the phone is the IPOP one, so this DTB carries the same
-/soc_compatible node and no soc_id. ABL accepted it.
-
-ABL adds sec_dram, sec_pt and pkvm_guest_firmware to the tree it hands
-over. Stock's other carve-outs (tui, mfc_fw, famodel) are pools the
-kernel places at boot, with a size and alloc-ranges but no fixed
-address, so none of them is reserved here. ramoops uses stock's
-address and layout so a log from this kernel can be read after a warm
-reboot into stock on slot A.
-
-The board dtbo for ABL (board_id 0x30506, board_rev 0x10000) and the
-image packing live in the omarchy-mobile repository (device/lynx).
-
-Tested on a Pixel 7a (MP1.0, bootloader lynx-17.0-15199429) from slot
-B: the kernel boots, both watchdogs are stopped at probe, and SSH over
-the USB NCM gadget works.
-
 Assisted-by: LLM
 Signed-off-by: Chris Gray <chrisgray70@gmail.com>
 ---

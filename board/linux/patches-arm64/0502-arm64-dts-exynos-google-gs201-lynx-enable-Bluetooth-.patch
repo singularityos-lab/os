@@ -4,43 +4,6 @@ Date: Thu, 29 Oct 2026 15:11:09 +0000
 Subject: [PATCH] arm64: dts: exynos: google: gs201-lynx: enable Bluetooth on
  the APM UART
 
-The Pixel 7a carries the WCN6855 BT core on the APM USI1 UART (ttySAC18
-in Google's kernel), as cheetah carries its BCM4389. Enable cmu_apm,
-usi_apm1, serial_apm1, pinctrl_peric0 and pinctrl_hsi2, and describe
-the controller as qcom,wcn6855-bt powered by a qcom,wcn6855-pmu node
-(pwrseq-qcom-wcn): BT_EN on gpp16-2, and the 0.95 V buck shared with
-Wi-Fi on gph2-5 as the sequencer's input, a fixed regulator with the
-7 ms ramp stock btpower waits before BT_EN. The sequencer then holds
-BT_EN high and waits 50 ms. No wlan-enable-gpios is given: WLAN_EN
-(gph2-4) stays low until a PCIe node takes the sequencer's wlan target.
-
-With this node Bluetooth owns gph2-5 and drops it on power-off: off is
-BT_EN low and then the regulators, so the buck goes down whenever
-Bluetooth goes down (stock btpower never drops it), including once at
-every boot while the controller has no address yet. The five PMIC rails
-behind the chip's I/O, 1.3 V and 1.9 V inputs are an always-on stand-in
-regulator: stock's device tree names no supply on its cnss2 or btpower
-node, so which PMIC regulators feed them is unknown. No device-wake or
-host-wake line is described, so Bluetooth cannot wake the phone.
-
-max-speed is 3 Mbaud: at 3.2 Mbaud every TLV segment of the firmware
-download answers with "Frame reassembly failed (-84)" on this UART; 1, 2
-and 3 Mbaud work.
-
-Tested on one phone (chip revision 0x400c0210; untested on 0x400c1211)
-with hci_uart/btqca, pwrseq-qcom-wcn and linux-firmware's
-qca/hpbtfw21.tlv + hpnv21.bin, on 7.3.0-rc6-omamobile-lynx-wifi1 with
-this file's DTB: the sequencer holds the buck (five users), BT_EN and
-gph2-5 read high, firmware loaded 3 s after boot, controller powered,
-a 20 s scan sees the neighbours, and unbinding the serdev driver drops
-both pins and disables the buck. The controller reports no public
-address; userspace sets the one the bootloader publishes in
-/chosen/config/bt_addr. Facts and log excerpts: derekross/omarchy-mobile#98
-and device/lynx/NOTES.md there.
-
-These nodes must be enabled in the boot DTB: enabling cmu_apm through a
-runtime overlay oopses, since gs201_cmu_probe is __init.
-
 Assisted-by: LLM
 Signed-off-by: Jean-Paul Florencio <jpflorencio@version-tracker.app>
 ---

@@ -4,10 +4,6 @@ Date: Tue, 27 Oct 2026 12:16:30 -0647
 Subject: [PATCH] dt-bindings: display: samsung: google,gs201-dsim: Add Tensor
  G4
 
-The Tensor G4 (zumapro) display pipeline has the gs201 DSIM, at the same
-register layout and with the same three register windows. Add
-google,zumapro-dsim with google,gs201-dsim as its fallback.
-
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  .../bindings/display/samsung/google,gs201-dsim.yaml      | 9 +++++++--

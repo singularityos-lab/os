@@ -3,13 +3,6 @@ From: Brett-Michael Green <brett@bmgvisualtech.com>
 Date: Sat, 31 Oct 2026 08:15:21 -0400
 Subject: [PATCH] PCI: dwc: gs201: Add zuma
 
-zuma's (Tensor G3) Wi-Fi controller follows gs201's sequence, with one
-difference in order: zuma's CAL sets RC mode, pulses the soft power
-reset and enables the slave pending NAK in the middle of the PHY
-configuration, and establish_link() does not reset the controller again
-afterwards. Do these before the PHY's power_on on zuma, and skip the
-later soft resets.
-
 Assisted-by: LLM
 Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
 ---

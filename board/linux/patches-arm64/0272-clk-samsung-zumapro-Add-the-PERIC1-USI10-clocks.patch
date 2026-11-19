@@ -3,22 +3,6 @@ From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 Date: Tue, 27 Oct 2026 14:58:20 -0647
 Subject: [PATCH] clk: samsung: zumapro: Add the PERIC1 USI10 clocks
 
-Add USI10's user mux and divider, read-only like USI9's, and its IPCLK,
-PCLK and RSTNSYNC gates as gates Linux controls: USI10 is the I2C bus of
-the Pixel 9a's RT9470, whose boost supplies VBUS for USB host mode, and
-nothing else uses it.
-
-Registers from Google's zuma CAL (cmucal-sfr.c): user mux 0x630, divider
-0x180c, gates 0x2040, 0x2044 and 0x2090; USI9's entries there match the
-offsets this driver already uses.
-
-Tested on the Pixel 9a (7.3.0-rc6-omamobile-tegu-s2mpg15-m1, this
-CMU_PERIC1 code apart from one comment) with USI10 as I2C at 400 kHz:
-the RT9470 at 0x5b answers (INFO 0x49), and its OTG_EN bit turns its
-boost on (ICSTAT 0xf, the TCPC reports VBUS present). Idle, the IPCLK
-gate reads off.
-
-Link: https://android.googlesource.com/kernel/google-modules/soc/gs/+/204078758737776959ecc85c527a00fd2cabb62f/drivers/soc/google/cal-if/zuma/cmucal-sfr.c
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  drivers/clk/samsung/clk-zumapro.c | 19 ++++++++++++++++++-

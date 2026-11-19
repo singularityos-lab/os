@@ -3,10 +3,6 @@ From: Derek Ross <derekross@gmail.com>
 Date: Mon, 12 Oct 2026 13:26:46 -0400
 Subject: [PATCH] dt-bindings: net: nfc: st,st-nci: add ST54J
 
-The ST54J (NFC controller and secure element in one package, used in
-Google's Pixel 7 phones) has an NCI controller that is reached like the
-ST21NFCC over I2C. Add its compatible with st,st21nfcc-i2c as the fallback.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

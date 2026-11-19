@@ -4,9 +4,6 @@ Date: Mon, 12 Oct 2026 13:59:15 -0400
 Subject: [PATCH] arm64: dts: exynos: google: gs201-cheetah: describe the
  modem's control lines
 
-The S5300's power, reset and handshake lines on gph0, gph1, gpa0 and gpa8,
-as in the stock cpif node, under pcie_0 (disabled).
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

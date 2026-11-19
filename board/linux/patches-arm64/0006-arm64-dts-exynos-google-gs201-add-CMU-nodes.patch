@@ -3,15 +3,7 @@ From: Derek Ross <derekross@gmail.com>
 Date: Sun, 11 Oct 2026 16:42:56 -0400
 Subject: [PATCH] arm64: dts: exynos: google: gs201: add CMU nodes
 
-Describe the clock controllers handled by the gs201 clock driver: TOP,
-MISC, PERIC0, PERIC1, HSI0 and HSI2, fed from oscclk. Base addresses
-are from Google's gs201 CMUCAL SFR block table.
-
-Consumers keep their fixed-clock placeholders for now, and the board
-still boots with clk_ignore_unused. A comment lists the clock IDs to
-switch the watchdogs, MCT, USB, UFS and the touchscreen SPI to.
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Assisted-by: Claude:claude-opus-5-5
 ---
  arch/arm64/boot/dts/exynos/google/gs201.dtsi | 84 ++++++++++++++++++++
  1 file changed, 84 insertions(+)

@@ -4,48 +4,6 @@ Date: Sun, 1 Nov 2026 17:15:45 +0100
 Subject: [PATCH] arm64: dts: exynos: google: Add Pixel 6a (bluejay)
  first-light board
 
-Add a first-light board file for the Pixel 6a: oriole's board file with
-bluejay's model and compatible, without oriole's two board-specific
-LDOs. Everything it enables, it enables as oriole's does, through
-gs101-pixel-common.dtsi: the console UART, USB, both cluster watchdogs,
-UFS and its PHY, the S2MPG10/11 regulators, the MAX77759 Type-C
-controller, fuel gauge and PMIC, and the battery EEPROM. The GPU stays
-disabled, and there is no panel or touch node.
-
-bluejay boots the same two gs101 base device trees as oriole and raven:
-Google's bluejay tree builds every bluejay board overlay on
-gs101/gs101-a0.dtb and gs101/gs101-b0.dtb, whose soc_id is 0x09845000
-and 0x09845001. So this DTB carries the B0 value as oriole's does, and
-the image tooling writes the A0 copy from it.
-
-The panel is a 1080x2400 S6E3FC3 variant (samsung,s6e3fc3_6a in
-Google's gs101-bluejay-display.dtsi), oriole's size, so the splash
-carve-out and the simple-framebuffer keep oriole's values. The retail
-board overlay is MP 1.0, board_id 0x20506 and board_rev 0x10000; the
-board dtbo for ABL and the image packing live in the omarchy-mobile
-repository (device/bluejay).
-
-Oriole's ldo14m (avdd18_tcxo) and ldo31m (nfc) are left out. Upstream
-marks both as board specific, and Google's bluejay tree takes both from
-the shared gs101-pmic.dtsi, regulator-always-on there: L14M_AVDD_TCXO,
-and L31M, which gs101-whitefin2-pmic.dtsi (included by bluejay and by
-oriole) renames to L31M_DISP_VDDI. Left undescribed, they stay as the
-bootloader leaves them, as on raven.
-
-Not booted yet: no Pixel 6a has run this tree. Apart from the model,
-the compatible, the LDO block and its regulator include, the file
-matches oriole's, its comments on soc_id and the bootargs included; the
-splash and framebuffer blocks are oriole's text, so its copyright lines
-stay. The only other
-differences between the two boards in postmarketOS's gs101-bluejay.dts
-are ST FTS touch values, for a driver this tree does not have.
-
-Link: https://android.googlesource.com/kernel/devices/google/bluejay/+/refs/tags/android-16.0.0_r0.9/dts/gs101-bluejay-mp1_0.dts
-Link: https://android.googlesource.com/kernel/devices/google/bluejay/+/refs/tags/android-16.0.0_r0.9/dts/gs101-bluejay-display.dtsi
-Link: https://android.googlesource.com/kernel/devices/google/bluejay/+/refs/tags/android-16.0.0_r0.9/dts/Makefile
-Link: https://android.googlesource.com/kernel/devices/google/gs101/+/refs/tags/android-16.0.0_r0.9/dts/gs101-b0.dts
-Link: https://android.googlesource.com/kernel/devices/google/gs101/+/refs/tags/android-16.0.0_r0.9/dts/gs101-pmic.dtsi
-Link: https://gitlab.postmarketos.org/soc/tensor-exynos/linux/-/blob/e8f42849a581/arch/arm64/boot/dts/exynos/google/gs101-bluejay.dts
 Assisted-by: Claude Fable 5.1
 Signed-off-by: PeterXMR <xmrpeter@proton.me>
 ---

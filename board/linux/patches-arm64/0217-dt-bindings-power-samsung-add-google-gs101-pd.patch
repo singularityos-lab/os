@@ -2,23 +2,8 @@ From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Andr=C3=A9=20Draszik?= <andre.draszik@linaro.org>
 Date: Wed, 18 Mar 2026 11:47:16 -0400
 Subject: [PATCH] dt-bindings: power: samsung: add google,gs101-pd
-MIME-Version: 1.0
-Content-Type: text/plain; charset=UTF-8
-Content-Transfer-Encoding: 8bit
 
-Add support for the Google gs101 version of the Exynos power domains. A
-new compatible is needed because register fields have changed and
-because power domain operations involve interfacing with the TrustZone
-protection control on newer Exynos SoCs.
-
-Power domains can also have a power supply linked to them, so add
-optional support for that, too. It is believed that all (existing)
-platforms could benefit from this, hence it's not being limited to
-gs101-pd.
-
-Reviewed-by: Rob Herring (Arm) <robh@kernel.org>
 Signed-off-by: André Draszik <andre.draszik@linaro.org>
-Link: https://lore.kernel.org/r/20260318-gs101-pd-v8-2-241523460b10@linaro.org
 Signed-off-by: saiththerobo <the.tom.sharp@gmail.com>
 ---
  .../devicetree/bindings/power/pd-samsung.yaml | 33 +++++++++++++++++--

@@ -3,27 +3,6 @@ From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 Date: Sat, 31 Oct 2026 09:30:49 -0643
 Subject: [PATCH] clk: samsung: exynos-clkout: add Tensor G4's NFC clock pad
 
-The Pixel 9a's NFC controller (an ST54L) asks the SoC for its reference
-clock on a clock request line, which the PMU follows only once EXTPAD_EN,
-bit 16 of PMU register 0x3e84, is set; Google's st21nfc driver sets it
-from its devicetree (pmu_clk_pad = <0x3e84>, st,extpad_control_en).
-Without it the controller does not ACK its I2C address.
-
-Provide that bit as clock 0 of the google,zumapro-pmu node, beside the
-GS101 and GS201 pads. The pads' register, enable bit and source field
-move from constants into per-variant descriptors, since this pad has a
-different register and bit and no source field we know of; the GS101
-pads keep their bring-up polarity parameter, which does not apply here.
-A PMU node that names no clkout0 gets its pads as root clocks, since
-this register's source is not described.
-
-The register and bit were proven on the Pixel 9a with an earlier
-provider inside the PMU driver (7.3.0-rc6-omamobile-tegu-s2mpg15-m1,
-the NFC node's clocks = <&pmu_system_controller 0>): nxp-nci's probe
-enabled the clock and the controller answered CORE_RESET and polled,
-with nothing else touching the pad. This driver's version has only been
-compiled so far.
-
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  drivers/clk/samsung/clk-exynos-clkout.c | 142 ++++++++++++++++++------

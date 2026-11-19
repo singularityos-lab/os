@@ -2,23 +2,8 @@ From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Andr=C3=A9=20Draszik?= <andre.draszik@linaro.org>
 Date: Wed, 18 Mar 2026 11:50:56 -0400
 Subject: [PATCH] pmdomain: samsung: add support for google,gs101-pd
-MIME-Version: 1.0
-Content-Type: text/plain; charset=UTF-8
-Content-Transfer-Encoding: 8bit
 
-On Google gs101, direct mmio register access to the PMU registers
-doesn't work and access must happen via a regmap created by the PMU
-driver instead.
-
-Add a flag to the device match data to denote this case, and obtain
-the regmap using the parent node in DT if true, while keeping to use
-the traditional direct mmio regmap otherwise.
-
-Additionally, the status is just one bit on gs101.
-
-Tested-by: Marek Szyprowski <m.szyprowski@samsung.com>
 Signed-off-by: André Draszik <andre.draszik@linaro.org>
-Link: https://lore.kernel.org/r/20260318-gs101-pd-v8-7-241523460b10@linaro.org
 Signed-off-by: saiththerobo <the.tom.sharp@gmail.com>
 ---
  drivers/pmdomain/samsung/exynos-pm-domains.c | 74 ++++++++++++++------

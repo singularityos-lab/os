@@ -3,12 +3,6 @@ From: Derek Ross <derekross@gmail.com>
 Date: Mon, 12 Oct 2026 16:39:43 -0400
 Subject: [PATCH] soc: google: aoc: alsa: optionally log the PCM ring counters
 
-Add the ring_debug parameter: with it set, log the AoC ring's written
-and read byte counters when a PCM is prepared, started and stopped and
-on each AoC period interrupt. This shows whether the AoC flushes the
-ring at stream setup and whether it reads it once started, which the
-gs201 speaker bring-up needs to know. Off by default.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

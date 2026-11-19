@@ -4,25 +4,6 @@ Date: Wed, 11 Nov 2026 01:09:26 +0000
 Subject: [PATCH] arm64: dts: exynos: google: zuma-akita: Add the panel's
  physical size
 
-Without a panel node, simpledrm estimates the display's size from its
-pixels at 96 dpi, so the compositor sees a 285x635 mm screen and the
-on-screen keyboard comes out a fraction of its height. Add a disabled
-panel node with width-mm and height-mm and point the framebuffer at it,
-as zuma-husky does.
-
-64x141 mm is the lit area, measured with a ruler on a Pixel 8a: what a
-6.1-inch 20:9 panel gives (63.6x141.3 mm), and the height Google's
-touch node names (goodix,panel-height-mm = <141>). Stock's own figure is
-larger than the glass: Google's panel-google-ak3b.c gives the ak3b
-70x149 mm, and the stock phone's DPI follows from it (dumpsys display:
-xDpi 391.885, yDpi 409.127 for 1080x2400), so stock sizes everything
-about 9 % small. The comment names both.
-
-Tested on a Pixel 8a from slot B (7.3.0-rc6): Hyprland reports the
-monitor as 64x141 mm (285x635 mm without the node), and the on-screen
-keyboard comes out at its normal height. An earlier boot with stock's
-70x149 mm also worked, with everything about 9 % smaller.
-
 Assisted-by: Claude Opus 5.5
 Signed-off-by: DarekM <149845949+aninmucek@users.noreply.github.com>
 ---

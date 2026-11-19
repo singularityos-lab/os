@@ -4,22 +4,6 @@ Date: Mon, 12 Oct 2026 09:47:34 -0400
 Subject: [PATCH] arm64: dts: exynos: google: gs201-cheetah: describe the
  speaker amplifiers
 
-Describe the two Cirrus Logic CS35L41 amplifiers on USI7 SPI: chip
-select 0 (gpp14-3) drives the top speaker, which is also the earpiece,
-chip select 1 (gpp22-1) the bottom loudspeaker. Interrupts on gpa6-3 and
-gpa8-6 (push-pull, active high, from the amplifiers' GPIO2), resets on
-gpp17-1 and gpp25-2, VA from S2MPG13 BUCKA and VP from VSYS, both
-described as fixed always-on rails until there is an S2MPG13 regulator
-driver.
-
-Boost inductor and capacitor are the stock values (1 uH, 30 uF). The
-boost peak current is 2.5 A, the value stock uses for speaker playback,
-rather than the 3.5 A stock DT default used for voice calls.
-
-The amplifiers' audio port is wired to the AoC, so these nodes give
-register access only. They stay disabled until a bring-up overlay
-enables them.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

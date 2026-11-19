@@ -3,56 +3,6 @@ From: cbm <omarchy-mobile@kloot.lu>
 Date: Sat, 7 Nov 2026 21:46:21 +0100
 Subject: [PATCH] media: i2c: add an onsemi LC898129 lens driver
 
-The Pixel 9a's main camera focuses through an LC898129, which also runs
-the module's optical image stabilisation. Add a V4L2 lens subdev for its
-focus part only, so libcamera's contrast autofocus can drive it like the
-other focus drivers.
-
-The controller shares the module's supplies and reset with the sensor
-and answers only while the sensor is powered, so, as for the SEM1215SA,
-it is powered through runtime PM only: the sensor driver holds its
-lens-focus device while streaming. Power-up waits until the controller
-answers a read of its servo mode (0xf010), up to 200 ms, then moves the
-lens to the control's value.
-
-There is no public datasheet or driver for the part. The register
-numbers and the form of a move were found by disassembling Google's
-camera HAL for the Pixel 9a: the LC898129 actuator code in
-liblyric_hwl.so, from the com.google.pixel.camera.hal APEX on the vendor
-partition of factory image BP3A.250905.014. That code reads 0xf010 and
-0x0548 and writes 0xf01a with 0x0002 in the upper half and the target
-in the lower half. No code was copied. What the registers do, the
-usable range and the direction were worked out on the phone, by reading
-registers and writing 0xf01a alone while measuring the picture's
-sharpness.
-
-After power-up the controller runs its focus servo by itself (0xf010
-reads 7) and holds the lens at 0x0fff in the focus target register,
-0xf01a. A move writes 0x0002 in the upper half of 0xf01a and the target
-in the lower half. On the phone the corrected Hall position (0x0548,
-upper half) followed the target's low 12 bits linearly over the whole
-stroke, from -16379 at 0 to 16381 at 4095, and was the same going up and
-down; setting bits above those also moved the picture in other ways, so
-the driver keeps to 0-4095. Register 0 is the near end and 4095 the far
-end, so the control counts the other way round: higher values focus
-closer, as V4L2_CID_FOCUS_ABSOLUTE expects. Its default, 0, is where the
-controller parks the lens itself.
-
-Only 0xf01a is written. The OIS and the calibration memory are left
-alone, so the control spans the whole stroke rather than the module's
-calibrated infinity-to-macro range. debug_position logs the Hall
-position read back after each move.
-
-Tested on a Pixel 9a with 7.3.0-rc6-omamobile-push1-ge8d722982099, on
-top of the camera device tree of linux-omarchy-mobile#164, whose
-lc898129.c is this commit's (blob 50cce3a5f4c0): while the main camera
-streams, focus_absolute 0, 1024, 2048, 3072, 4095, 2048, 0 settle at a
-Hall position of 16371, 8179, -7, -8197, -16383, -4 and 16369, and the
-lens is runtime-suspended again after the stream. libcamera's contrast
-autofocus (simple pipeline, soft ISP) sweeps the range in 8 coarse
-steps, then finely around the peak, and settles there; in omacam it
-brings a subject at about 25 cm into focus.
-
 Assisted-by: Claude:claude-opus-5-5
 Signed-off-by: cbm <omarchy-mobile@kloot.lu>
 ---

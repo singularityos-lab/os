@@ -4,28 +4,7 @@ Date: Mon, 12 Oct 2026 01:48:21 -0400
 Subject: [PATCH] clk: samsung: gs201: add a read-only CMU_APM subset for the
  APM UART
 
-The APM USI1 UART (0x181b0000) carries the Bluetooth HCI link on Pixel 7
-devices and takes its clocks from CMU_APM. CMU_APM is shared with the APM
-(ACPM) firmware, which runs the PMIC interface, its mailboxes and its own
-buses from it, so the OS must not reconfigure it.
-
-Describe only the UART's clock path, and never write the CMU:
-
-- FUNC and FUNCSRC muxes are read-only, the USI1_UART divider is
-  read-only, so the rates are whatever the firmware set up (Google's
-  tables run the UART at 197 MHz, PLL_ALV/2 divided by 2);
-- no clk_regs, so no init-time GATE_MANUAL writes and no register
-  save/restore across suspend;
-- no controller option offset, so automatic gating stays as the
-  firmware configured it;
-- the gates use automatic mode, where enable and disable are no-ops.
-  The APM_FUNC gate is also critical, so it cannot be gated even with a
-  short "reg" that disables automatic mode.
-
-Offsets, mux parents and the PLL_ALV and PAD_CLK rates are from Google's
-GPL gs201 CMUCAL tables.
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Assisted-by: Claude:claude-opus-5-5
 ---
  drivers/clk/samsung/clk-gs201.c | 85 ++++++++++++++++++++++++++++++++-
  1 file changed, 84 insertions(+), 1 deletion(-)

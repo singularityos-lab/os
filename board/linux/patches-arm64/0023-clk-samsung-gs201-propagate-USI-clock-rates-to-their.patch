@@ -4,16 +4,7 @@ Date: Sun, 11 Oct 2026 19:35:50 -0400
 Subject: [PATCH] clk: samsung: gs201: propagate USI clock rates to their
  dividers
 
-The USI serial drivers set their bit clock on the IPCLK gate (for SPI,
-spi-s3c64xx sets the "spi_busclk0" rate to four times the SCLK). Without
-CLK_SET_RATE_PARENT the request stops at the gate, the divider stays at
-its reset value of 1 and the controller runs from the full 400 MHz
-source. On PERIC1 USI0 that left the SPI controller unable to shift any
-data out.
-
-Mark the USI IPCLK gates CLK_SET_RATE_PARENT, as gs101 does.
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Assisted-by: Claude:claude-opus-5-5
 ---
  drivers/clk/samsung/clk-gs201.c | 36 ++++++++++++++++-----------------
  1 file changed, 18 insertions(+), 18 deletions(-)

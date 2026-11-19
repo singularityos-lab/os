@@ -4,23 +4,6 @@ Date: Wed, 4 Nov 2026 22:55:42 +0200
 Subject: [PATCH] arm64: dts: exynos: google: zuma-husky: add the CS40L26A
  haptics on USI0
 
-Add usi0 and hsi2c_0 (0x10c80000, IRQ 656) and the HSI1 pin controller
-(pinctrl_hsi1 at 0x12040000, IRQ 413, gph0 to gph2, alias pinctrl8) to
-zuma.dtsi; the pin controller is disabled there and the board enables
-it, as HSI1 is the PCIe block and every zuma board would otherwise
-probe it. The board file gets the CS40L26A at 0x43 with the stock
-boost, actuator and brownout values from Google's
-zuma-shusky-haptics.dtsi (2.5 A, 11 V, 145 Hz, 13 ohm, 3.008 V), INTb
-on gpa6-3 and RESET on gph2-3.
-
-USI0 sits on CMU_PERIC1 and SYSREG_PERIC1, which the board file enables
-since the hsi2c_11 change.
-
-Tested on a Pixel 8 Pro with 7.3.0-rc6: the chip answers (ID 0x40a260,
-revision 0xa1), firmware 7.2.91 runs from cs40l26.wmfw and cs40l26.bin
-(taken from the owner's own image, not in the repo), and a
-force-feedback rumble effect vibrates the phone.
-
 Signed-off-by: Lef <me@lefteros.com>
 ---
  .../boot/dts/exynos/google/zuma-husky.dts     | 39 ++++++++

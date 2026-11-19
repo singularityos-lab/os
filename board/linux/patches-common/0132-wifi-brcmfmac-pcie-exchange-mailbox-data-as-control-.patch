@@ -4,29 +4,6 @@ Date: Mon, 12 Oct 2026 12:54:27 -0400
 Subject: [PATCH] wifi: brcmfmac: pcie: exchange mailbox data as control
  messages
 
-From shared version 6, Broadcom's driver sends and receives mailbox
-data (D3 inform, D3 ack, deep sleep requests) as control-ring messages
-(MSGBUF_TYPE_H2D_MAILBOX_DATA and D2H_MAILBOX_DATA), unless the firmware
-sets PCIE_SHARED_USE_MAILBOX. The BCM4389 firmware reports shared flags
-0x70050107: version 7, no USE_MAILBOX. It ignores the D3 inform written
-to the TCM mailbox, so every system suspend timed out waiting for the D3
-ack and failed with -EIO, and its D2H mailbox messages were logged as
-unsupported.
-
-Send and receive mailbox data as control messages for such firmware.
-There is no D0 inform on resume; the host-ready doorbell resumes the
-device.
-
-The D3 ack then arrives while the control completion ring is being
-processed. Waking the suspend path at that point lets it set STATE_DOWN
-before the ring's read pointer is written back, and that write is then
-refused. Publish the ack at the end of RX processing, under rx_lock,
-which serialises the interrupt thread and the poll worker.
-
-While at it, fail the suspend at once when the D3 inform can't be sent
-rather than waiting for an ack that can't come, and stop the poll worker
-once the device is in D3.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

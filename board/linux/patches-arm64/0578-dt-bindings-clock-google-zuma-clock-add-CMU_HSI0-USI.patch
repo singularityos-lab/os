@@ -4,10 +4,6 @@ Date: Sat, 7 Nov 2026 11:42:47 +0200
 Subject: [PATCH] dt-bindings: clock: google,zuma-clock: add CMU_HSI0 USI3
  clock IDs
 
-The Pixel 8 Pro's GNSS receiver sits on HSI0 USI3 (Google's spi_21). Add
-the IDs for its mux, divider and the three gates, in the same shape as
-USI2's, after USI2's IDs. Only the header; the clock driver follows.
-
 Signed-off-by: Lef <me@lefteros.com>
 ---
  include/dt-bindings/clock/google,zuma.h | 7 ++++++-

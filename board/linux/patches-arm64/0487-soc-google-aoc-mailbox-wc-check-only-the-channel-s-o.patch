@@ -4,18 +4,6 @@ Date: Sun, 1 Nov 2026 16:49:24 -0500
 Subject: [PATCH] soc: google: aoc: mailbox-wc: check only the channel's own
  bit for tx done
 
-wc_mbox_last_tx_done() reported a message done only when MB_INTSR0 was
-zero, that is when the AoC had taken the interrupt of every channel. The
-core polls tx done per channel (txdone_poll, every 2 ms) and keeps at most
-MBOX_TX_QUEUE_LEN (20) messages per channel, so while the AoC was busy
-with one channel the doorbells of all the others waited behind it, and
-at AoC start-up the bursts overflowed the queues: about 170 to 300
-"Try increasing MBOX_TX_QUEUE_LEN" errors on every Pixel 7 Pro boot, each
-a doorbell refused with -ENOBUFS.
-
-Test only the channel's own request bit, as wc_mbox_send_data() already
-does before it writes a message.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

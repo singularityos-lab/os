@@ -4,13 +4,6 @@ Date: Tue, 27 Oct 2026 12:37:19 -0647
 Subject: [PATCH] arm64: dts: exynos: google: zumapro-tegu: Add the haptics and
  the torch
 
-Add the Pixel 9a's haptics, a Cirrus Logic CS40L26 on USI9's I2C bus
-(0x43, interrupt on gpa6-3, reset on gph2-3), with Google's limits for
-its LRA (2.5 A boost peak, 10 V boost, 162 Hz, ReDC 14.1 ohm) and VP
-brownout prevention at 3.008 V, and its torch, a TI LM3644 on USI4's
-I2C bus (0x63, enable on gpp24-1) driving one white LED from both
-outputs, limited to 75 mA.
-
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  .../boot/dts/exynos/google/zumapro-tegu.dts   | 84 +++++++++++++++++++

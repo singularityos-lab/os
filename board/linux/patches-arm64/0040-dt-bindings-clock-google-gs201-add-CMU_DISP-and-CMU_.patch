@@ -3,15 +3,7 @@ From: Derek Ross <derekross@gmail.com>
 Date: Sun, 11 Oct 2026 22:06:40 -0400
 Subject: [PATCH] dt-bindings: clock: google,gs201: add CMU_DISP and CMU_DPU
 
-The gs201 display pipeline is clocked from two CMUs: CMU_DPU
-(0x1c000000) feeds the DPP/DMA front end (DPUF) and its SysMMUs, and
-CMU_DISP (0x1c200000) feeds the DECON back end (DPUB). Each takes the
-24.576 MHz oscillator and one NOC bus clock from CMU_TOP
-(CLKCMU_DPU_NOC, CLKCMU_DISP_NOC).
-
-Add both compatibles and the clock identifiers.
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Assisted-by: Claude:claude-opus-5-5
 ---
  .../bindings/clock/google,gs201-clock.yaml    | 21 ++++++++
  include/dt-bindings/clock/google,gs201.h      | 50 +++++++++++++++++++

@@ -3,16 +3,6 @@ From: Lef <me@lefteros.com>
 Date: Sun, 1 Nov 2026 15:00:08 +0200
 Subject: [PATCH] arm64: dts: exynos: google: zuma: add USI9 and hsi2c_9
 
-USI9 is at 0x10c900c0 with its SW_CONF at offset 0x4 of the PERIC1
-sysreg, and the bus is hsi2c_9 at 0x10c90000 on GIC SPI 657, as in
-Google's device tree. It is the I2C bus of the Pixel 8 Pro's battery
-pack EEPROM (the wireless charger sits on it too). Add its pins, gpp19-4
-and gpp19-5 on function 2 with no pull, as stock has them.
-
-Both nodes are disabled: a board file or a bring-up overlay enables them.
-Tested on a Pixel 8 Pro with the board commit on top; a bring-up overlay
-enabled cmu_peric1, the sysreg, USI9 and hsi2c_9.
-
 Signed-off-by: Lef <me@lefteros.com>
 Assisted-by: LLM
 ---

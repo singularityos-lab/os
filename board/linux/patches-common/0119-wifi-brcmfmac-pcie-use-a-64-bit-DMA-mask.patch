@@ -3,25 +3,6 @@ From: Derek Ross <derekross@gmail.com>
 Date: Mon, 12 Oct 2026 01:26:47 -0400
 Subject: [PATCH] wifi: brcmfmac: pcie: use a 64-bit DMA mask
 
-brcmfmac never sets a DMA mask, so the PCI default of 32 bits applies,
-although every ring and buffer descriptor it hands the dongle carries a
-64-bit host address (msgbuf_buf_addr high_addr/low_addr). Google's
-driver for the same chips sets a 64-bit mask (bcmdhd dhd_pcie_linux.c
-dhdpcie_pci_probe(), DMA_BIT_MASK(64)).
-
-With a restricted DMA pool (reserved-memory "restricted-dma-pool") every
-coherent allocation is carved from the pool, and dma-direct rejects the
-pool if it is not reachable under the coherent mask. On the Pixel 7 Pro
-the 16 MiB pool is placed at 0xaff000000, so all allocations failed:
-the DMA index buffer silently ("Using TCM indices"), then the first
-common ring:
-
-  brcmf_pcie_init_ringbuffers: Allocating ring buffers failed
-
-Ask for 64 bits and fall back to 32. Hosts that cannot address all of
-it describe that with dma-ranges on the bridge, which the DMA core
-applies on top of the mask.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

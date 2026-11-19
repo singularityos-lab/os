@@ -4,16 +4,6 @@ Date: Mon, 12 Oct 2026 20:08:48 -0400
 Subject: [PATCH] soc: google: cpif: keep the modem on unless a power-off is
  allowed
 
-On gs201 here every modem power-off is followed by a recovered UFS
-error-handler pass, a disturbance of the root disk's link. Stock powers
-the modem off only at shutdown and for crash recovery, but cbd can also
-ask for it (IOCTL_POWER_OFF), for instance when it stops.
-
-Refuse that request unless the module parameter allow_poweroff is set;
-the modem then stays on until shutdown, which still powers it off as
-stock does, as does crash recovery. Add trace_lines=1 to log every edge
-on the modem's lines, for lining UFS events up with modem power changes.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

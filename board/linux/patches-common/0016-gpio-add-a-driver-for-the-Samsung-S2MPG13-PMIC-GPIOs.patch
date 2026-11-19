@@ -3,17 +3,7 @@ From: Derek Ross <derekross@gmail.com>
 Date: Mon, 12 Oct 2026 19:04:38 -0400
 Subject: [PATCH] gpio: add a driver for the Samsung S2MPG13 PMIC GPIOs
 
-The S2MPG13 sub-PMIC paired with Google's gs201 SoC has eight GPIOs,
-reached through the ACPM firmware like the rest of the PMIC. On the
-Pixel 7 boards they switch the camera supplies, so the camera PMIC and
-the fixed camera regulators need a gpio_chip for them.
 
-Each pin has a control register with an output level and an output
-enable bit; inputs read from a shared status register. The driver only
-changes those two bits (both in one read-modify-write when switching to
-output), leaving the pin mode, pulls and drive strength as the
-bootloader set them. Register layout from Google's GPL s2mpg1x GPIO
-driver.
 ---
  drivers/gpio/Kconfig        |  11 +++
  drivers/gpio/Makefile       |   1 +

@@ -4,12 +4,7 @@ Date: Sat, 31 Oct 2026 20:06:30 -0400
 Subject: [PATCH] dt-bindings: firmware: google,gs101-acpm-ipc: Add the Tensor
  G2 TMU
 
-The Tensor G2 (gs201) reads its SoC temperatures through the same ACPM
-TMU service as gs101, on channel 9, with a seventh sensor, AUR, after
-the six gs101 has (Google's gs201 device tree lists BIG, MID, LITTLE,
-G3D, ISP, TPU and AUR as TMU ids 0-6). Add google,gs201-acpm-tmu.
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Assisted-by: Claude:claude-opus-5-5
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---
  .../devicetree/bindings/firmware/google,gs101-acpm-ipc.yaml    | 3 ++-

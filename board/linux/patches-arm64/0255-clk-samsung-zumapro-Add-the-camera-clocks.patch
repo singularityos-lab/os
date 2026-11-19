@@ -3,27 +3,6 @@ From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 Date: Tue, 27 Oct 2026 08:57:01 -0647
 Subject: [PATCH] clk: samsung: zumapro: Add the camera clocks
 
-Add CMU_TOP's four camera sensor master clocks (CIS_CLK0 to CIS_CLK3)
-and the camera front end's NoC clock. The sensor clocks belong to the
-kernel, as on gs101 and gs201: their muxes, gates and dividers are
-writable and in top_regs, so they run in manual mode and the sensor
-drivers turn them on and set their rate. The front end's NoC clock
-sits on the INT rail: its mux stays read-only and its gate is a
-read-only gate, but its divider is writable and in top_regs. The
-bootloader leaves it at SHARED3/6 (111 MHz), and the main camera's
-three-trio C-PHY link overruns that, so the CSIS driver raises it to
-332 MHz while a link streams.
-
-Every offset, width and parent list was checked against zuma's
-cmucal-sfr.c and cmucal-node.c, including all eight parents of each mux.
-
-Booted on the Pixel 9a:
-7.3.0-rc6-omamobile-tegu-s2mpg15-m1-g991042e2eff3-dirty, whose
-clk-zumapro.c (blob c1db3a4a7736) carries these clocks under that
-tree's own clock ids.
-
-Link: https://android.googlesource.com/kernel/google-modules/soc/gs/+/204078758737776959ecc85c527a00fd2cabb62f/drivers/soc/google/cal-if/zuma/cmucal-sfr.c
-Link: https://android.googlesource.com/kernel/google-modules/soc/gs/+/204078758737776959ecc85c527a00fd2cabb62f/drivers/soc/google/cal-if/zuma/cmucal-node.c
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  drivers/clk/samsung/clk-zumapro.c | 55 +++++++++++++++++++++++++++++--

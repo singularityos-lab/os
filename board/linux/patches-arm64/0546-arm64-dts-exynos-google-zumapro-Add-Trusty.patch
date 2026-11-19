@@ -3,15 +3,6 @@ From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 Date: Sat, 31 Oct 2026 11:21:32 -0643
 Subject: [PATCH] arm64: dts: exynos: google: zumapro: Add Trusty
 
-Describe Trusty, the secure OS the bootloader starts, as on gs201: its
-IPIs are GIC SGIs 8 to 15. It stays disabled. The GSA starts the AoC
-through Trusty's hwmgr service, so audio and sensors need it.
-
-Booted on the Pixel 9a:
-7.3.0-rc6-omamobile-tegu-s2mpg15-m1-g991042e2eff3-dirty has this node,
-enabled by an overlay at runtime; trusty-core, -log, -ipc and -virtio
-bind it and the GSA reaches its hwmgr port.
-
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  .../arm64/boot/dts/exynos/google/zumapro.dtsi | 20 +++++++++++++++++++

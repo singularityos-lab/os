@@ -4,13 +4,6 @@ Date: Tue, 27 Oct 2026 12:57:39 -0400
 Subject: [PATCH] arm64: dts: exynos: google: gs201-felix: describe the inner
  splash
 
-DECON0 scans 1840x2208 from 0xfac00000. That range was ordinary
-System RAM, so a later allocation could overwrite the splash. Reserve
-it and describe it as a second simple-framebuffer. reg matches the
-node address, so dtc does not warn. memory-region still points at the
-reserved splash, and the driver prefers that over reg. The cover node
-stays first. The inner display controller stays disabled.
-
 Assisted-by: LLM
 Signed-off-by: boozedog <code@booze.dog>
 ---

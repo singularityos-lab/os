@@ -3,29 +3,6 @@ From: Brett-Michael Green <brett@bmgvisualtech.com>
 Date: Sat, 31 Oct 2026 11:45:09 -0400
 Subject: [PATCH] wifi: brcmfmac: chip: support the NCI backplane
 
-The BCM4398 (Pixel 8 Pro) reports backplane type 6, NCI ("Booker"),
-which brcmfmac rejected ("chip backplane type 6 is not supported").
-
-On NCI, chipcommon's eromptr points at EROM2, a list of interface
-descriptors grouped by core. Each core's info word and interface count
-sit in EROM1 or in the OOB router (OOBR); OOBR cores also have a DMP
-control word that takes the clock and core flags the AI backplane keeps
-in the wrapper's ioctrl. Each interface is a network interface (NI)
-node with its own reset control. Scan that into brcmfmac's core list
-(the base is a core's APB slave, or a bridge's own slave; the wrapper
-its first Booker interface) and implement iscoreup, coredisable and
-resetcore on it, after Broadcom's GPL bcmdhd (nciutils.c,
-hal_nci_cmn.h, hndoobr.h). An APB NI shared by several cores is left
-out of a core's reset.
-
-Read the CA7's halt bit from its DMP control word, and start a halted
-CA7 by clearing that bit only, as bcmdhd does for NCI chips
-(dhdpcie_bus_download_state()): resetting it again keeps a second
-firmware download from starting.
-
-On the Pixel 8 Pro the scan finds 46 cores, and the RAM base and size
-and chipcommon revision match bcmdhd's.
-
 Assisted-by: LLM
 Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
 ---

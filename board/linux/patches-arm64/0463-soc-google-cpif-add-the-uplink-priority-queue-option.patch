@@ -3,16 +3,6 @@ From: Derek Ross <derekross@gmail.com>
 Date: Tue, 13 Oct 2026 08:56:47 -0400
 Subject: [PATCH] soc: google: cpif: add the uplink priority queue option
 
-Stock builds CONFIG_MODEM_IF_QOS (pantah_defconfig): the rmnet devices
-get one transmit queue per uplink packet processor queue, and
-vnet_select_queue() sends TCP ACKs to queue 1, which xmit_ipc_to_pktproc()
-maps to the modem's high-priority queue (pktproc_ul_hiprio_ack_only in
-stock's device tree). The port has the code but no Kconfig symbol.
-
-Add it, off by default and only with the uplink packet processor. As
-that now follows the device tree, give the devices at least one transmit
-queue and select queue 0 while they have only one.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

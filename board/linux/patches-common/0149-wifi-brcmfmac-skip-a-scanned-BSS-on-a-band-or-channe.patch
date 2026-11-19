@@ -4,44 +4,6 @@ Date: Tue, 3 Nov 2026 10:51:15 -0647
 Subject: [PATCH] wifi: brcmfmac: skip a scanned BSS on a band or channel the
  wiphy doesn't have
 
-brcmf_inform_single_bss() picks the band from the channel number alone,
-turns it into a frequency and hands cfg80211 the result of
-ieee80211_get_channel() unchecked. For a channel the wiphy doesn't
-carry that lookup returns NULL, and cfg80211 dereferences it.
-
-The firmware does report such BSSes. A 6 GHz chanspec's channel number
-is read as a 2.4 or 5 GHz one (6 GHz channel 37 becomes 5185 MHz,
-which no band has), and since brcmf_construct_chaninfo() skips 6 GHz
-chanspecs there is no 6 GHz band to find it in anyway. A 5 GHz channel
-the band table doesn't have does the same: on a Pixel 9a (BCM4383)
-every boot with Wi-Fi logs "brcmf_construct_chaninfo: Ignoring
-unexpected firmware channel 177" (UNII-4). The boot that crashed had
-just warned "Invalid chanspec 0x5001" (6 GHz, channel 1) from an older
-brcmutil without the 6 GHz band; which BSS the scan was reporting when
-it crashed wasn't logged. Once, from the escan timeout worker:
-
-  Unable to handle kernel NULL pointer dereference at virtual address 0000000000000000
-  Workqueue: events brcmf_cfg80211_escan_timeout_worker [brcmfmac]
-  pc : cfg80211_inform_single_bss_data+0xb0/0x4fc [cfg80211]
-  Call trace:
-   cfg80211_inform_single_bss_data+0xb0/0x4fc [cfg80211] (P)
-   cfg80211_inform_bss_data+0xbc/0x12d4 [cfg80211]
-   brcmf_inform_single_bss+0x190/0x20c [brcmfmac]
-   brcmf_cfg80211_escan_timeout_worker+0x80/0xec [brcmfmac]
-
-The worker died inside cfg80211's RCU read-side section, so the next
-system suspend couldn't freeze khugepaged (stuck in lru_add_drain_all())
-and the phone reset a few seconds later.
-
-Decode the chanspec for every BSS and skip a 6 GHz one first, then keep
-a NULL check on the channel as the backstop. A 6 GHz BSS whose channel
-number also exists on 2.4 or 5 GHz (1, 5, 9, 149 and so on) was
-reported until now on the wrong band; it now drops out of the scan list,
-which is a visible change on any chip whose firmware reports 6 GHz. Both return 0 with a debug
-message, so the rest of the scan list is still reported:
-brcmf_inform_bss() stops at the first error.
-
-Fixes: 5b435de0d786 ("net: wireless: add brcm80211 drivers")
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  .../broadcom/brcm80211/brcmfmac/cfg80211.c    | 20 ++++++++++++++-----

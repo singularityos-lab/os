@@ -3,29 +3,6 @@ From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 Date: Sun, 1 Nov 2026 11:12:39 -0647
 Subject: [PATCH] arm64: dts: exynos: google: zumapro-tegu: Add Wi-Fi
 
-The Pixel 9a's BCM4383 sits behind PCIe channel 1. Enable the channel
-and its PHY, give the root port WL_REG_ON (gph3-4) as a fixed regulator
-with the 150 ms the bring-up waited before configuring the PHY, and
-describe the chip with its board type, so brcmfmac picks the board's
-firmware files.
-
-The link runs at Gen2, the chip's own limit (its LnkCap reads 5 GT/s).
-ASPM L0s and L1 stay off on the root port: nothing re-locks the PHY's
-clock and data recovery after L1 on this path (no I/A sequencer), and
-with ASPM on, the link entered L1 and the chip's config space read as
-all ones.
-
-All of the chip's DMA goes through a 16 MiB restricted DMA pool below
-4 GiB, as on the Pixel 7 Pro: the HSI2 System MMU and S2MPU see PCIe and
-UFS on the same VID, so they cannot confine the chip, and the pool at
-least keeps driver bugs away from the rest of RAM.
-
-Tested on the Pixel 9a with the same description applied as an overlay
-to 7.3.0-rc6-omamobile-tegu-s2mpg15-m1-g991042e2eff3-dirty, with
-pcie-gs201 and phy-zuma-pcie as modules: the link trained at Gen2 x1 on
-the first try, the chip used legacy INTx, brcmfmac assigned the pool to
-it and brought up wlan0, and wlan0 joined a network with no ping loss.
-
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  .../boot/dts/exynos/google/zumapro-tegu.dts   | 63 +++++++++++++++++++

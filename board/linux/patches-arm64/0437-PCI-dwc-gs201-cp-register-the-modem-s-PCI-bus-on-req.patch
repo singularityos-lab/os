@@ -4,32 +4,6 @@ Date: Mon, 12 Oct 2026 17:22:47 -0400
 Subject: [PATCH] PCI: dwc: gs201-cp: register the modem's PCI bus on request,
  with MSI
 
-The modem interface driver (Google's CPIF) talks to the S5300 as a PCI
-device: it binds to 144d:a5a5, allocates four MSI vectors and maps the
-endpoint's BAR. Add a "bus" bring-up step that gives it one:
-
-- the host bridge is allocated at probe from "ranges" (no hardware
-  access) and registered and scanned by the first "bus" step, after
-  link_up and the secure-ATU SMC;
-- configuration space: the root port through DBI, the endpoint through
-  the window the secure monitor maps to bus 1, device 0. Both read as
-  absent while the link is down, under a lock that link_down takes
-  first, because a DBI access with the PHY isolated hangs the SoC;
-- MSI: the DesignWare iMSI-RX block with one GIC SPI per 32 vectors
-  ("msi0".."msi4", Google's separated MSI), handled by the DWC core's
-  MSI domain, with the target set to the reserved MSI page as Google's
-  driver does for the modem. The chained handlers read DBI, so their
-  parent interrupts are disabled at link_down and re-armed by the next
-  "bus" step.
-
-As in Google's driver, the bus is kept across link_down/link_up cycles;
-it is removed only when the module is. Nothing enables bus mastering:
-without a driver bound to the endpoint it cannot DMA.
-
-The DWC host core (dw_pcie_host_init()) is not used because it detects
-and programs the outbound iATU, which belongs to the secure monitor on
-this link.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

@@ -3,28 +3,6 @@ From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 Date: Mon, 26 Oct 2026 19:55:42 -0647
 Subject: [PATCH] soc: samsung: exynos-pmu: allow C2 on zuma
 
-On zuma, TF-A answers every PSCI CPU_SUSPEND for the per-core power-down
-state with INVALID_PARAMETERS until the kernel has told it that cores
-may enter C2, by writing PMU_ALLOWED_C2 to PMU_INFORM0 (PMU 0x800).
-Google's exynos-cpupm does this once at init on zuma.
-
-Without it a cpuidle C2 state is registered but never entered: on a
-Pixel 9a (zumapro, which uses the zuma PMU data) the cores spun through
-millions of refused entries a minute. With the write at probe, all eight
-cores enter C2 and spend most of an idle minute there.
-
-Add a pmu_regmap_init hook to struct exynos_pmu_data, run at probe with
-the PMU's regmap before CPU hotplug and idle are set up, and make the
-write from zuma's hook. PMU_INFORM0 joins zuma's access table, as the
-regmap refuses any offset outside it; a failed write is reported.
-
-Tested on the Pixel 9a with
-7.3.0-rc6-omamobile-tegu-s2mpg15-m1-g991042e2eff3-dirty, whose
-gs101-pmu.c is this patch's (blob e357744d4a9c, including the zuma
-access table): no warning at probe, and 441 s after boot cpu0 had spent
-315 s in C2, cpu4 335 s and cpu7 329 s.
-
-Link: https://android.googlesource.com/kernel/google-modules/soc/gs/+/204078758737776959ecc85c527a00fd2cabb62f/drivers/soc/google/exynos-cpupm.c
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  drivers/soc/samsung/exynos-pmu.c |  4 ++++

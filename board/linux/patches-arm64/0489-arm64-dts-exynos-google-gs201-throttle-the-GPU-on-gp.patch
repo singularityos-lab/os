@@ -4,18 +4,6 @@ Date: Sat, 31 Oct 2026 23:02:55 -0400
 Subject: [PATCH] arm64: dts: exynos: google: gs201: throttle the GPU on
  gpu-thermal
 
-Panthor already registers its devfreq as a cooling device, but the GPU
-node has no #cooling-cells, so gpu-thermal can only shut the system down
-at its critical trip.
-
-Give the GPU #cooling-cells and two passive trips, as the CPU zones have:
-at 75 C the levels above 572 MHz go at once (state 3) and step_wise
-continues from there; at 85 C the GPU drops to 302 MHz (state 8). 572 MHz
-is the level stock's battery current limiter allows the GPU on a battery
-voltage droop, and 302 MHz needs well under half of 572 MHz's dynamic
-power at the G3D voltages of the ECT. Poll as the CPU zones do. Stock
-throttles the GPU from 100 C.
-
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---
  arch/arm64/boot/dts/exynos/google/gs201.dtsi | 38 ++++++++++++++++++--

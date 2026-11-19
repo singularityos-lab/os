@@ -4,9 +4,6 @@ Date: Mon, 12 Oct 2026 17:19:55 -0400
 Subject: [PATCH] arm64: dts: exynos: google: gs201: describe the PMU clock
  outputs
 
-Make the PMU a provider of its two clock output pads (CLKOUT0, CLKOUT1),
-fed from the TCXO (oscclk) as mux input 0.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

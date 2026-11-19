@@ -4,21 +4,6 @@ Date: Mon, 26 Oct 2026 15:48:36 -0647
 Subject: [PATCH] nfc: nxp-nci: do not hold info_lock across
  nci_unregister_device()
 
-nxp_nci_remove() takes info_lock and then calls nci_unregister_device().
-If the device is up, nci_unregister_device() closes it through
-nci_close_device() and the driver's close hook, nxp_nci_close(), which
-takes info_lock again. The mutex is not recursive, so removing a powered
-device hangs: the unbind or rmmod never returns, and a later shutdown
-blocks in device_shutdown().
-
-Seen on a Pixel 9a whose NFC controller is driven through this I2C
-transport: with the controller powered by neard, the device's removal
-during a suspend attempt hung with nxp_nci_close() under
-nxp_nci_remove().
-
-Unregister first, outside the lock, then put the chip in cold mode under
-the lock, and free the device last.
-
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  drivers/nfc/nxp-nci/core.c | 11 +++++++----

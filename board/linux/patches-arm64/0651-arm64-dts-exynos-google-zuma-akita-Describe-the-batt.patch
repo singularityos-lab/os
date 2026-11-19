@@ -4,13 +4,6 @@ Date: Thu, 12 Nov 2026 20:51:44 +0000
 Subject: [PATCH] arm64: dts: exynos: google: zuma-akita: Describe the battery
  pack's EEPROM
 
-The Pixel 8a's pack carries an at,24c08 EEPROM at 0x50 on hsi2c_9
-(Google's zuma-akita-battery.dtsi, pack_bee), as the Pixel 8 Pro's
-does; its byte 0x17 is the battery ID that picks the fuel gauge's
-model. Describe it read-only, as zuma-husky does. The bus stays
-disabled in the board file; a bring-up overlay switches USI9 and
-hsi2c_9 on for the read.
-
 Assisted-by: Claude Opus 5.5
 Signed-off-by: DarekM <149845949+aninmucek@users.noreply.github.com>
 ---

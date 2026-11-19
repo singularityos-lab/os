@@ -3,18 +3,6 @@ From: Brett-Michael Green <brett@bmgvisualtech.com>
 Date: Sat, 31 Oct 2026 12:43:52 -0400
 Subject: [PATCH] clk: samsung: zuma: Add CMU_G3D
 
-Describe the GPU's clocks on zuma (Tensor G3): CMU_TOP's G3D GLB, NOCD
-and SWITCH paths, with the shared PLL dividers they select from, and
-CMU_G3D at 0x1ee00000, with its two PLLs, muxes, dividers and the GPU's
-core, coregroup and stacks gates.
-
-As on zumapro, firmware sets these up and keeps G3D on, and the GPU's
-rate changes go through ACPM, so everything here is read-only. Google's
-zuma CMUCAL tables give the same offsets, field widths and parents as
-zumapro's CMU_G3D: the PLLs have PLL0822x's M/P/S layout, and the
-L2_GLB and STACKS dividers have no ratio field.
-
-Link: https://android.googlesource.com/kernel/google-modules/soc/gs/+/refs/heads/android-gs-shusky-6.1-android16/drivers/soc/google/cal-if/zuma/cmucal-sfr.c
 Assisted-by: LLM
 Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
 ---

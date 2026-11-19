@@ -3,40 +3,8 @@ From: saiththerobo <the.tom.sharp@gmail.com>
 Date: Tue, 20 Oct 2026 07:59:32 +0100
 Subject: [PATCH] =?UTF-8?q?arm64:=20dts:=20exynos:=20google:=20gs101-raven?=
  =?UTF-8?q?:=20CPU=20and=20GPU=20critical=20trips=20at=20115=20=C2=B0C?=
-MIME-Version: 1.0
-Content-Type: text/plain; charset=UTF-8
-Content-Transfer-Encoding: 8bit
 
-The CPU zones' critical trips at 110 °C powered raven off in the middle
-of a package install: big-thermal read 110 °C once. These sensors
-report the cluster hotspot through ACPM and can jump by 30 °C for a
-single sample under a short burst of load (logged once a second: big
-58 -> 89 -> 60 °C, mid and little up 11-14 °C, in the second the lock
-screen came up). With polling at 100-250 ms the passive trips can't
-react to such a burst, and the critical trip then shuts the phone down
-for a transient.
-
-Google's raven (gs101.dtsi in its GPL kernel) throttles the CPUs from
-90 °C and only has a "hot" trip at 115 °C, no critical one. Keep the
-throttling from 75 °C and move raven's CPU critical trips to 115 °C, so
-a sustained overheat still powers off but a one-sample spike doesn't.
-The GPU zone has no cooling yet, and a panfrost burst may spike its
-sensor the same way, so it gets the same 115 °C. gs101.dtsi keeps
-110 °C for other boards; the ISP and TPU zones are unchanged.
-
-This trip is not below the TMU's own hardware trip; it is the same
-temperature. Read on raven through the firmware (TMU_IPC_REG_READ),
-both TMUs have the thermal trip enabled in CONTROL, and on every probe
-with interrupts enabled the bootloader set the eight rising thresholds
-to 80, 85 ... 110, 115 °C, decoded with each probe's TRIMINFO (codes at
-25 and 85 °C, about 194 and 305) and checked against ACPM's own reading
-of the live codes (within 1 °C on all six sensors). The probes with no
-interrupts keep a top threshold near 122 °C. So a sustained overheat may
-end in the hardware reset rather than this orderly shutdown; going below
-115 °C brings back the spike power-offs above, so the trip stays a
-backstop.
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Assisted-by: Claude:claude-opus-5-5
 Signed-off-by: saiththerobo <the.tom.sharp@gmail.com>
 ---
  .../boot/dts/exynos/google/gs101-raven.dts    | 26 +++++++++++++++++++

@@ -1,17 +1,8 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?=C3=81ngel=20Ren=C3=A9?=
- <17342133+angelrenefm@users.noreply.github.com>
 Date: Sat, 14 Nov 2026 19:27:02 +0100
 Subject: [PATCH] media: s5p-mfc: check only the queue being set in the encoder
  S_FMT
-MIME-Version: 1.0
-Content-Type: text/plain; charset=UTF-8
-Content-Transfer-Encoding: 8bit
-
-The encoder's VIDIOC_S_FMT returns -EBUSY when either queue streams.
-That forbids setting the OUTPUT format while CAPTURE streams, which the
-stateful encoder interface allows. The decoder got the same fix earlier
-in this series.
 
 Assisted-by: LLM
 Signed-off-by: Ángel René <17342133+angelrenefm@users.noreply.github.com>

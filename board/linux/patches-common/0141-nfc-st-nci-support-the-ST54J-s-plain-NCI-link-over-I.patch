@@ -3,31 +3,6 @@ From: Derek Ross <derekross@gmail.com>
 Date: Mon, 12 Oct 2026 19:29:45 -0400
 Subject: [PATCH] nfc: st-nci: support the ST54J's plain NCI link over I2C
 
-The ST54J (ST21NFCD generation) speaks plain NCI over I2C: a 3-byte NCI
-header whose last byte is the payload length, then the payload, with no
-NDLC PCB byte and no acknowledge, and 0x7e as the idle character when it
-has nothing to send. Google's st21nfc driver for this chip passes exactly
-that to its HAL (google-modules/nfc st21nfc.c, st21nfc_dev_read()). With
-NDLC framing the controller never answered: the first command timed out
-(Pixel 7 Pro, 2026-10-12).
-
-Add a raw mode to ndlc, selected by the st,st54j-i2c compatible: frames go
-to the phy and to nci_recv_frame() unchanged, and the I2C phy reads a
-plain NCI packet, skipping leading idle characters as Google's driver
-does. The controller is reset with the double pulse Google's driver uses
-to leave quick boot mode, and neither init nor close sends the NDLC-era
-proprietary SET_NFC_MODE: plain NCI controllers start in NCI mode.
-
-Also, for both modes:
-- clear hard_fault in ndlc_open(); a single failed power-up left the
-  device unusable until the module was reloaded;
-- mark the link powered before the reset is released and enable the
-  interrupt whenever it is off. A controller that sends CORE_RESET_NTF
-  right after reset found the link unpowered, and the interrupt thread
-  disabled the interrupt with the frame unread;
-- dev_dbg()/hex dumps of every frame written and read, and of I2C
-  errors, for dynamic debug.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

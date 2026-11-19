@@ -3,52 +3,7 @@ From: Derek Ross <derekross@gmail.com>
 Date: Wed, 14 Oct 2026 21:05:22 -0400
 Subject: [PATCH] drm: google: add a KMS driver for the gs201 DECON
 
-On gs201 the bootloader leaves DECON0 -> DSIM0 -> panel running in DSI
-command mode with DSC, scanning out its framebuffer through DPP0, and
-simpledrm copies every frame into that buffer.
-
-Add a KMS driver that keeps the bootloader's configuration and flips:
-it points DPP0's read DMA at the new buffer and requests a shadow
-update, which DECON applies at the next frame start. Frame start, which
-in command mode comes once per panel TE while the hardware trigger is
-unmasked, drives vblank. A flip completes at the frame that latched it:
-the update request is polled for up to 20 us at frame start and checked
-again at frame done, and a flip not taken within 100 ms completes
-anyway. Buffers come from a dedicated CMA pool below 4 GiB, as DPP0
-takes 32-bit addresses with the DPU SysMMU bypassed. DPP0 switches from
-the bootloader's ARGB8888 to XRGB8888 (DPP code 4: the DPP's codes are
-named by byte order in memory) with the first DRM buffer, and whenever
-no DRM buffer may be scanned out it goes back to the bootloader's
-framebuffer, cleared to black.
-
-The modes are 1440x3120 at 60 and 120 Hz (preferred). They differ only
-in the rate, which the panel changes while it runs, so the CRTC check
-clears mode_changed and atomic_begin does the switch: MIF and DISP
-floors through the ACPM DVFS clocks first, then, right after a frame
-done interrupt, the DSIM timers and the panel through gs-dsim-cmd.
-120 Hz needs the DSIM on the output port, a panel that can switch and
-the mif clock; max_refresh=60 turns it off.
-
-With the CRTC off the driver drops to 60 Hz behind a black frame, and
-can also mask DECON's trigger so no frames are sent and no memory is
-read (screen_off=1), or put the panel to sleep as well (screen_off=2).
-A custom commit tail updates planes on active CRTCs only. The primary
-plane is required only on an active CRTC, since compositors turn the
-screen off by detaching it together with ACTIVE=0. Remove and shutdown
-leave the boot state (panel lit, trigger running) for a kexec.
-
-The driver never touches clocks or power domains directly. It checks
-the pipeline before taking the display from simpledrm through the
-aperture helpers, and registers no fbdev console unless fbdev=1, so the
-boot splash stays up until the first client commits. A stage module
-parameter keeps earlier read-only steps for debugging (0 logs the
-hardware state, 1 also measures the refresh rate); the default, 2,
-registers the DRM device.
-
-Register layout from Google's GPL display driver (cal_9845), which gs201
-shares with gs101.
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Assisted-by: Claude:claude-opus-5-5
 ---
  drivers/gpu/drm/Makefile          |    2 +-
  drivers/gpu/drm/google/Kconfig    |   25 +

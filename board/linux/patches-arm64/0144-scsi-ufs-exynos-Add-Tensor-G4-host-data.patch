@@ -3,17 +3,6 @@ From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 Date: Thu, 22 Oct 2026 16:15:17 -0700
 Subject: [PATCH] scsi: ufs: exynos: Add Tensor G4 host data
 
-Add the Tensor G4 host and PCS timing sequence from Google
-android-gs-tegu-6.1-android16 GPL source. Discover RX/TX lanes before
-programming their first PCS sequence and retain checked DME operations.
-
-This initial support does not advertise WriteBooster or idle clock gating
-and keeps automatic Hibern8 disabled. It needs the separately described
-G4 PHY, clocks, guarded board wiring and the following clock-stop fix;
-no board node is enabled by this patch.
-
-Link: https://android.googlesource.com/kernel/google-modules/soc/gs/+/204078758737776959ecc85c527a00fd2cabb62f/drivers/ufs/ufs-exynos.c
-Link: https://android.googlesource.com/kernel/google-modules/soc/gs/+/204078758737776959ecc85c527a00fd2cabb62f/drivers/ufs/zuma/
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  drivers/ufs/host/ufs-exynos.c | 184 ++++++++++++++++++++++++++++++++++

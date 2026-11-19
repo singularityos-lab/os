@@ -3,17 +3,6 @@ From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 Date: Fri, 23 Oct 2026 10:46:40 -0647
 Subject: [PATCH] dt-bindings: soc: samsung: Add Tensor G4 PERIC0 sysreg
 
-Describe the Tensor G4 PERIC0 system-register window used by USI mode
-selection, with the existing syscon fallback and required interface
-clock. The pinned GPL board maps this window at 0x10821000 with size
-0x1000, and USI6 uses offset 0x14. These are the same addresses used by
-the prototype.
-
-No additional window, register operation or board enablement is added.
-Keep the separate HSI2 identity and existing controller layouts
-independent of this binding change.
-
-Link: https://android.googlesource.com/kernel/devices/google/zumapro/+/8831630eee2ad095b85ed452944e6353940966a5/dts/zumapro-usi.dtsi
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  .../devicetree/bindings/soc/samsung/samsung,exynos-sysreg.yaml  | 2 ++

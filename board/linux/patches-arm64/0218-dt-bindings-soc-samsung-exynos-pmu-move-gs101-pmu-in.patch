@@ -3,21 +3,8 @@ From: =?UTF-8?q?Andr=C3=A9=20Draszik?= <andre.draszik@linaro.org>
 Date: Wed, 18 Mar 2026 11:54:00 -0400
 Subject: [PATCH] dt-bindings: soc: samsung: exynos-pmu: move gs101-pmu into
  separate binding
-MIME-Version: 1.0
-Content-Type: text/plain; charset=UTF-8
-Content-Transfer-Encoding: 8bit
 
-The gs101-pmu binding is going to acquire various additional (pattern)
-properties that don't apply to other PMUs supported by this binding.
-
-To enable this, move google,gs101-pmu into a separate binding.
-
-Reviewed-by: Rob Herring (Arm) <robh@kernel.org>
 Signed-off-by: André Draszik <andre.draszik@linaro.org>
-Link: https://lore.kernel.org/r/20260318-gs101-pd-v8-3-241523460b10@linaro.org
-[omamobile: our base also lists google,zuma-pmu here, kept in
- exynos-pmu.yaml; the gs101 reboot-mode restriction that upstream since
- added to exynos-pmu.yaml moves into google,gs101-pmu.yaml]
 Signed-off-by: saiththerobo <the.tom.sharp@gmail.com>
 ---
  .../bindings/soc/google/google,gs101-pmu.yaml | 60 +++++++++++++++++++

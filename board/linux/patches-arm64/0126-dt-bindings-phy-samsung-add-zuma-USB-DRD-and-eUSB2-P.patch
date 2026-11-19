@@ -3,13 +3,6 @@ From: Brett-Michael Green <brett@bmgvisualtech.com>
 Date: Thu, 22 Oct 2026 12:43:01 -0400
 Subject: [PATCH] dt-bindings: phy: samsung: add zuma USB DRD and eUSB2 PHYs
 
-zuma's USB control block has the same link registers as Exynos 2200's
-and sits in front of the same Synopsys eUSB2 PHY, with an identical
-register map (Google's GPL zuma PHY driver, eusb-con-reg.h and
-exynos-usb-blkcon-sfr.h). Add google,zuma-usb32drd-phy with Exynos
-2200's constraints, and google,zuma-eusb2-phy with the Exynos 2200
-eUSB2 PHY as its fallback.
-
 Assisted-by: LLM
 Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
 ---

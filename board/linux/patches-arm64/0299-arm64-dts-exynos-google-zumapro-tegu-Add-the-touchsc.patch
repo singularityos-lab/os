@@ -3,14 +3,6 @@ From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 Date: Tue, 27 Oct 2026 10:41:53 -0647
 Subject: [PATCH] arm64: dts: exynos: google: zumapro-tegu: Add the touchscreen
 
-The Pixel 9a's touchscreen is a Synaptics S3908 on SPI20 (HSI0's USI2,
-dedicated pads, native chip select), with its attention line on the
-custom-alive bank gpn0, which raises its own interrupt, and its reset on
-gpp1-1. The S2MPG14 supplies it from LDO25M (VDD) and LDO4M (AVDD).
-
-The USI's default pin state holds the controller in reset while the USI
-probe switches to SPI; the touch driver then releases it.
-
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  .../boot/dts/exynos/google/zumapro-tegu.dts   | 49 ++++++++++++++++++-

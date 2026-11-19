@@ -3,11 +3,6 @@ From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 Date: Tue, 27 Oct 2026 09:33:07 -0647
 Subject: [PATCH] dt-bindings: clock: google,zumapro: Add the HSI0 USI3 clocks
 
-Add CMU_HSI0's USI3 clock ids, 23 to 27, appended after the existing
-ones. On the Pixel 9a USI3 is SPI21, the bus to the modem's GNSS
-receiver.
-
-Link: https://android.googlesource.com/kernel/google-modules/soc/gs/+/204078758737776959ecc85c527a00fd2cabb62f/drivers/soc/google/cal-if/zuma/cmucal-sfr.c
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  .../devicetree/bindings/clock/google,zumapro-clock.yaml      | 4 ++--

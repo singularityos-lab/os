@@ -3,14 +3,6 @@ From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 Date: Tue, 27 Oct 2026 12:05:24 -0647
 Subject: [PATCH] dt-bindings: display: panel: Add Google TG4C
 
-The TG4C is the 1080x2424 command-mode AMOLED panel of the Google
-Pixel 9a, on four DSI lanes with a TE line, at 60 or 120 Hz. Google
-drives it with DSC 1.2, two 540x24 slices at 8 bits per pixel. Its
-supplies and reset follow Google's tegu device tree (vci, vddi, vddd,
-reset), as the S6E3HC4's do.
-
-Link: https://android.googlesource.com/kernel/devices/google/tegu/+/6276884d9940694b25a6934671918ec8ac412ee8/dts/zuma-tegu-connector.dtsi
-Link: https://android.googlesource.com/kernel/google-modules/display/panels/tegu/+/e3a801fb038fdd1bbaec36d387f27bd99f10757a/panel-gs-tg4c.c
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  .../bindings/display/panel/google,tg4c.yaml   | 63 +++++++++++++++++++

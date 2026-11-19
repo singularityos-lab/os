@@ -4,26 +4,7 @@ Date: Sun, 11 Oct 2026 18:17:30 -0400
 Subject: [PATCH] arm64: dts: exynos: google: gs201: add UFS host controller
  and PHY
 
-Describe the embedded UFS host controller, its M-PHY and the HSI2 sysreg
-used for IO coherency on gs201, modelled on gs101. Clocks come from
-CMU_HSI2.
-
-Values are from Google's GPL-2.0 gs201-ufs.dtsi, checked against the
-device tree the bootloader hands over on a Pixel 7 Pro:
-
- - HCI 0x14700000, vendor HCI 0x14701100, UniPro 0x14780000, UFSP
-   0x14600000, PMA 0x14704000
- - interrupt GIC SPI 453 (IRQ_UFS_EMBD_HSI2 in Google's gs201.h; the
-   stock kernel reports hwirq 485 = SPI 453)
- - HSI2 sysreg 0x14420000, IO-coherency register 0x710
- - PMU PHY isolation 0x3ec8 (the driver default)
-
-There is no gs201 pinctrl support yet, so the UFS reset and reference
-clock pins (gph3-1, gph3-0 on the HSI2UFS controller) are not described.
-The bootloader leaves them in their UFS function. The PHY's ref_clk
-points at oscclk, as on gs101: the driver only enables it.
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Assisted-by: Claude:claude-opus-5-5
 ---
  arch/arm64/boot/dts/exynos/google/gs201.dtsi | 49 ++++++++++++++++++--
  1 file changed, 46 insertions(+), 3 deletions(-)

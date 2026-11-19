@@ -3,13 +3,7 @@ From: Derek Ross <derekross@gmail.com>
 Date: Mon, 12 Oct 2026 00:38:44 -0400
 Subject: [PATCH] dt-bindings: phy: samsung,usb3-drd-phy: add Google gs201
 
-The gs201 USB 3.1 DRD PHY is the gs101 one, with the same register
-blocks and clocks. Unlike gs101, the Type-C orientation switch and its
-graph port are optional, so a board can describe its connector before
-a Type-C port controller driver takes it over, and the supplies are
-not required while gs201 has no PMIC regulator driver.
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Assisted-by: Claude:claude-opus-5-5
 ---
  .../bindings/phy/samsung,usb3-drd-phy.yaml    | 36 +++++++++++++++++++
  1 file changed, 36 insertions(+)

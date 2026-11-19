@@ -3,11 +3,6 @@ From: Brett-Michael Green <brett@bmgvisualtech.com>
 Date: Sat, 31 Oct 2026 08:15:21 -0400
 Subject: [PATCH] dt-bindings: PCI: google,gs201-pcie: Add the zuma controller
 
-zuma's (Tensor G3) PCIe controllers are the same DesignWare core in the
-same Samsung wrapper as gs201's, at IP version 0x986500. Its Wi-Fi
-controller runs without the I/A sequencer, as on stock (use-ia false),
-so it has three register regions.
-
 Assisted-by: LLM
 Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
 ---

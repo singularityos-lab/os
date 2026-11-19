@@ -3,23 +3,6 @@ From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 Date: Tue, 27 Oct 2026 12:35:06 -0647
 Subject: [PATCH] Input: cs40l26-vibra: Add VP brownout prevention
 
-With cirrus,vpbr-threshold-microvolt set, enable the CS40L26's VP
-brownout prevention: the amplifier attenuates in hardware while its
-input supply is below the threshold, so a strong effect on a low
-battery doesn't pull the supply down further. Program VPBR_CONFIG with
-the threshold (in 47 mV steps, offset 51) and Cirrus's default attack,
-hold and release policy, keep the register's hardware-default bits, set
-BLOCK_ENABLES2's VPBR enable, add both to the power-on write sequence,
-and read them back.
-
-The VPBR interrupts stay masked: Google's driver only logs them, and
-this driver polls.
-
-Tested on the Pixel 9a at its 3.008 V threshold (register value 13):
-the configuration reads back (the firmware start fails otherwise), and
-this is the driver the 9a's haptics run on now.
-
-Link: https://android.googlesource.com/kernel/google-modules/amplifiers/+/33976d763bc0ace11603e7ecb207fc2b6e3f2608/cs40l26/cs40l26.c
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  drivers/input/misc/cs40l26-vibra.c | 71 +++++++++++++++++++++++++++++-

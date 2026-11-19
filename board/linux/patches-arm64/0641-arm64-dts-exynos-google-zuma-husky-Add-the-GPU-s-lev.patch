@@ -4,9 +4,6 @@ Date: Sat, 31 Oct 2026 13:03:24 -0400
 Subject: [PATCH] arm64: dts: exynos: google: zuma-husky: Add the GPU's levels
  to 890 MHz
 
-With gpu-thermal throttling panthor's devfreq, add the Pixel 8 Pro's
-GPU levels from 723 to 890 MHz, stock's top (gpu_dvfs_max_freq).
-
 Assisted-by: LLM
 Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
 ---

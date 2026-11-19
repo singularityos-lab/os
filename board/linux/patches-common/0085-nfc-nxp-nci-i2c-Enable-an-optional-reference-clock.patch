@@ -3,13 +3,6 @@ From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 Date: Tue, 27 Oct 2026 19:09:59 -0647
 Subject: [PATCH] nfc: nxp-nci: i2c: Enable an optional reference clock
 
-Take an optional clock and keep it enabled while the device is bound, for
-boards whose controller clock (or the pad it comes from) is gated: the
-Pixel 9a's ST54L needs the PMU's NFC clock pad.
-
-Tested on the Pixel 9a: the clock is enabled at probe and the
-controller answers and polls.
-
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  drivers/nfc/nxp-nci/i2c.c | 7 +++++++

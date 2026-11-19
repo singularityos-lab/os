@@ -3,47 +3,7 @@ From: saiththerobo <the.tom.sharp@gmail.com>
 Date: Thu, 15 Oct 2026 14:28:21 +0100
 Subject: [PATCH] Input: s6sy761 - add an SPI transport for the S6SY79x
 
-The Pixel 6 Pro's touch controller, a Samsung S6SY79x, speaks the same
-command set as the S6SY761 (sense on 0x10, device ID 0x52, boot status
-0x55, one event 0x60, all events 0x61, touch function 0x30, 8-byte
-events), but over SPI with Samsung's framing, as Google's GPL sec_ts
-driver implements it: a write is AA, length, 00 00, register, data and a
-checksum; a read is requested with AA 00 01, length, register and a
-checksum and answered, after a register-dependent delay, with AA, four
-header bytes, register, status, data and a checksum, every transfer
-padded to 4 bytes.
-
-Route every bus access through a small read/write transport, keep the
-I2C one (unchanged on the wire: SMBus word and block writes are the same
-bytes), and add the SPI one with DMA-safe buffers, matched as
-"samsung,s6sy792". sec_ts pulses the (active-low) reset line after
-power-up; do the same when the DT provides reset-gpios. Probe failures
-now say which check failed.
-
-What the S6SY79x needed beyond the framing, found on the phone with a
-self-test that reads TS_STATUS in a loop:
-
-- the reply can come on the second read frame after a request, the first
-  carrying no sync code: read the frame again before giving up (without
-  this exactly every other read failed);
-- after about 1-2 ms of silence the controller's interface dozes and the
-  next request only wakes it: retry reads and writes, as sec_ts does, and
-  wake it with a harmless read before a write;
-- a lost SENSE_ON leaves it not scanning: check that TS_STATUS reports
-  the touch system mode after SENSE_ON, and send it again if not;
-- after a cold power-up it is not ready 140 ms after reset: poll for the
-  boot event for up to 300 ms, as sec_ts waits for it;
-- at boot its rails are still on from the bootloader and it may not
-  answer at all: on a failed first init, switch the rails off with reset
-  held, wait 100 ms and initialise again.
-
-The Pixel 6 Pro reports continuous multi-point coordinates (about one
-report per 10-15 ms on a drag).
-
-The SPI transport is built only with CONFIG_SPI, so the driver still
-links for I2C-only kernels.
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Assisted-by: Claude:claude-opus-5-5
 Signed-off-by: saiththerobo <the.tom.sharp@gmail.com>
 ---
  drivers/input/touchscreen/Kconfig   |   3 +-

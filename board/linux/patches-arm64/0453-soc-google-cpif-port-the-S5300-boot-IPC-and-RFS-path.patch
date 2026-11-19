@@ -4,43 +4,6 @@ Date: Mon, 12 Oct 2026 18:57:51 -0400
 Subject: [PATCH] soc: google: cpif: port the S5300 boot, IPC and RFS path to
  Linux 7.3
 
-Build the imported parts of Google's modem interface driver as two
-modules, cpif.ko and shm_ipc.ko, for the S5300 on gs201, with the link
-calls going to pcie-gs201-cp:
-
-- Kconfig and Makefile with Google's option names, which the sources
-  test: EXYNOS_MODEM_IF, SEC_MODEM_S5100 (selects LINK_DEVICE_PCIE),
-  SHM_IPC, and CPIF_AP_SUSPEND_DURING_VOICE_CALL, which stock builds and
-  without which the S5100 control code does not compile. Nothing else:
-  the packet processor, DIT, the PCIe IOMMU, S2MPU, BTL, the throughput
-  monitor and the thermal zones stay out, so data goes through the
-  legacy buffers only.
-- pcie-gs201-compat.c: the exynos_pcie_*() calls of Google's root
-  complex driver, on gs201_pcie_cp_*(). The link-down and completion
-  timeout events are passed to CPIF's callback with Google's event
-  codes; BTL's outbound window and the packet processor's exclusive MSI
-  vectors fail with -EOPNOTSUPP.
-- GPIOs: of_gpio.h is gone. The modem's lines are GPIO descriptors,
-  looked up as "<name>-gpios" in the modem node with the names the link
-  driver's "modem" child uses, and driven at raw levels as Google's GPIO
-  numbers were; outputs still start low.
-- The modem's reserved regions are no-map here (stock's are in the
-  linear map), so shm_ipc maps them with memremap(), write-back for the
-  cached ones (the link is I/O coherent) and write-combine for the rest,
-  instead of phys_to_virt() and vmap() of their pages, and never hands
-  them back to the page allocator. The callers that used phys_to_virt()
-  on a region use the region's mapping.
-- Stock panics the AP when the driver or the shared-memory probe fails,
-  when the offsets in shared memory look damaged, when a link is
-  missing, and when the modem's userspace asks for it; all of these now
-  return an error or log.
-- PCI: match the S5300 (144d:a5a5) only. Stock matches every Samsung
-  function, which here includes the link's root port.
-- API drift: class_create(), strscpy(), timer_container_of(),
-  timer_delete(), hrtimer_setup(), and alloc_netdev_dummy() for the NAPI
-  device; the logbuffer calls go to pr_debug(); remove() returns void;
-  a broken stub in modem_notifier.h; the W=1 prototype warnings.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

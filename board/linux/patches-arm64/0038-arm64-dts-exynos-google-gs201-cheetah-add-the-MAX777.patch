@@ -3,19 +3,7 @@ From: Derek Ross <derekross@gmail.com>
 Date: Sun, 11 Oct 2026 20:21:19 -0400
 Subject: [PATCH] arm64: dts: exynos: google: gs201-cheetah: add the MAX77759
 
-Describe the MAX77759 on USI13 of the Pixel 7 Pro: the PMIC core with its
-GPIO block at 0x66, the fuel gauge at 0x36 (5 mOhm sense resistor) and
-the Type-C port controller at 0x25. All three interrupt lines are on
-ALIVE gpa9 (pins 4, 3 and 7), active low with pull-ups, as in Google's
-GPL device tree.
-
-The Type-C port controller is left disabled. The USB-C port is the only
-way into the phone during bring-up, and TCPM would take over VBUS and
-the data role before the USB PHY and dwc3 have orientation and role
-switches to follow it. Its connector copies gs101's roles and PDOs with
-PD disabled.
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Assisted-by: Claude:claude-opus-5-5
 ---
  .../boot/dts/exynos/google/gs201-cheetah.dts  | 111 ++++++++++++++++++
  1 file changed, 111 insertions(+)

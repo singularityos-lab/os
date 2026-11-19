@@ -4,11 +4,6 @@ Date: Mon, 12 Oct 2026 13:26:58 -0400
 Subject: [PATCH] arm64: dts: exynos: google: gs201-cheetah: describe the NFC
  controller
 
-The ST54J's NCI controller is at 0x08 on I2C 8 (shared with the haptics
-driver), with its interrupt on gpa9-1 and reset on gph1-5 (HSI1), as in
-the stock device tree. Only the NFC side is described; the secure element
-is not. Disabled until it is proven on the phone.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

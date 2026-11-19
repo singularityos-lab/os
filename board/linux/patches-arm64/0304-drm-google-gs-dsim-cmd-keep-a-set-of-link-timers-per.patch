@@ -3,30 +3,6 @@ From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 Date: Tue, 27 Oct 2026 12:02:36 -0647
 Subject: [PATCH] drm: google: gs-dsim-cmd: keep a set of link timers per panel
 
-The 60 and 120 Hz link timers (the underrun timeout and the TE
-timeouts) depend on the panel's timings and the link rate, and the
-table had only the Pixel 7 Pro's. Make it one set per panel, and pick
-the set at probe from the timers the bootloader left, as the 60 Hz
-entry was found before.
-
-Add the Pixel 9a's tg4c panel: its 60 Hz pair is the one its
-bootloader leaves (underrun 0x18c8, TE_CTRL1 0x2a82306d, a word clock
-of about 68.75 MHz on 1100 Mbit/s lanes), and its 120 Hz pair follows
-Google's dsim_calc_underrun() the same way the Pixel 7 Pro's does: half
-the TE timeouts, and the 60 Hz underrun less the frame time saved.
-
-Its 120 Hz underrun (0x2a0) is derived from the bootloader's 60 Hz value
-in the same way. Google's dsim_calc_underrun() with tg4c's parameters
-would give 0x69c at 120 Hz (0x1cc4 at 60 Hz, not the bootloader's
-0x18c8), leaving more LP time; the derived value leaves about 1 ms.
-
-Tested on the Pixel 9a: the 60 Hz timers are recognised at probe, the
-desktop switches to 120 Hz and back, 602 frames in 5 s at 120 Hz with
-no underruns, and a minute of workspace switching at 120 Hz (67 round
-trips) left DSIM INTSRC's underrun bit (19) clear, read before and
-after. The tested gs-dsim-cmd.c (blob e6cbc14174a3) differs from this
-one only in comments and one continuation line's indentation.
-
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  drivers/gpu/drm/google/gs-dsim-cmd.c | 56 +++++++++++++++++++++-------

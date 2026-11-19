@@ -4,35 +4,6 @@ Date: Mon, 9 Nov 2026 17:56:55 +0900
 Subject: [PATCH] PCI: dwc: gs201-cp: refuse system sleep while the modem's
  link is up
 
-The modem stays powered across s2idle, as on stock: CPIF lets the AP sleep
-only after CP2AP_WAKEUP has dropped and the idle link has been powered
-down (it holds a wake lock while the link is up, and its suspend returns
--EBUSY while the line is high), and stock's root complex does no link-down
-at suspend either, only isolating a link that is already down, which
-link_down does here.
-
-This driver had no sleep callbacks. Add noirq ones that refuse while the
-driver's own state says the link is up or the PHY is out of isolation,
-should those paths ever race. This is a late abort rather than a guard:
-the root port and the modem are this device's children, so the PM core
-has run their suspend_noirq, and the PCI core has handled them, before
-this callback runs; a refusal makes the PM core resume them and fails
-the sleep. The refusal is logged; the link-down edges at suspend and
-resume, with the PMU's isolation register, are debug messages. The
-isolation register is not used to refuse: a phone whose modem never
-started never isolated the PHY and must still sleep.
-
-Only gs201 sets the new sleep_guard match data, so on the Pixel 9a
-(zumapro), where sleep with the modem up has not been tried and the PHY
-stays out of isolation after the first link up, the callbacks do
-nothing and its behaviour is unchanged. On gs201 the modem link node is
-disabled in gs201.dtsi and only the Pixel 7 Pro (cheetah) enables it,
-through its device overlay; that is the board this changes.
-
-Seen on a Pixel 7 Pro with the modem up (7.3.0-rc6, before this change):
-the cp2ap_wakeup IRQ (gpa8-3, level) is wake-enabled by CPIF, and the
-link's MSIs are not.
-
 Assisted-by: LLM
 Signed-off-by: Hiroyuki Ikegami <ikegam@mixallow.net>
 ---

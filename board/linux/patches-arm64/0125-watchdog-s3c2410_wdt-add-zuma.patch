@@ -3,15 +3,6 @@ From: Brett-Michael Green <brett@bmgvisualtech.com>
 Date: Thu, 22 Oct 2026 12:54:14 -0400
 Subject: [PATCH] watchdog: s3c2410_wdt: add zuma
 
-zuma keeps gs101's cluster 0 PMU registers (NONCPU_INT_EN 0x1244,
-NONCPU_OUT 0x1220) and reset status (0x3b44, bits 0 and 1), moves
-cluster 1's to 0x1544 and 0x1520, and has the counter enable at bit 4
-of NONCPU_OUT for both clusters (Google's GPL s3c2410_wdt for zuma, and
-stock's boot log: NONCPU_OUT 0x33fff10 and 0x10 once enabled).
-
-Its bootloader hands over with both watchdogs counting, so until this
-driver takes them over the phone resets about 80 s into boot.
-
 Assisted-by: LLM
 Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
 ---

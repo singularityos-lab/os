@@ -4,43 +4,6 @@ Date: Sun, 1 Nov 2026 13:43:04 -0647
 Subject: [PATCH] phy: samsung: zuma-pcie: Mark the PHY configured, park its
  clock when off
 
-Google's root-complex driver for the zuma family (pcie-exynos-rc.c,
-built with pcie-exynos-zuma-rc-cal.c for zuma and zumapro) does two
-things around the channel 1 PHY that this driver did not:
-
-- exynos_pcie_rc_establish_link() sets bit 10 of the PMU's PHY control
-  register once the PHY has been configured, through its private PMU
-  write, before it releases PERST#;
-- exynos_pcie_rc_poweroff() clears bits 1:0 of SOC 0x4000 before the
-  PHY power-down, which switches the PHY's input clock back to the
-  oscillator.
-
-Do the same on zumapro: set bit 10 at the end of power_on, after the
-UDBG 0xc800 write, and fail power_on if the PMU refuses it; return the
-input clock to the oscillator at the start of power_off. power_on
-already writes SOC 0x4000 first, so a power_off/power_on cycle (the
-host's training retry) selects the PHY clock again.
-
-Keep both to zumapro's own match entry, ahead of the zuma fallback its
-nodes carry. Google does them on zuma too, but they have only run on a
-zumapro board, so zuma's path stays as it was until a zuma board has
-run them.
-
-Nothing clears bit 10 again. Google never clears it in
-pcie-exynos-rc.c either: it is set by a read-modify-write and left set,
-and the isolation writes go through the PHY control mask, whose
-definition is not in the GPL sources, so that it leaves bit 10 alone
-is inferred, not read.
-
-Tested on a Pixel 9a (zumapro), PCIe channel 1, with pcie-gs201 as
-host: the link trained at Gen2 x1 on the first try and the BCM4383
-joined a network with no ping loss. An unbind and rebind of the
-controller ran the oscillator step and the power-down; the PHY control
-read 0x4c1 before power_on set bit 10 again, and the rebind trained
-Gen2 x1 on the first try with it already set. That boot had both steps
-on zuma's match data; this version moves them to zumapro's entry, which
-the same node selects first.
-
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  drivers/phy/samsung/phy-zuma-pcie.c | 54 ++++++++++++++++++++++++++++-

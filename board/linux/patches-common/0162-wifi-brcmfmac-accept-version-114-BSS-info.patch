@@ -3,12 +3,6 @@ From: Brett-Michael Green <brett@bmgvisualtech.com>
 Date: Sat, 31 Oct 2026 11:45:10 -0400
 Subject: [PATCH] wifi: brcmfmac: accept version 114 BSS info
 
-The BCM4398's firmware reports scan results as wl_bss_info version
-114: version 109 with EHT fields appended, so every field brcmfmac
-reads is where it was, and the IEs are found from ie_offset as before.
-Accept it rather than dropping every result ("Version 114 !=
-WL_BSS_INFO_VERSION").
-
 Assisted-by: LLM
 Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
 ---

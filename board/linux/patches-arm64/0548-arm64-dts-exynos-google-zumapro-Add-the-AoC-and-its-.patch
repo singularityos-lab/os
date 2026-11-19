@@ -4,23 +4,6 @@ Date: Sat, 31 Oct 2026 11:21:32 -0643
 Subject: [PATCH] arm64: dts: exynos: google: zumapro: Add the AoC and its
  mailboxes
 
-Describe the AoC, the audio and sensor DSP, and its three mailboxes
-(A32, F1, P6, GIC SPIs 77 to 79). The AoC's power request is at
-0x154b0000, its watchdog on SPI 130, and it reads the chip id block at
-0x10000000; its 48 doorbells are the mailboxes' 16 each. Its clocks are
-the 17 ACPM DVFS domains, all of which the 9a's AoC driver asks ACPM
-about before each start. The firmware owns the AoC's memory protection,
-so neither its S2MPU nor its System MMU is described. All stay
-disabled; the board adds the carve-out, its firmware name, its board
-id and the sensor supplies.
-
-Booted on the Pixel 9a:
-7.3.0-rc6-omamobile-tegu-s2mpg15-m1-g991042e2eff3-dirty has these nodes
-(plus a disabled System MMU node this driver no longer uses), enabled
-by overlays at runtime; the AoC starts and reaches its 93 services.
-
-Addresses and interrupts from Google's GPL zumapro device tree.
-
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  .../arm64/boot/dts/exynos/google/zumapro.dtsi | 80 +++++++++++++++++++

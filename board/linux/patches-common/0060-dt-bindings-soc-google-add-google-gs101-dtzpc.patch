@@ -2,18 +2,8 @@ From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?Andr=C3=A9=20Draszik?= <andre.draszik@linaro.org>
 Date: Wed, 18 Mar 2026 11:29:44 -0400
 Subject: [PATCH] dt-bindings: soc: google: add google,gs101-dtzpc
-MIME-Version: 1.0
-Content-Type: text/plain; charset=UTF-8
-Content-Transfer-Encoding: 8bit
 
-The Exynos Distributed TruztZone Protection Control (D_TZPC) provides
-an interface to the protection bits that are included in the TrustZone
-design in a secure system. It configures each area of the memory as
-secure or non-secure.
-
-Reviewed-by: Rob Herring (Arm) <robh@kernel.org>
 Signed-off-by: André Draszik <andre.draszik@linaro.org>
-Link: https://lore.kernel.org/r/20260318-gs101-pd-v8-1-241523460b10@linaro.org
 Signed-off-by: saiththerobo <the.tom.sharp@gmail.com>
 ---
  .../soc/google/google,gs101-dtzpc.yaml        | 42 +++++++++++++++++++

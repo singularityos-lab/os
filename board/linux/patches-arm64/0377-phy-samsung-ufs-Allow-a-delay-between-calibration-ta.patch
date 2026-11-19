@@ -4,16 +4,6 @@ Date: Sun, 1 Nov 2026 13:57:39 -0647
 Subject: [PATCH] phy: samsung-ufs: Allow a delay between calibration table
  entries
 
-The PHY tables can only describe register writes. Tensor G4's Hibern8
-exit sequence in Google's zuma calibration tables waits 10 us
-(COMMON_WAIT) between its write to the PMA common register 0x000 and
-its writes to the lane registers.
-
-Add a table entry for such a wait. Like a common block write, it runs
-once, on the lane 0 pass. Existing tables are unchanged.
-
-Link: https://android.googlesource.com/kernel/google-modules/soc/gs/+/204078758737776959ecc85c527a00fd2cabb62f/drivers/ufs/zuma/ufs-cal.h
-Link: https://android.googlesource.com/kernel/google-modules/soc/gs/+/204078758737776959ecc85c527a00fd2cabb62f/drivers/ufs/zuma/ufs-cal-if.c
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  drivers/phy/samsung/phy-samsung-ufs.c | 6 ++++++

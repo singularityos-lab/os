@@ -4,19 +4,6 @@ Date: Thu, 22 Oct 2026 20:28:08 -0700
 Subject: [PATCH] pinctrl: samsung: Add Tensor G4 pin banks and runtime
  interrupts
 
-Add 58 banks grouped into the 13 Tensor G4 controllers in stock alias
-order. Keep both field/register layouts from Google's pinctrl-gs.c.
-
-Handle advertised runtime wakeup-bank interrupts without programming
-unadvertised banks owned by firmware. Mask advertised inputs before
-installing parent handlers. Preserve the existing no-parent-IRQ path
-for GPIO-only controllers; no compatible-specific exception is needed.
-
-The new interrupt chip has no system-wakeup operation. Board wakeup
-properties must wait for wake-mask support; runtime interrupt support
-does not qualify system suspend. No board nodes are enabled here.
-
-Link: https://android.googlesource.com/kernel/google-modules/soc/gs/+/204078758737776959ecc85c527a00fd2cabb62f/drivers/pinctrl/gs/pinctrl-gs.c
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  .../pinctrl/samsung/pinctrl-exynos-arm64.c    | 194 ++++++++++++++++++

@@ -4,12 +4,6 @@ Date: Thu, 22 Oct 2026 21:35:13 -0400
 Subject: [PATCH] arm64: dts: exynos: google: gs201-felix: describe the cover
  touch rails
 
-LDO25M (L25M_OUTER_TS_DVDD) and LDO26M (L26M_OUTER_TS_AVDD) are the
-cover touch supplies, fixed at 1.8 V and 3.3 V. Nothing else on the
-stock board uses them. Describe those two rails under pmic-1 at those
-voltages. Registering them does not change the programmed voltage.
-Leave the node disabled. The sub-PMIC is not described.
-
 Signed-off-by: boozedog <code@booze.dog>
 ---
  .../boot/dts/exynos/google/gs201-felix.dts    | 36 +++++++++++++++++--

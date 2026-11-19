@@ -4,12 +4,6 @@ Date: Mon, 12 Oct 2026 01:34:37 -0400
 Subject: [PATCH] arm64: dts: exynos: google: gs201-cheetah: add the
  fingerprint sensor
 
-Add the Goodix under-display fingerprint sensor: interrupt on gpa9-2
-(rising edge), reset on gpp1-1 (active low), from Google's cheetah
-device tree. Its supply, S2MPG13 LDO15S, is off when the bootloader
-hands over and needs the ACPM regulator driver; vdd-supply is added with
-it. Disabled until the fingerprint bring-up gates.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

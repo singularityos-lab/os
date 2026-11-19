@@ -3,17 +3,7 @@ From: David Heidelberg <david@ixit.cz>
 Date: Thu, 29 Oct 2026 14:41:26 -0700
 Subject: [PATCH] Input: stmfts - support FTS5
 
-The FTS support SLPI and AP mode, introduce mode-switch GPIO to switch
-between those two. Currently we can handle only full power AP mode, so we
-just keep the AP on.
-
-Useful for devices like Pixel 3 (blueline), Pixel 4a (sunfish),
-Xiaomi Mi 8 (dipper), and many others.
-
-Based on work of Petr Hodina <petr.hodina@protonmail.com>
-
 Signed-off-by: David Heidelberg <david@ixit.cz>
-Link: https://patch.msgid.link/20260925-stmfts5-v8-4-0fcf49e2c85f@ixit.cz
 Signed-off-by: Dmitry Torokhov <dmitry.torokhov@gmail.com>
 Signed-off-by: quatrixone <quatrix1@gmail.com>
 ---

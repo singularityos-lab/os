@@ -3,36 +3,6 @@ From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 Date: Tue, 27 Oct 2026 01:06:08 -0647
 Subject: [PATCH] clk: samsung: zumapro: Add CMU_HSI0
 
-Register CMU_HSI0 on the common exynos_arm64_register_cmu() path, with
-its bus input. CMU_TOP's two HSI0 branch gates, GATE_CLKCMU_HSI0_NOC
-(0x20bc) and GATE_CLKCMU_HSI0_PERI (0x20c0), become read-only gates
-between the HSI0 muxes and dividers, as MISC's is, so the bus input runs
-through a gate the framework sees and a gate found closed in manual mode
-fails the probe. The USB PLL, the muxes and the dividers keep the settings
-firmware left; the eUSB2, USB, ALT and sysreg gates are read-only gates.
-Only the USI2 source, IP and APB gates and its divider are writable, for
-the touchscreen's SPI20.
-
-The three USI2 gates are in clk_regs, so exynos_arm64_init_clocks() puts
-them in manual mode at probe, and their state is saved and restored with
-the CMU. That is how the Pixel 9a has run since
-2026-10-24: touch on SPI20 at every boot, with suspend and resume, on the
-7.3.0-rc6 integration kernels.
-
-On the Pixel 9a the eUSB2 PHY's reference runs at 19.2 MHz.
-MUX_CLK_HSI0_USB20_REF selects DOUT_HSI0_USB (the USB PLL at 614.4 MHz,
-divided by 32), not the TCXO user mux, which selects the 26 MHz TCXO
-input. The snps-eusb2 driver programmed FSEL 0 and FB_DIV 0x170, its
-19.2 MHz row.
-
-Those readings, the clk_summary and the PHY's, come from the integration
-kernel 7.3.0-rc6-omamobile-tegu-s2mpg15-m1-g991042e2eff3-dirty, whose
-clk-zumapro.c (blob 7f689a677a4d) has this commit's 22 HSI0 entries
-unchanged, plus the USI3 and USI4 clocks for later work and without the
-two CMU_TOP gates, which are new here.
-
-Link: https://android.googlesource.com/kernel/google-modules/soc/gs/+/204078758737776959ecc85c527a00fd2cabb62f/drivers/soc/google/cal-if/zuma/cmucal-sfr.c
-Link: https://android.googlesource.com/kernel/google-modules/soc/gs/+/204078758737776959ecc85c527a00fd2cabb62f/drivers/soc/google/cal-if/zuma/cmucal-node.c
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  drivers/clk/samsung/clk-zumapro.c | 112 ++++++++++++++++++++++++++++--

@@ -3,10 +3,6 @@ From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 Date: Thu, 22 Oct 2026 20:28:08 -0700
 Subject: [PATCH] dt-bindings: pinctrl: samsung: Describe Tensor G4 controllers
 
-Describe the G4 pin controller and external interrupt controller.
-Require the peripheral clock as on the existing gs101/gs201 family.
-No board nodes are enabled.
-
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  .../bindings/pinctrl/samsung,pinctrl-wakeup-interrupt.yaml      | 1 +

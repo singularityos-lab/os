@@ -4,8 +4,7 @@ Date: Sun, 18 Oct 2026 22:16:51 -0400
 Subject: [PATCH] arm64: dts: exynos: google: gs201-felix: wrap the
  reserved-memory comment
 
-The inner-plane comment in reserved-memory ran to 102 columns, which
-checkpatch flags. Wrap it; no change to the generated DTB.
+
 ---
  arch/arm64/boot/dts/exynos/google/gs201-felix.dts | 5 ++++-
  1 file changed, 4 insertions(+), 1 deletion(-)

@@ -4,25 +4,6 @@ Date: Mon, 12 Oct 2026 01:35:56 -0400
 Subject: [PATCH] wifi: brcmfmac: pcie: write the host capabilities for the
  BCM4389
 
-From shared area revision 6 on, Broadcom's driver writes a host
-capability word into the shared area (host_cap, offset 84) before it
-uses the rings: the IPC revision in use, "host ready will be rung"
-when the firmware supports it, the device-wake mode, and "don't trap
-on an unsupported request" (bcmdhd dhd_msgbuf.c dhd_set_host_cap(),
-bcmpcie.h pciedev_shared_t and HOSTCAP_*). brcmfmac writes nothing
-there.
-
-It does write a "ring update" buffer address and length at offsets 64
-and 68, a field of older shared areas. In the revision 6/7 layout
-those offsets are host_scb_addr, and the high half of the buffer
-address lands in host_scb_size (offset 72); on the Pixel 7 Pro, with
-DMA memory above 4 GiB, that makes the size non-zero.
-
-For the BCM4389 (revision 7 firmware), write host_cap the way bcmdhd
-does with device wake off (version | ENABLE_HOSTRDY when offered |
-DS_NO_OOB_DW | UR_FW_NO_TRAP), and leave the legacy ring update fields
-alone. Other chips are unchanged.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

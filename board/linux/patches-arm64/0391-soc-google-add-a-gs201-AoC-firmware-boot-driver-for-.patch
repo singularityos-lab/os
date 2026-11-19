@@ -4,18 +4,6 @@ Date: Mon, 12 Oct 2026 12:56:52 -0400
 Subject: [PATCH] soc: google: add a gs201 AoC firmware boot driver for
  bring-up
 
-Boot the AoC firmware the way Google's aoc driver does, one debugfs
-step at a time: request BLK_AOC power (aoc_req) and wait for the
-acknowledge, set the AoC S2MPU's CTRL0 to 0, install the System MMU
-windows from the image header, copy the body into the carve-out, have
-the GSA authenticate and lock it, write the boot parameter block, start
-the AoC through the GSA, and wait for the firmware's control block and
-service list.
-
-Probing touches no AoC register; register reads in BLK_AOC happen only
-while the power acknowledge is set. The service rings and mailboxes are
-left to the AoC core driver, which will replace this one.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

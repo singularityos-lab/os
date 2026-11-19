@@ -3,25 +3,6 @@ From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 Date: Mon, 2 Nov 2026 13:18:57 -0647
 Subject: [PATCH] arm64: dts: exynos: google: zumapro-tegu: Add the modem link
 
-The Pixel 9a's Samsung S5300 modem sits on PCIe channel 0. Enable the
-controller and its two-lane PHY, give the controller the modem's MSI
-page, and describe the modem in its child node as the Pixel 7 does:
-the eleven control lines from stock's cpif node (Google's GPL
-zumapro-board-cp-s5300-sit.dtsi and the 9a's board overlay, raw levels
-as Google's CPIF drives them) and the three shared regions of stock's
-cp_shmem node, which are already reserved.
-
-The bootloader leaves FAR_ALIVE's GPA5 pulled down, and with that the
-modem's PS_HOLD, wake and PHONE_ACTIVE lines stayed low while the modem
-was powered (bring-up, 2026-10-27). With PS_HOLD and PHONE_ACTIVE
-floating, as stock leaves them, and the wake line pulled up, wake and
-PHONE_ACTIVE rose within half a second of power-on, so set those pulls
-on the pin controller.
-
-Binding the link driver touches no hardware: the controller, the PHY
-and the lines are reached only once it is loaded with allow_hw=1, or
-when the modem driver asks for the link.
-
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  .../boot/dts/exynos/google/zumapro-tegu.dts   | 53 +++++++++++++++++++

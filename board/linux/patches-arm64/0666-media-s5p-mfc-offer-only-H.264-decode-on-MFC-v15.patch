@@ -1,23 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?=C3=81ngel=20Ren=C3=A9?=
- <17342133+angelrenefm@users.noreply.github.com>
 Date: Sat, 14 Nov 2026 01:13:26 +0100
 Subject: [PATCH] media: s5p-mfc: offer only H.264 decode on MFC v15
-MIME-Version: 1.0
-Content-Type: text/plain; charset=UTF-8
-Content-Transfer-Encoding: 8bit
-
-On the Pixel 7's MFC v15.6 only H.264 has been made to work. The
-firmware refuses to open an instance for MPEG-1, MPEG-2, MPEG-4, H.263,
-VP8 and VP9 (OPEN_INSTANCE returns error 0x35, then REQBUFS fails with
-EIO), and HEVC opens but every frame comes back with a decode error.
-Each was tried with FFmpeg's *_v4l2m2m decoder on a short clip.
-
-Advertising them anyway breaks playback: GStreamer ranks its V4L2
-decoders above the software ones, picks v4l2vp9dec for a VP9 file, and
-the pipeline fails instead of falling back to vp9dec. Leave every
-compressed format but H.264 out of the v15 list, H.264 MVC included,
-which wasn't tried.
 
 Assisted-by: LLM
 Signed-off-by: Ángel René <17342133+angelrenefm@users.noreply.github.com>

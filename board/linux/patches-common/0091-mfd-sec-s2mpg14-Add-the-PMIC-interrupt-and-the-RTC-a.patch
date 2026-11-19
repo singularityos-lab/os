@@ -3,37 +3,6 @@ From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 Date: Sun, 1 Nov 2026 13:54:19 -0647
 Subject: [PATCH] mfd: sec: s2mpg14: Add the PMIC interrupt and the RTC alarm
 
-The S2MPG14 (Pixel 9a main PMIC) has the S2MPG12's five PMIC interrupt
-registers, INT1-INT5 at 0x00-0x04 clearing on read with their masks at
-0x05-0x09, routed in-band through IBIM1 and latched by the SoC's VGPIO2AP
-block, which the AP sees as GIC SPI 74. Google's GPL driver gives the
-bit layout (s2mpg14-irq.c, with the order of the sources in
-s2mpg14-register.h).
-
-Add the interrupt chip after the S2MPG12's: mask every source first (all
-eight bits of INT1M-INT5M, as Google's driver does, since regmap-irq only
-masks the bits it knows), then request the line, acknowledge the
-VGPIO2AP latch before each status read and unmask only the PMIC source
-in IBIM1 (nothing handles the power meter, and its regmap is not
-exposed). The ACPM regmaps grow the interrupt block, with INT1-INT5
-precious, and IBIM1, the only common register the driver writes and so
-the only writable one. The RTC cell gets its alarm resource, so the
-rtc-s5m driver enables the alarm it was built with.
-
-The interrupt stays optional, as the binding allows: the Pixel 9a and
-Pixel 8 Pro device trees describe the PMIC without it, and the PMIC's
-regulators supply the eUSB2 PHY and the touchscreen, so failing the
-probe would take USB down with it. Without an interrupt the driver
-writes none of the interrupt registers and registers the RTC without
-the alarm resource (there is no IRQ domain to map it into), as before
-this change. The other PMICs keep their paths.
-
-Tested on the Pixel 9a: /proc/interrupts lists the s2mpg14-pmic chip
-behind GIC SPI 74, a 15 s wakealarm on rtc0 fires (the interrupt count
-advances by one and the alarm clears), the line stays at zero otherwise,
-and the LDOs and the clock behave as before.
-
-Link: https://android.googlesource.com/kernel/google-modules/soc/gs/+/204078758737776959ecc85c527a00fd2cabb62f/drivers/mfd/s2mpg14-irq.c
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  drivers/mfd/sec-acpm.c              |  36 ++++++--

@@ -4,15 +4,6 @@ Date: Sat, 31 Oct 2026 08:09:49 -0400
 Subject: [PATCH] arm64: dts: exynos: google: zuma: add the HSI2 and FAR_ALIVE
  pin controllers
 
-Add HSI2's pin controller at 0x13040000 (gph3 and gph4, SPI 432) and
-FAR_ALIVE at 0x154e0000 (gpa5, one wake-up interrupt per pin, SPI 60 to
-67), with the banks and interrupts of stock's live device tree, as
-controllers 9 and 2 of the driver's zuma data. FAR_ALIVE's bus clock
-comes from CMU_APM; HSI2 takes the bus-clock stand-in, as HSI2UFS does.
-
-The Wi-Fi chip's PCIe reset, clock request, enable and wake lines are
-on gph3, and its host wake on gpa5.
-
 Assisted-by: LLM
 Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
 ---

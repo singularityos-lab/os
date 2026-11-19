@@ -4,12 +4,7 @@ Date: Wed, 28 Oct 2026 07:54:44 +0000
 Subject: [PATCH] arm64: dts: exynos: google: gs101-pixel-common: label the
  MAX77759
 
-Give pmic@66 a label, so a board can add properties to it (raven's
-monitored-battery for the charger cell) without repeating the bus path.
-
-No functional change.
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Assisted-by: Claude:claude-opus-5-5
 Signed-off-by: saiththerobo <the.tom.sharp@gmail.com>
 ---
  arch/arm64/boot/dts/exynos/google/gs101-pixel-common.dtsi | 2 +-

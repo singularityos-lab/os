@@ -4,16 +4,6 @@ Date: Mon, 12 Oct 2026 10:27:01 -0400
 Subject: [PATCH] dt-bindings: iommu: add the Google gs201 PCIe System MMU as a
  DMA window
 
-The System MMU in front of the gs201 PCIe GEN4A_1 controller (the Pixel
-7 Wi-Fi link), described for use as a DMA window: a 1:1 mapping of one
-reserved memory region, with the VID the controller's traffic uses.
-
-The window is a plain phandle property, google,dma-window: memory-region
-on this node would attach a restricted-dma-pool to the SysMMU device
-itself, which would then bounce its page table into the window.
-google,vid is the default VID to translate, which still has to be
-confirmed by a negative test.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

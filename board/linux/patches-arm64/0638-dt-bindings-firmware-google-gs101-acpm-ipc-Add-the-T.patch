@@ -4,12 +4,6 @@ Date: Sat, 31 Oct 2026 13:02:03 -0400
 Subject: [PATCH] dt-bindings: firmware: google,gs101-acpm-ipc: Add the Tensor
  G3 TMU
 
-The Tensor G3 (zuma) reads its SoC temperatures through the same ACPM
-TMU service as gs101 and zumapro, with zumapro's seven sensors in the
-same order: the Pixel 8 Pro's stock device tree names them BIG, MID,
-LITTLE, G3D, ISP, TPU and AUR (ids 0-6) on ACPM channel 9. Add its
-compatible.
-
 Assisted-by: LLM
 Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
 ---

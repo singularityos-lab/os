@@ -3,13 +3,6 @@ From: Derek Ross <derekross@gmail.com>
 Date: Mon, 12 Oct 2026 12:04:03 -0400
 Subject: [PATCH] dt-bindings: soc: google: add the gs201 GSA mailbox
 
-The GSA is the security core of Google Tensor SoCs. It authenticates and
-loads the firmware of other cores, such as the AoC audio and sensor DSP,
-and the application processor reaches it through a mailbox of shared
-command and response registers with one response interrupt.
-
-Describe that mailbox for gs201.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

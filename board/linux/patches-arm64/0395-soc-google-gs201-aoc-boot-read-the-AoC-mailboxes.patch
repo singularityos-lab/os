@@ -3,12 +3,6 @@ From: Derek Ross <derekross@gmail.com>
 Date: Mon, 12 Oct 2026 13:43:14 -0400
 Subject: [PATCH] soc: google: gs201-aoc-boot: read the AoC mailboxes
 
-Add a read-only view of the three AoC mailboxes, AP side, with the
-register layout of Google's mailbox-wc driver: the interrupt masks and
-raw status in both directions (INTSR1 shows the doorbells the AoC rang)
-and the eight shared registers. Each mailbox is announced in the log
-before it is read. diag_mbox=1 adds them to the start diagnostics.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

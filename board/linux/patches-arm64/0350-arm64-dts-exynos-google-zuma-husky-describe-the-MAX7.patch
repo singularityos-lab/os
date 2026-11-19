@@ -4,23 +4,6 @@ Date: Sat, 31 Oct 2026 16:45:06 +0200
 Subject: [PATCH] arm64: dts: exynos: google: zuma-husky: describe the MAX77759
  on hsi2c_11
 
-Add the battery, and the fuel gauge (0x36), PMIC (0x66) and Type-C
-controller (0x25) on hsi2c_11, as on the Pixel 7 Pro. The bus stays
-disabled here and bring-up overlays enable it. No gauge model yet: the
-pack is not known and a wrong model would be written on power-on reset.
-The Type-C controller stays disabled. The charge limits are
-conservative (4.2 V, 0.3 C) until stock's step charging is described.
-
-The MFD driver binds only if PMIC_ID reads 59 (0x3b), and it does on
-the Pixel 8 Pro: PMIC_ID 0x3b, PMIC_REVISION 0x02, OTP_REVISION 0x31
-(i2cget on 0x66). So the chip at 0x66 is a MAX77759, and not the
-MAX77729 that Google's devicetree names on the same interrupt.
-
-Binding the PMIC creates its charger cell, which programs charge limits
-from the battery node, so in the boots for this series a modprobe.d file
-on the phone kept max77759_charger, gpio_max77759, nvmem_max77759 and
-tcpci_maxim from loading, and lsmod shows the charger was not loaded.
-
 Signed-off-by: Lef <me@lefteros.com>
 Assisted-by: LLM
 ---

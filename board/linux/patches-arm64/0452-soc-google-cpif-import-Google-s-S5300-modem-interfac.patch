@@ -4,34 +4,6 @@ Date: Mon, 12 Oct 2026 18:46:33 -0400
 Subject: [PATCH] soc: google: cpif: import Google's S5300 modem interface
  driver
 
-Import the parts of Google's modem interface driver (CPIF,
-google-modules/radio/samsung/s5300 of Google's GPL gs-6.1 kernel, the
-version stock cheetah runs, CPIF-20220408R1) that boot the Samsung
-S5300 over PCIe and carry its IPC and RFS channels:
-
-- the platform driver and its device tree parsing (modem_main.c,
-  modem_variation.c, modem_utils.c, modem_dump.c);
-- the I/O devices: the boot and dump device, the IPC/RFS character
-  devices, the network devices and the TOE device (modem_io_device.c,
-  bootdump_io_device.c, ipc_io_device.c, net_io_device.c,
-  modem_toe_device.c);
-- the shared-memory link device and its legacy buffers, flow control,
-  snapshot and debug parts (link_device*.c);
-- the S5100-family modem control and its PCIe endpoint driver
-  (modem_ctrl_s5100.c, modem_ctrl.c, s51xx_pcie.c);
-- the shared-memory region driver (shm_ipc.c);
-- the headers these include, and, under gs-include/, the six headers of
-  Google's soc/gs tree they need (shm_ipc.h, modem_notifier.h,
-  exynos-modem-ctrl.h, exynos-pci-noti.h, exynos-pci-ctrl.h and the
-  exynos-cpif.h DT constants).
-
-The packet processor, DIT, the throughput monitor, the PCIe IOMMU, the
-S2MPU, BTL, the thermal zones and SPI boot are left out; the port runs
-without them first.
-
-The files are unchanged and not built yet; the next commit ports them to
-this kernel.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

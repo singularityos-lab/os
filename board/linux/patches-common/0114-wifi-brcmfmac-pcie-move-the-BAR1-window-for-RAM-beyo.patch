@@ -4,28 +4,6 @@ Date: Mon, 12 Oct 2026 00:32:09 -0400
 Subject: [PATCH] wifi: brcmfmac: pcie: move the BAR1 window for RAM beyond the
  BAR
 
-brcmfmac reaches the chip's RAM through PCI BAR 2 (Broadcom's "BAR1")
-and assumes it maps the backplane from address 0. The BCM4389 has
-2688 KiB of RAM at 0x200000, up to 0x49ffff, behind a 4 MiB BAR. The
-top of RAM, where the NVRAM, the random seed and the shared-area
-handshake word go, is beyond the BAR, and brcmfmac's accesses there
-land past the end of its ioremap().
-
-The BAR maps the 4 MiB-aligned block of backplane space named by the
-BAR1 window register (PCI config 0x84). Broadcom's own driver moves it
-for every TCM access when RAM does not fit (bcmdhd dhd_pcie.c
-dhdpcie_bar1_window_switch_enab(), dhdpcie_bus_chkandshift_bpoffset(),
-pcicfg.h PCI_BAR1_WIN), and points it back at 0 before the download
-(dhdpcie_bus_download_state()). On the Pixel 7 Pro it logs the random
-seed TLV at 0x49a248.
-
-Do the same: when RAM ends beyond the BAR, route every TCM access
-through one helper that moves the window under a spinlock, split block
-copies at window edges (and into 4 KiB pieces, so the 1.7 MB firmware
-download does not hold the lock throughout), and reset the window
-before the download and after a chip reset. Chips whose RAM fits the
-BAR take the same path with the window left alone.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

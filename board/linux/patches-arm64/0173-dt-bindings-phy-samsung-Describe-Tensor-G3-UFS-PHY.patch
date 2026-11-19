@@ -3,12 +3,6 @@ From: Brett-Michael Green <brett@bmgvisualtech.com>
 Date: Sat, 24 Oct 2026 12:22:33 -0400
 Subject: [PATCH] dt-bindings: phy: samsung: Describe Tensor G3 UFS PHY
 
-zuma (Tensor G3) and zumapro (Tensor G4) take their UFS PHY tables from
-the same calibration source in Google's GPL driver (drivers/ufs/zuma/),
-and the PHY's calibration-done register and PMU isolation offset
-(0x3ec0) are the same, so describe zuma's PHY with zumapro's as the
-fallback.
-
 Assisted-by: LLM
 Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
 ---

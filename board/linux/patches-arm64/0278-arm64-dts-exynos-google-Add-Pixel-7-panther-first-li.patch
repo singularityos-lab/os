@@ -4,29 +4,6 @@ Date: Tue, 27 Oct 2026 21:03:15 -0700
 Subject: [PATCH] arm64: dts: exynos: google: Add Pixel 7 (panther) first-light
  board
 
-Add a first-light board file for the Pixel 7: USB (NCM and ACM gadget),
-the cluster watchdogs from gs201.dtsi, and a simple-framebuffer on the
-buffer ABL leaves the panel scanning out. UFS, the panel, touch and the
-GPU stay disabled.
-
-panther has the standard package of gs201: stock reports
-ro.boot.hw.soc.pkg_mode 0 and soc_id 0x09855001 in its live tree, so
-this DTB matches on soc_id as cheetah's does. ABL accepted it.
-
-ABL leaves DPP0 scanning 0xfac00000 (RDMA_BASEADDR_Y8, read on the
-phone) for the 1080x2400 sdc-s6e3fc3 panel; the buffer is reserved and
-described as a simple-framebuffer. ramoops uses stock's address and
-layout, so a log from this kernel can be read after a warm reboot into
-stock on slot A.
-
-The board dtbo for ABL (board_id 0x30406, board_rev 0x10000), the
-display trigger and the image packing live in the omarchy-mobile
-repository (device/panther).
-
-Tested on a Pixel 7 (bootloader cloudripper-17.0-15902555) from slot
-B: the kernel boots, both watchdogs are stopped at probe, the console
-shows on the panel, and SSH over the USB NCM gadget works.
-
 Assisted-by: Claude Opus 5.5
 Signed-off-by: Alejandro Garcia <skipper.pelygro@gmail.com>
 ---

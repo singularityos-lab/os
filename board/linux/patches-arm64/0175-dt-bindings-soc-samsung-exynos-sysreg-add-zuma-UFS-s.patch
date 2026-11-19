@@ -3,10 +3,6 @@ From: Brett-Michael Green <brett@bmgvisualtech.com>
 Date: Thu, 22 Oct 2026 14:32:03 -0400
 Subject: [PATCH] dt-bindings: soc: samsung: exynos-sysreg: add zuma UFS sysreg
 
-zuma's UFS has its own sysreg block (0x13020000, the IO coherency
-control at 0x710), rather than HSI2's as on gs101 and gs201. Add its
-compatible; it takes no clock.
-
 Assisted-by: LLM
 Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
 ---

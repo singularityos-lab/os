@@ -1,24 +1,8 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?=C3=81ngel=20Ren=C3=A9?=
- <17342133+angelrenefm@users.noreply.github.com>
 Date: Sat, 14 Nov 2026 16:03:30 +0100
 Subject: [PATCH] media: s5p-mfc: keep the frame that came with the header on
  MFC v15
-MIME-Version: 1.0
-Content-Type: text/plain; charset=UTF-8
-Content-Transfer-Encoding: 8bit
-
-After the header is parsed, the driver only checks for H.264 whether
-the header's buffer holds more than the header, and treats the buffer
-as used up for every other codec. That buffer usually carries the first
-picture too: the first HEVC IRAP picture, and in VP8 and VP9 the header
-is the key frame itself. Dropping it, the firmware fails every HEVC
-frame with error 190 (SYNC_POINT_NOT_RECEIVED in Google's exynos-mfc
-driver) and every VP8/VP9 frame with error 34 (NO_KEY_FRAME).
-
-Check the consumed bytes for every codec on MFC v15. On the Pixel 7,
-HEVC, VP8 and VP9 clips then decode to the same frames as FFmpeg's and
-GStreamer's software decoders.
 
 Assisted-by: LLM
 Signed-off-by: Ángel René <17342133+angelrenefm@users.noreply.github.com>

@@ -3,10 +3,6 @@ From: Chris Gray <chrisgray70@gmail.com>
 Date: Sun, 8 Nov 2026 17:38:42 -0600
 Subject: [PATCH] trusty: ipc: use the current trace string assignment API
 
-The current trace macro accepts only the field name. Keep the
-integration tree buildable by using that API. This is a build
-compatibility change; no Trusty runtime was exercised on Bluejay.
-
 Assisted-by: LLM
 Signed-off-by: Chris Gray <chrisgray70@gmail.com>
 ---

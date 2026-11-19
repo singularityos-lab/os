@@ -4,31 +4,6 @@ Date: Sun, 11 Oct 2026 22:39:18 -0400
 Subject: [PATCH] arm64: dts: exynos: google: gs201-cheetah: enable the BCM4389
  Wi-Fi
 
-Describe the Wi-Fi side of the BCM4389 on pcie_1 and enable it:
-WL_REG_ON (gph2-4) as the root port's supply with Google's 200 ms
-turn-on delay, so the PCI pwrctrl core powers the chip around link
-training; the wifi@0,0 node with its board type; the host-wake
-(gpa6-1) and dev-wake pins; and a 16 MiB restricted DMA pool that every
-buffer the kernel hands the chip comes from. The HSI2 pin controller,
-which the SoC dtsi leaves disabled, is enabled for these pins.
-
-The Wi-Fi node has no interrupt of its own: for a PCI device with a DT
-node, of_irq_parse_pci() takes the node's interrupt first, so a
-host-wake EINT there replaced the controller's INTA, and brcmfmac,
-whose PCIe bus does not use host-wake, could not clear it ("irq 97:
-nobody cared") while the doorbell interrupts on INTA went nowhere.
-
-The pool sits at 0x80000000-0xffffffff. Without a range the kernel
-places it at the top of RAM, 0xaff000000, where the BCM4389's DMA reads
-work but its writes to host memory are never seen, so it cannot return
-a ring index or a completion. Google's kernel never lets the chip
-address memory above 4 GiB: its HSI2 PCIe SysMMU hands out 32-bit
-IOVAs.
-
-The pool is not a firewall against the chip's firmware: the HSI2 System
-MMU (and S2MPU) select by VID, and the PCIe and UFS masters both arrive
-on VID 0, so the SysMMU node stays disabled.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

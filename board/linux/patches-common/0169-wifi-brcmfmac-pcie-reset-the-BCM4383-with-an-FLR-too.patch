@@ -3,29 +3,6 @@ From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 Date: Sun, 1 Nov 2026 14:24:58 -0647
 Subject: [PATCH] wifi: brcmfmac: pcie: reset the BCM4383 with an FLR too
 
-The BCM4383 (Pixel 9a) shares its chip with Bluetooth. With Bluetooth
-up, so with BT_REG_ON high, an unbind and rebind of the PCIe host (which
-drops and raises WL_REG_ON) left brcmfmac unable to start the chip
-again: it recognised the chip and downloaded the firmware, then failed
-with "FW failed to initialize". With hci_uart unloaded first, the same
-rebind brought wlan0 back.
-
-Broadcom's driver never resets this chip with the chipcommon watchdog.
-bcmdhd sets cc_wd_reset false, so dhdpcie_dongle_reset() resets the
-WLAN function with an FLR (dhd_bus_perform_flr()), with no check on
-Bluetooth: "For buscorerev = 66 and after, F0 FLR should be done
-independent from F1. So don't need BT quiesce" (dhd_pcie.c,
-google-modules/wlan/bcm4383). The chip advertises FLReset+.
-
-Reset it with the FLR the BCM4389 already uses, falling back to the
-watchdog if the FLR is refused or doesn't complete.
-
-Tested on a Pixel 9a (7.3.0-rc6-omamobile-push1-gd60d217db5c6): three
-unbinds and rebinds of the PCIe host with Bluetooth powered each brought
-wlan0 back, the link at Gen2 x1 every time, with hci0 still powered
-afterwards. Without this commit the same test failed twice out of two
-with "FW failed to initialize".
-
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  .../broadcom/brcm80211/brcmfmac/pcie.c        | 22 +++++++++++++++----

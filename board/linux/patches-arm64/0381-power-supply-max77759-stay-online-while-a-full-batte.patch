@@ -4,16 +4,6 @@ Date: Fri, 30 Oct 2026 03:27:23 -0400
 Subject: [PATCH] power: supply: max77759: stay online while a full battery is
  on the charger
 
-charger_input_valid() required both CHGIN_OK and CHG_OK in CHG_INT_OK.
-CHG_OK clears when the charge is done: on a Pixel 7 Pro on a laptop port,
-CHG_INT_OK went from 0xdd to 0xcd as CHG_DETAILS_01 reached DONE (0x4),
-and online and present dropped to 0 with the cable in and the mode still
-CHG_BUCK_ON. Userspace then counts a full phone on the charger as running
-on battery (upower applies its battery policy).
-
-Report the input from CHGIN_OK alone; the status property already says
-Full, and charger faults through status and health.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

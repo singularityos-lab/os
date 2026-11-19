@@ -3,10 +3,6 @@ From: Brett-Michael Green <brett@bmgvisualtech.com>
 Date: Sat, 31 Oct 2026 12:44:58 -0400
 Subject: [PATCH] dt-bindings: gpu: mali-valhall-csf: Add the Tensor G3 GPU
 
-The Tensor G3 (zuma) has a Mali-G715, arch 11.8.10 r1p2 on the
-Pixel 8 Pro, like the Tensor G4's. Add its compatible, so that panthor
-can match its integration-specific cache hash, as it does zumapro's.
-
 Assisted-by: LLM
 Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
 ---

@@ -4,18 +4,7 @@ Date: Wed, 14 Oct 2026 21:05:25 -0400
 Subject: [PATCH] arm64: dts: exynos: google: gs201: add CMU_APM and the APM
  USI1 UART
 
-Describe what the Bluetooth UART of Pixel 7 devices needs:
-
-- CMU_APM (0x18000000), read-only in the clock driver;
-- the APM sysreg (0x18020000), whose SW_CONF at 0x4e4 selects UART mode
-  for APM USI1, as Google's kernel does at boot;
-- the APM USI1 wrapper (0x181b00c0) with clkreq-on, as UART Rx needs the
-  IP clock while idle, and its UART (0x181b0000, SPI 69, 256-byte FIFO);
-- its pins, gpa3-0..3 in function 2.
-
-All are disabled except the inert sysreg syscon.
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Assisted-by: Claude:claude-opus-5-5
 ---
  .../boot/dts/exynos/google/gs201-pinctrl.dtsi |  7 +++
  arch/arm64/boot/dts/exynos/google/gs201.dtsi  | 49 +++++++++++++++++++

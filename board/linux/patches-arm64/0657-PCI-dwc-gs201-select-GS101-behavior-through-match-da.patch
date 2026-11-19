@@ -3,15 +3,6 @@ From: Chris Gray <chrisgray70@gmail.com>
 Date: Wed, 11 Nov 2026 12:20:02 -0600
 Subject: [PATCH] PCI: dwc: gs201: select GS101 behavior through match data
 
-Extend the current SoC match data for GS101 supply votes, inaccessible
-CMU diagnostics and bounded link attempts. The already merged 9a
-match-data paths are retained. Endpoint power uses the existing PCI
-power-control sequence, including its error and teardown handling;
-remove the proposed direct WLAN GPIO ownership from the host driver.
-
-The companion disabled Bluejay DT supplies a fixed WL_REG_ON regulator
-to the root port. That reworked sequencing is not hardware-qualified.
-
 Assisted-by: LLM
 Signed-off-by: Chris Gray <chrisgray70@gmail.com>
 ---

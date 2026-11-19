@@ -3,10 +3,6 @@ From: Brett-Michael Green <brett@bmgvisualtech.com>
 Date: Mon, 26 Oct 2026 09:19:47 -0400
 Subject: [PATCH] dt-bindings: pinctrl: samsung: Add Tensor G3
 
-zuma (Tensor G3) has Tensor G4's pin controllers, in the same order,
-with two banks fewer in ALIVE (gpa11 and gpa12), so it needs its own
-compatible. Like Tensor G4's, each controller takes its bus clock.
-
 Assisted-by: LLM
 Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
 ---

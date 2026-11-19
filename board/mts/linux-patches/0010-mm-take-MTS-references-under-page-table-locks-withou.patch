@@ -4,18 +4,7 @@ Date: Fri, 6 Nov 2026 12:00:00 +0100
 Subject: [PATCH 10/11] mm: take MTS references under page table locks without
  sleeping
 
-Fork, zap and reclaim take and drop MTS references while holding PTE
-spinlocks, but the reference table and the tier were guarded by mutexes, so
-those paths slept in atomic context. The tier and reference locks become
-spinlocks; provider I/O keeps its per-object mutex, which is now taken outside
-the tier lock and revalidated against the generation. Allocating a new object
-no longer sleeps under the tier lock.
 
-install_mts_pte() returned on failure without ending the page walk, leaving
-the PTE lock held: the next walk of that page spun forever. Fork cloned a
-frozen object under both PTE locks; the clone now happens after they are
-dropped and the copy retries. A stale reference failed fork through the swap
-retry path, which loops on non-swap entries; it now fails with -ENOMEM.
 ---
  mm/memory.c   |  35 +++++++---
  mm/mts_tier.c | 182 +++++++++++++++++++++++++++-----------------------

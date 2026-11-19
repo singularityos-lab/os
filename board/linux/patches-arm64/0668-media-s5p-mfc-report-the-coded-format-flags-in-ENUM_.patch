@@ -1,23 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?=C3=81ngel=20Ren=C3=A9?=
- <17342133+angelrenefm@users.noreply.github.com>
 Date: Sat, 14 Nov 2026 12:33:53 +0100
 Subject: [PATCH] media: s5p-mfc: report the coded format flags in ENUM_FMT
-MIME-Version: 1.0
-Content-Type: text/plain; charset=UTF-8
-Content-Transfer-Encoding: 8bit
-
-The decoder's format table sets V4L2_FMT_FLAG_DYN_RESOLUTION and
-V4L2_FMT_FLAG_CONTINUOUS_BYTESTREAM on the coded formats, but
-vidioc_enum_fmt() only copies the fourcc, so applications never see
-them.
-
-GStreamer's v4l2 decoders read DYN_RESOLUTION to know that the driver
-sends V4L2_EVENT_SOURCE_CHANGE once the header is parsed. Without it,
-v4l2h264dec sets up the CAPTURE queue on its own, then takes that first
-event for a resolution change in the middle of the stream. It stays
-marked as draining, and the next flush (a seek) throws the CAPTURE pool
-away and asks for a new one. Copy the flags.
 
 Assisted-by: LLM
 Signed-off-by: Ángel René <17342133+angelrenefm@users.noreply.github.com>

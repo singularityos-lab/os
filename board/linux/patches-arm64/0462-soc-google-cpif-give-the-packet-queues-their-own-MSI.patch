@@ -4,20 +4,6 @@ Date: Tue, 13 Oct 2026 08:55:07 -0400
 Subject: [PATCH] soc: google: cpif: give the packet queues their own MSI
  blocks
 
-Stock's device tree runs the downlink packet processor with exclusive
-interrupts (pktproc_dl_use_exclusive_irq): each queue registers its
-handler for an MSI block of its own through
-register_separated_msi_vector(), and the modem signals the queue there.
-Map that call to the gs201 modem link driver, which now gives blocks 1-4
-to the queues.
-
-The rings live in DRAM and survive the link going down, but the MSI
-controller is reset with it, so a packet the modem queued around a link
-power-down can be left without its interrupt. After the link comes back
-up, run each exclusive queue's handler once from s5100_poweron_pcie():
-it only schedules NAPI, which finds the ring empty if nothing came, and
-no MSI status is faked.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

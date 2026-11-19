@@ -3,11 +3,7 @@ From: Derek Ross <derekross@gmail.com>
 Date: Mon, 12 Oct 2026 12:04:00 -0400
 Subject: [PATCH] dt-bindings: soc: samsung: exynos-sysreg: add gs201 VGPIO2AP
 
-The VGPIO2AP system registers of gs201 turn the main PMIC's in-band
-interrupt into a level interrupt with a pending latch that the host must
-clear. They have no clock of their own.
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Assisted-by: Claude:claude-opus-5-5
 ---
  .../devicetree/bindings/soc/samsung/samsung,exynos-sysreg.yaml   | 1 +
  1 file changed, 1 insertion(+)

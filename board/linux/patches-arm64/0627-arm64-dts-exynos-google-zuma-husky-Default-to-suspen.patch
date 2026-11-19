@@ -4,22 +4,7 @@ Date: Wed, 11 Nov 2026 12:07:28 -0700
 Subject: [PATCH] arm64: dts: exynos: google: zuma-husky: Default to
  suspend-to-idle
 
-The firmware advertises PSCI SYSTEM_SUSPEND, so the kernel offers deep
-sleep and makes it the default: /sys/power/mem_sleep reads
-"s2idle [deep]" on the Pixel 8 Pro. Linux has no zuma sleep sequence
-yet, so a deep suspend does not wake: on a Pixel 8 Pro (G1MNW) whose
-battery ran low, upower asked for a suspend, the log ends at
-"PM: suspend entry (deep)" and the phone stayed down until it was
-restarted. Pass mem_sleep_default=s2idle, as the Pixel 8a does, so a
-suspend that names no state stays in s2idle. The omamobile-device-husky
-package asks systemd for s2idle since 0.1.10; this covers anything that
-writes "mem" directly, rtcwake -m mem among them.
-
-Not booted yet with this line; the same argument is on the Pixel 8a,
-the Pixel 7 Pro, the Pixel 7 and the Pixel 9a.
-
-Suggested-by: Derek Ross <derekross@gmail.com>
-Co-Authored-By: Claude Fable 5.2 <noreply@anthropic.com>
+Assisted-by: Claude:claude-fable-5-2
 Signed-off-by: Colin Lundholm <265166644+gitColinX@users.noreply.github.com>
 ---
  arch/arm64/boot/dts/exynos/google/zuma-husky.dts | 5 ++++-

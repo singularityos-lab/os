@@ -4,12 +4,6 @@ Date: Sun, 11 Oct 2026 22:39:17 -0400
 Subject: [PATCH] dt-bindings: net: wireless: brcm,bcm4329-fmac: allow a
  restricted DMA pool
 
-A PCIe Wi-Fi chip runs firmware that parses untrusted frames. Platforms
-that confine the chip's DMA to one region (with an IOMMU-less firewall
-such as the Google gs201 S2MPU) describe that region as a
-restricted-dma-pool and point the device node at it, as is already done
-for other PCIe Wi-Fi bindings.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

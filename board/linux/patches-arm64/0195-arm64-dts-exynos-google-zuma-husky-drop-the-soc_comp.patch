@@ -4,13 +4,6 @@ Date: Sat, 24 Oct 2026 12:18:37 -0400
 Subject: [PATCH] arm64: dts: exynos: google: zuma-husky: drop the
  soc_compatible descriptions
 
-Stock's base DTBs label each /soc_compatible child with a description
-string ("B0,FOPLP"). ABL matches on product_id, major, minor and
-pkg_mode, and boots this tree without the labels, so drop them: the
-node names already say the same, and dtbs_check no longer reports them.
-
-Tested on a Pixel 8 Pro: the bootloader picks this tree and boots it.
-
 Assisted-by: LLM
 Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
 ---

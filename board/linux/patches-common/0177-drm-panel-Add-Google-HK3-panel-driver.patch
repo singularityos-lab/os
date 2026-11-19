@@ -3,28 +3,6 @@ From: Brett-Michael Green <brett@bmgvisualtech.com>
 Date: Sat, 31 Oct 2026 15:07:32 -0400
 Subject: [PATCH] drm/panel: Add Google HK3 panel driver
 
-Add a driver for the Google Pixel 8 Pro's HK3 command-mode AMOLED panel,
-with command sequences from Google's MIT-licensed panel-gs-hk3.c.
-
-Like the TG4C driver, it takes the panel over as the bootloader left it:
-out of sleep, with the display on, at 60 Hz. It never resets the panel
-or touches its supplies. It:
-
-- puts the panel to sleep and wakes it, with Google's display on and
-  off sequences around display on/off (the AMP type and Vreg changes,
-  with the Vreg of panels from DVT1 on, the retail ones);
-- switches it between 60 and 120 Hz in high-speed (HS) manual mode,
-  sending the whole of Google's panel feature update for that mode
-  each time: fixed TE and early exit at 120 Hz, changeable TE and no
-  early exit at 60 Hz, then the manual frequency, applied together by
-  the frame update command. The HBM and IRC settings stay as the
-  bootloader left them;
-- exposes its brightness as a backlight over Google's normal range,
-  DBV 196-3307 (2-1000 nits), using pixel off at 0 as Google does. A
-  level set while the panel is asleep, or before gs-dsim-cmd allows
-  commands (allow_tx), is kept and sent with the next write, so a
-  boot-time restore of the saved level does not fail.
-
 Assisted-by: LLM
 Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
 ---

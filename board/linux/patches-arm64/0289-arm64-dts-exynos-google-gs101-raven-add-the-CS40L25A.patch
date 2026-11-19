@@ -4,13 +4,7 @@ Date: Tue, 27 Oct 2026 16:56:20 +0000
 Subject: [PATCH] arm64: dts: exynos: google: gs101-raven: add the CS40L25A
  haptics
 
-Raven's haptic driver sits on hsi2c_8 at 0x43 with its reset on gpp24-0
-(active low) and stock's boost limits (4.5 A, 7.5 V), as Google's
-gs101-raviole-audio.dtsi describes it; its interrupt (gpa6-5) isn't used
-yet. Tested on raven (as an overlay): cs40l25-vibra probes at boot and
-feedbackd drives it.
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Assisted-by: Claude:claude-opus-5-5
 Signed-off-by: saiththerobo <the.tom.sharp@gmail.com>
 ---
  arch/arm64/boot/dts/exynos/google/gs101-raven.dts | 15 +++++++++++++++

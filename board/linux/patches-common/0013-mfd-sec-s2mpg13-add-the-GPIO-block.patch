@@ -3,14 +3,7 @@ From: Derek Ross <derekross@gmail.com>
 Date: Mon, 12 Oct 2026 19:04:38 -0400
 Subject: [PATCH] mfd: sec: s2mpg13: add the GPIO block
 
-The S2MPG13's GPIOs live in ACPM register block 0x0c: an input status
-register and, per pin, a control register with the output level (bit 5)
-and output enable (bit 6), as in Google's GPL s2mpg13 register header.
 
-Add a "gpio" regmap for that block, readable from the interrupt masks
-to the monitor selects and writable only in the eight pin control
-registers, so the clear-on-read interrupt status is never touched, and
-an s2mpg13-gpio cell bound to a samsung,s2mpg13-gpio child node.
 ---
  drivers/mfd/sec-acpm.c              | 47 ++++++++++++++++++++++++++---
  drivers/mfd/sec-common.c            |  3 +-

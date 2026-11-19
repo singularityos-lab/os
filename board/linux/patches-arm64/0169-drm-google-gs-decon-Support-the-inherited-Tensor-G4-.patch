@@ -4,35 +4,6 @@ Date: Fri, 23 Oct 2026 20:34:53 -0647
 Subject: [PATCH] drm: google: gs-decon: Support the inherited Tensor G4
  display
 
-Google's GPL cal_9865 display headers describe separate source width,
-height, source-offset and image-size words and a fourteen-window shadow
-mask on Tensor G4. Select those registers and the inherited 1080x2424
-60 Hz mode through SoC data. Allow aligned padded RGB rows and derive
-source width from the framebuffer pitch.
-
-The tegu handoff leaves hardware triggering masked at TRIG_CON 0x3070.
-Start it after pipeline validation and IRQ setup, changing only enable
-and mask bits. Restore those saved bits after a measurement-only probe
-or failed KMS takeover. Stage zero remains inert; successful KMS retains
-its existing lifecycle. Keep gs201 layouts, modes and trigger behavior.
-
-On Pixel 9a the assembled kernel passed stage-zero inspection, stage-one
-60 Hz IRQ measurement and removal restoring the handoff state. KMS with
-the reserved 64 MiB pool completed 243 measured flips in 4.2 seconds,
-with no late flips or timeouts. Live and shadow addresses matched inside
-the pool; normal client exit parked the original boot framebuffer.
-
-The 60 Hz timing entry comes from Google's panel-gs-tg4b.c and
-panel-gs-tg4c.c. TG4A has different porches and physical dimensions;
-this inherited command-mode path consumes only the active size. Leave
-physical dimensions unspecified until the actual panel is selected.
-
-No clock, voltage, panel command, refresh-rate or power-domain control
-is added. GPU acceleration, suspend and a curated desktop are separate.
-
-Link: https://android.googlesource.com/kernel/google-modules/display/panels/tegu/+/e3a801fb038fdd1bbaec36d387f27bd99f10757a/panel-gs-tg4b.c
-Link: https://android.googlesource.com/kernel/google-modules/display/panels/tegu/+/e3a801fb038fdd1bbaec36d387f27bd99f10757a/panel-gs-tg4c.c
-Link: https://android.googlesource.com/kernel/google-modules/display/panels/tegu/+/e3a801fb038fdd1bbaec36d387f27bd99f10757a/panel-gs-tg4a.c
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  drivers/gpu/drm/google/gs-decon.c | 208 ++++++++++++++++++++++++------

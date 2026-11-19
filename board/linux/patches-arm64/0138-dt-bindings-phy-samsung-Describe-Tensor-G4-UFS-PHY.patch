@@ -3,9 +3,6 @@ From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 Date: Thu, 22 Oct 2026 16:18:53 -0700
 Subject: [PATCH] dt-bindings: phy: samsung: Describe Tensor G4 UFS PHY
 
-Add the Tensor G4 UFS PHY compatible. It uses the existing single reference
-clock interface and PMU isolation phandle; no board is enabled here.
-
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  Documentation/devicetree/bindings/phy/samsung,ufs-phy.yaml | 1 +

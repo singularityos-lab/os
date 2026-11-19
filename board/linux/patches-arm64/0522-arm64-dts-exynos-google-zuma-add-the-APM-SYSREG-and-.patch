@@ -4,10 +4,6 @@ Date: Wed, 4 Nov 2026 21:25:53 +0200
 Subject: [PATCH] arm64: dts: exynos: google: zuma: add the APM SYSREG and USI1
  UART
 
-usi_apm1 at 0x155d00c0 with uart18 at 0x155d0000, interrupt 71 (Google's
-zuma-usi.dtsi, IRQ_APM_USI1_UART_INT_ALIVE), on the pattern of zumapro's
-and of USI9 here. Both stay disabled; a board enables them.
-
 Signed-off-by: Lef <me@lefteros.com>
 ---
  arch/arm64/boot/dts/exynos/google/zuma.dtsi | 35 +++++++++++++++++++++

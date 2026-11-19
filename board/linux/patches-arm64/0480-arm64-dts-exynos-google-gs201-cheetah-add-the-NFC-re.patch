@@ -4,10 +4,6 @@ Date: Mon, 12 Oct 2026 17:19:55 -0400
 Subject: [PATCH] arm64: dts: exynos: google: gs201-cheetah: add the NFC
  reference clock
 
-The ST54J's NFC controller takes its reference clock from the PMU's
-CLKOUT1 pad (stock device tree: clocks = <&clock CLKOUT1> and
-pmu_clk_pad = <0x3e84> on st21nfc@8).
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

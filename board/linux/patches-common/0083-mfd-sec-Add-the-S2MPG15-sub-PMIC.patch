@@ -3,13 +3,6 @@ From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 Date: Tue, 27 Oct 2026 18:10:12 -0647
 Subject: [PATCH] mfd: sec: Add the S2MPG15 sub-PMIC
 
-Add the Tensor G4's sub-PMIC on ACPM channel 2, speedy channel 1, with
-no interrupt line yet. Its common regmap exposes only the revision, read
-only; its pmic regmap only the LDO controls the regulator driver uses.
-One cell, the regulators.
-
-Register offsets from Google's GPL s2mpg15-register.h.
-
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  drivers/mfd/sec-acpm.c              | 63 +++++++++++++++++++++++++++++

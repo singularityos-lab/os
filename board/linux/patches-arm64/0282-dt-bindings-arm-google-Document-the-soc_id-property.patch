@@ -3,25 +3,6 @@ From: Derek Ross <derekross@gmail.com>
 Date: Wed, 28 Oct 2026 10:52:20 -0400
 Subject: [PATCH] dt-bindings: arm: google: Document the soc_id property
 
-The bootloaders of the gs101 and gs201 Pixels pick the base DTB by a
-root soc_id property: they combine the SoC's product id register with
-its major revision register and compare the result with the property's
-first cell. Google's base device trees carry it as two cells, the
-second zero, and so do the gs101 and gs201 boards here (oriole, raven,
-cheetah, felix, panther); without it ABL rejects the DTB.
-
-The schema didn't describe it, so dtbs_check couldn't decode it and
-reported it on every one of those boards:
-
-  gs201-felix.dtb: / (google,gs201-felix): soc_id:
-    b'\t\x85P\x01\x00\x00\x00\x00' is not of type 'object', 'integer',
-    'array', 'boolean', 'null'
-
-Describe it next to soc_compatible, which the zuma boards and the
-Pixel 7a use instead.
-
-Link: https://android.googlesource.com/kernel/devices/google/gs201/+/606d4345bc0dc66e3bc0a8deaa97cc288bbf53d1/dts/gs201-b0.dts
-Link: https://android.googlesource.com/kernel/devices/google/gs101/+/51aa290c65e62f169eff2d12ebdd355354d7d966/dts/gs101-b0.dts
 Assisted-by: Claude Opus 5.5
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

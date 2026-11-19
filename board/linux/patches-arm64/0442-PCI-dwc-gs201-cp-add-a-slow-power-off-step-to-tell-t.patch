@@ -4,16 +4,6 @@ Date: Mon, 12 Oct 2026 20:13:12 -0400
 Subject: [PATCH] PCI: dwc: gs201-cp: add a slow power-off step to tell the
  edges apart
 
-The UFS error that follows a modem power-off shows up 80-150 ms after
-the sequence starts, while stock's edges come 10-40 ms apart, so the
-timestamps cannot say which edge disturbs the UFS link. "cp_off_slow"
-drives the same lines in the same order with one second between edges;
-with trace_lines=1 each edge is logged, and the UFS error lines up with
-one of them.
-
-It is a diagnostic for a modem without firmware; cp_off stays stock's
-sequence.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

@@ -3,20 +3,6 @@ From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 Date: Tue, 27 Oct 2026 18:10:12 -0647
 Subject: [PATCH] regulator: s2mps11: Add the S2MPG15 LDOs Linux uses
 
-Add LDO5S and LDO7S (the AoC sensors), LDO9S-LDO11S (the GNSS core, RF
-front end and auxiliary supply), LDO12S (the camera sensors' 1.8 V) and
-LDO15S (the fingerprint sensor's 3.3 V) of the Tensor G4's sub-PMIC,
-with the S2MPG14's ops: enable control and voltage readback, keeping the
-firmware's voltage. As for the S2MPG14, only those the board describes
-are registered.
-
-On the Pixel 9a LDO15S is off at hand-off, and the fingerprint trusted
-app reads chip id 0 until it is on; with ldo15s described as always on
-it reads 3.3 V and the sensor answers. The three GNSS rails are off at
-hand-off too, and stock turns them on.
-
-Voltage groups from Google's GPL s2mpg15-regulator.c.
-
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  drivers/regulator/s2mps11.c | 141 +++++++++++++++++++++++++++++++++++-

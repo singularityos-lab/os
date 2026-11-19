@@ -3,19 +3,6 @@ From: Alejandro Garcia <skipper.pelygro@gmail.com>
 Date: Wed, 28 Oct 2026 22:27:24 -0700
 Subject: [PATCH] Input: ft3658 - make the SPI buffers DMA-safe
 
-SPI transfer buffers must be DMA-safe (include/linux/spi/spi.h,
-Documentation/spi/spi-summary.rst), and tx and rx sit in struct ft3658
-next to other fields, so a controller with a DMA channel would map
-memory those fields share. Put each buffer on its own ARCH_DMA_MINALIGN
-boundary, after every other field. On gs201 the USI SPI has no DMA
-channel and runs in polling mode, so this changes nothing on the
-Pixel 7.
-
-Tested on a Pixel 7 (7.3.0-rc6) with the touch node: the controller
-probes (chip id 0x56, firmware 0x16) and reports touches across the
-panel with no CRC errors.
-
-Suggested-by: Derek Ross <derekross@gmail.com>
 Assisted-by: Claude Opus 5.5
 Signed-off-by: Alejandro Garcia <skipper.pelygro@gmail.com>
 ---

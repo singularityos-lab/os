@@ -4,16 +4,6 @@ Date: Wed, 11 Nov 2026 12:22:43 -0600
 Subject: [PATCH] arm64: dts: exynos: google: bluejay: describe disabled PCIe
  Wi-Fi
 
-Describe the GS101 PCIe1/PHY path, restricted DMA pool and BCM4389
-endpoint. All new hardware and the WL_REG_ON regulator remain disabled.
-PCI power control consumes the root-port regulator and its 200 ms delay;
-the host no longer owns an endpoint enable GPIO. The endpoint requests
-the confined DMA path, packet limit and provisioned ASCII MAC explicitly.
-
-Depends on the GS101 PCIe/PHY and brcmfmac policy topics. The current
-source is not the exact tested development stack and has not been
-booted. A future gated overlay must also enable the WL_REG_ON regulator.
-
 Assisted-by: LLM
 Signed-off-by: Chris Gray <chrisgray70@gmail.com>
 ---

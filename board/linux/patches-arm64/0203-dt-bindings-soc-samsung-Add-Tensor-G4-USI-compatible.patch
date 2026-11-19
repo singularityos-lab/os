@@ -3,17 +3,6 @@ From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 Date: Fri, 23 Oct 2026 10:46:40 -0647
 Subject: [PATCH] dt-bindings: soc: samsung: Add Tensor G4 USI compatible
 
-Google's zumapro-usi.dtsi describes the USIv2 mode selector used by
-Tensor G4. The existing Exynos850 fallback selects the same two-clock,
-three-mode USIv2 register interface already used by gs101 and gs201;
-no new driver data or register layout is needed.
-
-Retain the existing fallback layouts. This identity does not enable a
-bus, change a protocol selector or initialize hardware. The PERIC0
-clock provider and board resources remain separate dependencies.
-
-Link: https://android.googlesource.com/kernel/devices/google/zumapro/+/8831630eee2ad095b85ed452944e6353940966a5/dts/zumapro-usi.dtsi
-
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  Documentation/devicetree/bindings/soc/samsung/exynos-usi.yaml | 1 +

@@ -4,22 +4,6 @@ Date: Sat, 31 Oct 2026 12:44:38 -0400
 Subject: [PATCH] clk: samsung: acpm: Add Tensor G3 (zuma) with a paired GPU
  clock
 
-The ACPM protocol driver creates zuma-acpm-clk for the Tensor G3, but
-clk-acpm had no match for it. Add the zuma variant, built like the
-zumapro one:
-
-- the DVFS domains as clocks. zuma's are zumapro's 17, in the same
-  order (Google's enum acpm_dvfs_id is zuma's), so G3D is 7 and G3DL2
-  is 8, as the Pixel 8 Pro's stock GPU node names them
-  (gpu1_cmu_cal_id 0xb040007, gpu0_cmu_cal_id 0xb040008);
-- a paired gpu clock (17) that moves G3D and G3DL2 together. The
-  Pixel 8 Pro's stock gpu_dvfs_table_v2 is the Pixel 9a's, pair for
-  pair, so zumapro's table is reused, without its 940 MHz level: zuma's
-  gpu_dvfs_max_freq is 890 MHz;
-- zuma_gpu_max_khz, 0 (read-only) by default, as on gs201 and zumapro.
-
-The firmware's DVFS channel is 0, as stock's cal_if node has it.
-
 Assisted-by: LLM
 Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
 ---

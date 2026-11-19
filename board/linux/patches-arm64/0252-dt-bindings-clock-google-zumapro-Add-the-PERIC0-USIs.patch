@@ -3,16 +3,6 @@ From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 Date: Tue, 27 Oct 2026 08:53:02 -0647
 Subject: [PATCH] dt-bindings: clock: google,zumapro: Add the PERIC0 USIs
 
-CMU_PERIC0 also clocks USI2 to USI6: on the Pixel 9a the I2C buses of
-the three cameras, the camera power chips and torch, and the battery
-fuel gauge and charger. Their source is CMU_TOP's PERIC0 IP clock:
-describe it as an optional third PERIC0 input, so existing device trees
-with two stay valid, and add CMU_TOP's PERIC0 IP branch at the end of
-the TOP block and the 26 new PERIC0 identifiers after the existing two.
-
-Link: https://android.googlesource.com/kernel/google-modules/soc/gs/+/204078758737776959ecc85c527a00fd2cabb62f/drivers/soc/google/cal-if/zuma/cmucal-node.c
-The PERIC0 ids run USI2 to USI6, then the sysreg gate.
-
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  .../bindings/clock/google,zumapro-clock.yaml  | 29 +++++++++++++++----

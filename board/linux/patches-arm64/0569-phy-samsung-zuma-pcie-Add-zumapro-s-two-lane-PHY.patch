@@ -3,59 +3,6 @@ From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 Date: Sun, 1 Nov 2026 20:19:00 -0647
 Subject: [PATCH] phy: samsung: zuma-pcie: Add zumapro's two-lane PHY
 
-zumapro's first PCIe controller connects the Pixel 9a's modem through a
-two-lane Gen3 PHY. Add it to this driver as
-google,zumapro-pcie-gen3x2-phy, with the sequences from the channel 0
-(else) branches of Google's zuma CAL (pcie-exynos-zuma-rc-cal.c) and the
-host's channel 0 steps around them in pcie-exynos-rc.c:
-
-- init: the PMU isolation off, then exynos_pcie_rc_phy_all_pwrdn(): PCS
-  0x150 PLL off with bias on, both lanes' power-downs, the PLL lock
-  signal forced off, PLL and bias off, and the external PLL turned off
-  only once the PMA PLL has disengaged, as the CAL does;
-- power_on: SOC 0x4000, exynos_pcie_rc_phy_all_pwrdn_clear(), then
-  exynos_pcie_rc_pcie_phy_config() with the external PLL started and
-  polled through UDBG 0xc710/0xc704, both lanes' PMA tables and the
-  generic PCS timers, then exynos_pcie_rc_establish_link()'s PMU bit 10,
-  UDBG 0xc800 bits 6:5 cleared and the input clock gated;
-- calibrate: PCS 0x150 PLL and bias on, which Google writes once the
-  link is up, so the host calls it after training;
-- power_off: the power-down above.
-
-The CAL adds i * 0x1000 to its PMA base for lane i and never takes it
-back, so with two lanes its lock checks and its last input clock write
-land 0x1000 higher. That is what stock runs, and what brought the link
-up here, so it is kept and commented.
-
-As for the one-lane PHY, the CAL's controller writes (ELBI 0x80, the
-soft power reset, 0x3d8 and 0x1078) stay with the host, which does them
-before phy_power_on() on zuma. The one-lane PHY's zumapro power_off
-returns the input clock to the oscillator, as Google's
-exynos_pcie_rc_poweroff() does for both channels, and so does the
-two-lane PHY's: power_on selects the PHY's clock in SOC 0x4000 and the
-power-down stops the external PLL, so without the park the host's next
-ELBI writes, which come before phy_power_on(), would run on a stopped
-clock. On a Pixel 9a a bench without it hung the SoC at the second
-power-on's first ELBI write.
-
-The phy_ops move into the match data. The one-lane PHY's sequence is
-split into helpers both PHYs share and its Broadcom lane writes into a
-table of their own; a userspace harness that records every register
-access of init, power_on and power_off gives the same sequence before
-and after for both of its match entries.
-
-On a Pixel 9a this channel 0 sequence, run from tables by the modem
-link's bring-up driver with the ELBI writes in the CAL's order, brought
-the link up to the modem's ROM at Gen1 x1 and to its boot loader at
-Gen3 x2, with no lock check missed, and has run thousands of link power
-cycles with the modem online. This driver's version ran on a bench with
-the modem off (a test consumer doing the host's ELBI steps, then
-phy_init and power_on, calibrate and power_off): five cycles over two
-boots, the external PLL, PMA PLL and CDR locked and offset calibration
-done on every one, and the Pixel 9a's Wi-Fi on the one-lane PHY trained
-at Gen2 x1 and came back after three rebinds. It hasn't trained a link
-to the modem yet: that needs the host driver to take it.
-
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  drivers/phy/samsung/Kconfig         |  12 +-

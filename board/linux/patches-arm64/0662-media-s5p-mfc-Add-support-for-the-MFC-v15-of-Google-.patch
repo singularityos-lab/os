@@ -1,48 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?=C3=81ngel=20Ren=C3=A9?=
- <17342133+angelrenefm@users.noreply.github.com>
 Date: Fri, 13 Nov 2026 21:06:50 +0100
 Subject: [PATCH] media: s5p-mfc: Add support for the MFC v15 of Google GS201
-MIME-Version: 1.0
-Content-Type: text/plain; charset=UTF-8
-Content-Transfer-Encoding: 8bit
-
-The GS201 MFC (IP version 0x15060000) keeps the v8+ register map used by
-v12, with these differences, measured on a Pixel 7 or taken from
-Google's exynos-mfc driver (kernel/google-modules/soc/gs,
-drivers/media/platform/exynos/mfc/) and its device tree
-(kernel/devices/google/gs201, dts/gs201-mfc.dtsi), both on branch
-android-gs-pantah-6.1-android16:
-
-- The non-secure firmware base is RISC_NONSECURE_BASE_ADDR (0x0068);
-  0x0054 is the secure one.
-- MFC_CLOCK_OFF is cleared before RISC_ON, and the firmware status bit
-  (0xF0A4) is polled before SYS_INIT. MFC_VERSION (0xF028) is checked.
-- The firmware rejects any buffer placed below its own base (ERR_RET
-  with error 0x33, measured). The firmware, the device and instance
-  contexts and also the codec buffers therefore come from one
-  preallocated 64 MiB region with a 32-bit DMA mask, firmware first. An
-  optional "memory-region" makes the vb2 buffers come from the same pool;
-  without it, buffers below the firmware base are reported with a
-  warning.
-- A missing clock is tolerated: the node's clock is only the ACPM DVFS
-  rate, and the MFC clock controller (CMU_MFC) is not described yet.
-- The encoder registers differ from v12's (0xF770/0xF774 clash with the
-  decoder's) and nothing programs them yet, so only the decoder node is
-  registered.
-
-The firmware is loaded as s5p-mfc-v15.fw; it is the stock mfc_fw.bin
-from the device's vendor partition, which each owner takes from their
-own OTA.
-
-The vendor driver always runs the decoder with dynamic DPB; that comes
-in the next patch. This patch was not run on its own: whether the v15
-firmware still takes mainline's static DPB is not known.
-
-Tested on a Pixel 7 (panther) with the node applied as a runtime DT
-overlay on the "camera-pool" reserved region, together with the next
-patch. Not tested: the encoder, VP8/VP9/HEVC/MPEG-4 decode, the System
-MMU (left in bypass), runtime PM with a real clock, suspend/resume.
 
 Assisted-by: LLM
 Signed-off-by: Ángel René <17342133+angelrenefm@users.noreply.github.com>

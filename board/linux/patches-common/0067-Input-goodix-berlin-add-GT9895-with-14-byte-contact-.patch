@@ -4,19 +4,6 @@ Date: Sat, 24 Oct 2026 10:22:31 -0500
 Subject: [PATCH] Input: goodix-berlin - add GT9895 with 14-byte contact
  records
 
-The GT9895 in the Pixel 7a uses the GT9916's register map, but its
-firmware reports 14 bytes per contact instead of 8: the usual status,
-x, y and width, then a pressure byte, both axes and an orientation.
-The checksum follows the last record as before. With 8-byte records
-every touch fails the checksum.
-
-Make the record size part of the per-chip data, keep 8 bytes as the
-default, and add a GT9895 entry that uses 14. The extra fields are not
-reported yet.
-
-Tested on a Pixel 7a: touches report with no checksum errors, and
-touch input works in the desktop session.
-
 Assisted-by: LLM
 Signed-off-by: Chris Gray <chrisgray70@gmail.com>
 ---

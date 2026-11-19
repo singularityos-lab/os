@@ -3,15 +3,6 @@ From: Chris Gray <chrisgray70@gmail.com>
 Date: Sat, 24 Oct 2026 00:14:46 -0500
 Subject: [PATCH] arm64: dts: exynos: google: gs201-lynx: enable UFS
 
-Enable the UFS host and PHY. lynx's VCC is on gpp0-1 and left on by
-the bootloader, as on cheetah, and there is no gs201 GPIO driver yet, so
-describe it as an always-on fixed regulator. Add omamobile.ufs-probe so
-the initramfs reports the disks it finds.
-
-Tested on a Pixel 7a from slot B: the link comes up at HS-G4 on two
-lanes, as on stock, and the four LUNs and their 55 partitions appear
-with no UFS errors.
-
 Assisted-by: LLM
 Signed-off-by: Chris Gray <chrisgray70@gmail.com>
 ---

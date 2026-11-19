@@ -3,11 +3,6 @@ From: Mirko Brombin <9479903+mirkobrombin@users.noreply.github.com>
 Date: Sat, 18 Jul 2026 19:13:40 +0100
 Subject: [PATCH 03/11] mm: add generation-checked native object tiers
 
-Register FD-scoped declarative tiers through /dev/mts and keep provider identity behind the MTS object interface. Store authoritative pages by slot, validate every fill with CRC32, and reject stale generations.
-
-Preserve exact fork references through the 24-bit sticky freeze boundary. Drain a provider before removing its global tier slot so an in-flight lookup cannot observe freed state.
-
-Evidence: CONFIG_MTS_OBSERVE=y CONFIG_MTS_TIER=y make -j4 mm/mts.o mm/mts_tier.o.
 Signed-off-by: Mirko Brombin <9479903+mirkobrombin@users.noreply.github.com>
 ---
  MAINTAINERS         |   2 +-

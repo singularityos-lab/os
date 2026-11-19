@@ -3,12 +3,6 @@ From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 Date: Tue, 27 Oct 2026 08:45:44 -0647
 Subject: [PATCH] dt-bindings: clock: google,zumapro: Add CMU_APM
 
-CMU_APM clocks the always-on GPIO banks, the APM mailbox and its
-internal memory. Describe it in the common Tensor G4 clock binding with
-the oscillator as its only input, as on gs101 and gs201, and add its 20
-identifiers in a new block, leaving the existing ones unchanged.
-
-Link: https://android.googlesource.com/kernel/google-modules/soc/gs/+/204078758737776959ecc85c527a00fd2cabb62f/drivers/soc/google/cal-if/zuma/cmucal-node.c
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  .../bindings/clock/google,zumapro-clock.yaml  | 15 ++++++++++++-

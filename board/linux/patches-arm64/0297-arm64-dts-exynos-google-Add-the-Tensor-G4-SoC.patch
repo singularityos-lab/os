@@ -3,26 +3,6 @@ From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 Date: Tue, 27 Oct 2026 09:53:53 -0647
 Subject: [PATCH] arm64: dts: exynos: google: Add the Tensor G4 SoC
 
-Add zumapro.dtsi, the Tensor G4 SoC as far as Linux drives it today: the
-CPUs, PSCI, the timer and GIC, every CMU with a driver (TOP, MISC, APM,
-HSI0, HSI1, HSI2, PERIC0, PERIC1, G3D), the eight pin controllers and
-their banks, the system registers the USIs and UFS use, the PMU with its
-reboot mode, both cluster watchdogs, the APM mailbox and SRAM for ACPM,
-UFS and its PHY, the USB 2.0 path (dwc3, the USB 3.2 DRD PHY wrapper and
-the eUSB2 PHY), the USIs behind the cameras', battery's, haptics', NFC's,
-touchscreen's and GNSS's buses, the Bluetooth UART, DECON and the Mali
-GPU. Everything a board doesn't need is left disabled; zumapro-tegu.dts
-turns on what the Pixel 9a uses.
-
-zumapro-reserved-memory.dtsi carries the fixed firmware regions from
-Google's GPL zumapro tree, the xhci pools of zuma-usb.dtsi (which
-zumapro-usb.dtsi includes), and two small gaps next to them that the
-earlier bring-up kept reserved; they stay reserved until shown unused.
-
-Addresses, interrupts and bank layouts come from Google's GPL zumapro
-device tree; clock ids and parents from the Tensor G4 clock driver.
-
-Link: https://android.googlesource.com/kernel/devices/google/zumapro/+/8831630eee2ad095b85ed452944e6353940966a5/dts/zumapro.dtsi
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  .../google/zumapro-reserved-memory.dtsi       |  196 +++

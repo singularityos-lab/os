@@ -3,31 +3,6 @@ From: Derek Ross <derekross@gmail.com>
 Date: Tue, 13 Oct 2026 08:15:07 -0400
 Subject: [PATCH] wifi: brcmfmac: msgbuf: number the H2D mailbox data messages
 
-On a Pixel 7 Pro (BCM4389, firmware 20.101.90) every system suspend with
-Wi-Fi up failed in brcmf_pcie_pm_enter_D3():
-
-  brcmf_pcie_pm_enter_D3: Timeout on response for entering D3 substate (1999 ms, mailboxint 0x00000000)
-  brcmf_pcie_pm_enter_D3: device unresponsive after D3 inform; reload the driver stack to recover
-
-The D3 inform went out as an H2D mailbox data message on the control
-submit ring, but the dongle never consumed it: its read index of that
-ring stayed on the inform's slot while the host's write index moved on,
-so no D3 ACK came, neither on the control completion ring nor in the
-shared-memory mailbox, and every control message queued after the
-inform timed out.
-
-This firmware checks the sequence number ("epoch") in the common header
-of each control submit item and waits on an item whose number doesn't
-match. brcmf_proto_msgbuf_h2d_mb_data() never set it, so the inform went
-out with 0 and the ring stalled on it. It also didn't advance the ring's
-sequence, which would have put every later control message off by one.
-Broadcom's driver numbers mailbox data like every other control message
-(bcm4389 dhd_msgbuf.c, dhd_prot_h2d_mbdata_send_ctrlmsg()).
-
-Stamp the epoch on H2D mailbox data, as the ioctl, buffer post and flow
-ring requests already do.
-
-Fixes: 812288601b45 ("wifi: brcmfmac: pcie: exchange mailbox data as control messages")
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

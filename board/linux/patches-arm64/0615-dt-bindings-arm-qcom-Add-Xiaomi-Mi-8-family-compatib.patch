@@ -3,11 +3,7 @@ From: David Heidelberg <david@ixit.cz>
 Date: Tue, 15 Sep 2026 16:32:24 +0200
 Subject: [PATCH] dt-bindings: arm: qcom: Add Xiaomi Mi 8 family compatibles
 
-This smartphone codenamed dipper is now supported by this series,
-variants such as ursa and equuleus just documented.
-
 Signed-off-by: David Heidelberg <david@ixit.cz>
-Link: https://lore.kernel.org/linux-arm-msm/20260915-dipper-v2-1-cbade54919ee@ixit.cz/
 Signed-off-by: quatrixone <quatrix1@gmail.com>
 ---
  Documentation/devicetree/bindings/arm/qcom.yaml | 9 +++++++++

@@ -4,20 +4,6 @@ Date: Sun, 1 Nov 2026 13:53:22 -0647
 Subject: [PATCH] dt-bindings: mfd: samsung,s2mpg14-pmic: Add the interrupt
  line
 
-The S2MPG14 reports its PMIC events in-band, and the Tensor G4's VGPIO2AP
-block raises them as one level interrupt that stays pending until written
-back, the same arrangement the S2MPG12 binding describes. Add the
-interrupt, the phandle to the VGPIO2AP system registers and
-wakeup-source, and say how the interrupt reaches the host.
-
-Unlike on the S2MPG12, the interrupt stays optional. The PMIC's rails
-(the touchscreen and eUSB2 supplies) work without it, and the Pixel 9a
-and Pixel 8 Pro device trees describe the PMIC without one; a board that
-leaves it out only loses the PMIC's events, the RTC alarm among them.
-The interrupt can't be acknowledged without the sysreg, so it depends on
-the phandle, and wakeup-source, which means nothing without the
-interrupt, depends on the interrupt.
-
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  .../bindings/mfd/samsung,s2mpg14-pmic.yaml    | 27 +++++++++++++++++++

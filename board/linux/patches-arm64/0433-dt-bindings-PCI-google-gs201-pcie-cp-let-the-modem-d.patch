@@ -4,14 +4,6 @@ Date: Mon, 12 Oct 2026 18:42:52 -0400
 Subject: [PATCH] dt-bindings: PCI: google,gs201-pcie-cp: let the modem driver
  own the lines
 
-The "modem" child describes the S5300's power, reset and handshake lines
-so that the link driver can power the modem for bring-up without a modem
-driver. Once the modem driver (Google's CPIF, ported) runs, it drives
-the same lines from its own node, and a line must have one owner.
-
-Say that the child is absent or disabled in that case, and allow its
-status property.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

@@ -3,31 +3,6 @@ From: Derek Ross <derekross@gmail.com>
 Date: Mon, 12 Oct 2026 13:26:35 -0400
 Subject: [PATCH] misc: add a Broadcom BCM4775x GNSS driver for lhd
 
-Broadcom's BCM4775x GNSS receivers need a firmware patch at every power-up
-and speak a proprietary protocol, which only Broadcom's own daemons (lhd,
-gpsd) implement. They talk to the chip through /dev/ttyBCM, the chip's
-SSI link over SPI, and open /dev/bbd_control, /dev/bbd_patch,
-/dev/bbd_pwrstat and /dev/bbd_sensor next to it. The nstandby attribute
-of the SPI device takes the chip in and out of standby.
-
-This is Google's GPL gs201 driver (google-modules/gps/broadcom/bcm47765:
-bcm_gps_spi.c, bcm_gps_regs.c, bbd.c) on current interfaces:
-
-- GPIO descriptors, and the three supplies, switched on while
-  /dev/ttyBCM is open and off when it closes, the chip back in standby;
-- 8-bit SPI words throughout: Google's switched to 32-bit words for
-  DMA-sized transfers, relying on its controller's byte swap;
-- host_req is re-armed after resume only while /dev/ttyBCM is open;
-- the bbd control strings are matched with strstr() on a terminated
-  copy (Google's strcmp() chain was inverted, so every string took the
-  first branch), and the whole chrdev region is freed;
-- no sensor-hub, coredump or 1 Hz statistics code (the last is compiled
-  out in Google's build too);
-- debugfs: "pins", and "probe", which powers the chip, wakes its MCU and
-  reads two host interface status registers, for bring-up.
-
-The SSI framing, flow control and wake handshake are unchanged.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

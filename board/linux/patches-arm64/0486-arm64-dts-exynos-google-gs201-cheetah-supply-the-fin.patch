@@ -4,18 +4,6 @@ Date: Mon, 12 Oct 2026 17:23:26 -0400
 Subject: [PATCH] arm64: dts: exynos: google: gs201-cheetah: supply the
  fingerprint sensor
 
-The fingerprint sensor's analog supply is S2MPG13 LDO15S
-(L15S_UDFPS_AVDD in Google's cheetah device tree). The bootloader hands
-over with it off, and stock Android keeps it on only because its device
-tree marks it regulator-always-on.
-
-Describe LDO15S under the sub-PMIC with stock's 2.5-3.3 V range, so that
-registering it sets nothing unless the rail is outside that range, and
-give the sensor node its vdd-supply. The goodix-fp driver then switches
-the rail on first open and off on last close, with the sensor held in
-reset while unpowered. Both the sub-PMIC and the sensor node stay
-disabled by default.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

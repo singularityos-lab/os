@@ -3,20 +3,6 @@ From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 Date: Mon, 26 Oct 2026 09:22:04 -0647
 Subject: [PATCH] mfd: sec: s2mpg14: Add the RTC regmap and cell
 
-The S2MPG14's RTC block sits at ACPM access type 0x02 and has the same
-register layout as the S2MPG10's (CTRL at 0x00 through OSC_CTRL at 0x1b,
-two nonces to 0x2b, five scratch registers to 0x30), per Google's GPL
-rtc-s2mpg14.h. Describe it as an uncached "rtc" regmap over the ACPM bus,
-let the PMIC regmap read STATUS2 (the alarm flag, bit 2 as on S2MPG12),
-and add the s2mpg14-rtc cell. No interrupt line is described yet, so the
-cell carries no alarm resource.
-
-The regmap reads up to OSC_CTRL and writes only what rtc-s5m writes:
-CTRL, UPDATE, the time and alarm 0. SMPL, WTSR, CAP_SEL and OSC_CTRL
-(the power-loss and watchdog-reset protections and the oscillator
-tuning) and the nonces stay read-only.
-
-Link: https://android.googlesource.com/kernel/google-modules/soc/gs/+/refs/heads/android-gs-tegu-6.1-android16/include/linux/mfd/samsung/rtc-s2mpg14.h
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  drivers/mfd/sec-acpm.c              | 37 +++++++++++++++++++++++++++++

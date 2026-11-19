@@ -2,17 +2,6 @@ From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: saiththerobo <the.tom.sharp@gmail.com>
 Date: Tue, 20 Oct 2026 08:00:31 +0100
 Subject: [PATCH] arm64: dts: exynos: gs101: cool the GPU
-MIME-Version: 1.0
-Content-Type: text/plain; charset=UTF-8
-Content-Transfer-Encoding: 8bit
-
-Under a busy shell the Pixel 6 Pro's big cluster reached the 110 °C
-critical trip and the phone shut down, and nothing slowed the GPU, which
-heats the whole die.
-
-Make the GPU a cooling device, give gpu-thermal passive trips at 80 and
-90 °C bound to it, and let the big cluster's second trip slow the GPU
-too.
 
 Assisted-by: Claude Opus 5.5
 Signed-off-by: saiththerobo <the.tom.sharp@gmail.com>

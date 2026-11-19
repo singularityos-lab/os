@@ -3,17 +3,7 @@ From: Derek Ross <derekross@gmail.com>
 Date: Mon, 12 Oct 2026 13:08:54 -0400
 Subject: [PATCH] drm/panel: add an optional refresh rate switch
 
-DSI command-mode panels pace the frames with their TE signal, so a
-display controller can move such a panel between refresh rates of the
-same resolution while it runs: the panel takes the new rate at its next
-frame, and the host only adjusts its own timers. drm_panel has no way to
-ask for that; the panel never learns the mode.
-
-Add an optional set_refresh_rate() callback and
-drm_panel_set_refresh_rate(), which returns -EOPNOTSUPP for panels
-without it.
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Assisted-by: Claude:claude-opus-5-5
 ---
  drivers/gpu/drm/drm_panel.c | 20 ++++++++++++++++++++
  include/drm/drm_panel.h     | 15 +++++++++++++++

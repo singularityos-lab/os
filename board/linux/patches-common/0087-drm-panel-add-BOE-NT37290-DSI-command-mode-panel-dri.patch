@@ -3,25 +3,6 @@ From: Adrian Schupp <as@satware.com>
 Date: Sat, 31 Oct 2026 20:58:38 +0100
 Subject: [PATCH] drm/panel: add BOE NT37290 DSI command-mode panel driver
 
-Port of Google's panel-boe-nt37290.c (android14-gs-pixel-6.1) to the
-mainline drm_panel pattern of panel-samsung-s6e3hc4.c, restricted to
-DVT1+/EVT1_1+ production panels. WQHD 60/120 Hz, manual refresh-rate
-control, cold init and bootloader handover; brightness 1:1 to DBV,
-capped at the vendor normal range (the HBM band stays unused). FHD/RRS,
-AOD/LP modes, idle machinery and the vendor brightness band conversion
-are not ported.
-
-Root cause for the display-scanout corruption after screen-off wake on
-BOE-variant Pixel 7 Pro units (derekross/omarchy-mobile#215): the DT
-binds the Samsung s6e3hc4 driver, whose cold-init sequences corrupt the
-BOE panel. This driver carries the panel's own sequences.
-
-Panel identification on the device: the ABL names the panel in the
-kernel command line (exynos_drm.panel_name=boe-nt37290). The DDIC id
-read (panel_id_reg 0xac) Google's driver uses is not available yet:
-gs-dsim-cmd returns -EOPNOTSUPP for DSI reads (BTA/RX FIFO not wired
-up), so panel selection happens via the command line.
-
 Signed-off-by: Adrian Schupp <as@satware.com>
 Assisted-by: LLM opencode
 ---

@@ -3,39 +3,6 @@ From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 Date: Sun, 1 Nov 2026 18:31:14 -0647
 Subject: [PATCH] dt-bindings: gnss: add Samsung's Kepler GNSS core on SPI
 
-The GNSS receiver of the Pixel 9a is Samsung's Kepler core inside the
-S5300 modem. Its data goes over SPI 21 of the Tensor G4 (USI3 of HSI0),
-and two lines pace the transfers: the core's request line (gpa5-4,
-which is also its interrupt) and the host's (gpp2-3). Google's kernel
-describes them with two nodes, which Google's gnssif_spi driver binds:
-a "samsung,gnss-spi" device on the SPI bus and a "samsung,exynos-gnss"
-node holding the two lines (kernel/devices/google/zuma,
-dts/zuma-cp-s5400-phone-gnss.dtsi, included by tegu's MP board).
-
-Document both, as the 9a's device tree will use them. The differences
-from Google's nodes:
-
-- The lines are gnss2ap-spi-gpios and ap2gnss-spi-gpios, for GPIO
-  descriptors, instead of gpio_gnss2ap_spi and gpio_ap2gnss_spi. Google's
-  nodes flag them GPIO_ACTIVE_LOW, but Google's driver uses raw levels
-  through the legacy GPIO numbers, and both lines are active high: the
-  core's request is a level-high interrupt, and the host's line idles
-  low. So the binding's example says GPIO_ACTIVE_HIGH.
-- device,name ("KEPLER", used only in log lines) and device_node_name
-  ("gnss_ipc", the name of the character device the GNSS daemon opens)
-  are left out: neither describes the hardware, "device" is not a
-  vendor prefix, and the driver uses fixed names instead.
-
-The compatibles stay Google's generic names, as stock's device tree and
-gnssd know the device by them. A specific compatible for the S5300's
-GNSS core belongs with the single-node binding an upstream submission
-would want, not with this port.
-
-The SPI device takes Samsung's SPI controller-data for the feedback
-delay; stock's is 0. Stock's swap-mode belongs to the vendor SPI
-controller's node and is not part of these bindings.
-
-Link: https://android.googlesource.com/kernel/devices/google/zuma/+/42395e8adcb880aa336f0da6bb2a19ed53929c40/dts/zuma-cp-s5400-phone-gnss.dtsi
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  .../bindings/gnss/samsung,exynos-gnss.yaml    | 50 ++++++++++++++++++

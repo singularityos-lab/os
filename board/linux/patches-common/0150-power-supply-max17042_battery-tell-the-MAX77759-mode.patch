@@ -4,21 +4,6 @@ Date: Sun, 8 Nov 2026 11:35:13 -0500
 Subject: [PATCH] power: supply: max17042_battery: tell the MAX77759 model load
  timeouts apart
 
-The MAX77759 model load waits twice after setting Config2.LdMdl: for
-the gauge to clear LdMdl, and for RepCap, which the load procedure
-zeroes first, to become non-zero again. Both timeouts print the same
-"model load did not complete: -110".
-
-On a Pixel 7 Pro (gs201) that message appears only on the first boot
-after the battery ran flat (issue #169: at 3.26 V it failed, two hours
-later at 3.87 V on the same kernel it loaded). The cheetah model's
-VEmpty is 0xa561, an empty voltage of 3.30 V, so on such a cell the
-model's RepCap is 0 and the second wait can time out even when the
-load itself completed.
-
-Keep the message for LdMdl and give the RepCap wait its own, with the
-cell voltage, so that a log tells which of the two it was.
-
 Assisted-by: Claude Opus 5.5
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

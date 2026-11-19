@@ -3,27 +3,7 @@ From: Derek Ross <derekross@gmail.com>
 Date: Sun, 11 Oct 2026 19:35:50 -0400
 Subject: [PATCH] Input: add Synaptics TouchComm SPI touchscreen driver
 
-Add a driver for Synaptics touchscreen controllers that speak version 1
-of the TouchComm protocol over SPI, such as the S3908 in the Google
-Pixel 7 Pro.
-
-After a hardware reset the driver waits for the identify report, makes
-sure the application firmware runs, reads the application info (sensor
-size, number of objects) and the touch report configuration, and then
-reports multitouch (type B) events. Touch reports are bit streams whose
-layout the firmware describes with the touch report configuration; the
-driver interprets it for every report, so it does not depend on one
-firmware's format.
-
-Protocol handling follows Google's GPL Synaptics TouchComm driver for
-Pixel devices. Firmware update, gestures, power management, palm and
-grip handling and heatmaps are not supported.
-
-Tested on a Pixel 7 Pro (S3908GA1B0-15.0, build 4104960): the device
-identifies, reports a 1440x3120 sensor with 10 objects, and shows up as
-a direct touch device in libinput.
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Assisted-by: Claude:claude-opus-5-5
 ---
  drivers/input/touchscreen/Kconfig         |  15 +
  drivers/input/touchscreen/Makefile        |   1 +

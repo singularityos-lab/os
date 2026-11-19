@@ -3,34 +3,6 @@ From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 Date: Sun, 1 Nov 2026 13:58:01 -0647
 Subject: [PATCH] phy: samsung-ufs: Add the Tensor G4 Hibern8 sequences
 
-Google's UFS driver runs a PMA sequence after every Hibern8 entry
-(ufs_cal_post_h8_enter) and another before every exit
-(ufs_cal_pre_h8_exit). The Tensor G4 PHY data has no cfgs_hibern8, so
-phy_notify_state() writes nothing and the PMA stays in its active
-setting while the link is in Hibern8.
-
-Add both tables from Google's zuma calibration, which the zuma and
-zumapro builds share (CONFIG_SOC_ZUMA). After entry: the TRSV_SQ
-registers 0x9f4 = 0x08 and 0xa00 = 0x3a on each lane, the common
-register 0x000 = 0x51, then 0xb64 = 0x30 and 0x33 on each lane. Before
-exit: 0x000 = 0x11, a 10 us wait, 0x9f4 = 0x00 and 0xa00 = 0x30, then
-0xb64 = 0x32 and 0x22. As in the existing table, Google's byte offsets
-are converted to words and the lane stride is 0x800 bytes. The
-sequences are the same for every power mode (PMD_ALL), and Google's
-exit sequence has no CDR wait, so no wait_for_cdr is needed.
-
-As on gs101, the host driver runs the entry sequence after it has
-stopped the host clocks, where Google's runs it just before.
-
-The Pixel 8 Pro binds this data through its google,zuma-ufs-phy
-fallback. Its host has no idle clock gating, and runtime PM of its
-LUNs stays off unless userspace allows it, so it enters Hibern8 only
-on the way to turning the link off, at shutdown and system suspend.
-Google's driver runs the same entry sequence there, from the same
-tables.
-
-Link: https://android.googlesource.com/kernel/google-modules/soc/gs/+/204078758737776959ecc85c527a00fd2cabb62f/drivers/ufs/zuma/ufs-cal.h
-Link: https://android.googlesource.com/kernel/google-modules/soc/gs/+/204078758737776959ecc85c527a00fd2cabb62f/drivers/ufs/ufs-exynos.c
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  drivers/phy/samsung/phy-zumapro-ufs.c | 27 +++++++++++++++++++++++++++

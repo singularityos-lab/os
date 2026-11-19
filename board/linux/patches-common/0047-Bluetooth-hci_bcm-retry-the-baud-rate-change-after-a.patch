@@ -3,17 +3,7 @@ From: saiththerobo <the.tom.sharp@gmail.com>
 Date: Fri, 16 Oct 2026 06:31:11 +0100
 Subject: [PATCH] Bluetooth: hci_bcm: retry the baud rate change after a reset
 
-On the Pixel 6 Pro (BCM4389C1 on the APM UART) the controller sometimes
-ignores the 0xfc18 baud rate change that follows the first HCI_Reset
-after power-on: 0xfc18 times out, while another HCI_Reset and Read Local
-Version are answered at 115200. The firmware download then runs at
-115200, and the HCI command timer fires on Launch RAM, so the
-controller never comes up.
-
-When 0xfc18 times out, send HCI_Reset and, if it is answered, retry the
-baud rate change once.
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Assisted-by: Claude:claude-opus-5-5
 Signed-off-by: saiththerobo <the.tom.sharp@gmail.com>
 ---
  drivers/bluetooth/hci_bcm.c | 17 +++++++++++++++++

@@ -4,14 +4,6 @@ Date: Tue, 27 Oct 2026 12:48:31 -0400
 Subject: [PATCH] ASoC: cs35l41: bring-up option to run without the boost
  converter
 
-A second module parameter, boost_en (default Y), clears PWR_CTRL2
-BST_EN after the DSP set-up so that the output stage runs from VP alone,
-as Google's driver configures a shared-boost passive amplifier. For the
-Pixel 7 Pro's distortion at the everyday level (AOC-PLAN C9j): both
-speakers distort above the same load current with the converter's
-configuration matching stock's, so the comparison tells the converter's
-light-load behaviour from the rest of the chain. Not for upstream.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

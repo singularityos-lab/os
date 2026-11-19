@@ -3,22 +3,6 @@ From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 Date: Mon, 26 Oct 2026 10:28:51 -0647
 Subject: [PATCH] wifi: brcmfmac: add BCM4383 PCIe support
 
-The BCM4383 (PCI 14e4:4449, chip id 0x4383, rev 2) is the Wi-Fi chip in
-the Pixel 9a. Add its ids, its SYSMEM base (0x6e0000, from the firmware's
-load address) and the firmware name "brcmfmac4383-pcie" with the CLM
-blob, and two firmware-keyed quirks for its 20.123.13 firmware:
-
- - it takes only the versioned "join" parameters: the unversioned iovar
-   and SET_SSID both fail with -52, so enable BRCMF_FEAT_JOIN_V1 by the
-   same WLC version test as for the BCM4389;
- - it advertises the supplicant offload but refuses the key
-   ("failed to change PSK in firmware"), so leave FWSUP, SAE and FWAUTH
-   off and let the host do the handshakes.
-
-Tested on the Pixel 9a with the owner's firmware set: wlan0 comes up,
-scans, joins a WPA2 network through iwd and passes traffic, with no
-module parameters.
-
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  .../broadcom/brcm80211/brcmfmac/chip.c        |  2 ++

@@ -3,28 +3,6 @@ From: Derek Ross <derekross@gmail.com>
 Date: Mon, 12 Oct 2026 21:09:53 -0400
 Subject: [PATCH] wifi: brcmfmac: pcie: stop ring processing before a bus reset
 
-A bus reset through debugfs (echo 1 > .../ieee80211/phy0/reset) on a
-Pixel 7 Pro (BCM4389) oopsed in the D2H poll worker:
-
-  Workqueue: events brcmf_pcie_poll_worker [brcmfmac]
-  pc : brcmf_proto_msgbuf_rx_trigger+0x24/0x144 [brcmfmac]
-
-brcmf_pcie_reset() only masks the device's interrupts before
-brcmf_detach() frees the protocol layer. The interrupt thread, the poll
-worker and the console timer stay live and keep processing the rings
-through freed memory; the worker died holding rx_lock, and the system
-wedged. Stop them first, as brcmf_pcie_remove() does: set STATE_DOWN so
-nothing re-arms, stop the console timer, mask and synchronise the
-interrupt, cancel the poll. brcmf_pcie_setup() brings the state back up.
-Also make the RX path refuse to run without a protocol layer.
-
-The missed-D3-ACK path no longer requests a bus reset. A firmware
-re-download without a power cycle hasn't been shown to work on this chip
-(a driver-only reload failed with "FW failed to initialize"; a reload of
-the whole stack, which cycles WL_REG_ON, works), and the host-ready
-doorbell it rang can trap this firmware. Log that the stack needs a
-reload instead, as Broadcom's driver leaves it to a full restart.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

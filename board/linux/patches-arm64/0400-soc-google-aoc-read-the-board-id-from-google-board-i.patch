@@ -4,15 +4,6 @@ Date: Mon, 12 Oct 2026 15:18:20 -0400
 Subject: [PATCH] soc: google: aoc: read the board id from google,board-id;
  channel defaults
 
-The core read the vendor properties aoc-board-cfg/-id/-rev, which this
-device tree does not have, and fell back to Google's R4/O6 default board
-id 0x20202: the firmware got the wrong board. Read google,board-id and
-google,board-rev, as the binding and the bring-up driver do.
-
-aoc_channel_dev refused to probe without the vendor properties
-channel-max-pending-msgs and block-channel-threshold, so the sensor and
-CHRE channels never appeared. Use gs201's stock values (0x80, 0x40).
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

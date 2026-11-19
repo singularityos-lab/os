@@ -4,18 +4,7 @@ Date: Mon, 12 Oct 2026 00:01:54 -0400
 Subject: [PATCH] arm64: dts: exynos: google: gs201: clock the GPU through ACPM
  DVFS
 
-The GPU ran from a fixed 151 MHz stand-in clock with a one-entry OPP
-table, because its rate belongs to the APM firmware. Use the ACPM "gpu"
-clock instead, with the operating points Google's gs201 kernel uses
-(gpu_dvfs_table_v1, shader rates 202-848 MHz, matching the GPU cooling
-levels the stock kernel prints at boot) plus the 151 MHz boot level.
-
-The clock driver keeps the GPU clock read-only until the
-gs201_gpu_max_khz module parameter is set, so this changes nothing on
-its own: Panthor's probe and devfreq requests all round to 151 MHz and
-none reaches the firmware.
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Assisted-by: Claude:claude-opus-5-5
 ---
  arch/arm64/boot/dts/exynos/google/gs201.dtsi | 67 +++++++++++++++-----
  1 file changed, 50 insertions(+), 17 deletions(-)

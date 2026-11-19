@@ -1,20 +1,8 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?=C3=81ngel=20Ren=C3=A9?=
- <17342133+angelrenefm@users.noreply.github.com>
 Date: Sat, 14 Nov 2026 19:26:55 +0100
 Subject: [PATCH] media: s5p-mfc: keep VP8 rate control when a frame rate is
  set
-MIME-Version: 1.0
-Content-Type: text/plain; charset=UTF-8
-Content-Transfer-Encoding: 8bit
-
-s5p_mfc_set_enc_params_vp8() writes the frame rate from reg and then
-uses reg again to set the frame QP in E_RC_CONFIG. When the client has
-set a frame rate, E_RC_CONFIG gets the frame rate value with the QP
-bits replaced, which clears the frame rate control enable bit: on the
-Pixel 7 (MFC v15) the asked bitrate was ignored.
-
-Read E_RC_CONFIG again before setting the frame QP.
 
 Assisted-by: LLM
 Signed-off-by: Ángel René <17342133+angelrenefm@users.noreply.github.com>

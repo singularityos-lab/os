@@ -4,21 +4,7 @@ Date: Wed, 14 Oct 2026 21:05:07 -0400
 Subject: [PATCH] dt-bindings: media: add the Google gs201 CSIS receiver and
  WDMA
 
-One node per CSIS camera receiver link of the gs201 (Tensor G2) SoC and
-the CSIS WDMA context it writes to memory through: the link's and the
-shared DMA block's registers, an optional EBUF, the link and WDMA
-interrupts, the ACPM CAM and INT DVFS clocks the link votes on while it
-streams, the DC-PHY receiver, the CSIS system registers that route a
-link to a WDMA context, a reserved memory pool the WDMA can address,
-and the sensor on its port (D-PHY or C-PHY, from the endpoint's bus
-type). Several links may name the same WDMA context.
-
-google,lrte-packet-delimiters tells the link to expect the LRTE packet
-delimiters some C-PHY sensors send between packets.
-
-Also add the gs201 CSIS sysreg compatible to the Exynos sysreg binding.
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Assisted-by: Claude:claude-opus-5-5
 ---
  .../bindings/media/google,gs201-csis.yaml     | 162 ++++++++++++++++++
  .../soc/samsung/samsung,exynos-sysreg.yaml    |   1 +

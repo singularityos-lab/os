@@ -3,22 +3,7 @@ From: Derek Ross <derekross@gmail.com>
 Date: Wed, 14 Oct 2026 21:05:12 -0400
 Subject: [PATCH] media: i2c: ak7375: wait for a slow VCM at resume
 
-On the Google Pixel 7 Pro the main and ultrawide cameras' AK7375 VCMs
-are supplied by the camera PMIC (an SLG51002 LDO behind switched input
-rails). For a few seconds after the camera drivers load, both VCMs
-ignore every write ("ak7375_vcm_resume I2C failure: -6"), and answer at
-once later. Failing the runtime resume failed the subdev open, and
-libcamera dropped the lens for the whole session, so the main camera
-never focused in camera apps. The supplies were also left enabled on
-that error path, unbalancing the next resume.
-
-Retry the first write for about 250 ms (20 ms apart) after the nominal
-power-up delay, and log how many retries a VCM needed. When it still
-doesn't answer, keep it powered, let the open succeed, and switch it to
-active mode at the first focus move instead. Suspend skips the I2C
-writes of a VCM that was never set up.
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Assisted-by: Claude:claude-opus-5-5
 ---
  drivers/media/i2c/ak7375.c | 52 +++++++++++++++++++++++++++++++++-----
  1 file changed, 45 insertions(+), 7 deletions(-)

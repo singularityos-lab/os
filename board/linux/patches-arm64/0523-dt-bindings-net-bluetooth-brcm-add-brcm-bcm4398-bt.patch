@@ -3,14 +3,6 @@ From: Lef <me@lefteros.com>
 Date: Fri, 6 Nov 2026 06:45:48 +0200
 Subject: [PATCH] dt-bindings: net: bluetooth: brcm: add brcm,bcm4398-bt
 
-The Pixel 8 Pro's Bluetooth is a BCM4398. hci_bcm has no data of its
-own for it and uses the BCM4389's, so the compatible names the chip and
-falls back to brcm,bcm4389-bt, the same form as infineon,cyw43439-bt.
-No driver change is needed.
-
-Also mention the BCM4398 next to the Pixel 9a's BCM4383 in the
-description of brcm,ble-dbo-gpios, as it latches BT_REG_ON the same way.
-
 Signed-off-by: Lef <me@lefteros.com>
 ---
  .../devicetree/bindings/net/bluetooth/brcm,bluetooth.yaml    | 5 ++++-

@@ -4,10 +4,6 @@ Date: Mon, 12 Oct 2026 17:22:47 -0400
 Subject: [PATCH] arm64: dts: exynos: google: gs201: point PCIe GEN4A_0 at the
  modem MSI page
 
-Label the modem's reserved MSI page and reference it from pcie_0 as its
-memory-region, the MSI target Google's driver programs for the modem
-link. The controller stays disabled.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

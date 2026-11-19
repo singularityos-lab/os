@@ -4,12 +4,7 @@ Date: Mon, 12 Oct 2026 10:33:01 -0400
 Subject: [PATCH] firmware: cs_dsp: don't treat a changed control as a write
  sequence error
 
-cs_dsp_coeff_write_ctrl() returns 1 when the control's value changed. The
-write sequence code checked "if (ret)", so the first write of any new
-entry failed with 1 and cs_dsp_wseq_write() returned it to the caller.
-Only negative values are errors.
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Assisted-by: Claude:claude-opus-5-5
 ---
  drivers/firmware/cirrus/cs_dsp.c | 4 ++--
  1 file changed, 2 insertions(+), 2 deletions(-)

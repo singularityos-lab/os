@@ -1,20 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?=C3=81ngel=20Ren=C3=A9?=
- <17342133+angelrenefm@users.noreply.github.com>
 Date: Sat, 14 Nov 2026 15:25:58 +0100
 Subject: [PATCH] media: s5p-mfc: enumerate the coded frame sizes on MFC v15
-MIME-Version: 1.0
-Content-Type: text/plain; charset=UTF-8
-Content-Transfer-Encoding: 8bit
-
-The decoder has no VIDIOC_ENUM_FRAMESIZES. Chromium's V4L2 decoder then
-assumes it handles up to 1920x1088, and decodes anything larger in
-software: a 3840x2160 H.264 clip played with the MFC left at its idle
-clock.
-
-Report a stepwise range up to 4096x2304, H.264 level 5.2's largest
-frame, on MFC v15. On the Pixel 7, Chromium then decodes that 4K clip
-on the MFC: no frame dropped over the 10 s, seeks included.
 
 Assisted-by: LLM
 Signed-off-by: Ángel René <17342133+angelrenefm@users.noreply.github.com>

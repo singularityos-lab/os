@@ -3,21 +3,7 @@ From: Derek Ross <derekross@gmail.com>
 Date: Sun, 11 Oct 2026 19:04:05 -0400
 Subject: [PATCH] pinctrl: samsung: add Google gs201 pin controller data
 
-gs201 has nine pin controllers. FAR_ALIVE, GSACORE, GSACTRL, PERIC1 and
-HSI1 share their bank layout with gs101. The others differ:
-
- - ALIVE: gpa2 has four pins, which shifts the filter offsets of the
-   following banks;
- - PERIC0: gpp19 has five pins;
- - HSI2 has only gph2 and gph4; gph3 (the UFS pins) moved to a separate
-   HSI2UFS controller.
-
-Bank layouts are taken from Google's GPL gs201 pinctrl driver. The
-wake-up interrupt numbering of ALIVE banks after gpa2 does not match the
-hardware EINT numbers, which only matters for the PMU wake-up mask in
-system suspend; that is left for later.
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Assisted-by: Claude:claude-opus-5-5
 ---
  .../pinctrl/samsung/pinctrl-exynos-arm64.c    | 120 ++++++++++++++++++
  drivers/pinctrl/samsung/pinctrl-samsung.c     |   2 +

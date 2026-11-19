@@ -3,45 +3,6 @@ From: Derek Ross <derekross@gmail.com>
 Date: Tue, 13 Oct 2026 08:55:00 -0400
 Subject: [PATCH] soc: google: cpif: port the packet processor
 
-Build Google's packet processor (link_rx_pktproc.c, link_tx_pktproc.c)
-behind CONFIG_CP_PKTPROC and CONFIG_CP_PKTPROC_UL, both off by default,
-with CONFIG_LINK_DEVICE_PCIE_IOCC on as stock has it: the gs201 modem
-link driver turns IO coherency on at every link up, before the modem can
-DMA. Stock gs201 runs four downlink and two uplink queues in the PKTPROC
-and PKTPROC_UL regions.
-
-Port it to this kernel:
-
-- The regions are reserved no-map here, outside the linear map stock's
-  phys_to_virt() relies on. Map the info, descriptor and buffer parts
-  with memremap(), write-back where the device tree calls them cached,
-  write-combine otherwise, and unmap them with memunmap() on failure
-  (cp_shmem_get_nc_region() is memremap() too since the port).
-- Check the device tree's offsets and sizes against the regions, the
-  queue and packet sizes, and that the descriptors fit, before mapping or
-  dividing by them; refuse the on-SoC modems' dedicated BAAW window.
-- Allocate the per-queue dummy NAPI devices (alloc_netdev_dummy()), and
-  free them on failure.
-- Check that the whole packet a descriptor points at, not just its
-  start, lies in the queue's buffer.
-- Return errors where Google panics on a device tree that does not
-  match the build.
-
-Stock decides at build time that the modem uses the packet processor:
-with CONFIG_CP_PKTPROC_UL every packet goes out without a link header,
-and the AP advertises the uplink processor at boot. Make that follow the
-device tree instead (pktproc_dl_support, pktproc_ul_support), so that a
-kernel with the options also runs the modem on its legacy buffers, as
-before, when the modem node does not ask for the packet processor: the
-capability bit, the uplink path and the missing link header depend on
-the uplink processor having been set up; the network devices get at
-least one receive queue, and resume does not look at queues that do not
-exist. vnet_xmit() no longer reads uninitialised configuration bytes on
-the SIT path.
-
-The queues' own MSI vectors (pktproc_dl_use_exclusive_irq, as stock) are
-not available yet: the next commit adds them.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

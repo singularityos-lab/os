@@ -3,30 +3,6 @@ From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 Date: Tue, 27 Oct 2026 08:46:04 -0647
 Subject: [PATCH] clk: samsung: zumapro: Add CMU_APM
 
-Register CMU_APM, which clocks the always-on GPIO banks, the APM mailbox
-and its internal memory, on the common exynos_arm64_register_cmu() path.
-Firmware sets it up and keeps it on: the FUNC and FUNCSRC muxes and the
-NoC and USI1 UART dividers are read-only, and its gates are read-only
-gates.
-
-Its sources are the oscillator, from the DT, and the always-on ALV PLL's
-four dividers, as fixed rates like gs101's. The CAL gives nominal figures
-for the zuma family (787 MHz for the ALV PLL, 400, 200, 100 and 50 MHz
-for its dividers, against a 26 MHz oscillator); the ALV PLL runs at 32
-times the real 24.576 MHz oscillator, 786.432 MHz, so the dividers are
-given as exact fractions of that. The external pad input is not
-described, as on gs101.
-
-Every offset, width and parent list was checked against zuma's
-cmucal-sfr.c and cmucal-node.c.
-
-Booted on the Pixel 9a:
-7.3.0-rc6-omamobile-tegu-s2mpg15-m1-g991042e2eff3-dirty, whose
-clk-zumapro.c (blob c1db3a4a7736) carries these clocks under that
-tree's own clock ids.
-
-Link: https://android.googlesource.com/kernel/google-modules/soc/gs/+/204078758737776959ecc85c527a00fd2cabb62f/drivers/soc/google/cal-if/zuma/cmucal-sfr.c
-Link: https://android.googlesource.com/kernel/google-modules/soc/gs/+/204078758737776959ecc85c527a00fd2cabb62f/drivers/soc/google/cal-if/zuma/cmucal-node.c
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  drivers/clk/samsung/clk-zumapro.c | 78 +++++++++++++++++++++++++++++++

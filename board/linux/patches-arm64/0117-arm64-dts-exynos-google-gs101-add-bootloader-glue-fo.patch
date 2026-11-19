@@ -4,24 +4,7 @@ Date: Sat, 17 Oct 2026 05:46:12 +0100
 Subject: [PATCH] arm64: dts: exynos: google: gs101: add bootloader glue for
  ABL
 
-Booting a gs101 Pixel from its own slot B images needs what cheetah's
-board file already carries for the same bootloader (ABL). Oriole and
-raven share it, so it goes in gs101-pixel-common.dtsi:
-
-- the dpm node and label stubs that ABL's debug-policy overlay targets,
-  and symbols (-@) for both boards so the overlays apply;
-- watchdog_cl1 next to watchdog_cl0. Cheetah's ABL leaves both cluster
-  watchdogs running; raven's leaves them off (both report "inactive" at
-  probe, and raven stayed up past 180 s without watchdog_cl1). Linux
-  runs both either way.
-
-Raven also gets its soc_id, which ABL matches the base DTB on (the
-factory vendor_boot ships one DTB per silicon revision, 0x9845000 and
-0x9845001; the image tooling writes the A0 copy from this B0 one, as for
-cheetah), and /chosen/bootargs with panic=10, since ABL appends
-console=null and a panic would otherwise hang silently.
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Assisted-by: Claude:claude-opus-5-5
 Signed-off-by: saiththerobo <the.tom.sharp@gmail.com>
 ---
  arch/arm64/boot/dts/exynos/google/Makefile    |  2 ++

@@ -3,30 +3,6 @@ From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 Date: Mon, 2 Nov 2026 13:18:57 -0647
 Subject: [PATCH] PCI: dwc: gs201-cp: add a doorbell access under the link lock
 
-The modem driver writes the doorbell into the modem's BAR window and
-reads it back, retrying every millisecond for up to 100 ms while the
-read returns all ones. It checks the link first, but the modem can ask
-for the link to go down between the check and the access, and the
-retry loop spans that window. Once the PHY is powered down (and on
-gs201 isolated), an access to the window can hang the SoC.
-
-Add gs201_pcie_cp_doorbell(): the write and the read-back under
-cfg_lock, the lock cp_link_down() takes to clear cfg_ep_ok before it
-touches PERST#, the PHY or the isolation, refused once the endpoint is
-unreachable. The access itself is the modem driver's, unchanged, as
-stock does it on both SoCs.
-
-This changes the Pixel 7 Pro too: every doorbell there now goes through
-cfg_lock and is held back while the endpoint is unreachable. That is
-right on gs201 as well, where a read of the modem's window with the link
-powered down hung the SoC (watchdog reset, nothing in pstore). Stock
-serializes the doorbell against a link power-off one level up: Google's
-cpif rings it under mc->pcie_tx_lock in pcie_send_ap2cp_irq()
-(link_device.c), and s5100_poweroff_pcie() (modem_ctrl_s5100.c) takes
-that lock to wait out a doorbell in flight before it powers the link
-off. Here the link-down the CP asks for runs in the controller driver,
-so the lock is the controller's.
-
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  drivers/pci/controller/dwc/pcie-gs201-cp.c | 38 ++++++++++++++++++++++

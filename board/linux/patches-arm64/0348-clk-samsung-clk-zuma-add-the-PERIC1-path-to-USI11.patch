@@ -3,13 +3,6 @@ From: Lef <me@lefteros.com>
 Date: Sat, 31 Oct 2026 16:39:51 +0200
 Subject: [PATCH] clk: samsung: clk-zuma: add the PERIC1 path to USI11
 
-Add the CMU_TOP PERIC1 NoC and IP clocks (firmware-owned, read-only) and
-CMU_PERIC1 with USI11's user mux, divider and gates, for the I2C bus of
-the battery, charger and Type-C chips. The layout follows the Pixel 9a's
-PERIC1 code, which comes from the same cal-if/zuma tables; USI11 is the
-next slot after USI10 there (mux 0x640, divider 0x1810, gates
-0x2048/0x204c/0x2094). The USI11 gates keep the mode firmware set.
-
 Signed-off-by: Lef <me@lefteros.com>
 Assisted-by: LLM
 ---

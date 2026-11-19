@@ -4,22 +4,6 @@ Date: Mon, 9 Nov 2026 14:05:00 +0900
 Subject: [PATCH] rtc: s5m: disarm the S2MPG12's WTSR and SMPL restarts at
  power off
 
-On the Pixel 7 Pro (gs201, S2MPG12), power off restarts the phone.
-The RTC block read on a running phone shows the PMIC's warm-reset
-restart armed:
-
-  0x02 (SMPL) = 0x0e: SMPL_EN 0
-  0x03 (WTSR) = 0x0f: WTSR_EN 1, WTSRT 7, COLDRST_EN 0
-
-With WTSR enabled, the PMIC answers the AP dropping power by powering
-it up again. Google's S2MPG12 RTC driver clears SMPL_EN, WTSR_EN and
-COLDRST_EN in its shutdown callback before every power off, and arms
-them again only for a restart (rtc-s2mpg12.c, s2m_rtc_shutdown()).
-
-Do the same for power off and halt. Restarts are left as they are.
-This changes power off on the S2MPG12 boards: cheetah, lynx and
-panther.
-
 Assisted-by: LLM
 Signed-off-by: Hiroyuki Ikegami <ikegam@mixallow.net>
 ---

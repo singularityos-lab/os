@@ -4,24 +4,6 @@ Date: Mon, 12 Oct 2026 10:05:08 -0400
 Subject: [PATCH] wifi: brcmfmac: use the versioned join parameters on the
  BCM4389
 
-Firmware with a WLC interface version of 14.2, 14.4, 16.1+ or 17+
-takes the "join" iovar in its versioned layout, wl_extjoin_params_v1_t:
-a version/pad word in front, and association parameters that start
-with version and flags and carry a bssid_cnt before chanspec_num.
-Broadcom's driver picks that layout by this WLC version test
-(bcmdhd wl_cfg80211.c, MIN_JOINEXT_V1_* and
-wl_fillup_assoc_params_v1()); the version fields are left 0.
-
-The Pixel 7 Pro's BCM4389 firmware (20.101.90) reports WLC 14.4 and
-rejects brcmfmac's unversioned join, and the WLC_SET_SSID fallback
-after it, so association never starts:
-
-  brcmf_cfg80211_connect: BRCMF_C_SET_SSID failed (-52)
-
-Add a JOIN_V1 feature, set from "wlc_ver" by the same test, for the
-BCM4389 only, and send the versioned join when it is set. Log the
-firmware's own error code if the join fails.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

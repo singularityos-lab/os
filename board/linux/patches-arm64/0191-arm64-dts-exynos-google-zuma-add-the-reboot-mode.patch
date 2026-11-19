@@ -3,11 +3,6 @@ From: Brett-Michael Green <brett@bmgvisualtech.com>
 Date: Thu, 22 Oct 2026 13:51:13 -0400
 Subject: [PATCH] arm64: dts: exynos: google: zuma: add the reboot mode
 
-The bootloader reads the reboot reason from the PMU's SYSIP_DAT0
-(0x810), where stock's pixel-reboot driver writes it with the same
-values as on gs101 and gs201. Describe it as a syscon-reboot-mode under
-the PMU, so "reboot bootloader" lands in fastboot.
-
 Assisted-by: LLM
 Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
 ---

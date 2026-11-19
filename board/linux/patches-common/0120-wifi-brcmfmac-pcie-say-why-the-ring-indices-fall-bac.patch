@@ -4,13 +4,6 @@ Date: Mon, 12 Oct 2026 01:26:54 -0400
 Subject: [PATCH] wifi: brcmfmac: pcie: say why the ring indices fall back to
  TCM
 
-When the firmware offers DMA'd ring indices (BRCMF_PCIE_SHARED_DMA_INDEX)
-but the index buffer cannot be allocated, brcmfmac quietly uses the
-indices in device memory instead, which hides a DMA setup problem and
-makes every ring update a PCIe read. Log the fallback as an error, and
-log the shared-area flags at PCIe debug level so the firmware's
-capabilities can be read from a debug log.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

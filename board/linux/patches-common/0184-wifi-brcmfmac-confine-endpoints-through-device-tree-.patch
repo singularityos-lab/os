@@ -3,16 +3,6 @@ From: Chris Gray <chrisgray70@gmail.com>
 Date: Wed, 11 Nov 2026 12:20:03 -0600
 Subject: [PATCH] wifi: brcmfmac: confine endpoints through device-tree policy
 
-Require a matching, non-expanding restricted DMA attachment before
-bus mastering when the endpoint requests it. Derive the allowed pool
-extent from reserved memory instead of a Bluejay machine check or fixed
-address. Preserve the original mastering order for other endpoints.
-
-Cache the endpoint packet limit once during PCI probe and pass it to
-msgbuf. Count oversized TX frames in msgbuf_stats before dropping them.
-Read the provisioned ASCII MAC only when the endpoint requests it.
-Keep the chip-only diagnostic in the private bring-up branch.
-
 Assisted-by: LLM
 Signed-off-by: Chris Gray <chrisgray70@gmail.com>
 ---

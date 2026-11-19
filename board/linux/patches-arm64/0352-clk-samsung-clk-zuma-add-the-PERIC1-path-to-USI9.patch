@@ -3,21 +3,6 @@ From: Lef <me@lefteros.com>
 Date: Sun, 1 Nov 2026 14:59:59 +0200
 Subject: [PATCH] clk: samsung: clk-zuma: add the PERIC1 path to USI9
 
-USI9 is the I2C bus (hsi2c_9) of the Pixel 8 Pro's battery pack EEPROM,
-which holds the battery ID that picks the fuel gauge model. It is on
-CMU_PERIC1 like USI11, and firmware sets it up the same way: the user
-mux and the divider are read-only, and Linux turns on the three gates.
-
-The offsets are from Google's cmucal tables, each next to the USI11 one
-that already works: the user mux at 0x690 (USI11: 0x640, bit 4, parents
-the oscillator and the PERIC1 IP clock), the divider at 0x1824 (USI11:
-0x1810, bits 0 to 3), and the IPCLK, PCLK and RSTNSYNC gates at 0x2070,
-0x2074 and 0x20a0, bit 21 (USI11: 0x2048, 0x204c, 0x2094). The PCLK gate
-hangs off the PERIC1 NoC like USI11's, the other two off the divider.
-
-Tested on a Pixel 8 Pro with the board commit and the two device tree
-commits on top: the bus clocks were on and the EEPROM answered.
-
 Signed-off-by: Lef <me@lefteros.com>
 Assisted-by: LLM
 ---

@@ -4,8 +4,6 @@ Date: Sat, 31 Oct 2026 15:37:56 -0647
 Subject: [PATCH] dt-bindings: net: wireless: brcm,bcm4329-fmac: add BCM4383
  PCI ID
 
-Add the PCI ID of the BCM4383, the Wi-Fi chip of Google's Pixel 9a.
-
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  .../devicetree/bindings/net/wireless/brcm,bcm4329-fmac.yaml      | 1 +

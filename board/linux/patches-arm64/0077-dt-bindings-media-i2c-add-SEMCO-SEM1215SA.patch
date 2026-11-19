@@ -3,13 +3,7 @@ From: Derek Ross <derekross@gmail.com>
 Date: Wed, 14 Oct 2026 21:05:11 -0400
 Subject: [PATCH] dt-bindings: media: i2c: add SEMCO SEM1215SA
 
-The SEM1215SA drives a camera module's focus and optical image
-stabilisation actuators and holds its calibration memory, over I2C with
-16-bit register addresses. The Pixel 7 Pro's folded telephoto module has
-one, powered from a board supply, the camera I/O rail, an actuator
-supply and a switched module supply.
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Assisted-by: Claude:claude-opus-5-5
 ---
  .../bindings/media/i2c/semco,sem1215sa.yaml   | 58 +++++++++++++++++++
  1 file changed, 58 insertions(+)

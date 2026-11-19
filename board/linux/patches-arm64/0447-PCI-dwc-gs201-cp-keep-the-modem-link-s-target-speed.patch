@@ -3,16 +3,6 @@ From: Derek Ross <derekross@gmail.com>
 Date: Tue, 13 Oct 2026 12:21:47 -0400
 Subject: [PATCH] PCI: dwc: gs201-cp: keep the modem link's target speed
 
-The modem's ROM trains at Gen1 and only the modem driver moves the link
-to Gen3, with a new link up once the boot loader runs. At enumeration
-the PCI core finds the root port's 2.5GT/s target and lifts it
-(pcie_failed_link_retrain(): "removing 2.5GT/s downstream link speed
-restriction", seen in M3.1 and in the first modem boot), then retrains
-the link under the ROM. Google's 6.1 kernel has no such quirk.
-
-Keep the root port's Target Link Speed at what link_up set when the
-core writes Link Control 2. The core's retrain then stays at Gen1.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

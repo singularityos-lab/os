@@ -3,16 +3,6 @@ From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 Date: Thu, 22 Oct 2026 20:25:11 -0700
 Subject: [PATCH] regulator: s2mps11: Add S2MPG14 LDO4M and LDO25M
 
-The Pixel 9a bootloader leaves the touchscreen supplies off. Enabling
-LDO4M and LDO25M through ACPM while retaining firmware voltage selectors
-allows the S3908 controller to identify itself and report input.
-
-Expose only these two controls, with enable changes through ACPM's
-read-modify-write path and read-only voltage reporting. Do not provide
-a voltage setter or expose the unverified regulator controls.
-No board nodes are enabled here.
-
-Link: https://android.googlesource.com/kernel/google-modules/soc/gs/+/204078758737776959ecc85c527a00fd2cabb62f/drivers/regulator/s2mpg14-regulator.c
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  drivers/regulator/s2mps11.c | 54 +++++++++++++++++++++++++++++++++++++

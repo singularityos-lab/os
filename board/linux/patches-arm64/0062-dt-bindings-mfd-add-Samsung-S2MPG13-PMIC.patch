@@ -3,23 +3,7 @@ From: Derek Ross <derekross@gmail.com>
 Date: Mon, 12 Oct 2026 13:26:26 -0400
 Subject: [PATCH] dt-bindings: mfd: add Samsung S2MPG13 PMIC
 
-The S2MPG13 is the sub-PMIC paired with Google's gs201 SoC, reached
-through the ACPM firmware like S2MPG11 on gs101, next to the S2MPG12
-main PMIC. Describe it with its 28 LDO regulators and its GPIO block;
-the bucks, meters and NTC inputs are not described yet. Its interrupt
-line is optional.
-
-The eight general purpose pins sit in a register block of their own.
-On the Pixel 7 boards three of them enable the camera supplies (the
-3.2 V boost and the 1.3 V buck) and wake the camera PMIC from its
-low-power reset. Describe them as a gpio child node, the way the
-S2MPG10 and S2MPG11 MFD cells already expect a samsung,s2mpg1x-gpio
-child.
-
-Allow it as pmic-2 under the gs201 ACPM node, and keep S2MPG11 there
-for gs101.
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Assisted-by: Claude:claude-opus-5-5
 ---
  .../firmware/google,gs101-acpm-ipc.yaml       | 13 ++-
  .../bindings/mfd/samsung,s2mpg13-pmic.yaml    | 84 +++++++++++++++++++

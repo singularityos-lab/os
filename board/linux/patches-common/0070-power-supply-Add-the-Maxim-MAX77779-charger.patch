@@ -3,37 +3,6 @@ From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 Date: Tue, 27 Oct 2026 12:20:29 -0647
 Subject: [PATCH] power: supply: Add the Maxim MAX77779 charger
 
-Add a driver for the MAX77779's charger, which the Pixel 9a runs under
-its OTP defaults. It reports whether an input (USB or the wireless
-receiver) is present, the charge status and type from CHG_DETAILS_01,
-the input current limit and the charge current, and supplies the fuel
-gauge, so the battery's status follows the charger.
-
-charge_behaviour inhibit-charge stops charging: the charger goes to
-buck-only mode (CHG_CNFG_00 mode 4; that register isn't behind CHGPROT)
-and USB powers the system, though near full the battery still supplies
-part of the load; auto, unbinding and shutdown put it back in charge-
-and-buck mode. An inhibit survives a warm reboot, since the PMIC stays
-powered, so probe takes the inhibit state from the mode it finds.
-Nothing else is written, and the interrupt registers (clear on read) are
-not read: the state is polled every 10 s.
-
-Tested on the Pixel 9a, with the device created at 0x69 by hand in place
-of the out-of-tree driver it replaces: online, status, charge type,
-input current limit (1.5 A) and charge current read as the chip reports
-them; inhibit-charge gives "Not charging" (mode 4) and auto "Charging"
-(mode 5) again; unbinding while inhibited leaves mode 5; and probing
-with the charger found in mode 4 reports inhibit-charge and "Not
-charging", and auto then restores mode 5. At 99 % the battery still gave
-about 450 mA while inhibited, measured the same way with the out-of-tree
-driver. The gauge's link to the charger comes from the DT and was not
-part of this test.
-
-Register fields from Google's MAX77779 charger driver and register
-header.
-
-Link: https://android.googlesource.com/kernel/google-modules/bms/+/183509aff980610401869deca9f6ce8836980fe7/max77779_charger.c
-Link: https://android.googlesource.com/kernel/google-modules/bms/+/183509aff980610401869deca9f6ce8836980fe7/max77779_v20240115_regs.h
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  MAINTAINERS                             |   4 +-

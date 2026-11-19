@@ -4,21 +4,6 @@ Date: Sun, 1 Nov 2026 20:30:08 +0100
 Subject: [PATCH] arm64: dts: exynos: google: gs201-cheetah: restore the
  software reboot reason
 
-Stock ships a second reboot-reason writer for the Pixel 7 Pro besides
-the syscon-reboot-mode node that gs201.dtsi keeps: Google's
-pixel-gs201-reboot.c writes SYSIP_DAT0 and then the RSBM record into
-the MAX77759's MAXQ user memory (BMS_RSBM_VALID | reason into
-GBMS_TAG_RSBM). Give the Pixel 7 Pro that second writer, the
-nvmem-based path the gs101 Pixels carry in gs101-pixel-common.dtsi: an
-nvmem-0 cell of the I2C PMIC (max77759-nvmem, fixed layout) and a
-root-level nvmem-reboot-mode node.
-
-Only mode-bootloader (0x800000fc) is mapped for now: recovery, fastboot
-and charge send ABL into paths nobody has exercised on slot B, and an
-unmapped reason writes nothing, which matches stock. The existing
-syscon-reboot-mode keeps working in parallel; whether ABL needs the
-RSBM write is still being tested.
-
 Signed-off-by: Adrian Schupp <as@satware.com>
 Assisted-by: LLM opencode
 ---

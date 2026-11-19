@@ -3,19 +3,6 @@ From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 Date: Mon, 2 Nov 2026 08:50:50 -0647
 Subject: [PATCH] clk: samsung: zumapro: Keep the HSI2 GPIO bus clocks on too
 
-CMU_HSI2's two GPIO gates, for pinctrl_hsi2ufs (0x2008) and pinctrl_hsi2
-(0x2060), are writable and in the same manual mode as PERIC0's: on the
-Pixel 9a both CLK_CON_GAT registers read 0x100000 (MANUAL set, CG_VAL
-clear), and the clock summary shows them at enable count 0 between pin
-controller accesses. So the pin controller turns them on and off around
-every access, as it did PERIC0's.
-
-No hang has been seen on these blocks: their lines (the Wi-Fi's PERST#
-and WL_REG_ON on gph3, the UFS pins) change rarely. But the PERIC0 hang
-followed the gate toggling, not anything specific to that block, and
-stock's pin controllers name no clocks, so Google's kernel never gates
-any GPIO bus clock. Mark both gates critical as well.
-
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  drivers/clk/samsung/clk-zumapro.c | 5 +++--

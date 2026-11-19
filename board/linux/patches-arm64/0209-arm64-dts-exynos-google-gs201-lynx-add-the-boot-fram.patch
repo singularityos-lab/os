@@ -4,16 +4,6 @@ Date: Fri, 23 Oct 2026 23:53:02 -0500
 Subject: [PATCH] arm64: dts: exynos: google: gs201-lynx: add the boot
  framebuffer
 
-ABL leaves DECON0, DSIM0 and the panel running in command mode with
-DPP0 scanning a 1080x2400 buffer at 0xfac00000. Reserve that buffer
-(no-map; on stock it sits in the wifi_region CMA pool, which this tree
-does not have) and describe it as a simple-framebuffer, so simpledrm
-and fbcon can use the panel before there is a panel driver.
-
-Tested on a Pixel 7a from slot B: simpledrm binds the framebuffer and
-fbcon shows the boot log and a shell prompt on the panel. The
-initramfs unmasks DECON0's hardware trigger for this.
-
 Assisted-by: LLM
 Signed-off-by: Chris Gray <chrisgray70@gmail.com>
 ---

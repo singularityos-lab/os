@@ -1,24 +1,8 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?=C3=81ngel=20Ren=C3=A9?=
- <17342133+angelrenefm@users.noreply.github.com>
 Date: Sat, 14 Nov 2026 19:27:21 +0100
 Subject: [PATCH] media: s5p-mfc: v15 encoder: header with the first frame,
  bare VP8
-MIME-Version: 1.0
-Content-Type: text/plain; charset=UTF-8
-Content-Transfer-Encoding: 8bit
-
-On MFC v15:
-
-- default V4L2_CID_MPEG_VIDEO_HEADER_MODE to JOINED_WITH_1ST_FRAME.
-  GStreamer expects one CAPTURE buffer per frame: with a separate header
-  buffer it drops the next one, which is the keyframe.
-
-- set bit 12 of E_VP8_OPTION. Without it the firmware wraps VP8 in IVF
-  file and frame headers, and V4L2_PIX_FMT_VP8 is bare frames. Google's
-  driver sets it too. There is then no header to return at sequence
-  start, so on v15 do not return an empty buffer that would read as the
-  end of the stream. Other versions return the header buffer as before.
 
 Assisted-by: LLM
 Signed-off-by: Ángel René <17342133+angelrenefm@users.noreply.github.com>

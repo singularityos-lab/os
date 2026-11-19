@@ -4,19 +4,6 @@ Date: Mon, 2 Nov 2026 13:18:57 -0647
 Subject: [PATCH] dt-bindings: PCI: google,gs201-pcie-cp: add the zumapro modem
  link
 
-The Pixel 9a (zumapro, Tensor G4) connects the same Samsung S5300 modem
-through HSI1 GEN3A_0, a two-lane Gen3 DesignWare root complex. It has no
-I/A sequencer and no secure monitor translation: the host programs the
-outbound iATU itself. Its two-lane PHY has a driver of its own
-(google,zumapro-pcie-gen3x2-phy), so the controller keeps phys as on
-gs201 and describes no PHY registers.
-
-Add the compatible with three register windows, and make the
-shareability register optional for it: the link has run without I/O
-coherency so far, and stock's SYSREG_HSI1 hasn't been accessed from
-Linux yet. On zumapro the PHY stays out of isolation once released, as
-stock leaves it, so say so in the PMU property.
-
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  .../bindings/pci/google,gs201-pcie-cp.yaml    | 70 +++++++++++++++++--

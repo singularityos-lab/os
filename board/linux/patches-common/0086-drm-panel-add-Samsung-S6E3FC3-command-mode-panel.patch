@@ -3,34 +3,6 @@ From: Alejandro Garcia <skipper.pelygro@gmail.com>
 Date: Sat, 31 Oct 2026 21:27:55 -0700
 Subject: [PATCH] drm/panel: add Samsung S6E3FC3 command-mode panel
 
-Add a driver for the Samsung S6E3FC3 DDIC and its P10 1080x2400 AMOLED
-panel, found in the Google Pixel 7 (panther).
-
-The command sequences come from Google's GPL panel driver
-(panel-samsung-s6e3fc3-p10.c), limited to the EVT1 and later panels that
-ship in phones: the cold init table at 60 Hz, TE2, DSC enable with the
-vendor PPS sent as is, MIC off, and display on/off. Local HBM, the
-low-power (AOD) modes and the panel revision reads are left out.
-
-The bootloader powers the panel and leaves it scanning out. When the
-reset line reads released at probe the driver takes the panel over
-without sending anything, holding the supplies and keeping the reset
-line where it is; only brightness and power changes reach the panel.
-Brightness is a backlight device over DCS 0x51 (11 bits, the normal
-range; HBM is left for later), with levels below the vendor driver's
-lowest (4) raised to it, and blanking the backlight turns the display
-off while keeping the panel out of sleep.
-
-The driver follows the Pixel 7 Pro's S6E3HC4 driver in this tree.
-
-Tested on a Pixel 7 from slot B (7.3.0-rc6), with the next patch: the
-driver takes the panel over from the bootloader without changing the
-picture. With the DSIM command path sending, brightness 1023, 400, 2047
-and 4 each changed the screen as expected, blanking the backlight turned
-the display off and unblanking turned it back on with the picture
-intact, and the desktop's brightness slider drove the panel. No DSIM
-errors.
-
 Assisted-by: Claude Opus 5.5
 Signed-off-by: Alejandro Garcia <skipper.pelygro@gmail.com>
 ---

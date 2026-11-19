@@ -1,25 +1,8 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?=C3=81ngel=20Ren=C3=A9?=
- <17342133+angelrenefm@users.noreply.github.com>
 Date: Fri, 13 Nov 2026 20:46:44 +0100
 Subject: [PATCH] media: s5p-mfc: signal the parsed stream format with
  V4L2_EVENT_SOURCE_CHANGE
-MIME-Version: 1.0
-Content-Type: text/plain; charset=UTF-8
-Content-Transfer-Encoding: 8bit
-
-The stateful decoder interface (dev-decoder.rst, "Initialization") has
-the client learn the stream's coded format from V4L2_EVENT_SOURCE_CHANGE
-once the header is parsed; s5p-mfc only sent the event for a resolution
-change in the middle of a stream. Queue it when SEQ_DONE leaves the
-instance in HEAD_PARSED.
-
-Clients that do not subscribe to the event are not affected.
-
-Tested on a Pixel 7 (gs201, MFC v15.6) with the rest of this series: a
-small V4L2 stateful test client that waits for the event, FFmpeg's
-h264_v4l2m2m and GStreamer's v4l2h264dec all decode H.264 bit-exact
-against FFmpeg's software decoder. Not tested on any older MFC.
 
 Assisted-by: LLM
 Signed-off-by: Ángel René <17342133+angelrenefm@users.noreply.github.com>

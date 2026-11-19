@@ -3,10 +3,6 @@ From: Brett-Michael Green <brett@bmgvisualtech.com>
 Date: Fri, 30 Oct 2026 16:23:42 -0400
 Subject: [PATCH] firmware: samsung: acpm: Add the Tensor G3
 
-zuma's ACPM firmware keeps its channel table at 0xa000 in the APM SRAM,
-as stock's device tree gives it (initdata-base). Add zuma's match data.
-No driver binds its clocks device yet.
-
 Assisted-by: LLM
 Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
 ---

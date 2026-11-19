@@ -3,30 +3,6 @@ From: Alejandro Garcia <skipper.pelygro@gmail.com>
 Date: Tue, 27 Oct 2026 21:12:22 -0700
 Subject: [PATCH] Input: add FocalTech FT3658 SPI touchscreen driver
 
-The Google Pixel 7 (panther) uses a FocalTech FT3658 touch controller on
-SPI. Mainline has no driver for it: edt-ft5x06 covers FocalTech's I2C
-family only.
-
-The controller runs its own firmware from flash. This driver powers it
-up, waits for its chip ID (0x56) and reports up to ten touches with the
-MT slot protocol; it never writes a register or the firmware. The SPI
-framing (a read command with a 16-bit length, three dummy bytes, a
-status byte and a CRC-16/CCITT over the data), the report layout and
-the power sequence follow Google's GPL FocalTech driver for Pixel
-devices: AVDD on, VDD on, 1 ms, reset released, then 200 ms for the
-firmware to boot; on removal reset is asserted before both supplies go
-off, so the supplies never drop under a running controller.
-
-Suspend, firmware update, gestures and the heatmap are not supported.
-
-Tested on a Pixel 7 from slot B, with the panther board file and its
-touch node: the controller answers with chip ID 0x56 and firmware
-version 0x16; touches at the four corners report (44, 19), (1071, 45),
-(34, 2389) and (1033, 2333) on the 1080x2400 panel, with no CRC or
-status error in 1632 reports; the lock screen takes a PIN by touch.
-Unbinding asserts reset and switches both rails off. Built as a module,
-it loads from its OF alias at boot.
-
 Assisted-by: Claude Opus 5.5
 Signed-off-by: Alejandro Garcia <skipper.pelygro@gmail.com>
 ---

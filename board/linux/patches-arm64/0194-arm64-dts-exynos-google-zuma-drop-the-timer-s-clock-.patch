@@ -4,15 +4,6 @@ Date: Sat, 24 Oct 2026 12:18:13 -0400
 Subject: [PATCH] arm64: dts: exynos: google: zuma: drop the timer's
  clock-frequency
 
-zuma's firmware programs CNTFRQ_EL0: it reads 24576000 on a Pixel 8
-Pro booted with this tree, the same 24.576 MHz the property gave. The
-arch timer binding asks for clock-frequency only where firmware leaves
-CNTFRQ unset, so drop it, as gs101 does.
-
-Tested on a Pixel 8 Pro: without the property the arch timer still runs
-at 24.57 MHz, CNTFRQ_EL0 reads 24576000, and the uptime kept pace with
-the host's clock over 30 s.
-
 Assisted-by: LLM
 Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
 ---

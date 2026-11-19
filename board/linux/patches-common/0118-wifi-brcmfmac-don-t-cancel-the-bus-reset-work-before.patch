@@ -4,28 +4,6 @@ Date: Mon, 12 Oct 2026 00:34:41 -0400
 Subject: [PATCH] wifi: brcmfmac: don't cancel the bus reset work before it
  exists
 
-drvr->bus_reset is initialised in brcmf_bus_started(), after the
-firmware is up. When the firmware fails to start, the PCIe setup path
-unbinds the device, and brcmf_pcie_remove() calls
-brcmf_bus_cancel_reset_work(), which runs cancel_work_sync() on a work
-item that was never initialised and trips the check in __flush_work():
-
-  WARNING: kernel/workqueue.c:4409 at __flush_work+0x27c/0x2a4
-  Call trace:
-   __flush_work+0x27c/0x2a4 (P)
-   __cancel_work_sync+0xbc/0x1dc
-   cancel_work_sync+0x14/0x24
-   brcmf_bus_cancel_reset_work+0x38/0x50 [brcmfmac]
-   brcmf_pcie_remove+0x6c/0x168 [brcmfmac]
-   pci_device_remove+0x48/0xdc
-   device_release_driver_internal+0x16c/0x27c
-   device_release_driver+0x18/0x24
-   brcmf_pcie_setup+0x434/0xa4c [brcmfmac]
-
-brcmf_bus_schedule_reset() already treats a NULL work function as "not
-armable yet". Use the same test before cancelling: there is nothing to
-cancel when the work was never set up.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

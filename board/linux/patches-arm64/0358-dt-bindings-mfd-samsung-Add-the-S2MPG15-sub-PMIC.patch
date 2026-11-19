@@ -3,12 +3,6 @@ From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 Date: Tue, 27 Oct 2026 18:10:12 -0647
 Subject: [PATCH] dt-bindings: mfd: samsung: Add the S2MPG15 sub-PMIC
 
-The S2MPG15 is the sub-PMIC paired with Google's Tensor G4 (Pixel 9a),
-reached through ACPM like the S2MPG14. Describe it with its LDOs that
-Linux consumers use: LDO5S and LDO7S (the AoC sensors), LDO9S-LDO11S
-(the GNSS core, RF front end and auxiliary supply), LDO12S (the camera
-sensors' 1.8 V) and LDO15S (the fingerprint sensor's 3.3 V).
-
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  .../bindings/mfd/samsung,s2mpg15-pmic.yaml    | 46 +++++++++++++++++++

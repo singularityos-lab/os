@@ -3,18 +3,6 @@ From: Derek Ross <derekross@gmail.com>
 Date: Mon, 12 Oct 2026 01:45:27 -0400
 Subject: [PATCH] PCI: dwc: gs201: program the coherency again after link up
 
-Google's driver programs the I/O coherency (AxCACHE in DBI 0x8e8 and the
-HSI2 shareability in SYSREG_HSI2 0x730) after the root port setup in
-exynos_pcie_rc_establish_link(), and once more at the end of
-exynos_pcie_rc_probe(), after the endpoint is enumerated. We did it
-once, before the link came up.
-
-The Wi-Fi chip is dma-coherent through this bridge. If the coherency
-were not in effect, the chip would read stale ring memory and the host
-would not see what the chip writes, which is how the first BCM4389
-runs fail. Program it again after link up and after enumeration, and
-print the two registers, so the log shows what is in effect.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

@@ -3,13 +3,8 @@ From: "Rob Herring (Arm)" <robh@kernel.org>
 Date: Tue, 22 Sep 2026 16:21:21 -0500
 Subject: [PATCH] ASoC: dt-bindings: Fix TAS2563 address constraints
 
-Apply the TAS2781 register range only when the compatible is exactly
-ti,tas2781. This avoids applying the TAS2781 single-address rule to
-TAS2563 nodes with 0x4c-0x4f addresses.
-
 Assisted-by: LLM
 Signed-off-by: Rob Herring (Arm) <robh@kernel.org>
-Link: https://patch.msgid.link/20260922212122.1116270-1-robh@kernel.org
 Signed-off-by: Mark Brown <broonie@kernel.org>
 ---
  Documentation/devicetree/bindings/sound/ti,tas2781.yaml | 4 +---

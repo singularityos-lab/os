@@ -3,21 +3,6 @@ From: Brett-Michael Green <brett@bmgvisualtech.com>
 Date: Mon, 26 Oct 2026 09:19:47 -0400
 Subject: [PATCH] pinctrl: samsung: Add Tensor G3 pin banks
 
-Google's GPL pinctrl-gs.c describes zuma (Tensor G3) with the same 13
-controllers and banks as Tensor G4, except that zuma's ALIVE controller
-ends at gpa10: gpa11 and gpa12 are Tensor G4's. Reuse Tensor G4's bank
-tables for the other twelve controllers.
-
-On the Pixel 8 Pro, the bootloader hands UFS over powered down: the
-device supply's enable GPIO (gpp0-1) and its reference clock pin
-(gph5-0) are both GPIO outputs driven low. UFS cannot start until a pin
-controller sets them up.
-
-Tested on a Pixel 8 Pro, with the PERIC0 and HSI2UFS controllers
-described: the UFS pins come up in their UFS function and the supply's
-GPIO turns the device on, as on stock, and UFS links at HS-G4 on two
-lanes.
-
 Assisted-by: LLM
 Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
 ---

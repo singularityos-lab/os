@@ -4,11 +4,7 @@ Date: Sun, 11 Oct 2026 23:58:16 -0400
 Subject: [PATCH] dt-bindings: timer: exynos4210-mct: add Google gs201
  compatible
 
-The gs201 (Tensor G2) MCT is the gs101 one: same register layout, four
-global and eight local timer interrupts (12 in total), as listed in the
-device tree the bootloader hands over on a Pixel 7 Pro.
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Assisted-by: Claude:claude-opus-5-5
 ---
  .../devicetree/bindings/timer/samsung,exynos4210-mct.yaml       | 2 ++
  1 file changed, 2 insertions(+)

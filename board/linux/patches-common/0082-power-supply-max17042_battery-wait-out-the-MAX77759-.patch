@@ -4,27 +4,6 @@ Date: Sat, 31 Oct 2026 19:51:00 -0700
 Subject: [PATCH] power: supply: max17042_battery: wait out the MAX77759's
  alert
 
-The MAX77759's gauge keeps ALRT asserted until its next task period
-after Status is cleared, up to 351 ms with the TaskPeriod its battery
-models set. The interrupt is level-low and oneshot, so as soon as the
-thread returns it runs again, and each alert becomes a burst: on a
-Pixel 7, every 1 % step of RepSOC fired the gauge's interrupt about 420
-times within half a second, with Status already clear on each later
-run.
-
-Sleep one task period at the end of the thread on the MAX77759, before
-the interrupt is unmasked. Google's driver for the same gauge does the
-same (max1720x_fg_irq_thread_fn() sleeps 500 ms, "gauge will take up to
-351 ms to clear ALRM1"). Alerts arriving meanwhile are kept by the
-level interrupt and handled on the next run.
-
-Tested on a Pixel 7 (7.3.0-rc6) with its battery model loaded: before
-this change, unplugged and discharging, three 1 % steps of RepSOC fired
-the interrupt 424, 429 and 453 times. With it, five alerts in 18
-minutes (RepSOC reaching 90 % on the cable, then four steps down to
-86 % unplugged) fired it once each, the thresholds moved with each step,
-and the gauge reported as before.
-
 Assisted-by: Claude Opus 5.5
 Signed-off-by: Alejandro Garcia <skipper.pelygro@gmail.com>
 ---

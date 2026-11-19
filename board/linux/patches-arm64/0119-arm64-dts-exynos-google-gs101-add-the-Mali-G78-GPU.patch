@@ -3,13 +3,7 @@ From: saiththerobo <the.tom.sharp@gmail.com>
 Date: Tue, 20 Oct 2026 07:45:05 +0100
 Subject: [PATCH] arm64: dts: exynos: google: gs101: add the Mali-G78 GPU
 
-The gs101 Mali-G78 MP20 as postmarketOS's gs101-mainline tree describes
-it: a Valhall JM node at 0x1c500000 with its job, MMU and GPU
-interrupts. There is no CMU_G3D driver yet, so it runs on the clock the
-bootloader leaves running; the clocks property is a placeholder until
-that driver exists.
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Assisted-by: Claude:claude-opus-5-5
 Signed-off-by: saiththerobo <the.tom.sharp@gmail.com>
 ---
  arch/arm64/boot/dts/exynos/google/gs101.dtsi | 15 +++++++++++++++

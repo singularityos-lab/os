@@ -3,42 +3,6 @@ From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 Date: Mon, 2 Nov 2026 12:51:41 -0647
 Subject: [PATCH] soc: google: gnssif_spi: port to Linux 7.3
 
-Build Google's GNSS SPI interface driver as the two modules Google
-builds, gnss_spi.ko and gnssif.ko, under EXYNOS_GNSS_IF_SPI (Google's
-option name), and make it take its lines and names as the binding
-describes:
-
-- drivers/soc/google is new on omamobile. Its Kconfig menu and Makefile
-  are laid out as the curated series adds them for the GSA and AoC
-  drivers (linux-omarchy-mobile#141), so whichever lands second keeps
-  both sets of lines.
-- GPIOs: of_gpio.h is gone. The two lines are GPIO descriptors,
-  gnss2ap-spi-gpios (an input, also the interrupt, through
-  gpiod_to_irq()) and ap2gnss-spi-gpios (an output that starts low, as
-  Google's driver sets it). devm releases them. The node's lines are
-  active high, so the logical values are Google's raw ones.
-- The error path freed the interrupt with &gc as its cookie instead of
-  gc, which never matches; it now passes gc, as remove() does too.
-- A failed enable_irq_wake() no longer fails the probe: GNSS works
-  without it, it just can't wake the AP.
-- device,name and device_node_name are not in the binding: the names
-  are fixed ("KEPLER", which only appears in log lines, and "gnss_ipc",
-  the device the GNSS daemon opens), and the macros that read them go.
-- Google's subsystem coredump (sscoredump) is not in this kernel. A dump
-  the daemon writes to the coredump attribute goes to devcoredump, its
-  counterpart here, with the reason logged.
-- API drift: remove() returns void, strscpy() instead of strncpy(),
-  __poll_t and EPOLL*, __user on the read buffer, %zu for size_t; the
-  unused gif_trace() (with the gone %pF) and the leftover linux/gpio.h
-  includes go.
-- W=1: init_io_device() is static, and an unused variable in open goes.
-- checkpatch: the static last_trigger_time loses its "= 0".
-- gnss_spi gets an spi_device_id table ("gnss-spi"): without one the SPI
-  core warns, when the driver registers, that it has none for the
-  compatible.
-
-The SPI transfers are still Google's; the next commits change them.
-
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  drivers/soc/google/Kconfig                    |  1 +

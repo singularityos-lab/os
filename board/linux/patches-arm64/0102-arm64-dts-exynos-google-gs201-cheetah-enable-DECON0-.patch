@@ -4,16 +4,7 @@ Date: Wed, 14 Oct 2026 21:05:22 -0400
 Subject: [PATCH] arm64: dts: exynos: google: gs201-cheetah: enable DECON0 with
  its scanout pool
 
-Give DECON0 a 92 MiB reusable CMA pool below 4 GiB for five 1440x3120
-XRGB8888 buffers, and the bootloader's framebuffer, and enable it. The
-pool's alignment takes two cells: of_reserved_mem reads it with the
-root's #address-cells, which is 2 here.
-
-gs-decon has run Hyprland on cheetah with flips at the panel rate and
-correct colours, and takes the screen over from simpledrm once it, the
-DSIM and the panel drivers have probed.
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Assisted-by: Claude:claude-opus-5-5
 ---
  .../boot/dts/exynos/google/gs201-cheetah.dts  | 26 +++++++++++++++++++
  1 file changed, 26 insertions(+)

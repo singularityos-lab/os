@@ -3,9 +3,6 @@ From: Chris Gray <chrisgray70@gmail.com>
 Date: Sat, 24 Oct 2026 10:22:31 -0500
 Subject: [PATCH] dt-bindings: input: goodix,gt9916: Add GT9895
 
-The GT9895 is a Berlin-series controller used over SPI in the Pixel 7a.
-It uses the same register map and supplies as the GT9916.
-
 Assisted-by: LLM
 Signed-off-by: Chris Gray <chrisgray70@gmail.com>
 ---

@@ -3,20 +3,6 @@ From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 Date: Tue, 27 Oct 2026 16:34:05 -0647
 Subject: [PATCH] nfc: nxp-nci: Send the ST54L its configuration after init
 
-The ST54L answers NCI on nxp-nci's transport and polls, but never
-reports a target: in 25 s of discovery with a contactless card held on
-the Pixel 9a, no RF_INTF_ACTIVATED_NTF came. ST's HAL sends a
-CORE_SET_CONFIG after CORE_INIT (proprietary parameters 0xa1, 0xa2 and
-0x80, which the 9a's own HAL configuration sets, and TOTAL_DURATION
-500 ms, libnfc-nci's default poll duration, NFA_DM_DISC_DURATION_POLL).
-Send the same from post_setup when the device is st,st54l.
-
-Tested on the Pixel 9a (7.3.0-rc6-omamobile-tegu-s2mpg15-m1, with the
-same command behind a module parameter in a debug build): the
-set-config answers status 0, and the held card activates (ISO-DEP over
-NFC-A, 15 activations in 45 s) and neard lists it as a tag.
-
-Link: https://android.googlesource.com/device/google/pantah/+/b9712d3e5c48fb58c93aad8b00fd77629ec77a28/nfc/libnfc-hal-st.conf#153
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  drivers/nfc/nxp-nci/core.c    | 27 +++++++++++++++++++++++++++

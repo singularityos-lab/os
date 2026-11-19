@@ -4,24 +4,6 @@ Date: Tue, 3 Nov 2026 20:23:02 +0000
 Subject: [PATCH] arm64: dts: exynos: google: zuma-akita: Add the boot
  framebuffer
 
-ABL hands over with its splash still scanned out: on a booted Pixel 8a,
-DPP0's RDMA_BASEADDR_P0 (0x19900040) reads 0xfac00000, as on the Pixel
-8 Pro. Describe it as a simple-framebuffer at the panel's native
-1080x2400 (a8r8g8b8), with a no-map carve-out so the kernel leaves it
-alone, as the Pixel 8 Pro's board file does and the 1080x2400 Pixel 7
-and 7a ones do.
-
-The ak3b panel is in DSI command mode (no mode in Google's panel driver
-sets MIPI_DSI_MODE_VIDEO), and ABL leaves DECON0's hardware trigger
-masked (TRIG_CON 0x19470030 reads 0x3070, as on the Pixel 8 Pro), so
-frames reach the panel only once userspace unmasks it.
-
-Tested on a Pixel 8a: simpledrm binds to the framebuffer and fbcon runs
-at 67x75. With the trigger unmasked, the panel shows what is drawn
-there, in place and in the right colours, and keeps following later
-writes.
-
-Link: https://android.googlesource.com/kernel/devices/google/akita/+/refs/tags/android-16.0.0_r0.10/display/panel-google-ak3b.c
 Assisted-by: Claude Opus 5.5
 Signed-off-by: DarekM <149845949+aninmucek@users.noreply.github.com>
 ---

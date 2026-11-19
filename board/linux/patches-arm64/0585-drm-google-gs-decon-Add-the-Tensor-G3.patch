@@ -3,14 +3,6 @@ From: Brett-Michael Green <brett@bmgvisualtech.com>
 Date: Sat, 31 Oct 2026 14:39:32 -0400
 Subject: [PATCH] drm: google: gs-decon: Add the Tensor G3
 
-The Tensor G3 (zuma) DECON0 and DPP0 are the Tensor G4's: Google's
-display driver builds zuma with cal_9865, the CAL the zumapro support
-follows, and the Pixel 8 Pro's stock DECON0 sits at the same addresses
-with the same interrupts and fourteen windows. Match google,zuma-decon
-with zumapro's register layout, padded pitch and hardware trigger, and
-the Pixel 8 Pro's HK3 panel modes: 1344x2992 at 60 and 120 Hz, with the
-porches of Google's panel-gs-hk3.c and its 70 x 155 mm size.
-
 Assisted-by: LLM
 Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
 ---

@@ -4,11 +4,6 @@ Date: Mon, 12 Oct 2026 17:59:34 -0400
 Subject: [PATCH] ASoC: dt-bindings: cirrus,cs35l41: add
  cirrus,dsp-no-hibernate
 
-The speaker protection firmware that ships with some phones (CS35L41
-firmware 0x400a4 v0.45.0 on the Pixel 7 Pro) does not acknowledge the
-CSPL pause command and cannot be woken from hibernation. Add a boolean
-that keeps such a DSP out of hibernation while the amplifier idles.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

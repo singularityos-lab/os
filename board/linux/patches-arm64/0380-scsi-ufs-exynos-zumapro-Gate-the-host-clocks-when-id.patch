@@ -3,26 +3,6 @@ From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 Date: Tue, 27 Oct 2026 14:57:47 -0647
 Subject: [PATCH] scsi: ufs: exynos: zumapro: Gate the host clocks when idle
 
-zumapro set neither UFSHCD_CAP_CLK_GATING nor
-UFSHCD_CAP_HIBERN8_WITH_CLK_GATING, so the host clocks never went off at
-idle. The core also holds its CPU latency request at 0 while the clocks
-are on (on a host without clock scaling), so no core reached its C2
-state. Gate them with the link in Hibern8 after the core's idle delay,
-as gs101 and gs201 do, and as Google's driver does on zumapro: its
-zuma-ufs.dtsi has no samsung,support-ah8, so it sets both caps.
-
-Only Tensor G4 gets this. Tensor G3 keeps its own host data, with the
-link active at idle, until Hibern8 has been tried there.
-
-Tested on the Pixel 9a with
-7.3.0-rc6-omamobile-tegu-s2mpg15-m1-g991042e2eff3-dirty, before the
-PHY's Hibern8 sequences were added: clkgate_enable 1 with the 150 ms
-default delay, pm_qos_enable left on, /dev/cpu_dma_latency idle at the
-default, and in an idle minute cpu0 spent 36 s in C2, cpu4 39 s and
-cpu7 41 s (0 s with the clocks held on). A cold read of 20000 files
-under /usr and 30 fsync'd 8 MiB writes with idle gaps between them ran
-with no UFS errors, and the root file system has been on it since boot.
-
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  drivers/ufs/host/ufs-exynos.c | 14 +++++++++++++-

@@ -3,15 +3,6 @@ From: boozedog <code@booze.dog>
 Date: Thu, 22 Oct 2026 21:35:08 -0400
 Subject: [PATCH] regulator: s2mps11: add S2MPG12 LDOs
 
-Describe the 28 LDOs of the gs201 main PMIC, from Google's GPL
-s2mpg12-regulator.c. Most enable from their own control register.
-LDO7M, LDO11M-LDO13M, LDO15M, LDO17M, LDO19M and LDO22M enable from
-LDO_CTRL1 or LDO_CTRL2. A two-bit enable field is an operating mode,
-and on is 0b11.
-
-A rail without a device tree node gets no constraints, so the core
-never switches it.
-
 Signed-off-by: boozedog <code@booze.dog>
 ---
  drivers/regulator/s2mps11.c | 75 +++++++++++++++++++++++++++++++++++++

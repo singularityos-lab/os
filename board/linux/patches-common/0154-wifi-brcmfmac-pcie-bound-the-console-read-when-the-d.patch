@@ -4,19 +4,6 @@ Date: Mon, 26 Oct 2026 13:30:53 -0647
 Subject: [PATCH] wifi: brcmfmac: pcie: bound the console read when the device
  reads all ones
 
-brcmf_pcie_bus_console_read() reads the firmware's console write index
-and walks read_idx up to it, wrapping at bufsize. When the device is
-gone the index reads 0xffffffff, which read_idx never reaches, and the
-walk never ends.
-
-Seen on a BCM4383 after s2idle on the Pixel 9a: the chip does not come
-back, the reset work entered this loop from brcmf_pcie_reset() and spun
-one CPU at 100 % with a stream of "CONSOLE:" lines of 0xff bytes. A
-later rmmod then blocked in cancel_work_sync() for good, holding the
-device lock, so the next shutdown would have hung in device_shutdown().
-
-Return when the write index is outside the console buffer.
-
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  drivers/net/wireless/broadcom/brcm80211/brcmfmac/pcie.c | 8 ++++++++

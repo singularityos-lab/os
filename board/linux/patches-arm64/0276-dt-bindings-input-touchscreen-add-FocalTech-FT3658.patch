@@ -3,11 +3,6 @@ From: Alejandro Garcia <skipper.pelygro@gmail.com>
 Date: Tue, 27 Oct 2026 21:11:56 -0700
 Subject: [PATCH] dt-bindings: input: touchscreen: add FocalTech FT3658
 
-The FT3658 is the touch controller of the Google Pixel 7, on SPI. It
-runs its own firmware from flash and needs a digital and an analog
-supply, an active-low reset and an interrupt line. The FocalTech parts
-in edt-ft5x06.yaml are I2C controllers and are not compatible.
-
 Assisted-by: Claude Opus 5.5
 Signed-off-by: Alejandro Garcia <skipper.pelygro@gmail.com>
 ---

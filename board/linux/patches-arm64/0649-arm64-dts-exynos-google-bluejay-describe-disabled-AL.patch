@@ -4,13 +4,6 @@ Date: Wed, 11 Nov 2026 12:20:03 -0600
 Subject: [PATCH] arm64: dts: exynos: google: bluejay: describe disabled ALIX
  touch
 
-Describe the SPI/USI path, regulators, reset and AP ownership wiring
-from the Bluejay and GS101 GPL trees. Keep USI, SPI and the touchscreen
-disabled until a separately reviewed overlay is hardware-qualified.
-No shared USI probe parameter is required by this source description.
-
-Link: https://android.googlesource.com/kernel/devices/google/bluejay/+/refs/tags/android-16.0.0_r0.9/dts/gs101-bluejay-touch.dtsi
-
 Assisted-by: LLM
 Signed-off-by: Chris Gray <chrisgray70@gmail.com>
 ---

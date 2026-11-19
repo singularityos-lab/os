@@ -4,17 +4,6 @@ Date: Sun, 1 Nov 2026 20:18:46 -0647
 Subject: [PATCH] dt-bindings: phy: google,zuma-pcie-phy: Add the zumapro
  two-lane PHY
 
-zumapro's first PCIe controller (HSI1 GEN3A_0, the modem's link on the
-Pixel 9a) has a two-lane Gen3 PHY. It has the same five register blocks
-as the one-lane Wi-Fi PHY, and a PMU isolation register of its own
-(0x3ec4), but Google's zuma CAL runs a different sequence for it: its own
-external PLL controls and lock bit in UDBG, a PLL and bias control in the
-PCS, two lanes of PMA registers and a different power-down. So it can't
-share the one-lane compatible or use it as a fallback.
-
-Add google,zumapro-pcie-gen3x2-phy, with an example at stock's
-addresses.
-
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  .../bindings/phy/google,zuma-pcie-phy.yaml       | 16 ++++++++++++++++

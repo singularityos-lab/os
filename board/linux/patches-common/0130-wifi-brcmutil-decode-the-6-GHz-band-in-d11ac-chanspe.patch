@@ -3,14 +3,6 @@ From: Derek Ross <derekross@gmail.com>
 Date: Mon, 12 Oct 2026 11:26:37 -0400
 Subject: [PATCH] wifi: brcmutil: decode the 6 GHz band in d11ac chanspecs
 
-Firmware for 6 GHz capable chips such as the BCM4389 reports 6 GHz
-chanspecs (band field 0x4000, e.g. 0x5001 for 6 GHz channel 1, 20 MHz)
-in its chanspec list. brcmu_d11ac_decchspec() only knew the 2.4 and 5 GHz
-bands and hit WARN_ONCE("Invalid chanspec") during wiphy setup.
-
-Add BRCMU_CHAN_BAND_6G and decode band 0x4000 (historically named 3G in
-this header) as 6 GHz.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

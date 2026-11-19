@@ -4,10 +4,6 @@ Date: Tue, 27 Oct 2026 11:48:56 -0647
 Subject: [PATCH] dt-bindings: firmware: google,gs101-acpm-ipc: Add the Tensor
  G4 TMU
 
-The Tensor G4 (zumapro) reads its SoC temperatures through the same ACPM
-TMU service as gs101, with a seventh sensor, AUR, after the six gs101
-has. Add google,zumapro-acpm-tmu.
-
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  .../devicetree/bindings/firmware/google,gs101-acpm-ipc.yaml | 6 ++++--

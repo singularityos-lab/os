@@ -4,19 +4,6 @@ Date: Sun, 1 Nov 2026 11:10:27 -0647
 Subject: [PATCH] dt-bindings: phy: google,zuma-pcie-phy: Add zumapro as a
  fallback of zuma
 
-zumapro (Tensor G4, Pixel 9a) has zuma's one-lane Gen3 PHY on its Wi-Fi
-PCIe controller, at the same addresses (PMA 0x13160000, PCS 0x13140000,
-UDBG 0x13150000, SOC 0x13130000) and with the PMU's PHY control at the
-same offset (0x3ec8). Google builds one CAL file,
-pcie-exynos-zuma-rc-cal.c, for both SoCs, and its channel 1 sequence is
-the one this binding's driver programs, register for register.
-
-Describe zumapro as "google,zumapro-pcie-phy", "google,zuma-pcie-phy".
-
-Tested on a Pixel 9a with this pair of compatibles: phy-zuma-pcie
-reported the external PLL, PLL and CDR locked and offset calibration
-done, and the link trained at Gen2 x1.
-
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  .../devicetree/bindings/phy/google,zuma-pcie-phy.yaml  | 10 ++++++++--

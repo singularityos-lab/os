@@ -3,14 +3,7 @@ From: Colin Lundholm <265166644+gitColinX@users.noreply.github.com>
 Date: Wed, 11 Nov 2026 01:40:35 -0700
 Subject: [PATCH] arm64: dts: exynos: google: zuma: Add the VGPIO2AP sysreg
 
-The system registers that latch the main PMIC's in-band interrupt (GIC
-SPI 74 on this SoC), the way zumapro.dtsi and gs201.dtsi describe
-theirs. The address is SYSREG_VGPIO2AP in Google's s2mpg14-register.h
-(kernel/google-modules/soc/gs, android-gs-shusky-6.1-android16), where
-s2mpg14-irq.c maps it with INTC0_IPEND at 0x290. A PMIC node points at
-it with google,vgpio2ap-sysreg; nothing uses it until a board does.
-
-Co-Authored-By: Claude Fable 5.2 <noreply@anthropic.com>
+Assisted-by: Claude:claude-fable-5-2
 Signed-off-by: Colin Lundholm <265166644+gitColinX@users.noreply.github.com>
 ---
  arch/arm64/boot/dts/exynos/google/zuma.dtsi | 6 ++++++

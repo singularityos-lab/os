@@ -3,12 +3,7 @@ From: Derek Ross <derekross@gmail.com>
 Date: Sun, 11 Oct 2026 18:17:21 -0400
 Subject: [PATCH] dt-bindings: phy: samsung,ufs-phy: add Google gs201 UFS PHY
 
-Add a compatible for the UFS M-PHY of the Google gs201 (Tensor G2) SoC.
-It is the gs101 PHY, but gs201 boards feed it a 38.4 MHz reference clock
-(gs101: 26 MHz), which needs different PMA programming, so gs101 cannot
-be used as a fallback compatible.
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Assisted-by: Claude:claude-opus-5-5
 ---
  Documentation/devicetree/bindings/phy/samsung,ufs-phy.yaml | 1 +
  1 file changed, 1 insertion(+)

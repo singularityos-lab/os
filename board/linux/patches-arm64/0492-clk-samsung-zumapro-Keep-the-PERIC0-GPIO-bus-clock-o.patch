@@ -3,24 +3,6 @@ From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 Date: Sat, 31 Oct 2026 21:40:53 -0647
 Subject: [PATCH] clk: samsung: zumapro: Keep the PERIC0 GPIO bus clock on
 
-The PERIC0 GPIO gate is writable and in manual mode (CLK_CON_GAT 0x20b8
-reads 0x100000: MANUAL set, automatic clock gating off). The Samsung
-pin controller enables its pclk around every register access and
-disables it afterwards, so each GPIO write on the block turns the gate
-on and off. Stock never does this: its device tree gives zumapro's pin
-controllers no clocks, so Google's pin controller never switches
-the GPIO bus clocks off.
-
-On the Pixel 9a the modem's AP2CP control lines are on this block and
-toggle on every PCIe link power cycle, about twice a second during a
-GNSS session. With the gate toggling, the SoC hung within 37 to 1083
-link cycles in every session, at varying points, with no kernel error
-and a watchdog reset. With the clock held on (a bring-up module taking
-a reference) two 600 s sessions ran 1325 and 1326 link cycles each with
-no hang, and the same result followed with this change in the kernel.
-
-Mark the gate critical so the clock framework keeps it enabled.
-
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  drivers/clk/samsung/clk-zumapro.c | 8 +++++++-

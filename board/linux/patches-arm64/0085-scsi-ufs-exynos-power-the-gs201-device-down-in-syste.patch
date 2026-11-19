@@ -4,29 +4,7 @@ Date: Mon, 12 Oct 2026 18:43:37 -0400
 Subject: [PATCH] scsi: ufs: exynos: power the gs201 device down in system
  suspend
 
-gs101_ufs_suspend(), which gs201 shares, drives HCI_GPIO_OUT low and so
-asserts the device reset, and nothing releases it on resume. At the core's
-default system PM level (3: device in SLEEP, link in Hibern8) the first
-Hibern8 exit after resume therefore fails, and the error handler has to
-reset the host and the device:
-
-  ufshcd_uic_hibern8_exit: hibern8 exit failed. ret = 5
-  __ufshcd_wl_resume: ...
-  ... Power mode changed to : FAST series_B G_4 L_2
-
-That recovered without I/O errors on a Pixel 7 Pro (gs201) in a
-suspend-to-idle dry run with pm_test=platform, but it turns every resume
-into error recovery. With spm_lvl set to 5 at runtime (device powered
-down, link off) the next real suspend-to-idle cycle resumed with no UFS
-error, since resume from that level re-initialises the link and the
-device anyway, which matches the reset.
-
-Make level 5 the gs201 default, as Google's downstream driver does for
-system suspend (exynos_ufs_override_hba_params()). Runtime PM keeps the
-core default. gs101 probably wants the same, but is left alone here
-because it hasn't been tested.
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Assisted-by: Claude:claude-opus-5-5
 ---
  drivers/ufs/host/ufs-exynos.c | 17 ++++++++++++++++-
  1 file changed, 16 insertions(+), 1 deletion(-)

@@ -3,11 +3,7 @@ From: Derek Ross <derekross@gmail.com>
 Date: Sun, 11 Oct 2026 19:04:23 -0400
 Subject: [PATCH] dt-bindings: soc: samsung: exynos-usi: add Google gs201 USI
 
-The USI blocks of the Google gs201 (Tensor G2) SoC are the same as on
-gs101: the mode is selected through a PERIC sysreg register and the
-block works with the exynos850-usi programming model.
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Assisted-by: Claude:claude-opus-5-5
 ---
  Documentation/devicetree/bindings/soc/samsung/exynos-usi.yaml | 1 +
  1 file changed, 1 insertion(+)

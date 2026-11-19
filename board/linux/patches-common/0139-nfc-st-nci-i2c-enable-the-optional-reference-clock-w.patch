@@ -4,14 +4,6 @@ Date: Mon, 12 Oct 2026 17:19:54 -0400
 Subject: [PATCH] nfc: st-nci: i2c: enable the optional reference clock while
  powered
 
-Run the optional reference clock from before the controller is taken out
-of reset until it is powered down, as Google's st21nfc driver does with
-the PMU clock pad on Pixel phones. ndlc_close() toggles the reset again
-before powering down, so track whether the clock is on. The interrupt
-thread disables the interrupt when the controller is not powered; leave
-the clock alone there, since ndlc_open() may be powering it up. Propagate
-the phy's enable error from ndlc_open().
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

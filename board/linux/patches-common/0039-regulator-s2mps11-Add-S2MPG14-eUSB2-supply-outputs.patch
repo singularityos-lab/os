@@ -3,23 +3,6 @@ From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 Date: Thu, 22 Oct 2026 22:00:02 -0700
 Subject: [PATCH] regulator: s2mps11: Add S2MPG14 eUSB2 supply outputs
 
-Describe LDO8M, LDO9M and LDO19M for USB supplies. LDO8M uses a separate
-two-bit enable field, while LDO9M and LDO19M use two upper bits in their
-selector registers. The touchscreen outputs use a single enable bit,
-so their masks cannot be reused for these supplies.
-
-Keep voltage selectors firmware-owned and use masked enable/disable
-operations. Register S2MPG14 outputs only when an available DT node
-describes them, retaining the explicit board-description policy.
-
-An undescribed output has no constraints permitting a status change and
-is skipped by unused-regulator cleanup. A described output without a
-consumer can instead be disabled unless regulator-always-on protects it.
-The first-light board must keep inherited USB rails always-on at their
-decoded voltages until a consumer owns them. Other PMIC variants retain
-their registration policy.
-
-Link: https://android.googlesource.com/kernel/google-modules/soc/gs/+/204078758737776959ecc85c527a00fd2cabb62f/drivers/regulator/s2mpg14-regulator.c
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  drivers/regulator/s2mps11.c | 69 +++++++++++++++++++++++++++++++++++--

@@ -3,10 +3,6 @@ From: Brett-Michael Green <brett@bmgvisualtech.com>
 Date: Sat, 24 Oct 2026 12:22:33 -0400
 Subject: [PATCH] dt-bindings: ufs: exynos: Add Tensor G3
 
-zuma's (Tensor G3) UFS host runs the same CAL as zumapro's (Tensor G4),
-Google's drivers/ufs/zuma/, with the same PCS and UniPro sequences, so
-describe it with zumapro's compatible as the fallback.
-
 Assisted-by: LLM
 Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
 ---

@@ -3,14 +3,7 @@ From: Derek Ross <derekross@gmail.com>
 Date: Mon, 12 Oct 2026 12:04:01 -0400
 Subject: [PATCH] dt-bindings: mfd: add Samsung S2MPG12 PMIC
 
-S2MPG12 is the main PMIC of Google's gs201 phones, reached through the
-ACPM firmware like S2MPG10 on gs101. It has no interrupt line of its
-own: its events arrive in-band and the SoC's VGPIO2AP registers raise
-them as one level interrupt, so the node refers to those registers.
-
-Allow it as the main PMIC under the gs201 ACPM node.
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Assisted-by: Claude:claude-opus-5-5
 ---
  .../firmware/google,gs101-acpm-ipc.yaml       | 15 +++++-
  .../bindings/mfd/samsung,s2mpg12-pmic.yaml    | 53 +++++++++++++++++++

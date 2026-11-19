@@ -4,28 +4,6 @@ Date: Sun, 1 Nov 2026 18:31:35 -0647
 Subject: [PATCH] soc: google: gnssif_spi: import Google's GNSS SPI interface
  driver
 
-Import Google's driver for the Kepler GNSS core of the Pixel 9a's S5300
-modem (drivers/soc/google/gnssif_spi of google-modules/soc/gs in
-Google's GPL kernel for tegu, branch android-gs-tegu-6.1-android16, at
-204078758737, "Update kernel to ab/13436148"). It is Samsung's
-code, GPL-2.0, and makes two modules:
-
-- gnss_spi.ko, the SPI device driver for "samsung,gnss-spi": one
-  function to write a buffer and one to read one;
-- gnssif.ko, the platform driver for "samsung,exynos-gnss": the two
-  request lines and their handshake (gnss_keplerctl_device.c), the read
-  work and the write path over gnss_spi (gnss_link_device.c), and the
-  character device the GNSS daemon talks to, /dev/gnss_ipc
-  (gnss_io_device.c, gnss_main.c, gnss_utils.c).
-
-The kernel side of the core's firmware loading is not here: the daemon
-loads the firmware through the modem driver (CPIF's gnss_boot device).
-
-The ten .c and .h files are byte for byte Google's, with Google's style;
-Google's Kconfig and Makefile are not imported. Nothing builds them yet:
-the next commits port the driver to this kernel and wire it up.
-
-Link: https://android.googlesource.com/kernel/google-modules/soc/gs/+/204078758737776959ecc85c527a00fd2cabb62f/drivers/soc/google/gnssif_spi
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  .../soc/google/gnssif_spi/gnss_io_device.c    | 263 ++++++++++++++++++

@@ -4,19 +4,6 @@ Date: Mon, 12 Oct 2026 17:18:53 -0400
 Subject: [PATCH] soc: google: aoc: alsa: put the card's DAI links in the stock
  order
 
-ASoC numbers a card's PCMs in DAI link order, and the AoC PCM drivers
-take the AoC entry point (and the capture use case) from the PCM
-number, so the links have to be in the order of Google's cheetah device
-tree: EPn playback PCM n - 1, EPn capture PCM 8 + n - 1, and so on.
-The card took the order of its device tree nodes, which a card added by
-an overlay does not keep reliably; there EP6 playback became PCM 47 and
-the AoC rejected the stream ("Mode Playback is not supported by
-Entrypoint 47").
-
-Sort the parsed links by their id into the stock order: the known front
-ends first, in Google's order, then any other front end, then the back
-ends, each in device tree order.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

@@ -4,11 +4,7 @@ Date: Thu, 15 Oct 2026 14:30:17 +0100
 Subject: [PATCH] dt-bindings: firmware: google,gs101-acpm-ipc: add the thermal
  sensors
 
-On gs101 the TMU belongs to the APM, and the kernel reads temperatures
-by asking the ACPM firmware over its TMU channel. Describe that as a
-thermal-sensor child of the ACPM node, as the PMICs are.
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Assisted-by: Claude:claude-opus-5-5
 Signed-off-by: saiththerobo <the.tom.sharp@gmail.com>
 ---
  .../firmware/google,gs101-acpm-ipc.yaml       | 19 +++++++++++++++++++

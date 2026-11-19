@@ -1,31 +1,8 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?=C3=81ngel=20Ren=C3=A9?=
- <17342133+angelrenefm@users.noreply.github.com>
 Date: Fri, 6 Nov 2026 19:13:14 +0100
 Subject: [PATCH] arm64: dts: exynos: google: gs201-panther: describe the
  fingerprint sensor
-MIME-Version: 1.0
-Content-Type: text/plain; charset=UTF-8
-Content-Transfer-Encoding: 8bit
-
-The Pixel 7 has the Pixel 7 Pro's Goodix optical under-display sensor.
-The stock dtbo for board 0x30406 (the one ABL picks on this phone) has
-the same goodixfp node as cheetah's 0x30306: compatible
-"goodix,fingerprint", interrupt gpa9-2, reset gpp1-1 (output, no pull,
-active low), and the same S2MPG13 LDO15S "L15S_UDFPS_AVDD" with a
-2.5-3.3 V range. The vendor image ships the same trusted app (g7.app)
-and HAL.
-
-Add the node as gs201-cheetah has it, the sub-PMIC with LDO15S only,
-and the two pins. Everything is disabled; a bring-up overlay enables
-Trusty, the sub-PMIC, LDO15S and the sensor.
-
-Tested on a Pixel 7 with kernel 7.3.0-rc6-omamobile-push1-g44048a9aa795,
-these nodes (the same text) and the overlay: goodix_fp switches LDO15S
-on while the sensor is open and off after, with no other rail changing,
-and with omarchy-mobile's fingerprint stack a finger enrolled and
-unlocked the lock screen, also after a reboot
-(device/panther/FINGERPRINT-PLAN.md in omarchy-mobile, gates P1-P5).
 
 Assisted-by: LLM
 Signed-off-by: Ángel René <17342133+angelrenefm@users.noreply.github.com>

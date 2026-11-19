@@ -4,20 +4,6 @@ Date: Mon, 12 Oct 2026 14:30:34 -0400
 Subject: [PATCH] misc: bcm4775x: log bring-up events, power on when nstandby
  rises
 
-With lhd's own log at error level, nothing showed whether lhd ever opened
-/dev/ttyBCM. Log, as a module parameter that is on by default for
-bring-up (events=1): opening and closing /dev/ttyBCM and by whom, supply
-power on/off, every nstandby write with the state it found, wake
-handshake failures, host requests with an empty frame, and the first SSI
-frames of each session (event_frames). ssi_dump=1 turns on the existing
-per-transfer hex dump from the next open. Transfer and handshake errors
-are rate limited.
-
-Raising nstandby while /dev/ttyBCM is closed used to fail with EPERM,
-because the supplies follow the open. If lhd raises standby first, that
-failure would look like a dead chip to it. Power the chip on instead, and
-off again when nstandby drops with nobody holding the device.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

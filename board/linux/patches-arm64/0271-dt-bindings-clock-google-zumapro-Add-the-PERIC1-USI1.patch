@@ -4,10 +4,6 @@ Date: Tue, 27 Oct 2026 14:58:20 -0647
 Subject: [PATCH] dt-bindings: clock: google,zumapro: Add the PERIC1 USI10
  clocks
 
-Add ids for CMU_PERIC1's USI10 user mux, divider and gates. USI10 is the
-I2C bus of the Pixel 9a's RT9471, whose boost supplies VBUS to a device
-on the USB-C port.
-
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  include/dt-bindings/clock/google,zumapro.h | 5 +++++

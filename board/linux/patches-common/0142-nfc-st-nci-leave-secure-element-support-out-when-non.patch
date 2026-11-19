@@ -4,13 +4,6 @@ Date: Mon, 12 Oct 2026 19:29:45 -0400
 Subject: [PATCH] nfc: st-nci: leave secure element support out when none is
  described
 
-Commit "nfc: st-nci: leave the HCI network alone without a secure
-element" returned early from st_nci_discover_se(), but the NCI core still
-sends NFCEE_DISCOVER before calling it. Instead, when the device tree
-describes neither an eSE nor a UICC, register the NCI device with ops that
-have no SE callbacks at all, so power-up touches neither the NFCEEs nor
-the HCI network. This replaces the early return.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

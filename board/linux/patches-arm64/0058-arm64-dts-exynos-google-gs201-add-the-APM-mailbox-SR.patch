@@ -4,15 +4,7 @@ Date: Mon, 12 Oct 2026 00:01:18 -0400
 Subject: [PATCH] arm64: dts: exynos: google: gs201: add the APM mailbox, SRAM
  and ACPM
 
-Describe the AP-to-APM mailbox (0x18210000, GIC SPI 78), the APM SRAM
-(0x18500000, 0x48000 bytes) and the ACPM IPC node, as in Google's
-gs201.dtsi (acpm_ipc) and the stock device tree.
-
-There is no CMU_APM driver yet, so the mailbox gets a fixed-clock
-placeholder for its APB clock. Google's driver never enables that gate
-either; it runs under automatic clock gating.
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Assisted-by: Claude:claude-opus-5-5
 ---
  arch/arm64/boot/dts/exynos/google/gs201.dtsi | 41 ++++++++++++++++++++
  1 file changed, 41 insertions(+)

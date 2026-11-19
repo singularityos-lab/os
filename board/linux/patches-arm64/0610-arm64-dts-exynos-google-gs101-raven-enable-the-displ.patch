@@ -3,20 +3,6 @@ From: saiththerobo <the.tom.sharp@gmail.com>
 Date: Thu, 15 Oct 2026 14:35:44 +0100
 Subject: [PATCH] arm64: dts: exynos: google: gs101-raven: enable the display
 
-gs-decon takes the bootloader's pipeline over from simpledrm: DECON0
-into DSIM0, with the S6E3HC3 panel for brightness, display on/off and
-60/120 Hz. gs-decon also stops the frames with the screen off
-(screen_off), so the DSIM gets no google,decon phandle.
-
-Scanout buffers come from a reusable 92 MiB pool between 2.5 and
-3.5 GiB: DPP0 takes 32-bit addresses with the DPU SysMMU bypassed, and
-its reads from 0xf2c00000 and up hung silently.
-
-The framebuffer node holds the panel's vci (LDO22M) and vddi (BUCKA)
-rails. When gs-decon takes over, simpledrm goes away and releases them;
-the panel lost power and DECON's first shadow update never completed.
-Keep both rails on: the S6E3HC3 driver doesn't switch them.
-
 Assisted-by: Claude Opus 5.5
 Signed-off-by: saiththerobo <the.tom.sharp@gmail.com>
 ---

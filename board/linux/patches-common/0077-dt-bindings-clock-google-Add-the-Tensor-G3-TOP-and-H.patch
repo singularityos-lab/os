@@ -4,11 +4,6 @@ Date: Fri, 30 Oct 2026 16:19:47 -0400
 Subject: [PATCH] dt-bindings: clock: google: Add the Tensor G3 TOP and HSI0
  CMUs
 
-Document zuma's (Tensor G3) CMU_TOP and CMU_HSI0 as far as the
-touchscreen's SPI needs them: CMU_TOP's HSI0 NoC and peripheral clocks,
-and CMU_HSI0's USI2 clocks with the NoC path its bus clock comes from.
-HSI0 takes the board-level ALT clock as an input.
-
 Assisted-by: LLM
 Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
 ---

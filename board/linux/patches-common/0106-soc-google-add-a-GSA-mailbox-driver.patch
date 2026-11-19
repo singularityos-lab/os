@@ -3,24 +3,6 @@ From: Derek Ross <derekross@gmail.com>
 Date: Mon, 12 Oct 2026 12:04:04 -0400
 Subject: [PATCH] soc: google: add a GSA mailbox driver
 
-Add a driver for the gs201 GSA mailbox, following the register protocol
-of Google's GPL driver: the command, the argument count and the
-arguments go into the shared registers, the AP raises the GSA's
-interrupt 0, and the GSA answers in the same registers and raises the
-AP's interrupt 0.
-
-For now it only exposes status queries in debugfs, for bring-up:
-
-  sjtag_status  GSA_MB_CMD_SJTAG_GET_STATUS, which stock Android sends
-                at every boot; it proves the mailbox works.
-  aoc_state     GSA_MB_CMD_AOC_CMD with GSA_AOC_GET_STATE, only with
-                aoc_query=1. Google's kernels send AoC state commands
-                through Trusty; this finds out whether the GSA firmware
-                still serves the mailbox command.
-
-Unlike Google's driver, a command that is not answered within a second
-times out, and the mailbox is refused until the module is reloaded.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

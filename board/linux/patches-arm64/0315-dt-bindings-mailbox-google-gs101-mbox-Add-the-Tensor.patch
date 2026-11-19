@@ -4,10 +4,6 @@ Date: Fri, 30 Oct 2026 16:23:41 -0400
 Subject: [PATCH] dt-bindings: mailbox: google,gs101-mbox: Add the Tensor G3
  mailbox
 
-zuma's (Tensor G3) AP-to-APM mailbox is gs101's, as on gs201 and
-Tensor G4: same registers, one interrupt and one bus clock. Document
-it with gs101's compatible as the fallback.
-
 Assisted-by: LLM
 Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
 ---

@@ -4,16 +4,6 @@ Date: Sat, 31 Oct 2026 11:45:09 -0400
 Subject: [PATCH] wifi: brcmfmac: msgbuf: wait for D2H items the firmware has
  finished
 
-With DMA'd ring indices the firmware can publish a completion's index
-before the item itself has reached host memory. Firmware that asks for
-D2H sync (PCIE_SHARED_D2H_SYNC_SEQNUM or _XORCSUM; the BCM4398's asks
-for XORCSUM) stamps each item with a sequence number in its epoch byte
-and, in XORCSUM mode, makes the XOR of the item's words zero.
-
-Wait for both before handling an item, as Broadcom's driver does
-(dhd_prot_d2h_sync_seqnum() and dhd_prot_d2h_sync_xorcsum()), with the
-same stepped retries, and skip an item that never completes, as there.
-
 Assisted-by: LLM
 Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
 ---

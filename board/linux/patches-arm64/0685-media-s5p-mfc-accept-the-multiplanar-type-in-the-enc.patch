@@ -1,20 +1,8 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?=C3=81ngel=20Ren=C3=A9?=
- <17342133+angelrenefm@users.noreply.github.com>
 Date: Sat, 14 Nov 2026 19:26:55 +0100
 Subject: [PATCH] media: s5p-mfc: accept the multiplanar type in the encoder
  G_PARM
-MIME-Version: 1.0
-Content-Type: text/plain; charset=UTF-8
-Content-Transfer-Encoding: 8bit
-
-The encoder's VIDIOC_S_PARM takes V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE but
-its VIDIOC_G_PARM only takes V4L2_BUF_TYPE_VIDEO_OUTPUT, and neither
-reports V4L2_CAP_TIMEPERFRAME. GStreamer reads the parameters first and
-does not set the frame rate when that fails, so the encoder never gets
-it.
-
-Accept both types in G_PARM and report V4L2_CAP_TIMEPERFRAME.
 
 Assisted-by: LLM
 Signed-off-by: Ángel René <17342133+angelrenefm@users.noreply.github.com>

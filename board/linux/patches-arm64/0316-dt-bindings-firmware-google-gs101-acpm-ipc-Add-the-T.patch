@@ -4,10 +4,6 @@ Date: Fri, 30 Oct 2026 16:23:41 -0400
 Subject: [PATCH] dt-bindings: firmware: google,gs101-acpm-ipc: Add the Tensor
  G3
 
-zuma's (Tensor G3) ACPM firmware speaks the same protocol, from the same
-shared memory layout, as Tensor G4's, and its main PMIC is the same
-S2MPG14. Document its compatible, with the S2MPG14 as its main PMIC.
-
 Assisted-by: LLM
 Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
 ---

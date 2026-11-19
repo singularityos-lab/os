@@ -4,17 +4,7 @@ Date: Mon, 26 Oct 2026 16:20:37 -0400
 Subject: [PATCH] arm64: dts: exynos: google: gs201: leave debug_kinfo's page
  to ABL
 
-The Pixel bootloader adds debug_kinfo_reserved at 0xfd3fe000 (one page)
-to the tree it boots, and ramoops starts at 0xfd3ff000. Our debug region
-ran to 0xfd400000, so it covered both, and the kernel reported
-"OF: reserved mem: OVERLAP DETECTED!" on every boot. Stock's
-dss_log_reserved at 0xfd3f0000 is 0xe000 long; use the same size.
-
-Both regions are no-map, so nothing that was reserved becomes usable
-memory.
-
-Fixes: e0727e061bcf ("arm64: dts: exynos: google: add gs201 and Pixel 7 Pro (cheetah)")
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Assisted-by: Claude:claude-opus-5-5
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---
  arch/arm64/boot/dts/exynos/google/gs201.dtsi | 3 ++-

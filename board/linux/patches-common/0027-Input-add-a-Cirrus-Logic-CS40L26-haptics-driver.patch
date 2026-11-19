@@ -3,27 +3,7 @@ From: Derek Ross <derekross@gmail.com>
 Date: Mon, 12 Oct 2026 01:55:03 -0400
 Subject: [PATCH] Input: add a Cirrus Logic CS40L26 haptics driver
 
-Add a minimal driver for the CS40L26, as used for vibration in Pixel 7
-phones. It follows the sequence of Cirrus Logic's GPL driver for this
-part: quiesce and kill the ROM firmware, load cs40l26.wmfw and the
-cs40l26.bin wavetable through cs_dsp, apply the revision A1 errata and
-the boost-short test through the firmware's power-on sequence, start
-the RAM firmware and set the board's boost limits and actuator values.
-
-Vibration goes through the memoryless force-feedback layer (FF_RUMBLE,
-and FF_PERIODIC emulated on top of it), so feedbackd and other evdev
-users work unchanged. The magnitude drives the firmware's buzz
-generator at the actuator's resonant frequency; every buzz is capped
-in the firmware by the max_buzz_ms parameter.
-
-Firmware controls are looked up by name and by the low 16 bits of the
-algorithm ID, since RAM firmware builds relocate the upper bits.
-
-Not supported yet: hibernation (the DSP is kept out of it while bound),
-the interrupt, RAM waveform effects, gain, brownout prevention and
-calibration.
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Assisted-by: Claude:claude-opus-5-5
 ---
  drivers/input/misc/Kconfig         |  15 +
  drivers/input/misc/Makefile        |   1 +

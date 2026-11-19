@@ -3,13 +3,7 @@ From: Derek Ross <derekross@gmail.com>
 Date: Mon, 12 Oct 2026 01:48:24 -0400
 Subject: [PATCH] Bluetooth: btbcm: add a patchram_nowait bring-up option
 
-Add a module parameter, off by default, that sends the Write RAM records
-of a patch file without waiting for a Command Complete for each, and
-waits only for the final Launch RAM. It is meant for bringing up
-controllers whose firmware loaders do not acknowledge every record; UART
-flow control and a 1-2 ms gap per record pace the stream.
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Assisted-by: Claude:claude-opus-5-5
 ---
  drivers/bluetooth/btbcm.c | 21 +++++++++++++++++++++
  1 file changed, 21 insertions(+)

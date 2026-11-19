@@ -3,37 +3,7 @@ From: Derek Ross <derekross@gmail.com>
 Date: Wed, 14 Oct 2026 21:05:08 -0400
 Subject: [PATCH] media: i2c: add a Sony IMX386 driver
 
-The IMX386 is a 12 MP Sony Bayer sensor (the Pixel 7 Pro ultrawide)
-with an SMIA++/CCS-style register map. Its standard registers - mode
-select, frame and line length, integration time, analogue gain, the
-four per-colour digital gains, test pattern and test data - are driven
-here. Its manufacturer initialisation and readout modes are not public,
-so they come from a data file named by firmware-name, which the user
-generates from their own phone's software. The driver refuses a data
-file that would start streaming by itself and offers only modes whose
-link frequency the board allows.
-
-Power-up follows the board's order (optional board supplies of the
-module's regulators first, then I/O, digital and analog), then the
-master clock and the reset release, with the delays the stock device
-tree uses by default.
-
-Measured on the phone: the analogue gain is 512 / (512 - code), 1x-16x
-over codes 0-480 (the register holds 9 bits), so the range is capped at
-480. The test data registers take the sensor's internal 12-bit scale.
-Each mode starts at the longest exposure its default frame allows, and
-VBLANK defaults to a 30 fps frame where a binned mode would run faster,
-so libcamera's simple IPA, which steps exposure a few percent a frame
-from the starting values, reaches a usable exposure indoors.
-
-Each mode's analogue crop is taken from the CCS address registers its
-list writes, and the pixel array is their union, for the selection API.
-With sony,max-line-throughput set, a mode whose lines arrive faster
-than that gets a longer line length at the same pixel clock: on the
-Pixel 7 Pro the 4032x3016 and 4032x2272 modes exceed what the gs201
-CSIS write DMA takes, the binned modes don't.
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Assisted-by: Claude:claude-opus-5-5
 ---
  drivers/media/i2c/Kconfig  |   11 +
  drivers/media/i2c/Makefile |    1 +

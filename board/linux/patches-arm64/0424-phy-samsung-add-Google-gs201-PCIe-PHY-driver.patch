@@ -3,35 +3,6 @@ From: Derek Ross <derekross@gmail.com>
 Date: Sun, 11 Oct 2026 22:39:16 -0400
 Subject: [PATCH] phy: samsung: add Google gs201 PCIe PHY driver
 
-Add a driver for the PCIe Gen4 PHY of the Google gs201 (Tensor G2) SoC,
-which connects the Wi-Fi chip on Pixel 7 phones.
-
-The bootloader leaves the PHY isolated in the PMU and does not train the
-link, so the whole Samsung init sequence is needed. phy_init() is
-Google's probe-time step: release the PMU isolation (a secure register,
-written through the PMU regmap's SMC path) and power the PHY down.
-phy_power_on() clears the power-down and runs "CAL ver 210802": PHY
-resets, the common PMA block for a 100 MHz LCPLL with a 38.4 MHz input
-clock, the per-lane tables, PCS settings for root complex mode, the
-external XO selection and an AFC calibration restart, then polls the PLL,
-CDR and offset calibration status. phy_calibrate() reports the offset
-calibration after the controller's soft power reset.
-
-The sequence follows the driver Google builds for gs201
-(google-modules/soc/gs/drivers/pci/controller/dwc-whi:
-pcie-exynos-gs201-rc-cal.c and pcie-exynos-rc.c, Copyright Samsung
-Electronics). Most PMA registers have no public names, so the tables keep
-the raw offsets. As on stock, the PHY is not isolated again after init:
-controller register accesses hang the SoC while it is isolated.
-
-For bring-up, trace=1 logs every hardware step before it happens (with a
-short sleep so a remote log reader receives the line before a possible
-bus hang), and check_tcxo=1 reads and fixes the PMU TCXO buffer bits that
-Google's driver checks.
-
-The controller sets the lane count with phy_set_bus_width(); the
-default is one lane, as on Pixel 7.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

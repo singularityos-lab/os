@@ -4,14 +4,6 @@ Date: Mon, 12 Oct 2026 19:29:46 -0400
 Subject: [PATCH] clk: samsung: exynos-clkout: let bring-up pick the GS101 pad
  polarity
 
-Google's sources disagree on PAD_CTRL_CLKOUTn bit 0: st21nfc.c sets it
-while the NFC device is open, the cal-if clkout code clears it to enable
-the clock. Add a writable parameter, gs101_pad_en_active_low, read at
-every enable, disable and is_enabled, so both can be tried in one boot,
-and pr_debug() the register after each change (a regmap read).
-
-Bring-up only: drop the parameter once a board settles the polarity.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

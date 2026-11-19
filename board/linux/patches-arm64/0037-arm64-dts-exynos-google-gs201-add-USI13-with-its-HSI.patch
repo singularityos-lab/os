@@ -3,15 +3,7 @@ From: Derek Ross <derekross@gmail.com>
 Date: Sun, 11 Oct 2026 20:18:40 -0400
 Subject: [PATCH] arm64: dts: exynos: google: gs201: add USI13 with its HSI2C
 
-Add PERIC1 USI13 and its HSI2C controller at 0x10d60000 (GIC SPI 695),
-with the gpp25-0/gpp25-1 bus pins. On the Pixel 7 and 7 Pro this bus
-carries the MAX77759 charger, Type-C port controller and fuel gauge.
-
-The register layout, sysreg offset and pin function match gs101's USI13;
-the interrupt number and clocks are gs201's, from Google's GPL device
-tree.
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Assisted-by: Claude:claude-opus-5-5
 ---
  .../boot/dts/exynos/google/gs201-pinctrl.dtsi |  7 +++++
  arch/arm64/boot/dts/exynos/google/gs201.dtsi  | 28 +++++++++++++++++++

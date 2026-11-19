@@ -4,10 +4,6 @@ Date: Mon, 12 Oct 2026 13:22:55 -0400
 Subject: [PATCH] dt-bindings: soc: google: gs201-aoc: add the PCU and the
  watchdog interrupt
 
-The AoC power control unit holds the A32 reset control and the AoC
-revision, and the AoC watchdog interrupt fires when the firmware stops.
-Both tell a running AoC from a stuck one during bring-up.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

@@ -3,22 +3,6 @@ From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 Date: Mon, 26 Oct 2026 09:22:04 -0647
 Subject: [PATCH] rtc: s5m: Add S2MPG14
 
-The S2MPG14 (Pixel 9a main PMIC) keeps its RTC in the S2MPG10 layout,
-reached through the "rtc" regmap the sec-acpm driver now provides, so it
-takes the S2MPG10 register table. Its alarm flag is STATUS2 bit 2 in the
-PMIC regmap, as on the S2MPG12. Without a PMIC interrupt line the device
-comes up with the alarm feature cleared, as a time-only clock.
-
-On the Pixel 9a the RTC registers as rtc0 and the system clock is set
-from it at boot:
-
-  s5m-rtc s2mpg14-rtc: registered as rtc0
-  s5m-rtc s2mpg14-rtc: setting system clock to 2026-10-26T13:28:26 UTC
-
-Tested on the Pixel 9a: rtc0 registers at boot, hwclock reads and sets
-the time, systemd-timesyncd writes the synchronized time back, and the
-time survives reboots and a power-key reset.
-
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  drivers/rtc/rtc-s5m.c | 20 ++++++++++++++++++--

@@ -3,38 +3,6 @@ From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 Date: Fri, 13 Nov 2026 07:11:10 -0644
 Subject: [PATCH] clk: samsung: zumapro: Keep the HSI0 USI2 and USI3 clocks on
 
-The gates of USI2 and USI3 in the HSI0 block (the bus, function and
-source clock of each) are writable and in manual mode, and nothing holds
-them while the SPI controllers behind them are idle. A register access
-to the USI in the first microseconds after its gates are opened never
-returns: the CPU sits in the access, takes no tick and answers no IPI.
-
-The USI driver does that in its noirq resume (clk_bulk_prepare_enable(),
-then USI_CON read and written), and so on the Pixel 9a a sleep now and
-then never woke. Two such hangs were caught with the device callback
-trace events on. In the first, at the 41st sleep of a boot, the suspend
-task's last event is device_pm_callback_start for the USI at 111d00c0
-(USI2, the touchscreen's SPI), with no end. In the second, on a kernel
-that kept only the two bus clocks on, USI2's callback returns and the
-last event is the start of USI3's, at 111e00c0, at the 227th sleep. The
-USIs resumed before them, in PERIC0 and PERIC1, have read-only gates,
-and so has USI4 in HSI0.
-
-It reproduces awake in under a second. A test module that repeats the
-driver's sequence on USI3 (clocks on, USI_CON read and written, 1 us,
-clocks off), with the bus clock already on and only the function clock
-switched, hung the SoC within its first thousand rounds, twice of twice,
-until the watchdog reset it. With 10 us between the clocks and the
-access, two million rounds passed, and so did two million rounds that
-switched the clocks and touched no register.
-
-Mark the six gates critical, as the PERIC0 and HSI2 GPIO gates are, so
-the clock framework never closes them. With that, on the published tree
-with nothing else added, two million rounds of the same module passed on
-each USI with the gates never closed. Before it, with a module holding
-the two USIs' clocks on, 300 of 300 sleeps of 60 s woke on the build
-that had hung at the 70th and the 41st.
-
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  drivers/clk/samsung/clk-zumapro.c | 19 +++++++++++++------

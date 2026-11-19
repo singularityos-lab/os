@@ -3,11 +3,6 @@ From: Mirko Brombin <9479903+mirkobrombin@users.noreply.github.com>
 Date: Sat, 18 Jul 2026 20:02:07 +0100
 Subject: [PATCH 06/11] mm: select reclaim tiers with the PD1 reference cost
 
-Expose the calibrated per-folio ISO16 probability to the placement path and rank every admitted active tier with recovery, transfer, write, capacity, bandwidth, and queue-price terms.
-
-Update all four non-negative prices when reservation demand changes using the v0.2 target and projected-dual step. Count direct-reclaim placement as the specified emergency hysteresis bypass rather than silently claiming the three-epoch path.
-
-Evidence: Linux 7.1.3 CONFIG_MTS_TIER=y make -j4 mm/; checkpatch.pl --strict (clean).
 Signed-off-by: Mirko Brombin <9479903+mirkobrombin@users.noreply.github.com>
 ---
  include/linux/mts.h |   2 +

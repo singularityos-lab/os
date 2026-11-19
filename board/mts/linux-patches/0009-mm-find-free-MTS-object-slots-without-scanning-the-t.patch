@@ -4,7 +4,7 @@ Date: Thu, 29 Oct 2026 10:00:00 +0100
 Subject: [PATCH 09/11] mm: find free MTS object slots without scanning the
  tier
 
-Mark a slot free in the object XArray when its last reference goes away, and allocate from the lowest marked slot. Allocation used to walk every slot from zero, which made demoting n pages cost O(n^2): 256 MiB took 16 times as long as 64 MiB.
+
 ---
  mm/mts_tier.c | 21 ++++++++++++++++-----
  1 file changed, 16 insertions(+), 5 deletions(-)

@@ -3,11 +3,6 @@ From: Mirko Brombin <9479903+mirkobrombin@users.noreply.github.com>
 Date: Sat, 18 Jul 2026 20:13:53 +0100
 Subject: [PATCH 07/11] mm: harden MTS object identity at lifetime limits
 
-Reject duplicate provider UUIDs in the kernel registry and retire exhausted generation slots while continuing allocation from remaining capacity.
-
-Honor the sticky 24-bit reference freeze during fork by cloning the immutable provider object for the child. Keep source and destination generations independent and preserve soft-dirty, uffd-wp, and exclusive PTE state.
-
-Evidence: Linux 7.1.3 CONFIG_MTS_TIER=y make -j4 mm/; checkpatch.pl --strict (clean).
 Signed-off-by: Mirko Brombin <9479903+mirkobrombin@users.noreply.github.com>
 ---
  include/linux/mts.h |   5 +++

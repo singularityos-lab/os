@@ -3,16 +3,6 @@ From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 Date: Sat, 31 Oct 2026 11:21:32 -0643
 Subject: [PATCH] arm64: dts: exynos: google: zumapro: Add the GSA
 
-Describe the GSA's mailbox at 0x16490000 with GIC SPI 375. It stays
-disabled.
-
-Booted on the Pixel 9a:
-7.3.0-rc6-omamobile-tegu-s2mpg15-m1-g991042e2eff3-dirty has this node,
-enabled by an overlay at runtime; the gsa driver binds it, reads the
-AoC's state through Trusty, and authenticates and starts the AoC.
-
-Address and interrupt from Google's GPL zumapro device tree.
-
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  arch/arm64/boot/dts/exynos/google/zumapro.dtsi | 8 ++++++++

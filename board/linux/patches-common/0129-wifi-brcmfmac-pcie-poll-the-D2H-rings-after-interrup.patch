@@ -4,20 +4,6 @@ Date: Mon, 12 Oct 2026 10:15:32 -0400
 Subject: [PATCH] wifi: brcmfmac: pcie: poll the D2H rings after interrupts on
  the BCM4389
 
-On the Pixel 7 Pro (INTx, DMA'd ring indices) control completions go
-unprocessed until some later interrupt: ioctls time out every 2 s
-("Timeout on response for query command") while others succeed, P2P
-device creation misses its interface event, and association stalls.
-Broadcom's driver does not rely on the interrupt alone with INTx and
-DMA'd indices: it runs its interrupt work again shortly after
-(dhd_pcie.c dhd_bus_handle_intx_ahead_dma_indices()).
-
-For the BCM4389, after each interrupt and each doorbell, process the
-D2H rings every 10 ms for the next 500 ms, from a delayed work, with a
-mutex so the poll and the interrupt thread never process a ring at the
-same time. At the PCIe debug level, log when the poll finds a doorbell
-pending that no interrupt delivered.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

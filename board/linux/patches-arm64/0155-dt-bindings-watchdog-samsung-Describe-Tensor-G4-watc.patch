@@ -3,15 +3,6 @@ From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 Date: Thu, 22 Oct 2026 20:10:33 -0700
 Subject: [PATCH] dt-bindings: watchdog: samsung: Describe Tensor G4 watchdog
 
-Stock zumapro.dtsi uses google,zuma-cl0-wdt and google,zuma-cl1-wdt
-for its two watchdogs. The register data matches the existing zuma
-variants. Describe the G4 identity with a zuma fallback so the driver
-needs no additional match. Keep the specific compatible available for
-future G4 differences.
-
-No board node or restart-retention quirk is added here.
-
-Link: https://android.googlesource.com/kernel/devices/google/zumapro/+/8831630eee2ad095b85ed452944e6353940966a5/dts/zumapro.dtsi#512
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  .../devicetree/bindings/watchdog/samsung-wdt.yaml          | 7 +++++--

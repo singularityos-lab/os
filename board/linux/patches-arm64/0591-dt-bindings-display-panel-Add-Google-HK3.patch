@@ -3,12 +3,6 @@ From: Brett-Michael Green <brett@bmgvisualtech.com>
 Date: Sat, 31 Oct 2026 15:07:20 -0400
 Subject: [PATCH] dt-bindings: display: panel: Add Google HK3
 
-The HK3 is the Google Pixel 8 Pro's 1344x2992 command-mode AMOLED panel:
-DSC 1.2 with two 672x187 slices at 8 bits per pixel over four DSI lanes,
-a TE line, and 60 or 120 Hz, as in Google's panel-gs-hk3.c. Its supplies
-and reset line are described as on the TG4C, though the driver takes the
-panel over as the bootloader left it.
-
 Assisted-by: LLM
 Signed-off-by: Brett-Michael Green <brett@bmgvisualtech.com>
 ---

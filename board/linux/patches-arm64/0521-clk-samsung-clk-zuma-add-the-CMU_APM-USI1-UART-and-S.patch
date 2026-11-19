@@ -4,15 +4,6 @@ Date: Wed, 4 Nov 2026 21:25:53 +0200
 Subject: [PATCH] clk: samsung: clk-zuma: add the CMU_APM USI1 UART and SYSREG
  clocks
 
-Read-only, as the rest of CMU_APM. Offsets from Google's GPL zuma cal-if
-(cmucal-sfr.c), which match clk-zumapro.c's for the same blocks: USI1
-UART divider 0x1818 (7 bits, parent the APM function gate), IPCLK 0x20f4
-and RSTNSYNC 0x2148 behind it, PCLK 0x20f8 and SYSREG 0x2168 on the NOC
-divider.
-
-Tested on a Pixel 8 Pro with the Bluetooth board commit of this series
-on top: the UART comes up and the controller answers.
-
 Signed-off-by: Lef <me@lefteros.com>
 ---
  drivers/clk/samsung/clk-zuma.c | 12 +++++++++++-

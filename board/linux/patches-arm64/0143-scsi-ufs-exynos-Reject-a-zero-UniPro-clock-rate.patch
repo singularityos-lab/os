@@ -3,10 +3,6 @@ From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 Date: Thu, 22 Oct 2026 16:15:17 -0700
 Subject: [PATCH] scsi: ufs: exynos: Reject a zero UniPro clock rate
 
-Require a usable UniPro clock before calculating PCS timing. A missing
-clock rate cannot produce valid link timing and can cause division by
-zero in the Tensor G4 clock-period calculation.
-
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  drivers/ufs/host/ufs-exynos.c | 3 +++

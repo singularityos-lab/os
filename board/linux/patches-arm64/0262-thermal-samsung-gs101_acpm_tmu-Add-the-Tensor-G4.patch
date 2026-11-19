@@ -3,16 +3,6 @@ From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 Date: Tue, 27 Oct 2026 11:48:56 -0647
 Subject: [PATCH] thermal: samsung: gs101_acpm_tmu: Add the Tensor G4
 
-The Tensor G4 (zumapro) reads its SoC temperatures through the same ACPM
-TMU service on channel 9, with the same sensor order plus a seventh,
-AUR. Make the sensor count part of the match data and add
-google,zumapro-acpm-tmu with seven sensors.
-
-Tested on the Pixel 9a: the driver binds the thermal-sensor node under
-ACPM, the firmware accepts the TMU init, and the big, mid, little and
-GPU thermal zones register with their cpufreq and devfreq cooling maps
-and read 46-48 C idle.
-
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  drivers/thermal/samsung/Kconfig          |  5 +++--

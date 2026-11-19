@@ -3,23 +3,6 @@ From: Derek Ross <derekross@gmail.com>
 Date: Mon, 12 Oct 2026 01:34:20 -0400
 Subject: [PATCH] drm/panel: s6e3hc4: add local high brightness mode
 
-Local high brightness mode (LHBM) lights a bright circle over the
-under-display fingerprint sensor for the optical capture. Add Google's
-LHBM command set (area, centre at 720,2361 and a 6 mm radius, then
-WRCTRLD with the local HBM bit) behind two attributes on the backlight
-device, named as in Google's driver: local_hbm_mode and
-local_hbm_max_timeout.
-
-LHBM is refused while the panel is blanked, in display off or at
-brightness 0, switches itself off after the timeout (3 s, Google's
-maximum, and never longer), and is turned off before the panel blanks.
-Turning it on also needs the allow_lhbm module parameter, off by default.
-A driver mutex now serializes the brightness, power and LHBM sequences.
-
-Google's driver also enables LHBM only at the panel's peak refresh rate
-and sends it half a frame after a vblank; neither applies to the
-bootloader-mode pipeline this driver runs on yet.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

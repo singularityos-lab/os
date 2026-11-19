@@ -3,13 +3,6 @@ From: Alejandro Garcia <skipper.pelygro@gmail.com>
 Date: Wed, 28 Oct 2026 22:27:25 -0700
 Subject: [PATCH] Input: ft3658 - name the Google driver the protocol follows
 
-The header says the protocol follows Google's GPL FocalTech driver for
-Pixel devices. Name the repository, the directory, the branch and the
-files, so a reviewer can follow it to the source: focaltech_spi.c for
-the framing, the status check, the 64-byte alignment rule and the CS-high
-delay, and focaltech_core.c for the power sequence and the report.
-
-Suggested-by: Derek Ross <derekross@gmail.com>
 Assisted-by: Claude Opus 5.5
 Signed-off-by: Alejandro Garcia <skipper.pelygro@gmail.com>
 ---

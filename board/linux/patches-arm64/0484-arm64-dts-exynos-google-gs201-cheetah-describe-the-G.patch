@@ -4,15 +4,6 @@ Date: Mon, 12 Oct 2026 13:26:58 -0400
 Subject: [PATCH] arm64: dts: exynos: google: gs201-cheetah: describe the GNSS
  receiver
 
-The BCM4775x GNSS receiver is on USI5 SPI (Google's spi5): 26 MHz, mode 3,
-chip select on gpp10-3, standby on gph2-3, MCU request/response on gpp4-3
-and gph2-2, host request on gpa6-4 (level high), as in the stock device
-tree. Its supplies are S2MPG13 LDO9S-LDO11S (L9S_GNSS_CORE, L10S_GNSS_RF,
-L11S_GNSS_AUX), so describe the sub-PMIC under ACPM with those three
-rails only, at the stock voltage ranges, which nothing changes at probe.
-
-The sub-PMIC and USI5 stay disabled until they are proven on the phone.
-
 Assisted-by: LLM
 Signed-off-by: Derek Ross <derekross@gmail.com>
 ---

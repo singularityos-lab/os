@@ -1,33 +1,8 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: =?UTF-8?q?=C3=81ngel=20Ren=C3=A9?=
- <17342133+angelrenefm@users.noreply.github.com>
 Date: Wed, 4 Nov 2026 19:05:05 +0100
 Subject: [PATCH] arm64: dts: exynos: google: gs201-panther: reboot=warm, so
  reboot-to reaches fastboot
-MIME-Version: 1.0
-Content-Type: text/plain; charset=UTF-8
-Content-Transfer-Encoding: 8bit
-
-A cold PSCI reset loses the reboot mode the kernel writes for the
-bootloader, so "reboot-to bootloader" boots slot B again. With
-/sys/kernel/reboot/mode set to warm at runtime, the Pixel 7 reached
-fastboot 3 times out of 3 (about 33 s each); a cold control booted
-Linux again (0 of 1). husky carries the same option in its bootargs.
-
-Booted with this line (/proc/cmdline has reboot=warm, and
-/sys/kernel/reboot/mode reads warm), with nothing written by hand:
-- reboot-to bootloader: fastboot, three times;
-- an ordinary reboot: back to Linux on slot B;
-- a panic (echo c > /proc/sysrq-trigger, with panic=10): reset, and
-  back to Linux on slot B, the reset spending one of slot B's boot
-  tries (devinfo retry count 2 to 1), as the initramfs's no-USB-host
-  panic relies on.
-
-Every reboot now becomes a warm reset, which leaves the PMIC rails
-powered. On the Pixel 7 Pro that hid the accelerometer after a warm
-reboot until the AoC start power-cycled the sensor rails; on the
-Pixel 7 the sensor proxy still found the accelerometer, light and
-proximity sensors after these warm resets.
 
 Assisted-by: LLM
 Signed-off-by: Ángel René <17342133+angelrenefm@users.noreply.github.com>

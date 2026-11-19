@@ -3,16 +3,6 @@ From: cbm <omarchy-mobile@kloot.lu>
 Date: Sat, 7 Nov 2026 21:46:04 +0100
 Subject: [PATCH] dt-bindings: media: i2c: add onsemi LC898129
 
-The LC898129 is a microcontroller that drives a camera module's focus
-and optical image stabilisation actuators and holds the module's
-calibration memory, over I2C with 16-bit register addresses and 32-bit
-values. The Google Pixel 9a's main camera module has one. It shares the
-module's supplies and reset with the image sensor, so the sensor powers
-it while streaming through its lens-focus property. The supplies follow
-the stock device tree's actuator node: the I/O supply, the actuator
-driver's VM and its analogue VDDA. All are optional, since the sensor
-already switches them; listed, they only keep the rails counted.
-
 Assisted-by: Claude:claude-opus-5-5
 Signed-off-by: cbm <omarchy-mobile@kloot.lu>
 ---

@@ -3,17 +3,6 @@ From: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 Date: Tue, 27 Oct 2026 03:26:26 -0647
 Subject: [PATCH] power: supply: max77779: Report current and time estimates
 
-Add the battery current (Current 0x1c and AvgCurrent 0x1d, signed
-1.5625 uV per LSB over the sense resistor) and the gauge's averaged time
-to empty and to full (TTE 0x11 and TTF 0x20, 5.625 s per LSB; all ones
-when the gauge has no estimate, reported as no data). The register map
-stays read-only.
-
-The sign follows power_supply: the gauge counts charging as positive.
-Checked on a Pixel 9a: about +310 mA while charging near full, and about
--500 mA with the charger's input switched off for a few seconds, with
-UPower showing the charge rate it had no source for before.
-
 Signed-off-by: W4HO <87742609+W4HO-ham@users.noreply.github.com>
 ---
  drivers/power/supply/max77779_battery.c | 40 +++++++++++++++++++++++++
