@@ -1,0 +1,1951 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Mirko Brombin <9479903+mirkobrombin@users.noreply.github.com>
+Date: Thu, 19 Nov 2026 14:06:11 +0000
+Subject: [PATCH] arm64: dts: gs201-cheetah: build a full DTB with the board
+ overlays
+
+Assisted-by: Claude:claude-opus-5-5
+---
+diff --git a/arch/arm64/boot/dts/exynos/google/Makefile b/arch/arm64/boot/dts/exynos/google/Makefile
+index 3f8e377c7..6c9e07793 100644
+--- a/arch/arm64/boot/dts/exynos/google/Makefile
++++ b/arch/arm64/boot/dts/exynos/google/Makefile
+@@ -5,6 +5,7 @@ dtb-$(CONFIG_ARCH_EXYNOS) += \
+ 	gs101-oriole.dtb \
+ 	gs101-raven.dtb \
+ 	gs201-cheetah.dtb \
++	gs201-cheetah-full.dtb \
+ 	gs201-felix.dtb \
+ 	gs201-lynx.dtb \
+ 	gs201-panther.dtb \
+@@ -23,3 +24,23 @@ DTC_FLAGS_gs201-panther += -@
+ DTC_FLAGS_zuma-akita += -@
+ DTC_FLAGS_zuma-husky += -@
+ DTC_FLAGS_zumapro-tegu += -@
++
++gs201-cheetah-full-dtbs := \
++	gs201-cheetah.dtb \
++	gs201-cheetah-aoc-core.dtbo \
++	gs201-cheetah-audio-amps.dtbo \
++	gs201-cheetah-aoc-sound.dtbo \
++	gs201-cheetah-gnss-pmic.dtbo \
++	gs201-cheetah-gnss.dtbo \
++	gs201-cheetah-modem-cpif.dtbo \
++	gs201-cheetah-nfc.dtbo \
++	gs201-cheetah-suspend-pmic.dtbo \
++	gs201-cheetah-camera-stream-link2.dtbo \
++	gs201-cheetah-fingerprint-sensor.dtbo \
++	gs201-cheetah-modem-cpif-pktproc.dtbo \
++	gs201-cheetah-camera-main.dtbo \
++	gs201-cheetah-camera-front.dtbo \
++	gs201-cheetah-camera-tele.dtbo \
++	gs201-cheetah-camera-uw-lens.dtbo
++
++$(foreach o,$(filter %.dtbo,$(gs201-cheetah-full-dtbs)),$(eval DTC_FLAGS_$(o:.dtbo=) += -@))
+diff --git a/arch/arm64/boot/dts/exynos/google/gs201-cheetah-aoc-core.dtso b/arch/arm64/boot/dts/exynos/google/gs201-cheetah-aoc-core.dtso
+new file mode 100644
+index 000000000..fbbc5f0b5
+--- /dev/null
++++ b/arch/arm64/boot/dts/exynos/google/gs201-cheetah-aoc-core.dtso
+@@ -0,0 +1,40 @@
++// SPDX-License-Identifier: MIT
++/*
++ * Bring-up (AOC-PLAN.md, stage C5): everything the AoC core needs, i.e. the
++ * GSA mailbox, Trusty, the AoC System MMU, the three AoC mailboxes and the
++ * AoC node with cheetah's board id and revision. The modules stay
++ * blacklisted from autoload; omamobile-aoc-start loads them in order.
++ * Paths, not labels, so the base DTB needs no __symbols__.
++ */
++/dts-v1/;
++/plugin/;
++
++&{/trusty} {
++	status = "okay";
++};
++
++&{/soc@0/gsa@17c90000} {
++	status = "okay";
++};
++
++&{/soc@0/sysmmu@1a090000} {
++	status = "okay";
++};
++
++&{/soc@0/mailbox@18300000} {
++	status = "okay";
++};
++
++&{/soc@0/mailbox@18320000} {
++	status = "okay";
++};
++
++&{/soc@0/mailbox@18340000} {
++	status = "okay";
++};
++
++&{/soc@0/aoc@181d0000} {
++	google,board-id = <0x30301>;
++	google,board-rev = <0x10000>;
++	status = "okay";
++};
+diff --git a/arch/arm64/boot/dts/exynos/google/gs201-cheetah-aoc-sound.dtso b/arch/arm64/boot/dts/exynos/google/gs201-cheetah-aoc-sound.dtso
+new file mode 100644
+index 000000000..065f4d40f
+--- /dev/null
++++ b/arch/arm64/boot/dts/exynos/google/gs201-cheetah-aoc-sound.dtso
+@@ -0,0 +1,1045 @@
++// SPDX-License-Identifier: MIT
++/*
++ * Bring-up only (AOC-PLAN.md, stage C7): the AoC sound card, as the stock
++ * device tree describes it (sound-aoc and its PCM, voice, compress, path,
++ * no-host, VoIP and in-call nodes), with the speaker amplifiers as the TDM 0
++ * codecs (amp_top and amp_bottom from the cheetah device tree) and the
++ * haptics codec links left without a codec. Generated from the stock tree;
++ * apply with audio-amps-test (SPI7 and the amplifiers) and aoc-core-test.
++ *
++ * TDM 0 slots (AUDIO-PLAN.md 1.1): the top amplifier plays slot 0, the
++ * bottom one slot 1. Their VMON/IMON feedback (ASP TX1-TX4) goes out
++ * interleaved, as stock's mixer_paths.xml sets it (top 0, 2, 4, 6; bottom
++ * 1, 3, 5, 7), so the two never drive the shared SDOUT line in the same
++ * slot. Without it both used the reset slots 0-3 (AOC-PLAN C9d-6).
++ *
++ * The card driver sorts the DAI links into the stock order by their ids, so
++ * the PCM numbers (which are the AoC entry points) do not depend on the order
++ * in which the overlay apply leaves these nodes.
++ */
++/dts-v1/;
++/plugin/;
++
++&amp_top {
++	google,tdm-rx-slots = <0 1>;
++	google,tdm-tx-slots = <0 2 4 6>;
++};
++
++&amp_bottom {
++	google,tdm-rx-slots = <1 0>;
++	google,tdm-tx-slots = <1 3 5 7>;
++};
++
++&{/} {
++		aoc_pcm_ep: aoc_pcm_drv {
++			compatible = "google-aoc-snd-pcm";
++		};
++
++		aoc_voice_ep: aoc_voice_drv {
++			compatible = "google-aoc-snd-voice";
++		};
++
++		aoc_compr_ep: aoc_compr_drv {
++			compatible = "google-aoc-snd-compr";
++		};
++
++		aud_aoc_path: aoc_path {
++			#sound-dai-cells = <0x01>;
++			compatible = "google-aoc-path";
++		};
++
++		aoc_nohost_drv: aoc_nohost {
++			compatible = "google-aoc-snd-nohost";
++		};
++
++		aoc_voip_ep: aoc_voip_drv {
++			compatible = "google-aoc-snd-voip";
++		};
++
++		aoc_incall_ep: aoc_incall_drv {
++			compatible = "google-aoc-snd-incall";
++		};
++
++		aoc_snd_card: sound-aoc {
++			compatible = "google-aoc-snd-card";
++			aoc-card-name = "google,aoc-snd-card";
++
++			dai_link {
++
++				dai_fe_ep1_rx: fe_ep1_rx {
++					dai-name = "audio_playback0";
++					stream-name = "EP1 playback";
++					id = <0x00>;
++					dynamic;
++					playback;
++
++					cpu {
++						sound-dai = <&aud_aoc_path 0x00>;
++					};
++
++					platform {
++
++						rx1 {
++							of_drv = <&aoc_pcm_ep>;
++						};
++					};
++				};
++
++				dai_fe_ep2_rx: fe_ep2_rx {
++					dai-name = "audio_playback1";
++					stream-name = "EP2 playback";
++					id = <0x01>;
++					dynamic;
++					playback;
++
++					cpu {
++						sound-dai = <&aud_aoc_path 0x01>;
++					};
++
++					platform {
++
++						rx1 {
++							of_drv = <&aoc_pcm_ep>;
++						};
++					};
++				};
++
++				dai_fe_ep3_rx: fe_ep3_rx {
++					dai-name = "audio_playback2";
++					stream-name = "EP3 playback";
++					id = <0x02>;
++					dynamic;
++					playback;
++
++					cpu {
++						sound-dai = <&aud_aoc_path 0x02>;
++					};
++
++					platform {
++
++						rx1 {
++							of_drv = <&aoc_pcm_ep>;
++						};
++					};
++				};
++
++				dai_fe_ep4_rx: fe_ep4_rx {
++					dai-name = "audio_playback3";
++					stream-name = "EP4 playback";
++					id = <0x03>;
++					dynamic;
++					playback;
++
++					cpu {
++						sound-dai = <&aud_aoc_path 0x03>;
++					};
++
++					platform {
++
++						rx1 {
++							of_drv = <&aoc_pcm_ep>;
++						};
++					};
++				};
++
++				dai_fe_ep5_rx: fe_ep5_rx {
++					dai-name = "audio_playback4";
++					stream-name = "EP5 playback";
++					id = <0x04>;
++					dynamic;
++					playback;
++
++					cpu {
++						sound-dai = <&aud_aoc_path 0x04>;
++					};
++
++					platform {
++
++						vorx {
++							of_drv = <&aoc_voice_ep>;
++						};
++					};
++				};
++
++				dai_fe_ep6_rx: fe_ep6_rx {
++					dai-name = "audio_playback5";
++					stream-name = "EP6 playback";
++					id = <0x05>;
++					dynamic;
++					playback;
++
++					cpu {
++						sound-dai = <&aud_aoc_path 0x05>;
++					};
++
++					platform {
++
++						rx1 {
++							of_drv = <&aoc_pcm_ep>;
++						};
++					};
++				};
++
++				dai_fe_ep7_rx: fe_ep7_rx {
++					dai-name = "audio_playback6";
++					stream-name = "EP7 playback";
++					id = <0x06>;
++					dynamic;
++					playback;
++
++					cpu {
++						sound-dai = <&aud_aoc_path 0x06>;
++					};
++
++					platform {
++
++						rx1 {
++							of_drv = <&aoc_compr_ep>;
++						};
++					};
++				};
++
++				dai_fe_ep8_rx: fe_ep8_rx {
++					dai-name = "audio_haptics";
++					stream-name = "EP8 playback";
++					id = <0x07>;
++					dynamic;
++					playback;
++
++					cpu {
++						sound-dai = <&aud_aoc_path 0x07>;
++					};
++
++					platform {
++
++						rx1 {
++							of_drv = <&aoc_pcm_ep>;
++						};
++					};
++				};
++
++				dai_fe_ep1_tx: fe_ep1_tx {
++					dai-name = "audio_capture0";
++					stream-name = "EP1 capture";
++					id = <0x40000000>;
++					dynamic;
++					capture;
++
++					cpu {
++						sound-dai = <&aud_aoc_path 0x40000000>;
++					};
++
++					platform {
++
++						tx1 {
++							of_drv = <&aoc_pcm_ep>;
++						};
++					};
++				};
++
++				dai_fe_ep2_tx: fe_ep2_tx {
++					dai-name = "audio_capture1";
++					stream-name = "EP2 capture";
++					id = <0x40000001>;
++					dynamic;
++					capture;
++
++					cpu {
++						sound-dai = <&aud_aoc_path 0x40000001>;
++					};
++
++					platform {
++
++						tx1 {
++							of_drv = <&aoc_pcm_ep>;
++						};
++					};
++				};
++
++				dai_fe_ep3_tx: fe_ep3_tx {
++					dai-name = "audio_capture2";
++					stream-name = "EP3 capture";
++					id = <0x40000002>;
++					dynamic;
++					capture;
++
++					cpu {
++						sound-dai = <&aud_aoc_path 0x40000002>;
++					};
++
++					platform {
++
++						tx1 {
++							of_drv = <&aoc_pcm_ep>;
++						};
++					};
++				};
++
++				dai_fe_ep4_tx: fe_ep4_tx {
++					dai-name = "audio_capture3";
++					stream-name = "EP4 capture";
++					id = <0x40000003>;
++					dynamic;
++					capture;
++
++					cpu {
++						sound-dai = <&aud_aoc_path 0x40000003>;
++					};
++
++					platform {
++
++						votx {
++							of_drv = <&aoc_voice_ep>;
++						};
++					};
++				};
++
++				dai_fe_ep5_tx: fe_ep5_tx {
++					dai-name = "ultrasonic_capture";
++					stream-name = "EP5 capture";
++					id = <0x40000004>;
++					dynamic;
++					capture;
++
++					cpu {
++						sound-dai = <&aud_aoc_path 0x40000004>;
++					};
++
++					platform {
++
++						tx1 {
++							of_drv = <&aoc_pcm_ep>;
++						};
++					};
++				};
++
++				dai_fe_ep6_tx: fe_ep6_tx {
++					dai-name = "audio_capture5";
++					stream-name = "EP6 capture";
++					id = <0x40000005>;
++					dynamic;
++					capture;
++
++					cpu {
++						sound-dai = <&aud_aoc_path 0x40000005>;
++					};
++
++					platform {
++
++						tx1 {
++							of_drv = <&aoc_pcm_ep>;
++						};
++					};
++				};
++
++				dai_fe_nohost1_rx: fe_nohost1_rx {
++					dai-name = "nohost1 playback";
++					stream-name = "nohost1 playback";
++					id = <0x20000008>;
++					dynamic;
++					playback;
++
++					cpu {
++						sound-dai = <&aud_aoc_path 0x20000008>;
++					};
++
++					platform {
++
++						rx1 {
++							of_drv = <&aoc_nohost_drv>;
++						};
++					};
++				};
++
++				dai_fe_nohost1_tx: fe_nohost1_tx {
++					dai-name = "nohost1 capture";
++					stream-name = "nohost1 capture";
++					id = <0x60000008>;
++					dynamic;
++					capture;
++
++					cpu {
++						sound-dai = <&aud_aoc_path 0x60000008>;
++					};
++
++					platform {
++
++						tx1 {
++							of_drv = <&aoc_nohost_drv>;
++						};
++					};
++				};
++
++				dai_fe_voip_rx: fe_voip_rx {
++					dai-name = "audio_voip_rx";
++					stream-name = "audio_voip_rx";
++					id = <0x0a>;
++					dynamic;
++					playback;
++
++					cpu {
++						sound-dai = <&aud_aoc_path 0x0a>;
++					};
++
++					platform {
++
++						rx1 {
++							of_drv = <&aoc_voip_ep>;
++						};
++					};
++				};
++
++				dai_fe_voip_tx: fe_voip_tx {
++					dai-name = "audio_voip_tx";
++					stream-name = "audio_voip_tx";
++					id = <0x4000000a>;
++					dynamic;
++					capture;
++
++					cpu {
++						sound-dai = <&aud_aoc_path 0x4000000a>;
++					};
++
++					platform {
++
++						tx1 {
++							of_drv = <&aoc_voip_ep>;
++						};
++					};
++				};
++
++				dai_fe_incall_pb0_rx: fe_incall_pb0_rx {
++					dai-name = "audio_incall_pb_0";
++					stream-name = "audio_incall_pb_0";
++					id = <0x0b>;
++					playback;
++
++					cpu {
++						sound-dai = <&aud_aoc_path 0x0b>;
++					};
++
++					platform {
++
++						rx1 {
++							of_drv = <&aoc_incall_ep>;
++						};
++					};
++				};
++
++				dai_fe_incall_pb1_rx: fe_incall_pb1_rx {
++					dai-name = "audio_incall_pb_1";
++					stream-name = "audio_incall_pb_1";
++					id = <0x0c>;
++					playback;
++
++					cpu {
++						sound-dai = <&aud_aoc_path 0x0c>;
++					};
++
++					platform {
++
++						rx1 {
++							of_drv = <&aoc_incall_ep>;
++						};
++					};
++				};
++
++				dai_fe_incall_cap0_tx: fe_incall_cap0_tx {
++					dai-name = "audio_incall_cap_0";
++					stream-name = "audio_incall_cap_0";
++					id = <0x4000000d>;
++					capture;
++
++					cpu {
++						sound-dai = <&aud_aoc_path 0x4000000d>;
++					};
++
++					platform {
++
++						tx1 {
++							of_drv = <&aoc_incall_ep>;
++						};
++					};
++				};
++
++				dai_fe_incall_cap1_tx: fe_incall_cap1_tx {
++					dai-name = "audio_incall_cap_1";
++					stream-name = "audio_incall_cap_1";
++					id = <0x4000000e>;
++					capture;
++
++					cpu {
++						sound-dai = <&aud_aoc_path 0x4000000e>;
++					};
++
++					platform {
++
++						tx1 {
++							of_drv = <&aoc_incall_ep>;
++						};
++					};
++				};
++
++				dai_fe_incall_cap2_tx: fe_incall_cap2_tx {
++					dai-name = "audio_incall_cap_2";
++					stream-name = "audio_incall_cap_2";
++					id = <0x4000000f>;
++					capture;
++
++					cpu {
++						sound-dai = <&aud_aoc_path 0x4000000f>;
++					};
++
++					platform {
++
++						tx1 {
++							of_drv = <&aoc_incall_ep>;
++						};
++					};
++				};
++
++				dai_fe_raw_rx: fe_raw_rx {
++					dai-name = "audio_raw";
++					stream-name = "audio_raw";
++					id = <0x09>;
++					dynamic;
++					playback;
++
++					cpu {
++						sound-dai = <&aud_aoc_path 0x09>;
++					};
++
++					platform {
++
++						rx1 {
++							of_drv = <&aoc_pcm_ep>;
++						};
++					};
++				};
++
++				dai_fe_haptic_nohost_rx: fe_haptic_nohost_rx {
++					dai-name = "haptic nohost playback";
++					stream-name = "haptic nohost playback";
++					id = <0x20000011>;
++					dynamic;
++					playback;
++
++					cpu {
++						sound-dai = <&aud_aoc_path 0x20000011>;
++					};
++
++					platform {
++
++						rx1 {
++							of_drv = <&aoc_nohost_drv>;
++						};
++					};
++				};
++
++				dai_fe_hifi_rx: fe_hifi_rx {
++					dai-name = "audio_hifiout";
++					stream-name = "audio_hifiout";
++					id = <0x10>;
++					playback;
++
++					cpu {
++						sound-dai = <&aud_aoc_path 0x10>;
++					};
++
++					platform {
++
++						rx1 {
++							of_drv = <&aoc_incall_ep>;
++						};
++					};
++				};
++
++				dai_fe_hifi_tx: fe_hifi_tx {
++					dai-name = "audio_hifiin";
++					stream-name = "audio_hifiin";
++					id = <0x40000010>;
++					capture;
++
++					cpu {
++						sound-dai = <&aud_aoc_path 0x40000010>;
++					};
++
++					platform {
++
++						tx1 {
++							of_drv = <&aoc_incall_ep>;
++						};
++					};
++				};
++
++				dai_fe_android_aec_tx: fe_android_aec_tx {
++					dai-name = "audio_android_aec";
++					stream-name = "audio_android_aec";
++					id = <0x40000012>;
++					capture;
++
++					cpu {
++						sound-dai = <&aud_aoc_path 0x40000012>;
++					};
++
++					platform {
++
++						tx1 {
++							of_drv = <&aoc_incall_ep>;
++						};
++					};
++				};
++
++				dai_fe_us_rx: fe_us_rx {
++					dai-name = "audio_ultrasonic";
++					stream-name = "audio_ultrasonic";
++					id = <0x13>;
++					dynamic;
++					playback;
++
++					cpu {
++						sound-dai = <&aud_aoc_path 0x13>;
++					};
++
++					platform {
++
++						rx1 {
++							of_drv = <&aoc_pcm_ep>;
++						};
++					};
++				};
++
++				dai_fe_incall_pb2_rx: fe_incall_pb2_rx {
++					dai-name = "audio_incall_pb_2";
++					stream-name = "audio_incall_pb_2";
++					id = <0x14>;
++					playback;
++
++					cpu {
++						sound-dai = <&aud_aoc_path 0x14>;
++					};
++
++					platform {
++
++						rx1 {
++							of_drv = <&aoc_incall_ep>;
++						};
++					};
++				};
++
++				dai_fe_ims_rx: fe_ims_rx {
++					dai-name = "audio_immersive";
++					stream-name = "audio_immersive";
++					id = <0x15>;
++					dynamic;
++					playback;
++
++					cpu {
++						sound-dai = <&aud_aoc_path 0x15>;
++					};
++
++					platform {
++
++						rx1 {
++							of_drv = <&aoc_pcm_ep>;
++						};
++					};
++				};
++
++				dai_fe_cap_inj_rx: fe_capture_inject_rx {
++					dai-name = "audio_capture_inject";
++					stream-name = "audio_capture_inject";
++					id = <0x16>;
++					playback;
++
++					cpu {
++						sound-dai = <&aud_aoc_path 0x16>;
++					};
++
++					platform {
++
++						rx1 {
++							of_drv = <&aoc_incall_ep>;
++						};
++					};
++				};
++
++				dai_fe_hotword_tap_tx: fe_hotword_tap_tx {
++					dai-name = "audio_hotword_tap";
++					stream-name = "audio_hotword_tap";
++					id = <0x40000017>;
++					capture;
++
++					cpu {
++						sound-dai = <&aud_aoc_path 0x40000017>;
++					};
++
++					platform {
++
++						tx1 {
++							of_drv = <&aoc_incall_ep>;
++						};
++					};
++				};
++
++				dai_be_i2s0_rx: be_i2s0_rx {
++					dai-name = "I2S_0_RX Playback";
++					stream-name = "I2S_0_RX Playback";
++					id = <0x80000000>;
++					playback;
++					no-pcm;
++					useops;
++					usefixup;
++
++					cpu {
++						sound-dai = <&aud_aoc_path 0x80000000>;
++					};
++
++					daifmt {
++						dai-format = "i2s";
++					};
++				};
++
++				dai_be_i2s0_tx: be_i2s0_tx {
++					dai-name = "I2S_0_TX Capture";
++					stream-name = "I2S_0_TX Capture";
++					id = <0xc0000001>;
++					capture;
++					no-pcm;
++					useops;
++					usefixup;
++
++					cpu {
++						sound-dai = <&aud_aoc_path 0xc0000001>;
++					};
++
++					daifmt {
++						dai-format = "i2s";
++					};
++				};
++
++				dai_be_i2s1_rx: be_i2s1_rx {
++					dai-name = "I2S_1_RX Playback";
++					stream-name = "I2S_1_RX Playback";
++					id = <0x80000002>;
++					playback;
++					no-pcm;
++					useops;
++					usefixup;
++
++					cpu {
++						sound-dai = <&aud_aoc_path 0x80000002>;
++					};
++
++					daifmt {
++						dai-format = "i2s";
++					};
++				};
++
++				dai_be_i2s1_tx: be_i2s1_tx {
++					dai-name = "I2S_1_TX Capture";
++					stream-name = "I2S_1_TX Capture";
++					id = <0xc0000003>;
++					capture;
++					no-pcm;
++					useops;
++					usefixup;
++
++					cpu {
++						sound-dai = <&aud_aoc_path 0xc0000003>;
++					};
++
++					daifmt {
++						dai-format = "i2s";
++					};
++				};
++
++				dai_be_i2s2_rx: be_i2s2_rx {
++					dai-name = "I2S_2_RX Playback";
++					stream-name = "I2S_2_RX Playback";
++					id = <0x80000004>;
++					playback;
++					no-pcm;
++					useops;
++					usefixup;
++
++					cpu {
++						sound-dai = <&aud_aoc_path 0x80000004>;
++					};
++
++					daifmt {
++						dai-format = "i2s";
++						bitclock-inversion;
++					};
++				};
++
++				dai_be_i2s2_tx: be_i2s2_tx {
++					dai-name = "I2S_2_TX Capture";
++					stream-name = "I2S_2_TX Capture";
++					id = <0xc0000005>;
++					capture;
++					no-pcm;
++					useops;
++					usefixup;
++
++					cpu {
++						sound-dai = <&aud_aoc_path 0xc0000005>;
++					};
++
++					daifmt {
++						dai-format = "i2s";
++					};
++				};
++
++				dai_be_tdm0_rx: be_tdm0_rx {
++					dai-name = "TDM_0_RX Playback";
++					stream-name = "TDM_0_RX Playback";
++					id = <0x80000006>;
++					playback;
++					no-pcm;
++					useops;
++					usefixup;
++
++					cpu {
++						sound-dai = <&aud_aoc_path 0x80000006>;
++					};
++
++					daifmt {
++						dai-format = "dsp_a";
++					};
++
++					codec {
++						sound-dai = <&amp_top 0>, <&amp_bottom 0>;
++					};
++				};
++
++				dai_be_tdm0_tx: be_tdm0_tx {
++					dai-name = "TDM_0_TX Capture";
++					stream-name = "TDM_0_TX Capture";
++					id = <0xc0000007>;
++					capture;
++					no-pcm;
++					useops;
++					usefixup;
++
++					cpu {
++						sound-dai = <&aud_aoc_path 0xc0000007>;
++					};
++
++					daifmt {
++						dai-format = "dsp_a";
++					};
++
++					codec {
++						sound-dai = <&amp_top 0>, <&amp_bottom 0>;
++					};
++				};
++
++				dai_be_tdm1_rx: be_tdm1_rx {
++					dai-name = "TDM_1_RX Playback";
++					stream-name = "TDM_1_RX Playback";
++					id = <0x80000008>;
++					playback;
++					no-pcm;
++					useops;
++					usefixup;
++
++					cpu {
++						sound-dai = <&aud_aoc_path 0x80000008>;
++					};
++
++					daifmt {
++						dai-format = "i2s";
++					};
++				};
++
++				dai_be_tdm1_tx: be_tdm1_tx {
++					dai-name = "TDM_1_TX Capture";
++					stream-name = "TDM_1_TX Capture";
++					id = <0xc0000009>;
++					capture;
++					no-pcm;
++					useops;
++					usefixup;
++
++					cpu {
++						sound-dai = <&aud_aoc_path 0xc0000009>;
++					};
++
++					daifmt {
++						dai-format = "i2s";
++					};
++				};
++
++				dai_be_internal_mic_tx: be_internal_mic_tx {
++					dai-name = "INTERNAL_MIC_TX Capture";
++					stream-name = "INTERNAL_MIC_TX Capture";
++					id = <0xc000000a>;
++					capture;
++					no-pcm;
++					useops;
++					usefixup;
++
++					cpu {
++						sound-dai = <&aud_aoc_path 0xc000000a>;
++					};
++				};
++
++				dai_be_internal_mic_us_tx: be_internal_mic_us_tx {
++					dai-name = "INTERNAL_MIC_US_TX Capture";
++					stream-name = "INTERNAL_MIC_US_TX Capture";
++					id = <0xc0000013>;
++					capture;
++					no-pcm;
++					useops;
++					usefixup;
++
++					cpu {
++						sound-dai = <&aud_aoc_path 0xc0000013>;
++					};
++				};
++
++				dai_be_bt_rx: be_bt_rx {
++					dai-name = "BT_RX Playback";
++					stream-name = "BT_RX Playback";
++					id = <0x8000000b>;
++					playback;
++					no-pcm;
++					useops;
++					usefixup;
++
++					cpu {
++						sound-dai = <&aud_aoc_path 0x8000000b>;
++					};
++				};
++
++				dai_be_bt_tx: be_bt_tx {
++					dai-name = "BT_TX Capture";
++					stream-name = "BT_TX Capture";
++					id = <0xc000000c>;
++					capture;
++					no-pcm;
++					useops;
++					usefixup;
++
++					cpu {
++						sound-dai = <&aud_aoc_path 0xc000000c>;
++					};
++				};
++
++				dai_be_usb_rx: be_usb_rx {
++					dai-name = "USB_RX Playback";
++					stream-name = "USB_RX Playback";
++					id = <0x8000000d>;
++					playback;
++					no-pcm;
++					useops;
++					usefixup;
++
++					cpu {
++						sound-dai = <&aud_aoc_path 0x8000000d>;
++					};
++				};
++
++				dai_be_usb_tx: be_usb_tx {
++					dai-name = "USB_TX Capture";
++					stream-name = "USB_TX Capture";
++					id = <0xc000000e>;
++					capture;
++					no-pcm;
++					useops;
++					usefixup;
++
++					cpu {
++						sound-dai = <&aud_aoc_path 0xc000000e>;
++					};
++				};
++
++				dai_be_incall_rx: be_incall_rx {
++					dai-name = "INCALL_RX Playback";
++					stream-name = "INCALL_RX Playback";
++					id = <0x8000000f>;
++					playback;
++					no-pcm;
++					useops;
++					usefixup;
++
++					cpu {
++						sound-dai = <&aud_aoc_path 0x8000000f>;
++					};
++				};
++
++				dai_be_incall_tx: be_incall_tx {
++					dai-name = "INCALL_TX Capture";
++					stream-name = "INCALL_TX Capture";
++					id = <0xc0000010>;
++					capture;
++					no-pcm;
++					useops;
++					usefixup;
++
++					cpu {
++						sound-dai = <&aud_aoc_path 0xc0000010>;
++					};
++				};
++
++				dai_be_haptic_rx: be_haptic_rx {
++					dai-name = "HAPTIC_RX Playback";
++					stream-name = "HAPTIC_RX Playback";
++					id = <0x80000011>;
++					playback;
++					no-pcm;
++					useops;
++					usefixup;
++
++					cpu {
++						sound-dai = <&aud_aoc_path 0x80000011>;
++					};
++
++					daifmt {
++						dai-format = "dsp_a";
++					};
++
++				};
++
++				dai_be_eraser_tx: be_eraser_tx {
++					dai-name = "ERASER_TX Capture";
++					stream-name = "ERASER_TX Capture";
++					id = <0xc0000012>;
++					capture;
++					no-pcm;
++					useops;
++					usefixup;
++
++					cpu {
++						sound-dai = <&aud_aoc_path 0xc0000012>;
++					};
++				};
++			};
++
++			clks {
++
++				sys {
++
++
++					sys@cs35l41_l {
++						comp = <&amp_top>;
++						src = "BCLK";
++						id = <0x00>;
++						srcid = <0x00>;
++						in_mul = <0x01>;
++						out_mul = <0x01>;
++					};
++
++					sys@cs35l41_r {
++						comp = <&amp_bottom>;
++						src = "BCLK";
++						id = <0x00>;
++						srcid = <0x00>;
++						in_mul = <0x01>;
++						out_mul = <0x01>;
++					};
++				};
++			};
++		};
++};
+diff --git a/arch/arm64/boot/dts/exynos/google/gs201-cheetah-audio-amps.dtso b/arch/arm64/boot/dts/exynos/google/gs201-cheetah-audio-amps.dtso
+new file mode 100644
+index 000000000..3a89eb049
+--- /dev/null
++++ b/arch/arm64/boot/dts/exynos/google/gs201-cheetah-audio-amps.dtso
+@@ -0,0 +1,37 @@
++// SPDX-License-Identifier: MIT
++/*
++ * Bring-up only (AUDIO-PLAN.md, gates A2-A3): the PERIC0 pin controller,
++ * USI7 as SPI and the two CS35L41 speaker amplifiers (chip select 0 = top
++ * speaker / earpiece, 1 = bottom loudspeaker). Needs the omamobile-audio
++ * kernel branch.
++ *
++ * A2: keep snd-soc-cs35l41-spi from loading (it is not built by default) and
++ *     bind spidev by driver_override, then read the chip IDs with
++ *     tools/cs35l41-id. Nothing is written to the amplifiers.
++ * A3: load snd-soc-cs35l41-spi: the driver resets each amplifier, reads its
++ *     ID and OTP and writes its boost configuration. There is no sound card
++ *     (the audio port belongs to the AoC), so the output stage is never
++ *     enabled.
++ */
++/dts-v1/;
++/plugin/;
++
++&{/soc@0/pinctrl@10840000} {
++	status = "okay";
++};
++
++&{/soc@0/usi@109600c0} {
++	status = "okay";
++};
++
++&{/soc@0/usi@109600c0/spi@10960000} {
++	status = "okay";
++};
++
++&{/soc@0/usi@109600c0/spi@10960000/amplifier@0} {
++	status = "okay";
++};
++
++&{/soc@0/usi@109600c0/spi@10960000/amplifier@1} {
++	status = "okay";
++};
+diff --git a/arch/arm64/boot/dts/exynos/google/gs201-cheetah-camera-front.dtso b/arch/arm64/boot/dts/exynos/google/gs201-cheetah-camera-front.dtso
+new file mode 100644
+index 000000000..d21970bda
+--- /dev/null
++++ b/arch/arm64/boot/dts/exynos/google/gs201-cheetah-camera-front.dtso
+@@ -0,0 +1,56 @@
++// SPDX-License-Identifier: MIT
++/*
++ * Bring-up only (CAMERA-PLAN.md, stage CAM7): the front camera capture path,
++ * the Samsung S5K3J1 on four D-PHY lanes to CSIS link 0 and CSIS WDMA
++ * context 0 (fixed focus, no lens). Enables the camera power path as
++ * camera-stream-link2 does, plus PERIC0 USI2 and its I2C bus. It stacks with
++ * camera-stream-link2 and camera-main: all links share WDMA context 0 and
++ * the driver streams one at a time. Never apply it together with
++ * camera-pwr-test.
++ *
++ * Nothing binds at boot: gpio_s2mpg13, slg51002_regulator, s5kgn1 (which
++ * drives the S5K3J1 too), phy_gs201_mipi_dcphy_rx and gs201_csis are
++ * blacklisted. Paths, not labels.
++ */
++/dts-v1/;
++/plugin/;
++
++&{/firmware/power-management/pmic-2} {
++	status = "okay";
++};
++
++&{/firmware/power-management/pmic-2/regulators/ldo12s} {
++	status = "okay";
++};
++
++&{/regulator-pp3200-bb-cam} {
++	status = "okay";
++};
++
++&{/regulator-pp1300-cam} {
++	status = "okay";
++};
++
++&{/soc@0/usi@109700c0/i2c@10970000/pmic@75} {
++	status = "okay";
++};
++
++&{/soc@0/usi@109100c0} {
++	status = "okay";
++};
++
++&{/soc@0/usi@109100c0/i2c@10910000} {
++	status = "okay";
++};
++
++&{/soc@0/usi@109100c0/i2c@10910000/camera-sensor@10} {
++	status = "okay";
++};
++
++&{/soc@0/phy@1a4f0000} {
++	status = "okay";
++};
++
++&{/soc@0/csis@1a440000} {
++	status = "okay";
++};
+diff --git a/arch/arm64/boot/dts/exynos/google/gs201-cheetah-camera-main.dtso b/arch/arm64/boot/dts/exynos/google/gs201-cheetah-camera-main.dtso
+new file mode 100644
+index 000000000..0c8a2bbca
+--- /dev/null
++++ b/arch/arm64/boot/dts/exynos/google/gs201-cheetah-camera-main.dtso
+@@ -0,0 +1,62 @@
++// SPDX-License-Identifier: MIT
++/*
++ * Bring-up only (CAMERA-PLAN.md, stage CAM-M): the main camera capture path,
++ * the Samsung S5KGN1 on three C-PHY trios to CSIS link 1 and CSIS WDMA
++ * context 0, with its AK7375-type focus actuator. Enables the camera power
++ * path as camera-stream-link2 does, plus PERIC0 USI1 and its I2C bus. It
++ * stacks with camera-stream-link2 (the ultrawide): both links share WDMA
++ * context 0 and the driver streams one at a time. Never apply it together
++ * with camera-pwr-test.
++ *
++ * Nothing binds at boot: gpio_s2mpg13, slg51002_regulator, s5kgn1, ak7375,
++ * phy_gs201_mipi_dcphy_rx and gs201_csis are blacklisted. ak7375 must be
++ * loaded with the others: the sensor's lens-focus makes the media graph
++ * wait for the lens.
++ */
++/dts-v1/;
++/plugin/;
++
++&{/firmware/power-management/pmic-2} {
++	status = "okay";
++};
++
++&{/firmware/power-management/pmic-2/regulators/ldo12s} {
++	status = "okay";
++};
++
++&{/regulator-pp3200-bb-cam} {
++	status = "okay";
++};
++
++&{/regulator-pp1300-cam} {
++	status = "okay";
++};
++
++&{/soc@0/usi@109700c0/i2c@10970000/pmic@75} {
++	status = "okay";
++};
++
++&{/soc@0/usi@109000c0} {
++	status = "okay";
++};
++
++&{/soc@0/usi@109000c0/i2c@10900000} {
++	status = "okay";
++};
++
++&{/soc@0/usi@109000c0/i2c@10900000/lens@c} {
++	status = "okay";
++};
++
++&{/soc@0/usi@109000c0/i2c@10900000/camera-sensor@3d} {
++	lens-focus = <&main_vcm>;
++	status = "okay";
++};
++
++&{/soc@0/phy@1a4f0000} {
++	status = "okay";
++};
++
++&{/soc@0/csis@1a450000} {
++	status = "okay";
++};
+diff --git a/arch/arm64/boot/dts/exynos/google/gs201-cheetah-camera-stream-link2.dtso b/arch/arm64/boot/dts/exynos/google/gs201-cheetah-camera-stream-link2.dtso
+new file mode 100644
+index 000000000..a611b9d55
+--- /dev/null
++++ b/arch/arm64/boot/dts/exynos/google/gs201-cheetah-camera-stream-link2.dtso
+@@ -0,0 +1,56 @@
++// SPDX-License-Identifier: MIT
++/*
++ * Bring-up only (CAMERA-PLAN.md, stages CAM3b.5/CAM4): the ultrawide
++ * capture path with the sensor on CSIS link 2, whose DC-PHY slave takes link
++ * 3's data lanes as one four-lane receiver. Enables the camera power path as
++ * camera-pwr-test does, but with the real sensor node (sony,imx386) instead
++ * of the power test nodes, the DC-PHY receiver and CSIS link 2 with WDMA
++ * context 0. Never apply it together with camera-pwr-test: both describe
++ * the device at 0x1a.
++ *
++ * Nothing binds at boot: gpio_s2mpg13, slg51002_regulator, imx386,
++ * phy_gs201_mipi_dcphy_rx and gs201_csis are blacklisted, and gs201_csis
++ * refuses to stream without allow_stream=1. Paths, not labels.
++ */
++/dts-v1/;
++/plugin/;
++
++&{/firmware/power-management/pmic-2} {
++	status = "okay";
++};
++
++&{/firmware/power-management/pmic-2/regulators/ldo12s} {
++	status = "okay";
++};
++
++&{/regulator-pp3200-bb-cam} {
++	status = "okay";
++};
++
++&{/regulator-pp1300-cam} {
++	status = "okay";
++};
++
++&{/soc@0/usi@109700c0/i2c@10970000/pmic@75} {
++	status = "okay";
++};
++
++&{/soc@0/usi@109200c0} {
++	status = "okay";
++};
++
++&{/soc@0/usi@109200c0/i2c@10920000} {
++	status = "okay";
++};
++
++&{/soc@0/usi@109200c0/i2c@10920000/camera-sensor@1a} {
++	status = "okay";
++};
++
++&{/soc@0/phy@1a4f0000} {
++	status = "okay";
++};
++
++&{/soc@0/csis@1a460000} {
++	status = "okay";
++};
+diff --git a/arch/arm64/boot/dts/exynos/google/gs201-cheetah-camera-tele.dtso b/arch/arm64/boot/dts/exynos/google/gs201-cheetah-camera-tele.dtso
+new file mode 100644
+index 000000000..6a29f717b
+--- /dev/null
++++ b/arch/arm64/boot/dts/exynos/google/gs201-cheetah-camera-tele.dtso
+@@ -0,0 +1,62 @@
++// SPDX-License-Identifier: MIT
++/*
++ * Bring-up only (CAMERA-PLAN.md, stage CAM-T): the telephoto capture path,
++ * the Samsung S5KGM5 on two C-PHY trios to CSIS link 4 and CSIS WDMA
++ * context 0, with its SEM1215SA focus controller linked to the sensor
++ * (lens-focus). Enables the camera power path as camera-stream-link2 does,
++ * plus PERIC0 USI4 and its I2C bus. It stacks with the other camera
++ * overlays: all links share WDMA context 0 and the driver streams one at a
++ * time. Never apply it together with camera-pwr-test.
++ *
++ * Nothing binds at boot: gpio_s2mpg13, slg51002_regulator, s5kgn1 (which
++ * drives the S5KGM5 too), sem1215, phy_gs201_mipi_dcphy_rx and gs201_csis
++ * are blacklisted. sem1215 must be loaded with the others: with lens-focus
++ * set, the media graph waits for the lens.
++ */
++/dts-v1/;
++/plugin/;
++
++&{/firmware/power-management/pmic-2} {
++	status = "okay";
++};
++
++&{/firmware/power-management/pmic-2/regulators/ldo12s} {
++	status = "okay";
++};
++
++&{/regulator-pp3200-bb-cam} {
++	status = "okay";
++};
++
++&{/regulator-pp1300-cam} {
++	status = "okay";
++};
++
++&{/soc@0/usi@109700c0/i2c@10970000/pmic@75} {
++	status = "okay";
++};
++
++&{/soc@0/usi@109300c0} {
++	status = "okay";
++};
++
++&{/soc@0/usi@109300c0/i2c@10930000} {
++	status = "okay";
++};
++
++&{/soc@0/usi@109300c0/i2c@10930000/lens@34} {
++	status = "okay";
++};
++
++&{/soc@0/usi@109300c0/i2c@10930000/camera-sensor@2d} {
++	lens-focus = <&tele_lens>;
++	status = "okay";
++};
++
++&{/soc@0/phy@1a4f0000} {
++	status = "okay";
++};
++
++&{/soc@0/csis@1a480000} {
++	status = "okay";
++};
+diff --git a/arch/arm64/boot/dts/exynos/google/gs201-cheetah-camera-uw-lens.dtso b/arch/arm64/boot/dts/exynos/google/gs201-cheetah-camera-uw-lens.dtso
+new file mode 100644
+index 000000000..5394cf0df
+--- /dev/null
++++ b/arch/arm64/boot/dts/exynos/google/gs201-cheetah-camera-uw-lens.dtso
+@@ -0,0 +1,18 @@
++// SPDX-License-Identifier: MIT
++/*
++ * Bring-up only (CAMERA-PLAN.md, stage CAM5.3): the ultrawide's AK7375-type
++ * focus actuator at 0x0f, linked to the IMX386 (lens-focus) so libcamera
++ * finds it. Apply on top of camera-stream-link2. ak7375 is blacklisted like
++ * the other camera drivers and must be loaded with them: with lens-focus
++ * set, the media graph waits for the lens.
++ */
++/dts-v1/;
++/plugin/;
++
++&{/soc@0/usi@109200c0/i2c@10920000/lens@f} {
++	status = "okay";
++};
++
++&{/soc@0/usi@109200c0/i2c@10920000/camera-sensor@1a} {
++	lens-focus = <&uw_vcm>;
++};
+diff --git a/arch/arm64/boot/dts/exynos/google/gs201-cheetah-fingerprint-sensor.dtso b/arch/arm64/boot/dts/exynos/google/gs201-cheetah-fingerprint-sensor.dtso
+new file mode 100644
+index 000000000..57f11a49a
+--- /dev/null
++++ b/arch/arm64/boot/dts/exynos/google/gs201-cheetah-fingerprint-sensor.dtso
+@@ -0,0 +1,20 @@
++// SPDX-License-Identifier: MIT
++/*
++ * Bring-up only (FINGERPRINT-PLAN.md, gate F6): enable the sub-PMIC (for
++ * the sensor's supply, S2MPG13 LDO15S) and the Goodix sensor node. Apply
++ * on top of aoc-core-test.dtso or fingerprint-trusty.dtso (Trusty). The
++ * PERIC0 pin controller (the sensor's reset line, gpp1-1) is already on in
++ * the default DTB. goodix_fp stays blacklisted from autoload
++ * (omamobile-fingerprint.conf). Paths, not labels, so the base DTB needs
++ * no __symbols__.
++ */
++/dts-v1/;
++/plugin/;
++
++&{/firmware/power-management/pmic-2} {
++	status = "okay";
++};
++
++&{/fingerprint} {
++	status = "okay";
++};
+diff --git a/arch/arm64/boot/dts/exynos/google/gs201-cheetah-gnss-pmic.dtso b/arch/arm64/boot/dts/exynos/google/gs201-cheetah-gnss-pmic.dtso
+new file mode 100644
+index 000000000..0d762b663
+--- /dev/null
++++ b/arch/arm64/boot/dts/exynos/google/gs201-cheetah-gnss-pmic.dtso
+@@ -0,0 +1,15 @@
++// SPDX-License-Identifier: MIT
++/*
++ * Bring-up only (GNSS-PLAN.md, stage G1): turn on the S2MPG13 sub-PMIC node,
++ * for its LDOs. Only LDO9S-LDO11S (the GNSS rails) are described, with the
++ * stock voltage ranges, so registering them changes nothing; the regmap only
++ * allows writes to the LDO control registers. Nothing consumes the rails in
++ * this stage. Applied to the built gs201-cheetah.dtb with fdtoverlay. Paths,
++ * not labels, so the base DTB needs no __symbols__.
++ */
++/dts-v1/;
++/plugin/;
++
++&{/firmware/power-management/pmic-2} {
++	status = "okay";
++};
+diff --git a/arch/arm64/boot/dts/exynos/google/gs201-cheetah-gnss.dtso b/arch/arm64/boot/dts/exynos/google/gs201-cheetah-gnss.dtso
+new file mode 100644
+index 000000000..bd691d307
+--- /dev/null
++++ b/arch/arm64/boot/dts/exynos/google/gs201-cheetah-gnss.dtso
+@@ -0,0 +1,20 @@
++// SPDX-License-Identifier: MIT
++/*
++ * Bring-up only (GNSS-PLAN.md, stages G2-G5): turn on PERIC0 USI5 in SPI mode
++ * and its SPI controller, so the BCM4775x GNSS node binds (bcm4775x-gnss,
++ * blacklisted from autoload: load it by hand or through
++ * omamobile-gnss-start). Needs gnss-pmic-test too: the node's supplies are
++ * the S2MPG13 LDO9S-LDO11S. The driver keeps the chip in standby and its
++ * rails off until /dev/ttyBCM is opened. Applied with fdtoverlay; paths, not
++ * labels.
++ */
++/dts-v1/;
++/plugin/;
++
++&{/soc@0/usi@109400c0} {
++	status = "okay";
++};
++
++&{/soc@0/usi@109400c0/spi@10940000} {
++	status = "okay";
++};
+diff --git a/arch/arm64/boot/dts/exynos/google/gs201-cheetah-modem-cpif-pktproc.dtso b/arch/arm64/boot/dts/exynos/google/gs201-cheetah-modem-cpif-pktproc.dtso
+new file mode 100644
+index 000000000..77a9789f0
+--- /dev/null
++++ b/arch/arm64/boot/dts/exynos/google/gs201-cheetah-modem-cpif-pktproc.dtso
+@@ -0,0 +1,52 @@
++// SPDX-License-Identifier: MIT
++/*
++ * Bring-up only (MODEM-PLAN.md 6.3): the S5300's packet processor, on top
++ * of modem-cpif-test (apply it after that overlay, never alone). Stock's
++ * cpif node values: four downlink queues in the PKTPROC region, each on its
++ * own MSI block (1-4) of the modem's PCIe link, and two uplink queues (one
++ * for TCP ACKs only) in PKTPROC_UL; all three parts of both cached, the link
++ * being I/O coherent.
++ *
++ * Needs a kernel with CONFIG_CP_PKTPROC and CONFIG_CP_PKTPROC_UL; without
++ * this overlay such a kernel runs the modem on the legacy buffers.
++ */
++/dts-v1/;
++/plugin/;
++
++&{/cpif} {
++	pktproc_cp_base = <0x0 0x20000000>;
++
++	pktproc_dl_support = <1>;
++	pktproc_dl_version = <2>;
++	pktproc_dl_info_rgn_offset = <0x0>;
++	pktproc_dl_info_rgn_size = <0x1000>;
++	pktproc_dl_desc_rgn_offset = <0x1000>;
++	pktproc_dl_desc_rgn_size = <0xff000>;
++	pktproc_dl_buff_rgn_offset = <0x100000>;
++	pktproc_dl_buff_rgn_size = <0x1b00000>;
++	pktproc_dl_info_rgn_cached = <1>;
++	pktproc_dl_desc_rgn_cached = <1>;
++	pktproc_dl_buff_rgn_cached = <1>;
++	pktproc_dl_desc_mode = <1>;
++	pktproc_dl_num_queue = <4>;
++	pktproc_dl_use_exclusive_irq = <1>;
++	pktproc_dl_use_hw_iocc = <1>;
++	pktproc_dl_max_packet_size = <0x630>;
++	pktproc_dl_use_dedicated_baaw = <0>;
++
++	pktproc_ul_support = <1>;
++	pktproc_ul_info_rgn_offset = <0x1c00000>;
++	pktproc_ul_info_rgn_size = <0x1000>;
++	pktproc_ul_desc_rgn_offset = <0x1c01000>;
++	pktproc_ul_desc_rgn_size = <0x8f000>;
++	pktproc_ul_buff_rgn_offset = <0x1c90000>;
++	pktproc_ul_buff_rgn_size = <0x370000>;
++	pktproc_ul_padding_required = <1>;
++	pktproc_ul_num_queue = <2>;
++	pktproc_ul_max_packet_size = <0x800>;
++	pktproc_ul_hiprio_ack_only = <1>;
++	pktproc_ul_info_rgn_cached = <1>;
++	pktproc_ul_desc_rgn_cached = <1>;
++	pktproc_ul_buff_rgn_cached = <1>;
++	pktproc_ul_use_hw_iocc = <1>;
++};
+diff --git a/arch/arm64/boot/dts/exynos/google/gs201-cheetah-modem-cpif.dtso b/arch/arm64/boot/dts/exynos/google/gs201-cheetah-modem-cpif.dtso
+new file mode 100644
+index 000000000..bbe2183ef
+--- /dev/null
++++ b/arch/arm64/boot/dts/exynos/google/gs201-cheetah-modem-cpif.dtso
+@@ -0,0 +1,299 @@
++// SPDX-License-Identifier: MIT
++/*
++ * Bring-up only (MODEM-PLAN.md, stage M3.3): Google's modem interface driver
++ * (CPIF, ported) on the S5300. Turns on the HSI1 pin controller, PCIe
++ * GEN4A_0 and its PHY as modem-link-test does, and adds CPIF's two nodes
++ * from stock's cpif and cp_shmem nodes, without what the port leaves out
++ * (packet processor, throughput monitor, SPI boot, the AoC voice window).
++ *
++ * The modem's lines and shared memory stay described in the board's modem
++ * node under the PCIe link. This overlay disables that node for the link
++ * driver (pcie-gs201-cp then has no cp_on/cp_off and leaves the lines
++ * alone), and CPIF takes the lines and the memory from it. Use it instead
++ * of modem-link-test, never with it.
++ *
++ * Binding CPIF powers nothing: it drives the ap2cp outputs low (they are
++ * low already, M0.4) and waits for cbd. cpif and shm_ipc are blacklisted
++ * (omamobile-cpif.conf). Applied with fdtoverlay; paths, not labels, and no
++ * references to base nodes, so the base DTB needs no __symbols__.
++ */
++/dts-v1/;
++/plugin/;
++
++&{/soc@0/pinctrl@11840000} {
++	status = "okay";
++};
++
++&{/soc@0/pcie@11920000} {
++	status = "okay";
++};
++
++&{/soc@0/pcie@11920000/modem} {
++	status = "disabled";
++};
++
++&{/soc@0/phy@11950000} {
++	status = "okay";
++};
++
++&{/} {
++	cp-shmem {
++		compatible = "samsung,exynos-cp-shmem";
++		cp_num = <0>;
++		use_mem_map_on_cp = <0>;
++
++		/* region,rmem: the modem node's memory-region entries */
++		regions {
++			ipc {
++				region,name = "IPC";
++				region,index = <3>;
++				region,rmem = <0>;
++				region,offset = <0>;
++				region,size = <0x800000>;
++				region,cached = <1>;
++			};
++
++			msi {
++				region,name = "MSI";
++				region,index = <11>;
++				region,rmem = <1>;
++				region,offset = <0>;
++				region,size = <0x1000>;
++				region,cached = <0>;
++			};
++
++			pktproc {
++				region,name = "PKTPROC";
++				region,index = <7>;
++				region,rmem = <2>;
++				region,offset = <0>;
++				region,size = <0x1c00000>;
++			};
++
++			pktproc-ul {
++				region,name = "PKTPROC_UL";
++				region,index = <8>;
++				region,rmem = <2>;
++				region,offset = <0x1c00000>;
++				region,size = <0x400000>;
++			};
++		};
++	};
++
++	cpif {
++		compatible = "samsung,exynos-cp";
++		pci_ch_num = <0>;
++		pci_db_addr = <0x14e60000>;
++		mif,name = "s5300";
++		mif,cp_num = <0>;
++		mif,modem_type = <1>;
++		mif,protocol = <1>;
++		mif,ipc_version = <0x32>;
++		mif,link_type = <1>;
++		mif,link_name = "PCIE";
++		mif,link_attrs = <0x17c8>;
++		mif,interrupt_types = <1>;
++		mif,capability_check = <1>;
++		mif,int_ap2cp_msg = <0>;
++		mif,int_ap2cp_wakeup = <1>;
++		mif,int_ap2cp_status = <2>;
++		mif,int_ap2cp_active = <3>;
++		mif,int_ap2cp_lcd_status = <4>;
++		mif,int_ap2cp_pcie_link_ack = <14>;
++		mif,int_ap2cp_uart_noti = <15>;
++		mif,irq_cp2ap_msg = <0>;
++		mif,irq_cp2ap_status = <2>;
++		mif,irq_cp2ap_active = <3>;
++		mif,irq_cp2ap_wakelock = <8>;
++		mif,irq_cp2ap_ratmode = <9>;
++		mif,cp2ap_active_not_alive = <0>;
++		legacy_fmt_head_tail_offset = <0x8>;
++		legacy_fmt_buffer_offset = <0x1000>;
++		legacy_fmt_txq_size = <0x1000>;
++		legacy_fmt_rxq_size = <0x1000>;
++		legacy_raw_head_tail_offset = <0x18>;
++		legacy_raw_buffer_offset = <0x3000>;
++		legacy_raw_txq_size = <0x1fd000>;
++		legacy_raw_rxq_size = <0x200000>;
++		legacy_raw_rx_buffer_cached = <0>;
++		offset_srinfo_offset = <0x64>;
++		offset_capability_offset = <0x70>;
++		offset_boot_indicator = <0x90>;
++		srinfo_offset = <0x400000>;
++		srinfo_size = <0x300000>;
++		capability_offset = <0xa0>;
++		ap_capability_0 = <0>;
++		ap_capability_1 = <0>;
++		ap2cp_msg = <2 0x800>;
++		cp2ap_msg = <2 0x804>;
++		ap2cp_united_status = <2 0x808>;
++		cp2ap_united_status = <2 0x80c>;
++		ap2cp_kerneltime = <2 0x824>;
++		ap2cp_handover_block_info = <2 0x82c>;
++		sbi_lcd_status_mask = <0x1>;
++		sbi_lcd_status_pos = <27>;
++		sbi_crash_type_mask = <0xf>;
++		sbi_crash_type_pos = <23>;
++		sbi_uart_noti_mask = <0x1>;
++		sbi_uart_noti_pos = <16>;
++		sbi_ds_det_mask = <0x3>;
++		sbi_ds_det_pos = <14>;
++		sbi_pda_active_mask = <0x1>;
++		sbi_pda_active_pos = <5>;
++		sbi_ap_status_mask = <0xf>;
++		sbi_ap_status_pos = <1>;
++		sbi_cp_rat_mode_mask = <0x3f>;
++		sbi_cp_rat_mode_pos = <26>;
++		sbi_cp2ap_wakelock_mask = <0x1>;
++		sbi_cp2ap_wakelock_pos = <6>;
++		sbi_lte_active_mask = <0x1>;
++		sbi_lte_active_pos = <5>;
++		sbi_cp_status_mask = <0xf>;
++		sbi_cp_status_pos = <1>;
++		sbi_ap2cp_kerneltime_sec_mask = <0xfff>;
++		sbi_ap2cp_kerneltime_sec_pos = <20>;
++		sbi_ap2cp_kerneltime_usec_mask = <0xfffff>;
++		sbi_ap2cp_kerneltime_usec_pos = <0>;
++		pktproc_use_36bit_addr = <0>;
++
++		iodevs {
++			io_device_0 {
++				iod,name = "umts_ipc";
++				iod,ch = <0xf5>;
++				iod,format = <0>;
++				iod,io_type = <1>;
++				iod,link_type = <1>;
++				iod,attrs = <0x2000>;
++				iod,ch_count = <2>;
++			};
++
++			io_device_1 {
++				iod,name = "umts_rfs0";
++				iod,ch = <0x29>;
++				iod,format = <1>;
++				iod,io_type = <1>;
++				iod,link_type = <1>;
++				iod,attrs = <0>;
++			};
++
++			io_device_2 {
++				iod,name = "umts_router";
++				iod,ch = <0x15>;
++				iod,format = <1>;
++				iod,io_type = <1>;
++				iod,link_type = <1>;
++				iod,attrs = <0>;
++			};
++
++			io_device_3 {
++				iod,name = "umts_dm0";
++				iod,ch = <0x51>;
++				iod,format = <1>;
++				iod,io_type = <1>;
++				iod,link_type = <1>;
++				iod,attrs = <0x4000>;
++			};
++
++			io_device_4 {
++				iod,name = "umts_loopback";
++				iod,ch = <0x52>;
++				iod,format = <1>;
++				iod,io_type = <1>;
++				iod,link_type = <1>;
++				iod,attrs = <0>;
++			};
++
++			io_device_5 {
++				iod,name = "rmnet";
++				iod,ch = <0xb5>;
++				iod,format = <1>;
++				iod,io_type = <2>;
++				iod,link_type = <1>;
++				iod,attrs = <0x2000>;
++				iod,ch_count = <30>;
++			};
++
++			io_device_6 {
++				iod,name = "umts_dummy";
++				iod,ch = <0xd3>;
++				iod,format = <1>;
++				iod,io_type = <2>;
++				iod,link_type = <1>;
++				iod,attrs = <0>;
++			};
++
++			io_device_7 {
++				iod,name = "multipdp";
++				iod,ch = <0>;
++				iod,format = <3>;
++				iod,io_type = <3>;
++				iod,link_type = <1>;
++				iod,attrs = <0>;
++			};
++
++			io_device_8 {
++				iod,name = "umts_boot0";
++				iod,ch = <0xf1>;
++				iod,format = <4>;
++				iod,io_type = <0>;
++				iod,link_type = <1>;
++				iod,attrs = <0x200>;
++			};
++
++			io_device_9 {
++				iod,name = "umts_rcs0";
++				iod,ch = <0x5b>;
++				iod,format = <0>;
++				iod,io_type = <1>;
++				iod,link_type = <1>;
++				iod,attrs = <0>;
++			};
++
++			io_device_10 {
++				iod,name = "umts_rcs1";
++				iod,ch = <0x5c>;
++				iod,format = <1>;
++				iod,io_type = <1>;
++				iod,link_type = <1>;
++				iod,attrs = <0>;
++			};
++
++			io_device_11 {
++				iod,name = "umts_wfc0";
++				iod,ch = <0x5d>;
++				iod,format = <0>;
++				iod,io_type = <1>;
++				iod,link_type = <1>;
++				iod,attrs = <0>;
++			};
++
++			io_device_12 {
++				iod,name = "umts_wfc1";
++				iod,ch = <0x5e>;
++				iod,format = <1>;
++				iod,io_type = <1>;
++				iod,link_type = <1>;
++				iod,attrs = <0>;
++			};
++
++			io_device_13 {
++				iod,name = "oem_ipc";
++				iod,ch = <0x81>;
++				iod,format = <0>;
++				iod,io_type = <1>;
++				iod,link_type = <1>;
++				iod,attrs = <0x2000>;
++				iod,ch_count = <8>;
++			};
++
++			io_device_14 {
++				iod,name = "oem_test";
++				iod,ch = <0x89>;
++				iod,format = <1>;
++				iod,io_type = <1>;
++				iod,link_type = <1>;
++				iod,attrs = <0>;
++			};
++		};
++	};
++};
+diff --git a/arch/arm64/boot/dts/exynos/google/gs201-cheetah-nfc.dtso b/arch/arm64/boot/dts/exynos/google/gs201-cheetah-nfc.dtso
+new file mode 100644
+index 000000000..573c526b3
+--- /dev/null
++++ b/arch/arm64/boot/dts/exynos/google/gs201-cheetah-nfc.dtso
+@@ -0,0 +1,21 @@
++// SPDX-License-Identifier: MIT
++/*
++ * Bring-up only (RADIOS-CAMERA-PLAN.md section 3, stage N2): turn on the HSI1
++ * pin controller (the NFC reset line is gph1-5) and the ST54J's NFC
++ * controller node at 0x08 on I2C 8, so st-nci can bind. st_nci_i2c is
++ * blacklisted (omamobile-nfc.conf) and the runbook loads it by hand. The
++ * node's reference clock (the PMU's CLKOUT1 pad) is in the base DT and is
++ * only switched on while the controller is powered up. The eSE side of the
++ * chip is not described and is never touched. Applied with fdtoverlay;
++ * paths, not labels.
++ */
++/dts-v1/;
++/plugin/;
++
++&{/soc@0/pinctrl@11840000} {
++	status = "okay";
++};
++
++&{/soc@0/usi@109700c0/i2c@10970000/nfc@8} {
++	status = "okay";
++};
+diff --git a/arch/arm64/boot/dts/exynos/google/gs201-cheetah-suspend-pmic.dtso b/arch/arm64/boot/dts/exynos/google/gs201-cheetah-suspend-pmic.dtso
+new file mode 100644
+index 000000000..814bbbcbb
+--- /dev/null
++++ b/arch/arm64/boot/dts/exynos/google/gs201-cheetah-suspend-pmic.dtso
+@@ -0,0 +1,14 @@
++// SPDX-License-Identifier: MIT
++/*
++ * Bring-up only (SUSPEND-PLAN.md, stage S3): turn on the S2MPG12 main PMIC
++ * node, for its RTC (the wake-up timer of the suspend tests). The driver only
++ * touches the RTC and the PMIC's interrupt masks. Applied to the built
++ * gs201-cheetah.dtb with fdtoverlay. Paths, not labels, so the base DTB
++ * needs no __symbols__.
++ */
++/dts-v1/;
++/plugin/;
++
++&{/firmware/power-management/pmic-1} {
++	status = "okay";
++};
