@@ -166,7 +166,7 @@ func espHasLoader(dev string) bool {
 		return false
 	}
 	defer run("umount", mnt)
-	_, err = os.Stat(filepath.Join(mnt, "EFI", "BOOT", "BOOTX64.EFI"))
+	_, err = os.Stat(filepath.Join(mnt, "EFI", "BOOT", loaderFileName(machineArch())))
 	return err == nil
 }
 
@@ -263,17 +263,28 @@ func mibOfDev(dev string) (int64, error) {
 }
 
 func main() {
-	if os.Geteuid() != 0 {
-		fmt.Fprintln(os.Stderr, "atom-install: must run as root")
-		os.Exit(1)
+	args := os.Args[1:]
+	planOnly := len(args) > 0 && args[0] == "--plan"
+	if planOnly {
+		args = args[1:]
 	}
-	key, from, dev, err := parseArgs(os.Args[1:])
+	key, from, dev, err := parseArgs(args)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "usage: atom-install [--key [--from DIR]] /dev/DISK")
+		fmt.Fprintln(os.Stderr, "usage: atom-install [--plan] [--key [--from DIR]] /dev/DISK")
 		os.Exit(1)
 	}
 	if fi, err := os.Stat(dev); err != nil || fi.Mode()&os.ModeDevice == 0 {
 		fmt.Fprintf(os.Stderr, "atom-install: %s is not a block device\n", dev)
+		os.Exit(1)
+	}
+	if planOnly {
+		pl, _, err := planFor(dev, key)
+		die(err)
+		die(json.NewEncoder(os.Stdout).Encode(pl))
+		return
+	}
+	if os.Geteuid() != 0 {
+		fmt.Fprintln(os.Stderr, "atom-install: must run as root")
 		os.Exit(1)
 	}
 
@@ -298,13 +309,8 @@ func main() {
 	installID, err := newInstallID()
 	die(err)
 
-	// partition
-	sf := exec.Command("sfdisk", dev)
-	sf.Stdin = strings.NewReader(partitionTable(espMB))
-	if out, e := sf.CombinedOutput(); e != nil {
-		die(fmt.Errorf("sfdisk: %w: %s", e, out))
-	}
-	_ = run("partprobe", dev)
+	target, err := prepareDisk(dev, espMB, key)
+	die(err)
 
 	for _, src := range sources {
 		n, err := sizeOf(src)
@@ -313,14 +319,14 @@ func main() {
 	}
 	copied.add(0)
 	if from != "" {
-		die(buildESP(partName(dev, 1), rel))
+		die(buildESP(target.ESP, rel))
 	} else {
-		die(copyData(esp, partName(dev, 1)))
+		die(copyData(esp, target.ESP))
 	}
-	die(setupData(partName(dev, 2), erofs, hash, esp, installID, key, wal))
-	die(activateInstalledKernelcache(partName(dev, 1), installID))
+	die(setupData(target.Data, erofs, hash, esp, installID, key, wal))
+	die(activateInstalledKernelcache(target.ESP, installID))
 	if !key {
-		setUEFIEntry(dev) // best-effort
+		setUEFIEntry(dev, target.ESPNum) // best-effort
 	}
 
 	fmt.Printf("atom-install: %s provisioned\n", dev)
@@ -514,11 +520,11 @@ func checkData(mnt, erofs, hash string) error {
 
 // setUEFIEntry points the firmware at the internal disk so a leftover install USB does
 // not boot the live image. Best-effort: efivars may be read-only.
-func setUEFIEntry(disk string) {
+func setUEFIEntry(disk string, espNum int) {
 	if _, err := os.Stat("/sys/firmware/efi"); err != nil {
 		return
 	}
-	_ = run("efibootmgr", "-c", "-d", disk, "-p", "1", "-L", "Singularity", "-l", `\EFI\BOOT\BOOTX64.EFI`)
+	_ = run("efibootmgr", "-c", "-d", disk, "-p", strconv.Itoa(espNum), "-L", "Singularity", "-l", `\EFI\BOOT\`+loaderFileName(machineArch()))
 }
 
 func die(err error) {
