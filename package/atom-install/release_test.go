@@ -186,3 +186,43 @@ func TestCopyAnchor(t *testing.T) {
 		t.Fatalf("release dir not used: %q", b)
 	}
 }
+
+func TestStageDataForAPhone(t *testing.T) {
+	dir := fakeRelease(t, "aarch64")
+	os.WriteFile(filepath.Join(dir, "manifest.json.sig"), []byte("sig"), 0o644)
+	rel, err := readRelease(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sysroot := t.TempDir()
+	os.MkdirAll(filepath.Join(sysroot, "etc/greetd"), 0o755)
+	os.WriteFile(filepath.Join(sysroot, "etc/greetd/config.toml"), []byte("[default_session]\ncommand = \"x\"\n"), 0o644)
+	out := t.TempDir()
+	if err := stageData(out, rel, sysroot); err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range []string{
+		"boot/rootfs/rootfs-active.erofs", "boot/rootfs/rootfs-active.hash",
+		"boot/rootfs/deployment.json", "boot/rootfs/deployment.json.bak",
+		"boot/rootfs/release/v9/manifest.json", "boot/rootfs/release/v9/signing-cert.json.sig",
+		"boot/efi/EFI/atom/boot-state", "boot/efi/EFI/atom/deployment.json",
+		"etc-upper/greetd/config.toml", ".atom-var", ".atom-install-id",
+	} {
+		if _, err := os.Stat(filepath.Join(out, f)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var d struct {
+		RootFS struct{ Current string } `json:"rootfs"`
+	}
+	b, _ := os.ReadFile(filepath.Join(out, "boot/rootfs/deployment.json"))
+	if json.Unmarshal(b, &d) != nil || d.RootFS.Current != "v9" {
+		t.Fatalf("deployment %s", b)
+	}
+
+	unsigned := fakeRelease(t, "aarch64")
+	rel, _ = readRelease(unsigned)
+	if err := stageData(t.TempDir(), rel, sysroot); err == nil || !strings.Contains(err.Error(), "anchor") {
+		t.Fatalf("a release without its signed anchor must be refused, got %v", err)
+	}
+}

@@ -264,6 +264,17 @@ func mibOfDev(dev string) (int64, error) {
 
 func main() {
 	args := os.Args[1:]
+	if len(args) > 0 && args[0] == "--data-dir" {
+		if len(args) != 6 || args[2] != "--from" || args[4] != "--sysroot" {
+			fmt.Fprintln(os.Stderr, "usage: atom-install --data-dir DIR --from RELEASE --sysroot ROOT")
+			os.Exit(1)
+		}
+		rel, err := readRelease(args[3])
+		die(err)
+		die(stageData(args[1], rel, args[5]))
+		fmt.Printf("atom-install: data for %s staged in %s\n", rel.version, args[1])
+		return
+	}
 	planOnly := len(args) > 0 && args[0] == "--plan"
 	if planOnly {
 		args = args[1:]
@@ -436,7 +447,17 @@ func setupData(part, erofs, hash, esp, installID string, key bool, wal []byte) (
 			err = rerr
 		}
 	}()
+	if err := populateData(mnt, erofs, hash, esp, installID, key, wal, liveGreetdConfig); err != nil {
+		return err
+	}
+	if err := run("sync", "-f", mnt); err != nil {
+		return err
+	}
+	return checkData(mnt, erofs, hash)
+}
 
+// populateData lays out the data partition mounted, or staged, at mnt.
+func populateData(mnt, erofs, hash, esp, installID string, key bool, wal []byte, greetd string) error {
 	for _, d := range []string{
 		"boot/rootfs", "boot/efi", "boot/firmware",
 		"home", "etc-upper", "etc-work", "lib", "log", "cache", "spool", "tmp", "run",
@@ -480,17 +501,41 @@ func setupData(part, erofs, hash, esp, installID string, key bool, wal []byte) (
 	if err := os.MkdirAll(gd, 0o755); err != nil {
 		return err
 	}
-	live, err := os.ReadFile(liveGreetdConfig)
+	live, err := os.ReadFile(greetd)
 	if err != nil {
 		return fmt.Errorf("read the live greetd config: %w", err)
 	}
-	if err := os.WriteFile(filepath.Join(gd, "config.toml"), []byte(installedGreetdConfig(string(live))), 0o644); err != nil {
+	return os.WriteFile(filepath.Join(gd, "config.toml"), []byte(installedGreetdConfig(string(live))), 0o644)
+}
+
+// stageData writes the data partition of a device without an ESP into dir,
+// for a data image that is flashed instead of installed: the root slot, its
+// signed anchor, and the boot-state an anchor boot reads where an ESP would
+// keep it.
+func stageData(dir string, rel releaseDir, sysroot string) error {
+	installID, err := newInstallID()
+	if err != nil {
 		return err
 	}
-	if err := run("sync", "-f", mnt); err != nil {
+	anchorSource = rel.dir
+	wal := deploymentWAL(rel.version, rel.recovery)
+	if err := populateData(dir, rel.erofs(), rel.hash(), "", installID, false, wal, filepath.Join(sysroot, liveGreetdConfig)); err != nil {
 		return err
 	}
-	return checkData(mnt, erofs, hash)
+	if !fileExists(filepath.Join(dir, "boot/rootfs/release", rel.version, "manifest.json")) {
+		return fmt.Errorf("release %s carries no signed anchor", rel.version)
+	}
+	state := filepath.Join(dir, "boot/efi/EFI/atom")
+	if err := os.MkdirAll(state, 0o755); err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(state, "boot-state"), []byte("target=active\ntrial=0\nattempts=0\n"), 0o644); err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(state, "deployment.json"), wal, 0o644); err != nil {
+		return err
+	}
+	return checkData(dir, rel.erofs(), rel.hash())
 }
 
 // checkData checks that the root image, its hash and the installed-system marker
