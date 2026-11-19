@@ -2,3 +2,5 @@
 ACTION=="add", SUBSYSTEM=="platform", KERNEL=="28000000.gpu", ATTR{power/control}="on"
 # DEVICE-FIX(gs201): without the cap devfreq can raise the Mali-G710 above the 572 MHz the clock driver is limited to
 ACTION=="add", SUBSYSTEM=="devfreq", KERNEL=="28000000.gpu", ATTR{max_freq}="572000000"
+# DEVICE-FIX(gs201): the stock speaker protection firmware does not wake from DSP hibernation, so the amplifiers must never runtime suspend
+ACTION=="bind", SUBSYSTEM=="spi", DRIVER=="cs35l41", ATTR{power/control}="on"

@@ -1,0 +1,17 @@
+config BR2_PACKAGE_OMAMOBILE_AUDIO
+	bool "omamobile-audio"
+	depends on BR2_PACKAGE_BASH
+	depends on BR2_PACKAGE_PYTHON3
+	select BR2_PACKAGE_ALSA_UTILS
+	select BR2_PACKAGE_ALSA_UTILS_AMIXER
+	select BR2_PACKAGE_ALSA_UTILS_ALSAUCM
+	select BR2_PACKAGE_E2FSPROGS
+	select BR2_PACKAGE_E2FSPROGS_DEBUGFS
+	help
+	  Speaker protection, UCM2 profiles and WirePlumber rules for the
+	  Google Tensor AoC sound card, from Omarchy Mobile. The protection
+	  service loads the Cirrus amplifier firmware with the factory
+	  calibration before it ever unmutes the speakers, and its watchdog
+	  mutes them again if the protection stops.
+
+	  https://github.com/derekross/omarchy-mobile

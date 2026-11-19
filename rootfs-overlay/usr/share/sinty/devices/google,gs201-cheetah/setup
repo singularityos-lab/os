@@ -1,10 +1,78 @@
 #!/bin/sh
-# DEVICE-FIX(gs201): coldplug never loads the Wi-Fi PHY, so the PCIe controller and brcmfmac find no BCM4389 unless they are loaded in this order
-modprobe phy-gs201-pcie
-modprobe pcie_gs201
-n=0
-while [ "$n" -lt 50 ] && [ -z "$(ls /sys/bus/pci/devices 2>/dev/null)" ]; do
-	sleep 0.1
-	n=$((n + 1))
-done
-modprobe brcmfmac
+STATE=/var/lib/sinty/device
+AOC=/sys/bus/platform/devices/181d0000.aoc
+
+log() { echo "gs201-cheetah: $*"; }
+
+guarded() {
+	marker="$STATE/$1-started"
+	if [ -e "$marker" ]; then
+		log "$1 bring-up of $(cat "$marker" 2>/dev/null) never finished; left off this boot (rm $marker to retry)"
+		return 1
+	fi
+	mkdir -p "$STATE"
+	date -Iseconds > "$marker"
+	sync
+}
+
+finished() {
+	rm -f "$STATE/$1-started"
+	sync
+}
+
+wait_for() {
+	n=0
+	while [ "$n" -lt "$2" ]; do
+		eval "$1" && return 0
+		sleep 0.2
+		n=$((n + 1))
+	done
+	return 1
+}
+
+wifi() {
+	guarded wifi || return 0
+	# DEVICE-FIX(gs201): coldplug never loads the Wi-Fi PHY, so the PCIe controller and brcmfmac find no BCM4389 unless they are loaded in this order
+	modprobe phy-gs201-pcie && modprobe pcie_gs201 || { log "Wi-Fi PCIe link failed"; finished wifi; return 1; }
+	wait_for '[ -n "$(ls /sys/bus/pci/devices 2>/dev/null)" ]' 25 || log "no PCIe device after 5 s"
+	modprobe brcmfmac || log "brcmfmac failed"
+	finished wifi
+}
+
+aoc() {
+	[ -e "$AOC" ] || return 0
+	if grep -q '^Services : [1-9]' "$AOC/services" 2>/dev/null; then
+		return 0
+	fi
+	[ -e /run/sinty/aoc-firmware-loaded ] && { log "AoC already started this boot"; return 1; }
+	grep -q okay /proc/device-tree/trusty/status 2>/dev/null || { log "Trusty is off in this DTB"; return 1; }
+	fw=
+	for d in /usr/lib/firmware/updates /usr/lib/firmware; do
+		[ -e "$d/aoc.bin" ] && fw=$d/aoc.bin && break
+	done
+	[ -n "$fw" ] || { log "no aoc.bin: the gs201-cheetah firmware bundle is not installed"; return 1; }
+	guarded aoc || return 0
+	# DEVICE-FIX(gs201): the AoC only boots through Trusty, the GSA and its rails in the stock order; any other order hangs the phone
+	for m in trusty_core trusty_log trusty_ipc trusty_virtio; do
+		modprobe "$m" || { log "$m failed"; finished aoc; return 1; }
+	done
+	wait_for '[ -c /dev/trusty-ipc-dev0 ]' 50 || { log "no /dev/trusty-ipc-dev0"; finished aoc; return 1; }
+	modprobe gsa || { log "gsa failed"; finished aoc; return 1; }
+	modprobe gs201_aoc_rails enable=1 cycle=1 || { log "AoC rails failed"; finished aoc; return 1; }
+	rmmod gs201_aoc_rails 2>/dev/null
+	for m in gs201_aoc_sysmmu mailbox_wc aoc_core aoc_channel_dev aoc_alsa_dev aoc_char_dev; do
+		modprobe "$m" || { log "$m failed"; finished aoc; return 1; }
+	done
+	[ -w "$AOC/firmware" ] || { log "the AoC core did not bind"; finished aoc; return 1; }
+	mkdir -p /run/sinty && date -Iseconds > /run/sinty/aoc-firmware-loaded
+	echo aoc.bin > "$AOC/firmware" || { log "AoC firmware request failed"; finished aoc; return 1; }
+	if wait_for 'grep -q "^Services : [1-9]" "$AOC/services" 2>/dev/null' 75; then
+		log "AoC up: $(head -1 "$AOC/services")"
+	else
+		log "no AoC services after 15 s"
+	fi
+	finished aoc
+}
+
+wifi
+aoc
