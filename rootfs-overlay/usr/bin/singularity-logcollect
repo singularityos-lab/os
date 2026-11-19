@@ -82,7 +82,7 @@ while :; do
             echo "== $f =="; tail -n 300 "$f"
         done
         echo; echo "### runtime logs"
-        for f in /run/singularity/*.log /run/user/*/*.log /run/atom/boot.log /var/log/messages; do
+        for f in /run/singularity/*.log /run/user/*/*.log /run/atom/boot.log /run/atom-firstboot.log /var/log/messages; do
             [ -f "$f" ] || continue
             echo "== $f =="; tail -n 300 "$f"
         done
@@ -107,6 +107,17 @@ while :; do
         echo "-- modinfo iwlwifi firmware --"; modinfo iwlwifi 2>/dev/null | grep -i firmware
         echo "-- /lib/firmware/iwlwifi* present --"; ls -1 /lib/firmware/iwlwifi* 2>/dev/null
         echo "-- dmesg iwlwifi/firmware lines --"; dmesg 2>/dev/null | grep -iE "iwlwifi|firmware|wlan|cfg80211|rndis|cdc_ether|cdc_ncm|usb.*net"
+        if [ -d /sys/class/remoteproc ]; then
+            echo; echo "### REMOTEPROC/QRTR DIAG"
+            for r in /sys/class/remoteproc/*; do
+                [ -e "$r/name" ] || continue
+                echo "${r##*/} name=$(cat "$r/name" 2>/dev/null) state=$(cat "$r/state" 2>/dev/null) firmware=$(cat "$r/firmware" 2>/dev/null)"
+            done
+            echo "-- rmtfs devices --"; ls -l /dev/qcom_rmtfs_mem* /sys/class/rmtfs 2>&1
+            echo "-- modem partitions --"; ls -l /dev/disk/by-partlabel 2>/dev/null | grep -iE "modemst|fsg|fsc"
+            echo "-- qcom modules --"; lsmod 2>/dev/null | grep -iE "qrtr|rmtfs|pd_mapper|pdr|qmi|q6v5|sysmon|ath10k|glink|smem|socinfo"
+            echo "-- qcom services --"; ps -eo pid,etime,args 2>/dev/null | grep -E "rmtfs|tqftpserv" | grep -v grep
+        fi
         echo; echo "### dmesg"; dmesg 2>/dev/null
         echo; echo "### journalctl -b"; journalctl -b --no-pager 2>/dev/null || echo "(journal n/a)"
     } > "$OUT.tmp" 2>&1
