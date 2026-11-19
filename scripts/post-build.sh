@@ -223,6 +223,10 @@ if [ "$_FW_MODE" != "none" ] && [ -n "$_FW_SRC" ] && [ -d "$_FW_SRC" ]; then
         grep -q '^BR2_aarch64=y' "${BR2_CONFIG}" 2>/dev/null || rm -rf "$_FW_DST"/qcom
     fi
     rm -rf "$_FW_DST/.git" "$_FW_DST/check_whence.py" "$_FW_DST"/*.rst 2>/dev/null || true
+    # DEVICE-FIX(uno-q): the QCM2290 modem fetches wlanmdsp.mbn through tqftpserv from the directory of its own firmware; linux-firmware ships it only under ath10k, so without this link the modem never brings up wifi
+    if [ -f "$_FW_DST/ath10k/WCN3990/hw1.0/qcm2290/wlanmdsp.mbn" ] && [ -d "$_FW_DST/qcom/qcm2290" ] && [ ! -e "$_FW_DST/qcom/qcm2290/wlanmdsp.mbn" ]; then
+        ln -s ../../ath10k/WCN3990/hw1.0/qcm2290/wlanmdsp.mbn "$_FW_DST/qcom/qcm2290/wlanmdsp.mbn"
+    fi
 fi
 
 # Audio is PipeWire (pipewire + wireplumber + pipewire-pulse started by the session
