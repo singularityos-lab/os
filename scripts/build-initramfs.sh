@@ -149,6 +149,11 @@ cp -a "$WORK/lib/." "$WORK/usr/lib64/"
 
 mkdir -p "$(dirname "$OUT")"
 EPOCH="${SOURCE_DATE_EPOCH:-0}"
-find "$WORK" -exec touch -h -d "@$EPOCH" {} +
-( cd "$WORK" && find . | LC_ALL=C sort | cpio -o -H newc -R 0:0 --reproducible --quiet | xz -9 --check=crc32 --threads=1 ) > "$OUT"
+FAKEROOT="$(dirname "$TARGET_DIR")/host/bin/fakeroot"
+( cd "$WORK" && "$FAKEROOT" -- sh -c '
+	mknod -m 0666 dev/null c 1 3
+	mknod -m 0600 dev/console c 5 1
+	find . -exec touch -h -d "@$1" {} +
+	find . | LC_ALL=C sort | cpio -o -H newc -R 0:0 --reproducible --quiet
+' sh "$EPOCH" | xz -9 --check=crc32 --threads=1 ) > "$OUT"
 echo "[initramfs] wrote $OUT ($(du -sh "$OUT" | cut -f1))"
