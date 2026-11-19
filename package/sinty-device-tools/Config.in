@@ -1,0 +1,10 @@
+config BR2_PACKAGE_SINTY_DEVICE_TOOLS
+	bool "sinty-device-tools"
+	depends on BR2_PACKAGE_HOST_GO_TARGET_ARCH_SUPPORTS
+	help
+	  The on-device tools of the Sinty device catalog: the firmware a
+	  profile takes from the Android vendor partition still on the
+	  device, and the Atom Loops kernel hook that keeps a phone's boot
+	  partitions on the kernel of the root it runs.
+
+	  https://github.com/singularityos-lab/sinty-devices

@@ -6,7 +6,7 @@
 
 # SITE=local: build the Atom Loops OTA daemons from the local AtomLoops repo.
 # buildroot-build/local.mk _OVERRIDE_SRCDIR supersedes this for dev builds.
-ATOMLOOPS_VERSION = 0473d4cf15a18b1e833a206eb4dcd22e5dd2b8c0
+ATOMLOOPS_VERSION = f7c82a5b49f1d39313eae616c7fbc78af9d5fc49
 ATOMLOOPS_SITE = $(call github,mirkobrombin,AtomLoops,$(ATOMLOOPS_VERSION))
 ATOMLOOPS_LICENSE = GPL-3.0-only
 ATOMLOOPS_LICENSE_FILES = LICENSE
@@ -47,6 +47,7 @@ define ATOMLOOPS_INSTALL_TARGET_CMDS
 	$(INSTALL) -D -m 0644 $(@D)/packaging/updated.service $(TARGET_DIR)/usr/lib/systemd/system/updated.service
 	$(INSTALL) -D -m 0644 $(@D)/packaging/updated-check.service $(TARGET_DIR)/usr/lib/systemd/system/updated-check.service
 	$(INSTALL) -D -m 0644 $(@D)/packaging/updated-check.timer $(TARGET_DIR)/usr/lib/systemd/system/updated-check.timer
+	$(INSTALL) -D -m 0644 $(@D)/packaging/updated-sync-kernel.service $(TARGET_DIR)/usr/lib/systemd/system/updated-sync-kernel.service
 endef
 
 $(eval $(golang-package))
