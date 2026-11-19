@@ -4,6 +4,7 @@ config BR2_PACKAGE_SINGULARITY_LOGINUI
 	select BR2_PACKAGE_PANGO
 	select BR2_PACKAGE_GDK_PIXBUF
 	select BR2_PACKAGE_WAYLAND
+	select BR2_PACKAGE_LIBXKBCOMMON
 	help
 	  Shared toolkit-less Cairo render library for the Singularity login
 	  surfaces: the greeter, the lock screen, the session splash and the
