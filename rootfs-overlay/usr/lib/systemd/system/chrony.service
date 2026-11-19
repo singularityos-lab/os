@@ -1,0 +1,11 @@
+[Unit]
+Description=Network time
+After=sinty-nm.service
+
+[Service]
+ExecStart=/bin/sh -c 'mkdir -p /var/lib/chrony /var/log/chrony /run/chrony && chown chrony:chrony /var/lib/chrony /var/log/chrony /run/chrony && exec /usr/sbin/chronyd -n'
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
