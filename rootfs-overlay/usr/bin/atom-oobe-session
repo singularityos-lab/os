@@ -58,8 +58,11 @@ while [ -f /run/atom/installed ] && [ "$_try" -lt 5 ]; do
     _try=$((_try + 1))
     sscommon_log "oobe: compositor socket up (${_i} ticks), running OOBE as client (attempt ${_try})"
     sscommon_mark_greeter_ready
+    _touch=0
+    sscommon_touchscreen && _touch=1
     _rc=0
-    dbus-run-session -- singularity-installer --oobe || _rc=$?
+    dbus-run-session -- sh -c '[ "$1" = 1 ] && singularity-desktop --keyboard &
+exec singularity-installer --oobe' sh "$_touch" || _rc=$?
     if [ -f "${MARKER}" ]; then
         sscommon_log "oobe: provisioning complete (rc=${_rc}), handing over to greetd"
         exit 0

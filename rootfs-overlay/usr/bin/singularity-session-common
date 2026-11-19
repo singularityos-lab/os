@@ -147,6 +147,13 @@ sscommon_drm_devices() {
     return 0
 }
 
+sscommon_touchscreen() {
+    for _dev in /run/udev/data/c13:*; do
+        grep -qs '^E:ID_INPUT_TOUCHSCREEN=1$' "$_dev" && return 0
+    done
+    return 1
+}
+
 sscommon_exec_labwc() {
     _labwclog="${XDG_RUNTIME_DIR:-/tmp}/labwc.log"
     if [ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ] && [ -z "${GDM_SESSION_DBUS_ADDRESS:-}" ] \
