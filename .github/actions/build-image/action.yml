@@ -222,6 +222,13 @@ runs:
           mkdir -p "$BUILD_DIR"/build
           echo "$h" > "$rec"
         fi
+        brec="$BUILD_DIR"/build/.kernel-tree-hash
+        bh=$(find board/linux -type f | LC_ALL=C sort | xargs cat | sha256sum | cut -c1-16)
+        if [ -e "$brec" ] && [ "$(cat "$brec")" != "$bh" ]; then
+          echo "kernel patches or device config changed: rebuilding the kernel and its modules"
+          rm -rf "$BUILD_DIR"/build/linux-[0-9]* "$BUILD_DIR"/build/nvidia-open-modules-* "$BUILD_DIR"/build/sinty-compute-* "$BUILD_DIR"/build/sinty-scheduler-*
+        fi
+        echo "$bh" > "$brec"
 
 
     - name: Restore cached packages
