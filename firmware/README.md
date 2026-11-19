@@ -21,6 +21,7 @@ not fully applied yet (AMD still ships in the base).
 |----------|---------|-----|
 | `nvidia` | the **proprietary** driver (`nvidia.ko` + userspace + GSP), built and **bound to the shipped kernel version** | dedicated NVIDIA GPUs |
 | `amd`    | `linux-firmware/amdgpu/` (redistributable) | dedicated AMD GPUs (also already in the base) |
+| `gs201-cheetah` | Wi-Fi, Bluetooth, AoC and amplifier firmware from Google's factory image, extracted at build time by Omarchy Mobile's `extract-vendor-firmware` (pinned by commit and checksum) | Pixel 7 Pro |
 
 A driver bundle is bound to the exact kernel it was built against: the boot path
 refuses a bundle whose kernel does not match the running one, so a kernel update
@@ -75,6 +76,8 @@ Overrides (env):
   cold-root-signed signing key and cert here. Defaults are AtomLoops' TEST keys.
 - `URL_BASE`: the OTA feed each bundle will be fetched from.
 - `LINUX_FIRMWARE`, `ATOMLOOPS`: source trees.
+- `FW_BUNDLES`: bundles to build (default `nvidia amd gs201-cheetah`).
+- `CHEETAH_FACTORY`: path or URL of the Google cheetah factory image (checked against `CHEETAH_FACTORY_SHA256`); `CHEETAH_FW_DIR` reuses an extracted tree. The files are Google-licensed and never committed.
 
 The signer and verifier (`atom-sign`, `fw-verify`) build from AtomLoops on first run.
 

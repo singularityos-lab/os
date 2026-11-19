@@ -38,6 +38,13 @@ ROOT_PUB="${ROOT_PUB:-$ATOMLOOPS/loader/src/root.pub}"
 # current production release.
 NVIDIA_VERSION="${NVIDIA_VERSION:-latest}"
 
+FW_BUNDLES="${FW_BUNDLES:-nvidia amd gs201-cheetah}"
+
+CHEETAH_FACTORY="${CHEETAH_FACTORY:-}"
+CHEETAH_FACTORY_SHA256="${CHEETAH_FACTORY_SHA256:-23d564ad5d0db2d04fa4bbde43930c9b0f8e570a51e8090c8d37c71dc96a2c0c}"
+OMAMOBILE_REV="17f9a3c"
+OMAMOBILE_EXTRACT_SHA256="c3c8e2e94a680fc0eae70fed2b0177daac47f781547b19cd111494951b47e7c5"
+
 log() { printf '[fw] %s\n' "$*" >&2; }
 die() { printf '[fw] ERROR: %s\n' "$*" >&2; exit 1; }
 
@@ -65,6 +72,26 @@ resolve_nvidia() {
 	log "nvidia: proprietary GSP firmware $ver at $NVIDIA_FW_DIR"
 }
 
+resolve_cheetah() {
+	if [ -n "${CHEETAH_FW_DIR:-}" ]; then
+		return
+	fi
+	[ -n "$CHEETAH_FACTORY" ] || die "gs201-cheetah needs CHEETAH_FACTORY (path or URL of the Google cheetah factory image) or CHEETAH_FW_DIR"
+	mkdir -p "$DL"
+	local zip="$DL/cheetah-factory.zip" tool="$DL/extract-vendor-firmware" out="$DL/cheetah-fw"
+	case "$CHEETAH_FACTORY" in
+	http://*|https://*) [ -f "$zip" ] || curl -fSL --retry 3 -o "$zip" "$CHEETAH_FACTORY" ;;
+	*) zip="$CHEETAH_FACTORY" ;;
+	esac
+	echo "$CHEETAH_FACTORY_SHA256  $zip" | sha256sum -c --quiet - || die "cheetah factory image checksum mismatch"
+	[ -f "$tool" ] || curl -fsSL --retry 3 -o "$tool" "https://raw.githubusercontent.com/derekross/omarchy-mobile/$OMAMOBILE_REV/tools/extract-vendor-firmware"
+	echo "$OMAMOBILE_EXTRACT_SHA256  $tool" | sha256sum -c --quiet - || die "extract-vendor-firmware checksum mismatch"
+	bash "$tool" -d cheetah -o "$out" -w "$DL/cheetah-work" "$zip" >&2
+	CHEETAH_FW_DIR="$out/usr/lib/firmware/updates"
+	[ -f "$CHEETAH_FW_DIR/brcm/brcmfmac4389c1-pcie.google,gs201-cheetah.bin" ] || die "cheetah extraction produced no Wi-Fi firmware"
+	log "gs201-cheetah: vendor firmware extracted at $CHEETAH_FW_DIR"
+}
+
 # --- tooling: build atom-sign + fw-verify from AtomLoops if absent ------------
 mkdir -p "$TOOLS"
 ATOM_SIGN="${ATOM_SIGN:-$TOOLS/atom-sign}"
@@ -78,16 +105,18 @@ done
 command -v mkfs.erofs >/dev/null || die "mkfs.erofs not found (install erofs-utils)"
 command -v veritysetup >/dev/null || die "veritysetup not found (install cryptsetup)"
 
-resolve_nvidia
+wanted() { case " $FW_BUNDLES " in *" $1 "*) return 0 ;; esac; return 1; }
+
+BUNDLES=()
+if wanted nvidia; then resolve_nvidia; BUNDLES+=("nvidia $NVIDIA_FW_DIR $NVIDIA_DEST 0x10de"); fi
+if wanted amd; then BUNDLES+=("amd $LINUX_FIRMWARE/amdgpu amdgpu 0x1002"); fi
+if wanted gs201-cheetah; then resolve_cheetah; BUNDLES+=("gs201-cheetah $CHEETAH_FW_DIR updates"); fi
+[ "${#BUNDLES[@]}" -gt 0 ] || die "FW_BUNDLES selects no known bundle"
 
 # "<name> <source-tree> <dest-subdir under /usr/lib/firmware>". nvidia is the
 # PROPRIETARY driver firmware (gsp_*.bin), staged under nvidia/<version> exactly
 # where the closed driver loads it; amd is linux-firmware's amdgpu (AMD's official
 # redistributable GPU firmware).
-BUNDLES=(
-	"nvidia $NVIDIA_FW_DIR $NVIDIA_DEST 0x10de"
-	"amd $LINUX_FIRMWARE/amdgpu amdgpu 0x1002"
-)
 
 # atom-sign manifest requires rootfs+kernelcache fields (it is the whole-system
 # manifest format); a firmware-only anchor fills them with a placeholder fw-verify
@@ -119,7 +148,9 @@ build_bundle() {
 	"$ATOM_SIGN" manifest --out "$bdir/fw-manifest-active.json" \
 		--version v1 \
 		--rootfs "$PLACE" --rootfs-url "$URL_BASE/_unused/rootfs" \
+		--rootfs-verity-hash "$(printf '0%.0s' $(seq 64))" --rootfs-hashtree "$PLACE" --rootfs-hashtree-url "$URL_BASE/_unused/rootfs.hash" \
 		--kernelcache "$PLACE" --kc-url "$URL_BASE/_unused/kernelcache" \
+		--kc-sig "$PLACE" --kc-sig-url "$URL_BASE/_unused/kernelcache.sig" \
 		--bundle "name=$name,img=$bdir/firmware-active.img,url=$URL_BASE/$name/firmware-active.img,verity=$roothash,hashtree=$bdir/firmware-active.hash,hashtree-url=$URL_BASE/$name/firmware-active.hash,version=1,chips=$name" >&2
 	"$ATOM_SIGN" sign --manifest "$bdir/fw-manifest-active.json" --priv "$SIGNING_KEY" >&2
 
