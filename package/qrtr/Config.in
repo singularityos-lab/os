@@ -1,0 +1,11 @@
+config BR2_PACKAGE_QRTR
+	bool "qrtr"
+	depends on BR2_TOOLCHAIN_HAS_THREADS
+	help
+	  Userspace library and tools for the Qualcomm IPC Router
+	  protocol, used to talk to the modem and DSP subsystems.
+
+	  https://github.com/linux-msm/qrtr
+
+comment "qrtr needs a toolchain w/ threads"
+	depends on !BR2_TOOLCHAIN_HAS_THREADS

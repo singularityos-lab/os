@@ -1,0 +1,11 @@
+[Unit]
+Description=Qualcomm remote filesystem service
+Before=sinty-nm.service
+
+[Service]
+ExecStart=/bin/sh -c 'grep -qs qcom,rmtfs-mem /proc/device-tree/reserved-memory/*/compatible || exit 0; i=0; while [ ! -e /dev/qcom_rmtfs_mem1 ] && [ $i -lt 1200 ]; do sleep 0.1; i=$((i + 1)); done; exec /usr/bin/rmtfs -r -P -s'
+Restart=on-failure
+RestartSec=1
+
+[Install]
+WantedBy=multi-user.target

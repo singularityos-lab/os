@@ -1,0 +1,15 @@
+config BR2_PACKAGE_RMTFS
+	bool "rmtfs"
+	depends on BR2_PACKAGE_HAS_UDEV
+	depends on BR2_TOOLCHAIN_HAS_THREADS
+	select BR2_PACKAGE_QRTR
+	help
+	  Qualcomm remote filesystem service. It serves the modem its
+	  storage partitions and boots the modem remote processor,
+	  which on boards such as the QCM2290 also runs the wifi
+	  firmware.
+
+	  https://github.com/linux-msm/rmtfs
+
+comment "rmtfs needs udev and a toolchain w/ threads"
+	depends on !BR2_PACKAGE_HAS_UDEV || !BR2_TOOLCHAIN_HAS_THREADS
