@@ -68,6 +68,9 @@ sscommon_hw_gpu_driver() {
 }
 
 sscommon_softrender_backstop() {
+    if command -v udevadm >/dev/null 2>&1; then
+        udevadm settle --timeout=20 2>/dev/null || sscommon_log "udev still busy after 20 s, deciding the renderer anyway"
+    fi
     _hwgpu=0
     _nvegl=0
     _rendernode=0
@@ -146,9 +149,24 @@ sscommon_drm_devices() {
         if _connected "$_n"; then _add "$_n"; fi
     done
     if [ -z "$_list" ] && [ -n "$_bootcard" ]; then _add "$_bootcard"; fi
+    # DEVICE-FIX(msm): on the UNO Q the GPU binds after its firmware loads, about when the compositor starts; without waiting for udev to set the node permissions labwc gets EACCES on the render node and renders in software for the whole session
+    _j=0
+    while [ -n "$_list" ] && [ "$_j" -lt 100 ]; do
+        _ready=1
+        for _d in $(printf '%s' "$_list" | tr ':' ' '); do
+            { [ -r "$_d" ] && [ -w "$_d" ]; } || _ready=0
+            for _r in /sys/class/drm/"${_d##*/}"/device/drm/renderD*; do
+                [ -e "$_r" ] || continue
+                { [ -r "/dev/dri/${_r##*/}" ] && [ -w "/dev/dri/${_r##*/}" ]; } || _ready=0
+            done
+        done
+        [ "$_ready" = 1 ] && break
+        sleep 0.1
+        _j=$((_j + 1))
+    done
     if [ -n "$_list" ]; then
         export WLR_DRM_DEVICES="$_list"
-        sscommon_log "WLR_DRM_DEVICES=$_list (boot_vga=${_bootcard:-none} after ${_i} ticks)"
+        sscommon_log "WLR_DRM_DEVICES=$_list (boot_vga=${_bootcard:-none} after ${_i} ticks, nodes accessible after ${_j} ticks)"
     else
         sscommon_log "no display GPU found after ${_i} ticks, letting wlroots choose"
     fi
