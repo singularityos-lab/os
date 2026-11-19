@@ -59,6 +59,14 @@ sscommon_mark_greeter_ready() {
     fi
 }
 
+sscommon_hw_gpu_driver() {
+    case "$1" in
+        # DEVICE-FIX(msm): on the UNO Q the GPU driver is msm_dpu; without msm* the session forces software render
+        i915|xe|amdgpu|radeon|nouveau|nova*|msm*|panfrost|panthor|v3d|lima|etnaviv) return 0 ;;
+    esac
+    return 1
+}
+
 sscommon_softrender_backstop() {
     _hwgpu=0
     _nvegl=0
@@ -68,10 +76,10 @@ sscommon_softrender_backstop() {
         for _r in "${_c%/uevent}"/drm/renderD*; do
             [ -e "$_r" ] && _rendernode=1
         done
-        case "$(sed -n 's/^DRIVER=//p' "$_c")" in
+        _drv="$(sed -n 's/^DRIVER=//p' "$_c")"
+        case "$_drv" in
             nvidia*|tegra*) _hwgpu=1 _nvegl=1 ;;
-            # DEVICE-FIX(msm): on the UNO Q the GPU driver is msm_dpu; without msm* the session forces software render
-            i915|xe|amdgpu|radeon|nouveau|nova*|msm*|panfrost|panthor|v3d|lima|etnaviv) _hwgpu=1 ;;
+            *) sscommon_hw_gpu_driver "$_drv" && _hwgpu=1 ;;
         esac
     done
     # DEVICE-FIX(arm64): aarch64 images ship the NVIDIA L4T EGL vendor for Jetson; without pinning Mesa, other arm GPUs pick it and labwc fails to render
@@ -144,6 +152,26 @@ sscommon_drm_devices() {
     else
         sscommon_log "no display GPU found after ${_i} ticks, letting wlroots choose"
     fi
+    sscommon_render_device
+    return 0
+}
+
+sscommon_render_device() {
+    [ -z "${WLR_RENDER_DRM_DEVICE:-}" ] || return 0
+    [ "${WLR_RENDERER:-}" != pixman ] || return 0
+    for _c in /sys/class/drm/card[0-9]*; do
+        case "${_c##*/}" in *-*) continue ;; esac
+        ls -d "$_c"-*/status >/dev/null 2>&1 || continue
+        ls -d "$_c"/device/drm/renderD* >/dev/null 2>&1 && return 0
+    done
+    for _r in /sys/class/drm/renderD*; do
+        [ -e "$_r" ] || continue
+        if sscommon_hw_gpu_driver "$(sed -n 's/^DRIVER=//p' "$_r/device/uevent" 2>/dev/null)"; then
+            export WLR_RENDER_DRM_DEVICE="/dev/dri/${_r##*/}"
+            sscommon_log "display has no render node, rendering on $WLR_RENDER_DRM_DEVICE"
+            return 0
+        fi
+    done
     return 0
 }
 

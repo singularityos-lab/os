@@ -1,0 +1,89 @@
+diff --git a/package/mesa3d/0004-panfrost-add-Mali-G710-to-the-model-table.patch b/package/mesa3d/0004-panfrost-add-Mali-G710-to-the-model-table.patch
+new file mode 100644
+--- /dev/null
++++ b/package/mesa3d/0004-panfrost-add-Mali-G710-to-the-model-table.patch
+@@ -0,0 +1,21 @@
++From: Derek Ross <derekross@gmail.com>
++Subject: [PATCH] panfrost: add Mali-G710 to the model table
++
++Mali-G710 (Google Tensor G2 / gs201) reports GPU_ID 0xa862xxxx: arch
++10.8, product major 2. Panthor already knows it, but Mesa has no model
++entry, so the Gallium driver refuses the device. G710 and G610 share the
++same Valhall shader core, so it uses the G610 values.
++
++Upstream: omarchy-mobile packages/mesa 0001, adapted to Mesa 26.0.1.
++---
++--- a/src/panfrost/model/pan_model.c	2026-11-19 08:50:39.632901881 +0100
+++++ b/src/panfrost/model/pan_model.c	2026-11-19 08:50:39.687901175 +0100
++@@ -85,6 +85,8 @@
++                                               MODEL_RATES(2, 4,  32)),
++    VALHALL_MODEL(0x9003, 0, "G57",    "TNAx", MODEL_ANISO(ALL),  MODEL_TB_SIZES(16384,  8192),
++                                               MODEL_RATES(2, 4,  32)),
+++   VALHALL_MODEL(0xa802, 0, "G710",   "TVIx", MODEL_ANISO(ALL),  MODEL_TB_SIZES(32768, 16384),
+++                                              MODEL_RATES(4, 8,  64)),
++    VALHALL_MODEL(0xa807, 0, "G610",   "TVIx", MODEL_ANISO(ALL),  MODEL_TB_SIZES(32768, 16384),
++                                               MODEL_RATES(4, 8,  64)),
++    VALHALL_MODEL(0xac04, 0, "G310v1",   "TVAx", MODEL_ANISO(ALL),  MODEL_TB_SIZES(16384,  8192),
+diff --git a/package/mesa3d/0005-panfrost-don-t-make-image-BOs-private-on-panthor.patch b/package/mesa3d/0005-panfrost-don-t-make-image-BOs-private-on-panthor.patch
+new file mode 100644
+--- /dev/null
++++ b/package/mesa3d/0005-panfrost-don-t-make-image-BOs-private-on-panthor.patch
+@@ -0,0 +1,58 @@
++From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
++From: Derek Ross <derekross@gmail.com>
++Date: Wed, 14 Oct 2026 09:40:00 -0400
++Subject: [PATCH] panfrost: don't make image BOs private on panthor
++
++panfrost allocates a resource's BO private to the context's GPU VM (an
++"exclusive VM" BO on panthor) unless the resource is created with
++PIPE_BIND_SHARED. Panthor refuses to export such a BO: its prime export
++returns -EINVAL ("We can't export GEMs that have an exclusive VM").
++
++Any image can be exported long after it was created without
++PIPE_BIND_SHARED, though, through EGL_MESA_image_dma_buf_export. That
++failure is known: commit "panfrost: Add spec@egl 1.4@egl-ext_egl_image_storage
++to the list of failures" (Boris Brezillon, 2023-09-19) records it in the
++G52 CI expectations rather than changing the allocation. It now bites real
++applications: GTK 4 renders some textures with GL and hands them to its
++Vulkan renderer through that extension. On a Mali-G710 (panthor) every such
++export failed with "drmPrimeHandleToFD() failed (err=22)", GTK then built a
++dmabuf texture with no valid fd, and GNOME Snapshot crashed in
++gsk_renderer_render_texture after a photo.
++
++The trade-off: a private BO shares the VM's reservation object, so a job
++submission locks one dma_resv for all of them instead of one per BO, and
++the BO never needs implicit-sync bookkeeping. That matters most for the
++many small, short-lived buffers a frame uses (uniforms, varyings, upload
++buffers), which can never be exported. Images, which can, are fewer and
++longer lived.
++
++So keep private BOs for buffers, which EGL can't export, and allocate
++every image shareable. Reallocating a private image on export instead
++would keep the saving for images too, but needs a blit at export time and
++a context to do it in, which resource_get_handle doesn't always have.
++---
++ src/gallium/drivers/panfrost/pan_resource.c | 10 ++++++++--
++ 1 file changed, 8 insertions(+), 2 deletions(-)
++
++diff --git a/src/gallium/drivers/panfrost/pan_resource.c b/src/gallium/drivers/panfrost/pan_resource.c
++--- a/src/gallium/drivers/panfrost/pan_resource.c
+++++ b/src/gallium/drivers/panfrost/pan_resource.c
++@@ -1164,8 +1164,14 @@ panfrost_resource_create_with_modifier(struct pipe_screen *screen,
++        * care to map e.g. FBOs which the CPU probably won't touch */
++       uint32_t flags = PAN_BO_DELAY_MMAP;
++ 
++-      /* If the resource is never exported, we can make the BO private. */
++-      if (template->bind & PIPE_BIND_SHARED)
+++      /* A private BO (exclusive VM) can't be exported: panthor refuses it
+++       * with EINVAL. Only buffers that aren't shared stay private: an image
+++       * can be exported long after it was created without
+++       * PIPE_BIND_SHARED (eglExportDMABUFImageMESA on a GL texture, as GTK
+++       * does to hand a GL-rendered texture to its Vulkan renderer).
+++       */
+++      if ((template->bind & PIPE_BIND_SHARED) ||
+++          template->target != PIPE_BUFFER)
++          flags |= PAN_BO_SHAREABLE;
++ 
++       char *res_label =
++-- 
++2.55.0
