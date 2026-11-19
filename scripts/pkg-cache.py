@@ -111,6 +111,9 @@ def save(args, names, vals, config, arch):
                 info = tarfile.TarInfo("manifest.json")
                 info.size = len(data)
                 tar.addfile(info, io.BytesIO(data))
+            if count == 0:
+                print("skip %s: no installed files recorded" % name)
+                continue
             out = os.path.join(args.out, asset)
             subprocess.run(["zstd", "-q", "-T0", "-10", "-f", tar_path, "-o", out], check=True)
             print("saved %s: %d files, %d MB" % (asset, count, os.path.getsize(out) // 1048576))
@@ -131,6 +134,10 @@ def copy_roots(stage, vals, roots):
         src = os.path.join(stage, root_var)
         if os.path.isdir(src):
             subprocess.run(["cp", "-a", "--remove-destination", src + "/.", vals[root_var] + "/"], check=True)
+
+
+def empty(manifest):
+    return not any(manifest.get("lists", {}).values())
 
 
 def touch_stamps(pdir, stamps):
@@ -159,7 +166,13 @@ def restore(args, names, vals, config, arch):
             with open(marker) as f:
                 zst = os.path.join(args.store, f.read().strip())
             with tempfile.TemporaryDirectory(dir=args.work) as tmp:
-                stage, manifest = unpack(zst, tmp)
+                stage, manifest = unpack(zst, tmp) if os.path.exists(zst) else (None, {})
+                if empty(manifest):
+                    shutil.rmtree(pdir)
+                    if os.path.exists(zst):
+                        os.remove(zst)
+                    print("drop %s: its cache asset installs no files, building it" % name)
+                    continue
                 if not [s for s in missing if s in manifest["stamps"]]:
                     continue
                 copy_roots(stage, vals, ["TARGET_DIR", "BINARIES_DIR"])
@@ -182,6 +195,10 @@ def restore(args, names, vals, config, arch):
                 continue
         with tempfile.TemporaryDirectory(dir=args.work) as tmp:
             stage, manifest = unpack(zst, tmp)
+            if empty(manifest):
+                os.remove(zst)
+                print("miss %s: %s installs no files" % (name, asset))
+                continue
             copy_roots(stage, vals, LISTS.values())
             os.makedirs(pdir, exist_ok=True)
             for suffix, paths in manifest["lists"].items():
