@@ -1,0 +1,12 @@
+[Unit]
+Description=Apply the device profile before devices are probed
+DefaultDependencies=no
+Before=sinty-devd.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/sinty-device-profile apply
+RemainAfterExit=yes
+
+[Install]
+WantedBy=sysinit.target

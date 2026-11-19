@@ -1,0 +1,10 @@
+#!/bin/sh
+# DEVICE-FIX(gs201): coldplug never loads the Wi-Fi PHY, so the PCIe controller and brcmfmac find no BCM4389 unless they are loaded in this order
+modprobe phy-gs201-pcie
+modprobe pcie_gs201
+n=0
+while [ "$n" -lt 50 ] && [ -z "$(ls /sys/bus/pci/devices 2>/dev/null)" ]; do
+	sleep 0.1
+	n=$((n + 1))
+done
+modprobe brcmfmac

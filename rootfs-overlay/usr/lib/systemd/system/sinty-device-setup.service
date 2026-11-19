@@ -1,0 +1,11 @@
+[Unit]
+Description=Bring up device-specific hardware once devices are probed
+After=sinty-devd.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/sinty-device-profile setup
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

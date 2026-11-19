@@ -1,0 +1,4 @@
+# DEVICE-FIX(gs201): with runtime PM on the Mali-G710 drops its power domain between frames; Omarchy Mobile keeps it on and the phone was tested that way
+ACTION=="add", SUBSYSTEM=="platform", KERNEL=="28000000.gpu", ATTR{power/control}="on"
+# DEVICE-FIX(gs201): without the cap devfreq can raise the Mali-G710 above the 572 MHz the clock driver is limited to
+ACTION=="add", SUBSYSTEM=="devfreq", KERNEL=="28000000.gpu", ATTR{max_freq}="572000000"
