@@ -23,7 +23,21 @@ export GDK_BACKEND=wayland
 # forces software) -- that path is proven. If the parent already forced software, keep it.
 # Only the renderer is pinned: EGL keeps the hardware driver for web views and other GL clients.
 if [ -z "$GSK_RENDERER" ]; then
-    export GSK_RENDERER=cairo
+    case "$(gsettings get dev.sinty.desktop rendering-mode 2>/dev/null | tr -d "'\"")" in
+    hardware) export GSK_RENDERER=gl ;;
+    software) export GSK_RENDERER=cairo ;;
+    *)
+        export GSK_RENDERER=cairo
+        for _c in /sys/class/drm/card[0-9]*/device/uevent; do
+            case "$(sed -n 's/^DRIVER=//p' "$_c" 2>/dev/null)" in
+            # DEVICE-FIX(msm): the Adreno GPUs run GTK's GL renderer reliably and their small Arm cores cannot draw the desktop with cairo without visible lag
+            msm*) export GSK_RENDERER=gl ;;
+            # DEVICE-FIX(mali): the Mali-G710 on Panthor runs GTK's GL renderer and the phone's Arm cores cannot draw the desktop with cairo without visible lag
+            panthor) export GSK_RENDERER=gl ;;
+            esac
+        done
+        ;;
+    esac
 fi
 if [ "$LIBGL_ALWAYS_SOFTWARE" = 1 ] || ! ls /dev/dri/renderD* >/dev/null 2>&1; then
     unset MESA_LOADER_DRIVER_OVERRIDE
