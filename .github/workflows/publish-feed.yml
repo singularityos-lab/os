@@ -310,11 +310,18 @@ jobs:
           printf '%s' "$SIGNING_KEY_B64" | base64 -d > "$keys/signing-v1.key"
           printf '%s' "$SIGNING_CERT_B64" | base64 -d > "$keys/signing-cert-v1.json"
           printf '%s' "$SIGNING_CERT_SIG_B64" | base64 -d > "$keys/signing-cert-v1.json.sig"
-          loader=$(ls feed/loader/atom-loader-*.efi | sort -t- -k3 -n | tail -n 1)
+          loaders=feed/loader
+          base=https://updates.sinty.dev/loader
+          if [ "$ARCH" != x86_64 ]; then
+            loaders="$loaders/$ARCH"
+            base="$base/$ARCH"
+          fi
+          loader=$(ls "$loaders"/atom-loader-*.efi 2>/dev/null | sort -t- -k3 -n | tail -n 1 || true)
+          [ -z "$loader" ] || loader="$GITHUB_WORKSPACE/$loader"
           ATOMLOOPS="$GITHUB_WORKSPACE/AtomLoops" \
           SIGNING_KEY="$keys/signing-v1.key" SIGNING_CERT="$keys/signing-cert-v1.json" \
           ARCH="$ARCH" \
-          LOADER_IMG="$GITHUB_WORKSPACE/$loader" LOADER_BASE=https://updates.sinty.dev/loader \
+          LOADER_IMG="$loader" LOADER_BASE="$base" \
           RECOVERY_IMG="$GITHUB_WORKSPACE/rel/kernelcache-recovery.efi" \
             sh feed/publish.sh "$VERSION" "$GITHUB_WORKSPACE/rel/rootfs.erofs" "$GITHUB_WORKSPACE/rel/kernelcache.efi" "$CHANNEL"
 
