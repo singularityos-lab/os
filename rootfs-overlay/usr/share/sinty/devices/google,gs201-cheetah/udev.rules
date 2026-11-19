@@ -4,3 +4,5 @@ ACTION=="add", SUBSYSTEM=="platform", KERNEL=="28000000.gpu", ATTR{power/control
 ACTION=="add", SUBSYSTEM=="devfreq", KERNEL=="28000000.gpu", ATTR{max_freq}="572000000"
 # DEVICE-FIX(gs201): the stock speaker protection firmware does not wake from DSP hibernation, so the amplifiers must never runtime suspend
 ACTION=="bind", SUBSYSTEM=="spi", DRIVER=="cs35l41", ATTR{power/control}="on"
+# DEVICE-FIX(gs201): the charger reports every cable change; on a replug the USB data switch must be closed again or USB never comes back
+ACTION=="change", SUBSYSTEM=="power_supply", KERNEL=="max77759-charger", RUN+="/usr/share/sinty/devices/google,gs201-cheetah/usb-switch"

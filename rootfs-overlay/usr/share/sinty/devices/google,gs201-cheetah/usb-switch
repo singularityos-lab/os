@@ -1,0 +1,16 @@
+#!/bin/sh
+bus=
+for d in /sys/bus/i2c/devices/i2c-*; do
+	case "$(readlink -f "$d")" in
+	*10d60000.i2c*) bus=${d##*-}; break ;;
+	esac
+done
+[ -n "$bus" ] || exit 0
+[ -e "/sys/bus/i2c/devices/$bus-0025/driver" ] && exit 0
+v=$(i2cget -f -y "$bus" 0x69 0xb5) || exit 0
+[ $(((v >> 5) & 3)) -eq 3 ] || exit 0
+sw=$(i2cget -f -y "$bus" 0x25 0x93) || exit 0
+if [ "$sw" != 0x09 ]; then
+	# DEVICE-FIX(gs201): the MAX77759 opens its USB2 data switch on unplug and with the Type-C driver off nothing closes it, so the phone stays off the bus after a replug
+	i2cset -f -y "$bus" 0x25 0x93 0x09 && logger -t gs201-cheetah "VBUS back, USB data switch was $sw: closed"
+fi
