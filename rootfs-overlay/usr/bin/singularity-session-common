@@ -80,9 +80,9 @@ sscommon_softrender_backstop() {
     fi
     if [ "$_hwgpu" = 0 ]; then
         export GSK_RENDERER=cairo WLR_RENDERER=pixman WLR_RENDERER_ALLOW_SOFTWARE=1
-        export LIBGL_ALWAYS_SOFTWARE=1 GALLIUM_DRIVER=llvmpipe WLR_DRM_NO_ATOMIC=1 WLR_NO_HARDWARE_CURSORS=1
+        export LIBGL_ALWAYS_SOFTWARE=1 GALLIUM_DRIVER=llvmpipe WLR_NO_HARDWARE_CURSORS=1
         if [ "$_rendernode" = 1 ]; then
-            export MESA_LOADER_DRIVER_OVERRIDE=kms_swrast
+            export MESA_LOADER_DRIVER_OVERRIDE=kms_swrast WLR_DRM_NO_ATOMIC=1
         fi
         sscommon_log "no HW GPU driver: forcing software render (llvmpipe/pixman/cairo)"
     else
