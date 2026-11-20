@@ -1,0 +1,10 @@
+[Unit]
+Description=Bring up device hardware that waits for the system to settle
+After=sinty-device-setup.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/sinty-device-profile late
+
+[Install]
+WantedBy=multi-user.target

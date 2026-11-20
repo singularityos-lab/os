@@ -4,7 +4,7 @@
 #
 ################################################################################
 
-SINTY_MEDIA_VERSION = eb659944ca4c4c0c3eb524550abe7e4ee38cc00b
+SINTY_MEDIA_VERSION = d6350dfdaf3156fd6bfe8fa540ee3f845d14cd96
 SINTY_MEDIA_SITE = $(call github,singularityos-lab,sinty-media,$(SINTY_MEDIA_VERSION))
 SINTY_MEDIA_LICENSE = GPL-3.0
 SINTY_MEDIA_LICENSE_FILES = LICENSE

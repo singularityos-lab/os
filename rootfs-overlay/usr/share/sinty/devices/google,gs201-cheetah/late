@@ -1,0 +1,30 @@
+#!/bin/sh
+STATE=/var/lib/sinty/device
+
+log() { echo "gs201-cheetah: $*"; }
+
+cameras() {
+	ls -d /sys/bus/platform/devices/*.csis >/dev/null 2>&1 || { log "no camera receiver is enabled in this DTB"; return 0; }
+	marker="$STATE/camera-started"
+	if [ -e "$marker" ]; then
+		log "camera bring-up of $(cat "$marker" 2>/dev/null) never finished; cameras left off this boot (rm $marker to retry)"
+		return 0
+	fi
+	mkdir -p "$STATE"
+	date -Iseconds > "$marker"
+	sync
+	# DEVICE-FIX(gs201): the camera supplies, sensors and receiver hang the boot when they probe early or out of order, so they load here, after the regulator clean-up, supplies first
+	for m in gpio_s2mpg13 slg51002_regulator; do
+		modprobe "$m" || log "$m failed"
+	done
+	udevadm settle -t 10
+	for m in imx386 s5kgn1 ak7375 sem1215 phy_gs201_mipi_dcphy_rx gs201_csis; do
+		modprobe "$m" || log "$m failed"
+	done
+	udevadm settle -t 10
+	rm -f "$marker"
+	sync
+	log "camera drivers loaded, $(ls -d /sys/bus/media/devices/media* 2>/dev/null | wc -l) media devices"
+}
+
+cameras

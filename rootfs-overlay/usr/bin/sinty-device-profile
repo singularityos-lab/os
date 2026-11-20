@@ -36,8 +36,22 @@ setup() {
 	done
 }
 
+late() {
+	scripts=
+	for p in $(profiles); do
+		[ -x "$p/late" ] && scripts="$scripts $p"
+	done
+	[ -n "$scripts" ] || return 0
+	sleep "${SINTY_DEVICE_LATE_DELAY:-40}"
+	for p in $scripts; do
+		echo "device profile $(basename "$p"): running late setup"
+		"$p/late" || echo "device profile $(basename "$p"): late setup failed ($?)"
+	done
+}
+
 case "${1:-}" in
 apply) apply ;;
 setup) setup ;;
-*) echo "usage: sinty-device-profile apply|setup" >&2; exit 2 ;;
+late) late ;;
+*) echo "usage: sinty-device-profile apply|setup|late" >&2; exit 2 ;;
 esac
