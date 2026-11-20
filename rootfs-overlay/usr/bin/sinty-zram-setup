@@ -1,0 +1,18 @@
+#!/bin/sh
+dev=/sys/block/zram0
+[ -e "$dev" ] || modprobe zram num_devices=1 2>/dev/null
+[ -e "$dev" ] || exit 0
+grep -q '^/dev/zram0 ' /proc/swaps && exit 0
+mem=$(awk '/^MemTotal:/ { print $2 }' /proc/meminfo)
+cap=$((8 * 1024 * 1024))
+size=$mem
+[ "$size" -gt "$cap" ] && size=$cap
+for alg in zstd lz4 lzo-rle; do
+    if grep -qw "$alg" "$dev/comp_algorithm"; then
+        echo "$alg" > "$dev/comp_algorithm"
+        break
+    fi
+done
+echo "${size}K" > "$dev/disksize"
+mkswap /dev/zram0 > /dev/null
+swapon -p 100 /dev/zram0

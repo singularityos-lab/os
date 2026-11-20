@@ -1,0 +1,12 @@
+[Unit]
+Description=Compressed swap in RAM
+DefaultDependencies=no
+After=sinty-sysctl.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/bin/sinty-zram-setup
+
+[Install]
+WantedBy=sysinit.target
