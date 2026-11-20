@@ -1,0 +1,13 @@
+[Unit]
+Description=Sinty Debug Bridge over the USB cable
+ConditionPathExists=/var/lib/sinty-sdb/enabled
+Before=sdbd.service
+
+[Service]
+Type=simple
+ExecStart=/usr/libexec/sinty-usb-link
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

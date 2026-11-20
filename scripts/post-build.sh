@@ -134,6 +134,12 @@ if [ -x "$TARGET_DIR/usr/bin/sdbd" ]; then
 else
     rm -f "$TARGET_DIR/etc/systemd/system/multi-user.target.wants/sdbd.service"
 fi
+if [ -x "$TARGET_DIR/usr/libexec/sinty-usb-link" ]; then
+    ln -sf /usr/lib/systemd/system/sinty-usb-link.service \
+        "$TARGET_DIR/etc/systemd/system/multi-user.target.wants/sinty-usb-link.service"
+else
+    rm -f "$TARGET_DIR/etc/systemd/system/multi-user.target.wants/sinty-usb-link.service"
+fi
 
 # Remove static libs
 find "$TARGET_DIR" -name "*.a" -delete
