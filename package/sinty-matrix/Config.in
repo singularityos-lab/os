@@ -1,0 +1,7 @@
+config BR2_PACKAGE_SINTY_MATRIX
+	bool "sinty-matrix"
+	depends on BR2_x86_64 || BR2_aarch64
+	help
+	  LED matrix service and matrix controller firmware.
+
+	  https://github.com/singularityos-lab/sinty-matrix
