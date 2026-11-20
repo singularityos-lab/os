@@ -1,0 +1,23 @@
+diff --git a/package/pipewire/0001-spa-libcamera-build-with-libcamera-0.7-string-view-properties.patch b/package/pipewire/0001-spa-libcamera-build-with-libcamera-0.7-string-view-properties.patch
+new file mode 100644
+index 0000000..c82ecbd
+--- /dev/null
++++ b/package/pipewire/0001-spa-libcamera-build-with-libcamera-0.7-string-view-properties.patch
+@@ -0,0 +1,17 @@
++From: Mirko Brombin <brombin94@gmail.com>
++Subject: spa: libcamera: build with libcamera 0.7 string_view properties
++
++libcamera 0.7 returns the Model property as a std::string_view, which does
++not convert implicitly to std::string.
++
++--- a/spa/plugins/libcamera/libcamera-device.cpp
+++++ b/spa/plugins/libcamera/libcamera-device.cpp
++@@ -66,7 +66,7 @@
++ static std::string cameraModel(const Camera& camera)
++ {
++ 	if (auto model = camera.properties().get(properties::Model))
++-		return std::move(model.value());
+++		return std::string(model.value());
++ 
++ 	return camera.id();
++ }
