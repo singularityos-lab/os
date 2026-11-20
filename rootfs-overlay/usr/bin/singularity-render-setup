@@ -13,6 +13,12 @@ for p in /sys/bus/pci/devices/*; do
         0x03*) gpus="$gpus $p" ;;
     esac
 done
+for p in /sys/bus/platform/devices/*; do
+    [ -r "$p/of_node/compatible" ] || continue
+    case "$(tr '\0' ' ' < "$p/of_node/compatible")" in
+        *arm,mali*|*vivante,gc*|*-v3d*) gpus="$gpus $p" ;;
+    esac
+done
 hw=0
 i=0
 while :; do
