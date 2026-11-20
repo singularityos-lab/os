@@ -6,7 +6,7 @@
 
 # SITE=local: build the Atom Loops OTA daemons from the local AtomLoops repo.
 # buildroot-build/local.mk _OVERRIDE_SRCDIR supersedes this for dev builds.
-ATOMLOOPS_VERSION = 5a2b7287fc899ce97ec36e3b7e34f92b6f392c83
+ATOMLOOPS_VERSION = 2619c5b7941418bf40b49ea7b40899d58d12207d
 ATOMLOOPS_SITE = $(call github,mirkobrombin,AtomLoops,$(ATOMLOOPS_VERSION))
 ATOMLOOPS_LICENSE = GPL-3.0-only
 ATOMLOOPS_LICENSE_FILES = LICENSE
