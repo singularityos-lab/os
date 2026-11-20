@@ -9,7 +9,23 @@ profiles() {
 	done
 }
 
+link_dir() {
+	src="$1"
+	dst="$2"
+	mkdir -p "$dst"
+	for f in "$dst"/sinty-profile-*.json; do
+		[ -L "$f" ] && rm -f "$f"
+	done
+	for p in $(profiles); do
+		for j in "$p/$src"/*.json; do
+			[ -f "$j" ] && ln -sf "$j" "$dst/sinty-profile-$(basename "$j")"
+		done
+	done
+}
+
 apply() {
+	link_dir egl_vendor.d /etc/glvnd/egl_vendor.d
+	link_dir vulkan/icd.d /etc/vulkan/icd.d
 	for p in $(profiles); do
 		name="$(basename "$p")"
 		if [ -f "$p/modprobe.conf" ]; then

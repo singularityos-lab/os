@@ -46,9 +46,11 @@ define NVIDIA_L4T_USERSPACE_INSTALL_TARGET_CMDS
 	)
 	$(INSTALL) -m 0644 $(@D)/root/usr/share/egl/egl_external_platform.d/*.json \
 		$(TARGET_DIR)/usr/share/egl/egl_external_platform.d/
-	$(INSTALL) -m 0644 $(@D)/root/usr/share/glvnd/egl_vendor.d/10_nvidia.json \
-		$(TARGET_DIR)/usr/share/glvnd/egl_vendor.d/
-	$(INSTALL) -m 0644 $(@D)/root/$(NVIDIA_L4T_USERSPACE_LIB)/nvidia/nvidia_icd.json $(TARGET_DIR)/usr/share/vulkan/icd.d/
+	rm -f $(TARGET_DIR)/usr/share/glvnd/egl_vendor.d/10_nvidia.json $(TARGET_DIR)/usr/share/vulkan/icd.d/nvidia_icd.json
+	$(INSTALL) -D -m 0644 $(@D)/root/usr/share/glvnd/egl_vendor.d/10_nvidia.json \
+		$(TARGET_DIR)/usr/share/sinty/devices/nvidia,tegra234/egl_vendor.d/10_nvidia.json
+	$(INSTALL) -D -m 0644 $(@D)/root/$(NVIDIA_L4T_USERSPACE_LIB)/nvidia/nvidia_icd.json \
+		$(TARGET_DIR)/usr/share/sinty/devices/nvidia,tegra234/vulkan/icd.d/nvidia_icd.json
 	$(foreach f,$(NVIDIA_L4T_USERSPACE_FIRMWARE),
 		cp -a $(@D)/root/lib/firmware/$(f) $(TARGET_DIR)/lib/firmware/
 	)
