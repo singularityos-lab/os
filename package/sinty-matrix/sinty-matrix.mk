@@ -4,7 +4,7 @@
 #
 ################################################################################
 
-SINTY_MATRIX_VERSION = c9cddeb03cbb1e1f0f1a0f6189ebd4762fe4a5fa
+SINTY_MATRIX_VERSION = cf42363d9e0630c31c2eb344b636068b822c69ae
 SINTY_MATRIX_SITE = $(call github,singularityos-lab,sinty-matrix,$(SINTY_MATRIX_VERSION))
 SINTY_MATRIX_LICENSE = GPL-3.0-only
 SINTY_MATRIX_LICENSE_FILES = LICENSE
@@ -14,11 +14,13 @@ define SINTY_MATRIX_BUILD_CMDS
 	cd $(@D) && $(TARGET_MAKE_ENV) zig build -Doptimize=ReleaseSafe \
 		-Dtarget=$(BR2_ARCH)-linux-musl \
 		-Dcpu=$(SINTY_MATRIX_CPU) \
+		-Dstrip=true \
 		--prefix $(@D)/out
 endef
 
 define SINTY_MATRIX_INSTALL_TARGET_CMDS
 	$(INSTALL) -D -m 0755 $(@D)/out/libexec/sinty-matrixd $(TARGET_DIR)/usr/libexec/sinty-matrixd
+	$(INSTALL) -D -m 0755 $(@D)/out/bin/sinty-matrixctl $(TARGET_DIR)/usr/bin/sinty-matrixctl
 	$(INSTALL) -D -m 0644 $(@D)/out/share/sinty-matrix/uno-q.bin $(TARGET_DIR)/usr/share/sinty-matrix/uno-q.bin
 	$(INSTALL) -D -m 0644 $(@D)/data/devices/arduino,imola.conf $(TARGET_DIR)/usr/share/sinty-matrix/devices/arduino,imola.conf
 	$(INSTALL) -D -m 0644 $(@D)/data/sinty-matrixd.service $(TARGET_DIR)/usr/lib/systemd/system/sinty-matrixd.service
