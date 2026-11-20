@@ -1,4 +1,4 @@
-MTS_VERSION = v0.1.0
+MTS_VERSION = v0.1.1
 MTS_SITE = https://github.com/mirkobrombin/memory-tiering-standard/releases/download/$(MTS_VERSION)
 MTS_SOURCE = mts-$(MTS_VERSION)-$(call qstrip,$(BR2_ARCH)).tar.gz
 MTS_LICENSE = Apache-2.0
