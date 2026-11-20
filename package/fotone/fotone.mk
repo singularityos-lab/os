@@ -4,11 +4,9 @@
 #
 ################################################################################
 
-FOTONE_VERSION = 2b9e3f76d5b407ee05ad88571d12bca6892931d0
 FOTONE_SITE = $(call github,singularityos-lab,fotone,$(FOTONE_VERSION))
 FOTONE_LICENSE = LGPL-2.1+, BSD-2-Clause
 FOTONE_LICENSE_FILES = LICENSE
-FOTONE_ENGINE_VERSION = 2.54.2
 FOTONE_EXTRA_DOWNLOADS = https://wpewebkit.org/releases/wpewebkit-$(FOTONE_ENGINE_VERSION).tar.xz
 FOTONE_DEPENDENCIES = webkitgtk host-patchelf dav1d host-gperf host-python3 host-ruby host-unifdef host-pkgconf \
 	at-spi2-core enchant expat fontconfig freetype gnutls gstreamer1 gst1-plugins-base gst1-plugins-bad \
