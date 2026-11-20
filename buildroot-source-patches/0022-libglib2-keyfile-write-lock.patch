@@ -2,7 +2,7 @@ diff --git a/package/libglib2/0004-gsettings-reload-the-keyfile-under-a-lock-bef
 new file mode 100644
 --- /dev/null
 +++ b/package/libglib2/0004-gsettings-reload-the-keyfile-under-a-lock-before-writing.patch
-@@ -0,0 +1,120 @@
+@@ -0,0 +1,153 @@
 +From: Sinty OS <dev@sinty.dev>
 +Subject: [PATCH] gsettings: reload the keyfile under a lock before writing
 +
@@ -10,6 +10,11 @@ new file mode 100644
 +from it, so a write from a process that had not yet seen another
 +process's change silently reverted that change. Take an exclusive lock
 +on a sidecar file, reload the keyfile from disk, then apply and write.
++
++The lock is held once per process and is reentrant, and change
++notifications are emitted after it is released: a handler that writes
++another key from inside a change notification must not wait for a lock
++its own process already holds.
 +---
 +--- a/gio/gkeyfilesettingsbackend.c
 ++++ b/gio/gkeyfilesettingsbackend.c
@@ -26,100 +31,128 @@ new file mode 100644
 + 
 + #include "gfile.h"
 + #include "gfileinfo.h"
-+@@ -107,6 +111,33 @@
++@@ -107,6 +111,69 @@
 +   g_assert (len == 32);
 + }
 + 
 ++static void g_keyfile_settings_backend_keyfile_reload (GKeyfileSettingsBackend *kfsb);
 ++
-++static int
-++keyfile_lock (GKeyfileSettingsBackend *kfsb)
+++typedef struct
+++{
+++  int fd;
+++  guint depth;
+++} KeyfileLock;
+++
+++static GRecMutex keyfile_lock_mutex;
+++static GHashTable *keyfile_locks;
+++
+++static gchar *
+++keyfile_lock_path (GKeyfileSettingsBackend *kfsb)
 ++{
 ++  const gchar *path = g_file_peek_path (kfsb->file);
-++  gchar *lock_path;
-++  int fd;
 ++
-++  if (path == NULL)
-++    return -1;
-++  lock_path = g_strconcat (path, ".lock", NULL);
-++  fd = open (lock_path, O_RDWR | O_CREAT | O_CLOEXEC, 0600);
-++  g_free (lock_path);
-++  if (fd >= 0)
-++    while (flock (fd, LOCK_EX) < 0 && errno == EINTR);
-++  g_keyfile_settings_backend_keyfile_reload (kfsb);
-++  return fd;
+++  return path != NULL ? g_strconcat (path, ".lock", NULL) : NULL;
 ++}
 ++
 ++static void
-++keyfile_unlock (int fd)
+++keyfile_lock (GKeyfileSettingsBackend *kfsb)
 ++{
-++  if (fd >= 0)
-++    close (fd);
+++  gchar *lock_path = keyfile_lock_path (kfsb);
+++  KeyfileLock *lock;
+++
+++  g_rec_mutex_lock (&keyfile_lock_mutex);
+++  if (lock_path != NULL)
+++    {
+++      if (keyfile_locks == NULL)
+++        keyfile_locks = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, g_free);
+++      lock = g_hash_table_lookup (keyfile_locks, lock_path);
+++      if (lock == NULL)
+++        {
+++          lock = g_new0 (KeyfileLock, 1);
+++          lock->fd = open (lock_path, O_RDWR | O_CREAT | O_CLOEXEC, 0600);
+++          if (lock->fd >= 0)
+++            while (flock (lock->fd, LOCK_EX) < 0 && errno == EINTR);
+++          g_hash_table_insert (keyfile_locks, g_strdup (lock_path), lock);
+++        }
+++      lock->depth++;
+++    }
+++  g_free (lock_path);
+++  g_keyfile_settings_backend_keyfile_reload (kfsb);
+++}
+++
+++static void
+++keyfile_unlock (GKeyfileSettingsBackend *kfsb)
+++{
+++  gchar *lock_path = keyfile_lock_path (kfsb);
+++  KeyfileLock *lock;
+++
+++  if (lock_path != NULL && keyfile_locks != NULL &&
+++      (lock = g_hash_table_lookup (keyfile_locks, lock_path)) != NULL &&
+++      --lock->depth == 0)
+++    {
+++      if (lock->fd >= 0)
+++        close (lock->fd);
+++      g_hash_table_remove (keyfile_locks, lock_path);
+++    }
+++  g_free (lock_path);
+++  g_rec_mutex_unlock (&keyfile_lock_mutex);
 ++}
 ++
 + static gboolean
 + g_keyfile_settings_backend_keyfile_write (GKeyfileSettingsBackend  *kfsb,
 +                                           GError                  **error)
-+@@ -378,6 +409,7 @@
-+ {
-+   WriteManyData data = { G_KEYFILE_SETTINGS_BACKEND (backend), 0 };
-+   gboolean success;
-++  int lock_fd;
-+   GError *error = NULL;
-+ 
-+   if (!data.kfsb->writable)
-+@@ -388,8 +420,10 @@
++@@ -388,8 +455,10 @@
 +   if (data.failed)
 +     return FALSE;
 + 
-++  lock_fd = keyfile_lock (data.kfsb);
+++  keyfile_lock (data.kfsb);
 +   g_tree_foreach (tree, g_keyfile_settings_backend_write_one, &data);
 +   success = g_keyfile_settings_backend_keyfile_write (data.kfsb, &error);
-++  keyfile_unlock (lock_fd);
+++  keyfile_unlock (data.kfsb);
 +   if (error)
 +     {
 +       g_warning ("Failed to write keyfile to %s: %s", g_file_peek_path (data.kfsb->file), error->message);
-+@@ -411,21 +445,27 @@
-+   gboolean success;
-+   GError *error = NULL;
-+ 
-++  int lock_fd;
-++
++@@ -414,18 +483,19 @@
 +   if (!kfsb->writable)
 +     return FALSE;
 + 
-++  lock_fd = keyfile_lock (kfsb);
+++  keyfile_lock (kfsb);
 +   success = set_to_keyfile (kfsb, key, value);
-+ 
++-
 +   if (success)
+++    success = g_keyfile_settings_backend_keyfile_write (kfsb, &error);
+++  keyfile_unlock (kfsb);
+++
+++  if (error)
 +     {
-+       g_settings_backend_changed (backend, key, origin_tag);
-+       success = g_keyfile_settings_backend_keyfile_write (kfsb, &error);
-++      keyfile_unlock (lock_fd);
-++      lock_fd = -1;
-+       if (error)
-+         {
-+           g_warning ("Failed to write keyfile to %s: %s", g_file_peek_path (kfsb->file), error->message);
-+           g_error_free (error);
-+         }
++-      g_settings_backend_changed (backend, key, origin_tag);
++-      success = g_keyfile_settings_backend_keyfile_write (kfsb, &error);
++-      if (error)
++-        {
++-          g_warning ("Failed to write keyfile to %s: %s", g_file_peek_path (kfsb->file), error->message);
++-          g_error_free (error);
++-        }
+++      g_warning ("Failed to write keyfile to %s: %s", g_file_peek_path (kfsb->file), error->message);
+++      g_error_free (error);
 +     }
-++  keyfile_unlock (lock_fd);
+++  if (success)
+++    g_settings_backend_changed (backend, key, origin_tag);
 + 
 +   return success;
 + }
-+@@ -437,6 +477,7 @@
++@@ -437,6 +507,7 @@
 + {
 +   GKeyfileSettingsBackend *kfsb = G_KEYFILE_SETTINGS_BACKEND (backend);
 +   GError *error = NULL;
-++  int lock_fd = keyfile_lock (kfsb);
+++  keyfile_lock (kfsb);
 + 
 +   if (set_to_keyfile (kfsb, key, NULL))
 +     {
-+@@ -447,6 +488,7 @@
++@@ -447,6 +518,7 @@
 +           g_error_free (error);
 +         }
 +     }
-++  keyfile_unlock (lock_fd);
+++  keyfile_unlock (kfsb);
 + 
 +   g_settings_backend_changed (backend, key, origin_tag);
 + }
