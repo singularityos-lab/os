@@ -1,0 +1,16 @@
+[Unit]
+Description=Sinty cellular modem service (ModemManager-compatible)
+Requires=sinty-modem-stack.service
+After=dbus.service sinty-modem-stack.service
+ConditionPathExists=/run/sinty/modem.conf
+
+[Service]
+Type=dbus
+Environment=DBUS_SYSTEM_BUS_ADDRESS=unix:path=/run/dbus/system_bus_socket
+BusName=org.freedesktop.ModemManager1
+ExecStart=/usr/bin/sinty-modemd
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

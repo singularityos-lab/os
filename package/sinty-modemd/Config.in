@@ -1,0 +1,10 @@
+config BR2_PACKAGE_SINTY_MODEMD
+	bool "sinty-modemd"
+	depends on BR2_PACKAGE_HOST_GO_TARGET_ARCH_SUPPORTS
+	select BR2_PACKAGE_MOBILE_BROADBAND_PROVIDER_INFO
+	help
+	  sinty-modemd: the Sinty OS cellular modem service. Boots the
+	  phone's baseband and serves the ModemManager D-Bus API for
+	  calls, SMS and mobile data. Installs /usr/bin/sinty-modemd.
+
+	  https://github.com/singularityos-lab/sinty-modem

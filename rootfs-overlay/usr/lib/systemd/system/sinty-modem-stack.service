@@ -1,0 +1,11 @@
+[Unit]
+Description=Sinty cellular modem bring-up
+After=sinty-device-profile.service sinty-device-setup.service
+ConditionPathExists=/run/sinty/modem.conf
+
+[Service]
+Type=notify
+ExecStart=/usr/bin/sinty-modemd stack
+TimeoutStartSec=300
+KillMode=mixed
+Restart=no

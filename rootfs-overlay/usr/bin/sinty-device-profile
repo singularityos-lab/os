@@ -16,6 +16,10 @@ apply() {
 			mkdir -p /run/modprobe.d
 			cp "$p/modprobe.conf" "/run/modprobe.d/50-$name.conf"
 		fi
+		if [ -f "$p/modem.conf" ]; then
+			mkdir -p /run/sinty
+			cp "$p/modem.conf" /run/sinty/modem.conf
+		fi
 		if [ -f "$p/udev.rules" ]; then
 			mkdir -p /run/udev/rules.d
 			cp "$p/udev.rules" "/run/udev/rules.d/60-$name.rules"
