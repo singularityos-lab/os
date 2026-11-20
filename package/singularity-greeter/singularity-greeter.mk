@@ -6,7 +6,7 @@
 
 # SITE=local: build from the local desktop subproject so local UI changes (PIN label,
 # recovery flow) reach the image. Release builds use the pinned repository version.
-SINGULARITY_GREETER_VERSION = 08ba5f4be84506b29e2837c8f453ccdf470cb677
+SINGULARITY_GREETER_VERSION = 668ba7c03af30a553774eaeac1a336532021e0f8
 SINGULARITY_GREETER_SITE = $(call github,singularityos-lab,singularity-greeter,$(SINGULARITY_GREETER_VERSION))
 SINGULARITY_GREETER_LICENSE = GPL-3.0+
 SINGULARITY_GREETER_LICENSE_FILES = LICENSE
@@ -20,6 +20,7 @@ SINGULARITY_GREETER_DEPENDENCIES = \
 	host-pkgconf \
 	host-wayland \
 	singularity-loginui \
+	libsingularity \
 	wayland \
 	libxkbcommon \
 	libglib2 \
