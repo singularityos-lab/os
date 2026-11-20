@@ -149,7 +149,7 @@ cp -a "$WORK/lib/." "$WORK/usr/lib64/"
 
 mkdir -p "$(dirname "$OUT")"
 EPOCH="${SOURCE_DATE_EPOCH:-0}"
-FAKEROOT="$(dirname "$TARGET_DIR")/host/bin/fakeroot"
+FAKEROOT="$(cd "$(dirname "$TARGET_DIR")" && pwd)/host/bin/fakeroot"
 ( cd "$WORK" && "$FAKEROOT" -- sh -c '
 	mknod -m 0666 dev/null c 1 3
 	mknod -m 0600 dev/console c 5 1
