@@ -4,7 +4,7 @@
 #
 ################################################################################
 
-SINGULARITY_DESKTOP_DATA_VERSION = 0c4f262c2b7da6a1fc0c6fe24c3daaca845b7184
+SINGULARITY_DESKTOP_DATA_VERSION = 5d355a63eae219d7eb00e8a0f46898cbbbfebf52
 SINGULARITY_DESKTOP_DATA_SITE = $(call github,singularityos-lab,singularity-desktop,$(SINGULARITY_DESKTOP_DATA_VERSION))
 SINGULARITY_DESKTOP_DATA_LICENSE = GPL-3.0+
 SINGULARITY_DESKTOP_DATA_LICENSE_FILES = LICENSE
