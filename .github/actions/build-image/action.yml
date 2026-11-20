@@ -148,6 +148,13 @@ runs:
             fi
             case "$n" in *-*) n=${n%-*} ;; *) n= ;; esac
           done
+          for mk in $(grep -lw "BR2_PACKAGE_$o" buildroot-src/package/*/*.mk package/*/*.mk 2>/dev/null); do
+            d=$(basename "$(dirname "$mk")")
+            if ls -d "$BUILD_DIR"/build/"$d"-* >/dev/null 2>&1; then
+              echo "$d reads $o, which changed: rebuilding"
+              rm -rf "$BUILD_DIR"/build/"$d"-*
+            fi
+          done
         done
 
 
