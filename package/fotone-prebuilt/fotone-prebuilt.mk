@@ -5,11 +5,7 @@
 ################################################################################
 
 FOTONE_PREBUILT_ARCH = $(call qstrip,$(BR2_ARCH))
-ifeq ($(BR2_aarch64),y)
-FOTONE_PREBUILT_VERSION = 2.54.2-3439fff.1
-else
-FOTONE_PREBUILT_VERSION = 2.54.2-8479a21.1
-endif
+FOTONE_PREBUILT_VERSION = $(FOTONE_ENGINE_VERSION)-$(shell printf %.7s $(FOTONE_VERSION)).1
 FOTONE_PREBUILT_SOURCE = fotone-engine-$(FOTONE_PREBUILT_VERSION)-$(FOTONE_PREBUILT_ARCH).tar.zst
 FOTONE_PREBUILT_SITE = https://github.com/singularityos-lab/fotone/releases/download/engine-$(FOTONE_PREBUILT_VERSION)
 FOTONE_PREBUILT_LICENSE = LGPL-2.1+, BSD-2-Clause
