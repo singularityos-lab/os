@@ -98,7 +98,7 @@ sscommon_softrender_backstop() {
         sscommon_log "no HW GPU driver: forcing software render (llvmpipe/pixman/cairo)"
     else
         unset LIBGL_ALWAYS_SOFTWARE GALLIUM_DRIVER WLR_RENDERER WLR_RENDERER_ALLOW_SOFTWARE
-        [ "$GSK_RENDERER" = cairo ] && unset GSK_RENDERER
+        [ "${GSK_RENDERER:-}" = cairo ] && unset GSK_RENDERER
         sscommon_log "HW GPU driver present: native render"
     fi
 }
