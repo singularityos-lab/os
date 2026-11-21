@@ -204,7 +204,7 @@ index 77e0a9bf6..077745e8e 100644
  	} else if (softleaf_is_swap(entry)) {
  		/* Genuine swap entries, hence a private anon pages */
  		if (!should_zap_cows(details))
-@@ -4921,6 +4935,64 @@ static void folio_pte_range(const struct folio *folio,
+@@ -4921,6 +4935,71 @@ static void folio_pte_range(const struct folio *folio,
   * When returning, the lock may have been released in the same cases
   * as done by filemap_fault().
   */
@@ -238,7 +238,14 @@ index 77e0a9bf6..077745e8e 100644
 +		trace_fault_end(cgroup, vmf->address, swp_offset(entry), 0,
 +				tier_uuid, 0, ktime_get_ns(), err);
 +		folio_put(folio);
-+		return err == -ENOMEM ? VM_FAULT_OOM : VM_FAULT_SIGBUS;
++		vmf->pte = pte_offset_map_lock(vma->vm_mm, vmf->pmd,
++					       vmf->address, &vmf->ptl);
++		if (!vmf->pte)
++			return 0;
++		ret = pte_same(ptep_get(vmf->pte), vmf->orig_pte) ?
++		      (err == -ENOMEM ? VM_FAULT_OOM : VM_FAULT_SIGBUS) : 0;
++		pte_unmap_unlock(vmf->pte, vmf->ptl);
++		return ret;
 +	}
 +	__folio_mark_uptodate(folio);
 +	vmf->pte = pte_offset_map_lock(vma->vm_mm, vmf->pmd, vmf->address,
