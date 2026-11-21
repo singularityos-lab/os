@@ -10,3 +10,16 @@ diff --git a/package/librsvg/librsvg.mk b/package/librsvg/librsvg.mk
  HOST_LIBRSVG_CONF_OPTS = --enable-introspection=no
  LIBRSVG_DEPENDENCIES = cairo host-gdk-pixbuf gdk-pixbuf host-rustc libglib2 libxml2 pango \
  	$(TARGET_NLS_DEPENDENCIES)
+@@ -23,6 +23,12 @@
+ # We're patching gdk-pixbuf-loader/Makefile.am
+ LIBRSVG_AUTORECONF = YES
+ 
++define LIBRSVG_TARGET_PIXBUF_MODULEDIR
++	$(SED) 's|^gdk_pixbuf_moduledir = .*|gdk_pixbuf_moduledir = /usr/lib/gdk-pixbuf-2.0/2.10.0/loaders|' \
++		$(@D)/gdk-pixbuf-loader/Makefile
++endef
++LIBRSVG_POST_CONFIGURE_HOOKS += LIBRSVG_TARGET_PIXBUF_MODULEDIR
++
+ ifeq ($(BR2_PACKAGE_GOBJECT_INTROSPECTION),y)
+ LIBRSVG_CONF_OPTS += --enable-introspection
+ LIBRSVG_DEPENDENCIES += gobject-introspection
