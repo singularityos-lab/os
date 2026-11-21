@@ -1,0 +1,28 @@
+diff --git a/package/gstreamer1/gst1-plugins-good/0001-videobalance-rename-meta-tags-helper.patch b/package/gstreamer1/gst1-plugins-good/0001-videobalance-rename-meta-tags-helper.patch
+new file mode 100644
+--- /dev/null
++++ b/package/gstreamer1/gst1-plugins-good/0001-videobalance-rename-meta-tags-helper.patch
+@@ -0,0 +1,23 @@
++videobalance: rename the meta tags helper that GStreamer 1.28 makes public
++
++---
++--- a/gst/videofilter/gstvideobalance.c
+++++ b/gst/videofilter/gstvideobalance.c
++@@ -545,7 +545,7 @@
++ 
++ /* This is public API in 1.28 */
++ static gboolean
++-gst_meta_api_type_tags_contain_only (GType api, const gchar ** valid_tags)
+++video_balance_meta_tags_contain_only (GType api, const gchar ** valid_tags)
++ {
++   const gchar **tags, **curr;
++   g_return_val_if_fail (api != 0, FALSE);
++@@ -579,7 +579,7 @@
++     NULL
++   };
++ 
++-  should_copy = gst_meta_api_type_tags_contain_only (info->api, valid_tags);
+++  should_copy = video_balance_meta_tags_contain_only (info->api, valid_tags);
++ 
++   /* Can't handle the tags in this meta, let the parent class handle it */
++   if (!should_copy) {
