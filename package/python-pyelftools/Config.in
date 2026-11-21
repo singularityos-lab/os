@@ -1,7 +1,0 @@
-config BR2_PACKAGE_PYTHON_PYELFTOOLS
-	bool "python-pyelftools"
-	help
-	  Library for analyzing ELF files and DWARF debugging
-	  information.
-
-	  https://github.com/eliben/pyelftools
