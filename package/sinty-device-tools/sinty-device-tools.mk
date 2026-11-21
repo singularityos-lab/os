@@ -4,7 +4,7 @@
 #
 ################################################################################
 
-SINTY_DEVICE_TOOLS_VERSION = ba90300a70777f1ef0d34b944f3ef3c380a54926
+SINTY_DEVICE_TOOLS_VERSION = 84a88920c0c4f85287654e71dc46e57d16f65bbc
 SINTY_DEVICE_TOOLS_SITE = $(call github,singularityos-lab,sinty-devices,$(SINTY_DEVICE_TOOLS_VERSION))
 SINTY_DEVICE_TOOLS_LICENSE = GPL-3.0-or-later
 SINTY_DEVICE_TOOLS_LICENSE_FILES = LICENSE

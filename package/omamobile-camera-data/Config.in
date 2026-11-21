@@ -1,0 +1,15 @@
+config BR2_PACKAGE_OMAMOBILE_CAMERA_DATA
+	bool "omamobile-camera-data"
+	depends on BR2_PACKAGE_PYTHON3
+	select BR2_PACKAGE_UNICORN
+	select BR2_PACKAGE_PYTHON_PYELFTOOLS
+	select BR2_PACKAGE_UNZIP
+	select BR2_PACKAGE_E2FSPROGS
+	select BR2_PACKAGE_E2FSPROGS_DEBUGFS
+	help
+	  The Omarchy Mobile tool that builds a Pixel's camera sensor and
+	  receiver data files from the camera HAL in the phone's own vendor
+	  partition. sinty-vendor-firmware runs it on the device; nothing
+	  derived from the vendor software is shipped in the image.
+
+	  https://github.com/derekross/omarchy-mobile

@@ -1,0 +1,9 @@
+config BR2_PACKAGE_UNICORN
+	bool "unicorn"
+	depends on BR2_PACKAGE_PYTHON3
+	help
+	  Unicorn CPU emulator, built for AArch64 guests only, with its
+	  Python bindings. Used to derive device data from the owner's
+	  own vendor software at first boot.
+
+	  https://www.unicorn-engine.org
