@@ -1,5 +1,7 @@
 config BR2_PACKAGE_SINTY_RECOVERD
 	bool "sinty-recoverd"
+	depends on BR2_TOOLCHAIN_USES_GLIBC
+	select BR2_PACKAGE_LIBXCRYPT
 	help
 	  Root daemon: the recovery escape hatch for the pre-login greeter.
 	  Performs `sintykey recover` on behalf of the unprivileged greeter,
