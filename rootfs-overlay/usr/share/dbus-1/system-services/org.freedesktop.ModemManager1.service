@@ -1,0 +1,5 @@
+[D-BUS Service]
+Name=org.freedesktop.ModemManager1
+Exec=/usr/libexec/sinty-modem-activate
+User=root
+SystemdService=dbus-org.freedesktop.ModemManager1.service
