@@ -206,7 +206,7 @@ while true; do
         # yet, switch to the same software path the VM uses and give it a fresh set of
         # attempts. A software-rendered desktop beats a login loop; where GL works this
         # branch is never taken and native render is kept.
-        if [ $_dt -lt 3 ] && [ "$_swfallback" -eq 0 ] && [ $_fails -ge 1 ]; then
+        if [ $_dt -lt 3 ] && [ "$_swfallback" -eq 0 ] && [ $_fails -ge 2 ]; then
             export GSK_RENDERER=cairo LIBGL_ALWAYS_SOFTWARE=1 GALLIUM_DRIVER=llvmpipe
             _swfallback=1
             _fails=0
