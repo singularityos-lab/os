@@ -40,9 +40,10 @@ sscommon_log "oobe: forcing software render (GSK_RENDERER=cairo) for the wizard"
 # Retry loop: if the installer dies (render bug, transient crash) greetd would fall
 # back to the greeter with NO account provisioned = lockout. On a firstboot there is
 # nothing better to show than the wizard, so retry it; give up only after 5 exits
-# (then the greeter fallback at least paints something). Socket wait is 30s: a slow
-# installed boot (cold f2fs /var, no KVM) can exceed the old 10s and the old fallback
-# own-labwc is guaranteed-fail on installed (persistent compositor owns the seat).
+# (then the greeter fallback at least paints something). Socket wait is 30s, and up
+# to 180s once the persistent compositor has started taking over: a slow installed
+# boot (cold f2fs /var, a board whose display probes late) can exceed 30s and the
+# own-labwc fallback is guaranteed-fail on installed (persistent compositor owns the seat).
 # /run/atom/installed is the same condition that gates the persistent compositor:
 # only wait for its socket where it is supposed to exist, else go straight to the
 # own-labwc fallback (live boot: no dead wait).
@@ -50,7 +51,9 @@ _try=0
 _i=0
 while [ -f /run/atom/installed ] && [ "$_try" -lt 5 ]; do
     _i=0
-    while [ ! -S "$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY" ] && [ "$_i" -lt 300 ]; do
+    _limit=300
+    while [ ! -S "$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY" ] && [ "$_i" -lt "$_limit" ]; do
+        [ -e "$XDG_RUNTIME_DIR/compositor-taking-over" ] && _limit=1800
         sleep 0.1
         _i=$((_i + 1))
     done
