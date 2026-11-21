@@ -1,0 +1,7 @@
+config BR2_PACKAGE_SINTY_WORDS
+	bool "sinty-words"
+	help
+	  Word lists with frequencies for the on-screen keyboard:
+	  completion, correction and swipe typing.
+
+	  https://github.com/singularityos-lab/sinty-words
