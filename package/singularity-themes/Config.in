@@ -1,6 +1,7 @@
 config BR2_PACKAGE_SINGULARITY_THEMES
 	bool "singularity-themes"
 	select BR2_PACKAGE_ADWAITA_ICON_THEME
+	select BR2_PACKAGE_IRIDE if BR2_x86_64 || BR2_aarch64
 	help
 	  Singularity brand GTK themes (SingularityShell, Kids) and the
 	  Singularity icon theme (inherits Adwaita).

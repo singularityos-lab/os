@@ -1,0 +1,8 @@
+config BR2_PACKAGE_IRIDE
+	bool "iride"
+	depends on BR2_x86_64 || BR2_aarch64
+	help
+	  Reader of the Iride icon format, used by the toolkit to show
+	  compiled icons.
+
+	  https://github.com/singularityos-lab/iride

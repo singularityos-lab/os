@@ -1,0 +1,17 @@
+diff --git a/package/libgtk4/libgtk4.mk b/package/libgtk4/libgtk4.mk
+--- a/package/libgtk4/libgtk4.mk
++++ b/package/libgtk4/libgtk4.mk
+@@ -64,6 +64,13 @@ else
+ LIBGTK4_CONF_OPTS += -Dmedia-gstreamer=disabled
+ endif
+ 
++ifeq ($(BR2_PACKAGE_IRIDE),y)
++LIBGTK4_CONF_OPTS += -Diride=enabled
++LIBGTK4_DEPENDENCIES += iride
++else
++LIBGTK4_CONF_OPTS += -Diride=disabled
++endif
++
+ ifeq ($(BR2_PACKAGE_CUPS),y)
+ LIBGTK4_CONF_OPTS += -Dprint-cups=enabled
+ LIBGTK4_DEPENDENCIES += cups
