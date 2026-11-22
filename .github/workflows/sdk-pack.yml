@@ -67,6 +67,7 @@ jobs:
             ./lib/go ./lib/ruby ./lib/rustlib ./lib/zig-toolchain
             './lib/librustc_driver*' './lib/libLLVM.so.*rust*'
             './lib/python3.*/test'
+            './share/cmake-*/Templates/Windows'
             './bin/cargo*' ./bin/rustdoc ./bin/doxygen ./bin/gnutls-cli
             './bin/qemu-img' './bin/qemu-nbd' './bin/qemu-storage-daemon'
             "./$ARCH-buildroot-linux-gnu/debug-root"
