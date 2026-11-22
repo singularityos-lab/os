@@ -5,7 +5,7 @@ diff --git a/package/libgtk4/libgtk4.hash b/package/libgtk4/libgtk4.hash
 -# From https://download.gnome.org/sources/gtk/4.21/gtk-4.21.0.sha256sum
 -sha256  f52475c5041dfd02cc4eed22ee94f12ec310c16a68fda9203dc54ffd5daa6e6f  gtk-4.21.0.tar.xz
 +# Locally calculated
-+sha256  613a01070bbe0cd2c94fae8b11decef01917e6f10e7f4c3dcedcce1bbdebe985  libgtk4-b2d7d508ee7e7b39be1188ab013f6167e4f338a7.tar.gz
++sha256  7e2bde96a7919795f1f3ff4aede4a4e127ead78ac3d178a3d7a4436b283c0ccc  libgtk4-abd37b990c911c4ea769973b17b260a2182b8899.tar.gz
  
  # Hash for license file:
  sha256  b7993225104d90ddd8024fd838faf300bea5e83d91203eab98e29512acebd69c  COPYING
@@ -20,7 +20,7 @@ diff --git a/package/libgtk4/libgtk4.mk b/package/libgtk4/libgtk4.mk
 -LIBGTK4_VERSION = $(LIBGTK4_VERSION_MAJOR).0
 -LIBGTK4_SOURCE = gtk-$(LIBGTK4_VERSION).tar.xz
 -LIBGTK4_SITE = https://download.gnome.org/sources/gtk/$(LIBGTK4_VERSION_MAJOR)
-+LIBGTK4_VERSION = b2d7d508ee7e7b39be1188ab013f6167e4f338a7
++LIBGTK4_VERSION = abd37b990c911c4ea769973b17b260a2182b8899
 +LIBGTK4_SITE = $(call github,singularityos-lab,sit,$(LIBGTK4_VERSION))
  LIBGTK4_LICENSE = LGPL-2.0+
  LIBGTK4_LICENSE_FILES = COPYING
