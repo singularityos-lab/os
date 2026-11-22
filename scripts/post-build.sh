@@ -394,6 +394,18 @@ python3 "$(dirname "$0")/scrub-build-paths.py" \
     "$TARGET_DIR" "$(dirname "$TARGET_DIR")" "$(cd "$(dirname "$0")/.." && pwd)" "$HOME"
 
 python3 "$(dirname "$0")/check-framework-symbols.py" "$TARGET_DIR"
+_loaders="$TARGET_DIR/usr/lib/gdk-pixbuf-2.0/2.10.0/loaders.cache"
+if ! grep -q '"image/svg+xml"' "$_loaders"; then
+    echo "post-build: no SVG loader in the gdk-pixbuf loaders.cache" >&2
+    exit 1
+fi
+for _module in $(sed -n 's,^"\(/[^"]*\.so\)".*,\1,p' "$_loaders"); do
+    if [ ! -f "$TARGET_DIR$_module" ]; then
+        echo "post-build: loaders.cache lists $_module, which is not in the image" >&2
+        exit 1
+    fi
+done
+python3 "$(dirname "$0")/check-icon-rendering.py" "$HOST_DIR/bin/rsvg-convert" "$TARGET_DIR"
 
 _rc="$TARGET_DIR/usr/share/singularity/labwc-locked/rc.xml"
 _checked=0

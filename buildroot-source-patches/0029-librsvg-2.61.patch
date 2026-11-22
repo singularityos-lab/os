@@ -1,0 +1,165 @@
+diff --git a/package/librsvg/0001-gdk-pixbuf-loader-Makefile.am-set-GDK_PIXBUF_MODULED.patch a/package/librsvg/0001-gdk-pixbuf-loader-Makefile.am-set-GDK_PIXBUF_MODULED.patch
+deleted file mode 100644
+--- a/package/librsvg/0001-gdk-pixbuf-loader-Makefile.am-set-GDK_PIXBUF_MODULED.patch
++++ /dev/null
+@@ -1,41 +0,0 @@
+-From 2c472bf55289ccbd7f305aa3e98d6fd70be4e3ab Mon Sep 17 00:00:00 2001
+-From: Fabrice Fontaine <fontaine.fabrice@gmail.com>
+-Date: Sat, 19 Feb 2022 12:02:10 +0100
+-Subject: [PATCH] gdk-pixbuf-loader/Makefile.am: set GDK_PIXBUF_MODULEDIR
+-
+-Set GDK_PIXBUF_MODULEDIR to gdk_pixbuf_moduledir before calling
+-gdk-pixbuf-query-loaders to build a correct gdk_pixbuf_cache_file and
+-gdk-pixbuf.loaders on 'exotic' systems
+-
+-Signed-off-by: Fabrice Fontaine <fontaine.fabrice@gmail.com>
+-[Upstream status:
+-https://gitlab.gnome.org/GNOME/librsvg/-/merge_requests/668]
+----
+- gdk-pixbuf-loader/Makefile.am | 4 ++--
+- 1 file changed, 2 insertions(+), 2 deletions(-)
+-
+-diff --git a/gdk-pixbuf-loader/Makefile.am b/gdk-pixbuf-loader/Makefile.am
+-index c3493736..de1f9641 100644
+---- a/gdk-pixbuf-loader/Makefile.am
+-+++ b/gdk-pixbuf-loader/Makefile.am
+-@@ -49,7 +49,7 @@ rsvg_loader_LDADD = \
+- EXTRA_rsvg_loader_DEPENDENCIES = libpixbufloader-svg.la gdk-pixbuf-loaders
+- 
+- gdk-pixbuf-loaders: Makefile
+--	$(AM_V_GEN) ( $(GDK_PIXBUF_QUERYLOADERS) ./libpixbufloader-svg.la && $(GDK_PIXBUF_QUERYLOADERS)) > gdk-pixbuf.loaders 2>/dev/null
+-+	$(AM_V_GEN) ( $(GDK_PIXBUF_QUERYLOADERS) ./libpixbufloader-svg.la && GDK_PIXBUF_MODULEDIR=$(gdk_pixbuf_moduledir) $(GDK_PIXBUF_QUERYLOADERS)) > gdk-pixbuf.loaders 2>/dev/null
+- 
+- if CROSS_COMPILING
+- RUN_QUERY_LOADER_TEST=false
+-@@ -68,7 +68,7 @@ endif
+- install-data-hook:
+- 	@if $(RUN_QUERY_LOADER_TEST) ; then \
+- 		$(mkinstalldirs) $(DESTDIR)$(gdk_pixbuf_binarydir) ; \
+--		$(GDK_PIXBUF_QUERYLOADERS) > $(DESTDIR)$(gdk_pixbuf_cache_file) ; \
+-+		GDK_PIXBUF_MODULEDIR=$(gdk_pixbuf_moduledir) $(GDK_PIXBUF_QUERYLOADERS) > $(DESTDIR)$(gdk_pixbuf_cache_file) ; \
+- 	else \
+- 	  echo "***" ; \
+- 	  echo "*** Warning: loaders.cache not built" ; \
+--- 
+-2.34.1
+-
+diff --git a/package/librsvg/librsvg.hash b/package/librsvg/librsvg.hash
+--- a/package/librsvg/librsvg.hash
++++ b/package/librsvg/librsvg.hash
+@@ -1,5 +1,3 @@
+-# From https://download.gnome.org/sources/librsvg/2.50/librsvg-2.50.9.sha256sum
+-sha256  518905fffa879b6c7f3db1aae961cf31333e0eadc7b4cdd4f531707868c54b53  librsvg-2.50.9.tar.xz
+-
+-# Locally computed
++# Locally calculated
++sha256  c608bdf48ab443ceeb423f54577006c6636b3878fc67cbcbffb891fd8158c071  librsvg-2.61.3-cargo4.tar.gz
+ sha256  dc626520dcd53a22f727af3ee42c770e56c97a64fe3adb063799d8ab032fe551  COPYING.LIB
+diff --git a/package/librsvg/librsvg.mk b/package/librsvg/librsvg.mk
+--- a/package/librsvg/librsvg.mk
++++ b/package/librsvg/librsvg.mk
+@@ -4,31 +4,84 @@
+ #
+ ################################################################################
+ 
+-LIBRSVG_VERSION_MAJOR = 2.50
+-LIBRSVG_VERSION = $(LIBRSVG_VERSION_MAJOR).9
+-LIBRSVG_SITE = https://download.gnome.org/sources/librsvg/$(LIBRSVG_VERSION_MAJOR)
+-LIBRSVG_SOURCE = librsvg-$(LIBRSVG_VERSION).tar.xz
+-LIBRSVG_INSTALL_STAGING = YES
+-LIBRSVG_CONF_ENV = \
+-	LIBS=$(TARGET_NLS_LIBS) \
+-	RUST_TARGET=$(RUSTC_TARGET_NAME)
+-LIBRSVG_CONF_OPTS = --disable-pixbuf-loader --disable-tools
+-HOST_LIBRSVG_CONF_OPTS = --enable-introspection=no
+-LIBRSVG_DEPENDENCIES = cairo host-gdk-pixbuf gdk-pixbuf host-rustc libglib2 libxml2 pango \
+-	$(TARGET_NLS_DEPENDENCIES)
+-HOST_LIBRSVG_DEPENDENCIES = host-cairo host-gdk-pixbuf host-libglib2 host-libxml2 host-pango host-rustc
+-LIBRSVG_LICENSE = LGPL-2.1+
++LIBRSVG_VERSION = 2.61.3
++LIBRSVG_SITE = https://gitlab.gnome.org/GNOME/librsvg/-/archive/$(LIBRSVG_VERSION)
++LIBRSVG_SOURCE = librsvg-$(LIBRSVG_VERSION)-cargo4.tar.gz
++LIBRSVG_LICENSE = LGPL-2.1+, vendored dependencies licenses probably not listed
+ LIBRSVG_LICENSE_FILES = COPYING.LIB
+ LIBRSVG_CPE_ID_VENDOR = gnome
+-# We're patching gdk-pixbuf-loader/Makefile.am
+-LIBRSVG_AUTORECONF = YES
++LIBRSVG_INSTALL_STAGING = YES
++
++LIBRSVG_DOWNLOAD_POST_PROCESS = cargo
++LIBRSVG_DOWNLOAD_DEPENDENCIES = host-rustc
++HOST_LIBRSVG_DOWNLOAD_DEPENDENCIES = host-rustc
++LIBRSVG_DL_ENV = CARGO_HOME=$(BR_CARGO_HOME)
++HOST_LIBRSVG_DL_ENV = CARGO_HOME=$(BR_CARGO_HOME)
++
++LIBRSVG_DEPENDENCIES = cairo freetype gdk-pixbuf harfbuzz host-cargo-c host-gdk-pixbuf \
++	host-librsvg host-pkgconf host-rustc libglib2 libxml2 pango $(TARGET_NLS_DEPENDENCIES)
++HOST_LIBRSVG_DEPENDENCIES = host-cairo host-cargo-c host-freetype host-gdk-pixbuf \
++	host-harfbuzz host-libglib2 host-libxml2 host-pango host-pkgconf host-rustc
++
++LIBRSVG_LDFLAGS = $(TARGET_LDFLAGS) $(TARGET_NLS_LIBS)
++LIBRSVG_CONF_ENV = $(PKG_CARGO_ENV)
++HOST_LIBRSVG_CONF_ENV = $(HOST_PKG_CARGO_ENV)
++LIBRSVG_NINJA_ENV = \
++	$(PKG_CARGO_ENV) \
++	CARGO_NET_OFFLINE=true \
++	PKG_CONFIG_ALLOW_CROSS=1
++HOST_LIBRSVG_NINJA_ENV = \
++	$(HOST_PKG_CARGO_ENV) \
++	CARGO_NET_OFFLINE=true
++
++LIBRSVG_CONF_OPTS = \
++	-Dtriplet=$(RUSTC_TARGET_NAME) \
++	-Dpixbuf=enabled \
++	-Dpixbuf-loader=enabled \
++	-Drsvg-convert=enabled \
++	-Davif=disabled \
++	-Ddocs=disabled \
++	-Dvala=disabled \
++	-Dtests=false
++HOST_LIBRSVG_CONF_OPTS = \
++	-Dintrospection=disabled \
++	-Dpixbuf=enabled \
++	-Dpixbuf-loader=enabled \
++	-Drsvg-convert=enabled \
++	-Davif=disabled \
++	-Ddocs=disabled \
++	-Dvala=disabled \
++	-Dtests=false
+ 
+ ifeq ($(BR2_PACKAGE_GOBJECT_INTROSPECTION),y)
+-LIBRSVG_CONF_OPTS += --enable-introspection
++LIBRSVG_CONF_OPTS += -Dintrospection=enabled
+ LIBRSVG_DEPENDENCIES += gobject-introspection
+ else
+-LIBRSVG_CONF_OPTS += --disable-introspection
++LIBRSVG_CONF_OPTS += -Dintrospection=disabled
+ endif
+ 
+-$(eval $(autotools-package))
+-$(eval $(host-autotools-package))
++define LIBRSVG_DROP_STAGING_LA
++	rm -f $(STAGING_DIR)/usr/lib/librsvg-2.la
++endef
++LIBRSVG_POST_INSTALL_STAGING_HOOKS += LIBRSVG_DROP_STAGING_LA
++
++LIBRSVG_LOADERS_DIR = lib/gdk-pixbuf-2.0/2.10.0/loaders
++
++define HOST_LIBRSVG_DROP_AUTOTOOLS_FILES
++	rm -f $(HOST_DIR)/lib/librsvg-2.la \
++		$(HOST_DIR)/$(LIBRSVG_LOADERS_DIR)/libpixbufloader-svg.so \
++		$(HOST_DIR)/$(LIBRSVG_LOADERS_DIR)/libpixbufloader-svg.la
++endef
++HOST_LIBRSVG_POST_INSTALL_HOOKS += HOST_LIBRSVG_DROP_AUTOTOOLS_FILES
++
++define LIBRSVG_UPDATE_LOADERS_CACHE
++	GDK_PIXBUF_MODULEDIR=$(HOST_DIR)/$(LIBRSVG_LOADERS_DIR) \
++		$(HOST_DIR)/bin/gdk-pixbuf-query-loaders \
++		> $(TARGET_DIR)/usr/lib/gdk-pixbuf-2.0/2.10.0/loaders.cache
++	$(SED) 's,^"[^"]*/\(lib[^/"]*\.so\)","/usr/$(LIBRSVG_LOADERS_DIR)/\1",' \
++		$(TARGET_DIR)/usr/lib/gdk-pixbuf-2.0/2.10.0/loaders.cache
++endef
++LIBRSVG_TARGET_FINALIZE_HOOKS += LIBRSVG_UPDATE_LOADERS_CACHE
++
++$(eval $(meson-package))
++$(eval $(host-meson-package))
