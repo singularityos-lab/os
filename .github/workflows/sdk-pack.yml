@@ -1,0 +1,135 @@
+name: Package SDK
+run-name: Sinty SDK ${{ inputs.build }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      build:
+        description: BUILD_ID of the build already in the runner caches
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  pack:
+    name: pack ${{ matrix.arch }}
+    if: github.ref == 'refs/heads/main'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            cache: /home/runner/cache
+          - arch: aarch64
+            cache: /home/runner/cache-aarch64
+    runs-on: [self-hosted, sinty-build, "home-${{ matrix.arch }}"]
+    concurrency:
+      group: build-self-hosted-${{ matrix.arch }}
+      cancel-in-progress: false
+    timeout-minutes: 90
+    env:
+      ARCH: ${{ matrix.arch }}
+      CACHE: ${{ matrix.cache }}
+      BUILD: ${{ inputs.build }}
+    steps:
+      - name: Check the cached build
+        run: |
+          set -euo pipefail
+          [[ "$BUILD" =~ ^[0-9]+[A-Z][0-9]+$ ]] || { echo "invalid build"; exit 1; }
+          have=$(sed -n 's/^BUILD_ID=//p' "$CACHE/build/target/usr/lib/os-release" | tr -d '"')
+          [ "$have" = "$BUILD" ] || { echo "the cache holds $have, not $BUILD"; exit 1; }
+          free=$(df --output=avail -BG "$RUNNER_TEMP" | tail -n 1 | tr -dc 0-9)
+          [ "$free" -ge 10 ] || { echo "only ${free}G free"; exit 1; }
+          sha256sum "$CACHE/build/target/usr/lib/sinty-framework/libsingularity.so.0"
+
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          path: sdk-source
+          sparse-checkout: scripts/sdk-tree.py
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+
+      - name: Copy the toolchain and sysroot
+        run: |
+          set -euo pipefail
+          host="$CACHE/build/host"
+          sysroot="$ARCH-buildroot-linux-gnu/sysroot"
+          tree="$RUNNER_TEMP/sdk-tree"
+          test -d "$host/$sysroot/usr/include"
+          mkdir "$tree"
+          skip=(
+            ./var ./etc/ssl ./etc/dbus-1 ./etc/profile.d ./etc/bash_completion.d
+            ./share/go-path ./share/go-cache ./share/host-go-cache
+            ./share/doc ./share/man ./share/info ./share/locale ./share/zoneinfo
+            ./share/qemu ./share/espeak-ng-data
+            ./lib/go ./lib/ruby ./lib/rustlib ./lib/zig-toolchain
+            './lib/librustc_driver*' './lib/libLLVM.so.*rust*'
+            './lib/python3.*/test'
+            './bin/cargo*' ./bin/rustdoc ./bin/doxygen ./bin/gnutls-cli
+            './bin/qemu-img' './bin/qemu-nbd' './bin/qemu-storage-daemon'
+            "./$ARCH-buildroot-linux-gnu/debug-root"
+          )
+          for d in etc var root home run tmp dev proc sys opt media mnt; do
+            skip+=("./$sysroot/$d")
+          done
+          for d in doc man info locale tessdata sounds; do
+            skip+=("./$sysroot/usr/share/$d")
+          done
+          skip+=("./$sysroot/usr/lib/libLLVM*.a" "./$sysroot/usr/lib/libclang*.a" "./$sysroot/usr/lib/python3.*/test")
+          tar -cf - --anchored --wildcards "${skip[@]/#/--exclude=}" -C "$host" . | tar -xf - -C "$tree"
+          mkdir -p "$tree/share/buildroot" "$tree/share/sinty"
+          echo "$host" > "$tree/share/buildroot/sdk-location"
+          install -m 755 "$CACHE/src/support/misc/relocate-sdk.sh" "$tree/relocate-sdk.sh"
+          echo "$BUILD" > "$tree/share/sinty/sdk-build"
+          python3 sdk-source/scripts/sdk-tree.py relink "$tree" "$host" "$sysroot"
+          python3 sdk-source/scripts/sdk-tree.py audit "$tree"
+
+      - name: Pack the SDK
+        run: |
+          set -euo pipefail
+          mkdir sdk
+          python3 sdk-source/scripts/sdk-tree.py abi "$CACHE/build/target" > "sdk/sdk-abi-$ARCH.json"
+          tar -cf - --owner=0 --group=0 --numeric-owner -C "$RUNNER_TEMP/sdk-tree" . \
+            | zstd -q -T0 -10 \
+            | split -b 1900M -d - "sdk/sdk-$ARCH.tar.zst.part"
+          ( cd sdk && sha256sum sdk-"$ARCH".tar.zst.part* "sdk-abi-$ARCH.json" > "SHA256SUMS-$ARCH" )
+          du -h sdk/*
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: sdk-${{ matrix.arch }}
+          path: sdk/
+          compression-level: 0
+          retention-days: 3
+          if-no-files-found: error
+
+      - name: Clear the copies
+        if: always()
+        run: |
+          rm -rf "${RUNNER_TEMP:?}/sdk-tree" "${GITHUB_WORKSPACE:?}/sdk" "${GITHUB_WORKSPACE:?}/sdk-source"
+
+  publish:
+    needs: pack
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: sdk-*
+          merge-multiple: true
+          path: sdk
+      - name: Publish both architectures
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BUILD: ${{ inputs.build }}
+        run: |
+          set -euo pipefail
+          for arch in x86_64 aarch64; do
+            ( cd sdk && sha256sum -c --quiet "SHA256SUMS-$arch" )
+          done
+          gh release create "sdk-$BUILD" sdk/* -R "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --latest=false --title "Sinty SDK $BUILD" \
+            --notes "Toolchains, sysroots and runtime ABI of Sinty OS $BUILD for x86_64 and aarch64."
