@@ -44,6 +44,29 @@ deleted file mode 100644
 --- 
 -2.34.1
 -
+diff --git a/package/librsvg/0001-meson-allow-introspection-in-cross-builds.patch b/package/librsvg/0001-meson-allow-introspection-in-cross-builds.patch
+new file mode 100644
+--- /dev/null
++++ b/package/librsvg/0001-meson-allow-introspection-in-cross-builds.patch
+@@ -0,0 +1,18 @@
++From: Sinty OS <dev@sinty.dev>
++Subject: [PATCH] meson: allow introspection in cross builds
++
++meson.can_run_host_binaries() is false in every Buildroot target build,
++so -Dintrospection=enabled fails at configure time. The scanner and
++compiler from the cross file already run target binaries through qemu.
++---
++--- a/meson.build
+++++ b/meson.build
++@@ -157,7 +157,7 @@
++ if host_system == 'windows'
++   build_gir = get_option('introspection').require(get_option('default_library') != 'static' and meson.can_run_host_binaries() and gi_dep.found())
++ else
++-  build_gir = get_option('introspection').require(meson.can_run_host_binaries() and gi_dep.found())
+++  build_gir = get_option('introspection').require(gi_dep.found())
++ endif
++ build_vala = get_option('vala').require(meson.can_run_host_binaries() and vapigen_dep.found())
++ 
 diff --git a/package/librsvg/librsvg.hash b/package/librsvg/librsvg.hash
 --- a/package/librsvg/librsvg.hash
 +++ b/package/librsvg/librsvg.hash
