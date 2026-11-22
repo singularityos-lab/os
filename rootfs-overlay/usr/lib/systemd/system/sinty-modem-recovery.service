@@ -1,0 +1,15 @@
+[Unit]
+Description=Sinty cellular modem recovery
+After=dbus.service
+ConditionPathExists=/run/sinty/modem.conf
+
+[Service]
+Type=dbus
+Environment=DBUS_SYSTEM_BUS_ADDRESS=unix:path=/run/dbus/system_bus_socket
+BusName=dev.sinty.Modem1
+ExecStart=/usr/bin/sinty-modemd recovery
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
