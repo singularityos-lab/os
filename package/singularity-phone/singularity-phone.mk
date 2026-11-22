@@ -4,7 +4,7 @@
 #
 ################################################################################
 
-SINGULARITY_PHONE_VERSION = ae3910d70bfdad3758d7e3006f9edb53a8f9afca
+SINGULARITY_PHONE_VERSION = 1d486d8834a66c1c7b507cbb1e9257b055fa77d8
 SINGULARITY_PHONE_SITE = $(call github,singularityos-lab,singularity-phone,$(SINGULARITY_PHONE_VERSION))
 SINGULARITY_PHONE_LICENSE = GPL-3.0+
 SINGULARITY_PHONE_LICENSE_FILES = LICENSE
