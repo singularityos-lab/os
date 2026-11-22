@@ -4,7 +4,7 @@
 #
 ################################################################################
 
-SINGULARITY_READER_VERSION = 2f88eca1b2dc0191c5e47c5473d438c24e49c01d
+SINGULARITY_READER_VERSION = d7e54852c20fb0b2219cb56c073fa3ced274cd7e
 SINGULARITY_READER_SITE = $(call github,singularityos-lab,singularity-reader,$(SINGULARITY_READER_VERSION))
 SINGULARITY_READER_LICENSE = GPL-3.0+
 SINGULARITY_READER_LICENSE_FILES = LICENSE
@@ -31,5 +31,8 @@ SINGULARITY_READER_CONF_OPTS += \
 	-Dlibsingularity:zig=$(HOST_DIR)/bin/zig \
 	-Dlibsingularity:zig-target=$(call qstrip,$(BR2_ARCH))-linux-gnu \
 	-Dlibsingularity:zig-cpu=baseline
+
+SINGULARITY_READER_DEPENDENCIES += host-iride
+SINGULARITY_READER_CONF_OPTS += -Diride=enabled
 
 $(eval $(meson-package))

@@ -4,7 +4,7 @@
 #
 ################################################################################
 
-SINGULARITY_KEYFRAME_VERSION = aafdc8b5b1281aa10c331ce37c70bad2bb813bcb
+SINGULARITY_KEYFRAME_VERSION = 0eb229869aa8df35fa2e4720c376c7484895dfa0
 SINGULARITY_KEYFRAME_SITE = $(call github,singularityos-lab,singularity-keyframe,$(SINGULARITY_KEYFRAME_VERSION))
 SINGULARITY_KEYFRAME_LICENSE = GPL-3.0+
 SINGULARITY_KEYFRAME_LICENSE_FILES = LICENSE
@@ -20,5 +20,8 @@ define SINGULARITY_KEYFRAME_DRAW_ENGINE
 		$(@D)/subprojects/singularity-draw/meson.build
 endef
 SINGULARITY_KEYFRAME_POST_EXTRACT_HOOKS += SINGULARITY_KEYFRAME_DRAW_ENGINE
+
+SINGULARITY_KEYFRAME_DEPENDENCIES += host-iride
+SINGULARITY_KEYFRAME_CONF_OPTS += -Diride=enabled
 
 $(eval $(meson-package))

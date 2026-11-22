@@ -6,7 +6,7 @@
 
 # Local dev builds from buildroot-build/local.mk _OVERRIDE_SRCDIR (build dir -custom),
 # which supersedes this github SITE. Keep the pin for RC/CI (no override present).
-SINGULARITY_SHELL_VERSION = 6b2ace73a9a50392ed709d99f720640d5b1f21d3
+SINGULARITY_SHELL_VERSION = cf4a0cde5c27fc97e37b9d334b87504f5e134c67
 SINGULARITY_SHELL_SITE = $(call github,singularityos-lab,singularity-shell,$(SINGULARITY_SHELL_VERSION))
 SINGULARITY_SHELL_LICENSE = GPL-3.0+
 SINGULARITY_SHELL_LICENSE_FILES = LICENSE
@@ -45,5 +45,8 @@ SINGULARITY_SHELL_DEPENDENCIES = \
 # prototype; GCC 14 makes implicit declarations a hard error by default. The
 # function is defined in wayland_integration.c and linked, so demote it.
 SINGULARITY_SHELL_CONF_OPTS = -Dc_args=-Wno-error=implicit-function-declaration
+
+SINGULARITY_SHELL_DEPENDENCIES += host-iride
+SINGULARITY_SHELL_CONF_OPTS += -Diride=enabled
 
 $(eval $(meson-package))

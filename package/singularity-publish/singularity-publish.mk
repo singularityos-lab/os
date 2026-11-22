@@ -4,7 +4,7 @@
 #
 ################################################################################
 
-SINGULARITY_PUBLISH_VERSION = 5e7fa4d8734920ce69ecf14003458de5e0452ad6
+SINGULARITY_PUBLISH_VERSION = e708ab32d6dc88653e2245be071ce954d72af256
 SINGULARITY_PUBLISH_SITE = $(call github,singularityos-lab,singularity-publish,$(SINGULARITY_PUBLISH_VERSION))
 SINGULARITY_PUBLISH_LICENSE = GPL-3.0+
 SINGULARITY_PUBLISH_LICENSE_FILES = LICENSE
@@ -31,5 +31,8 @@ SINGULARITY_PUBLISH_CONF_OPTS += \
 	-Dlibsingularity:zig=$(HOST_DIR)/bin/zig \
 	-Dlibsingularity:zig-target=$(call qstrip,$(BR2_ARCH))-linux-gnu \
 	-Dlibsingularity:zig-cpu=baseline
+
+SINGULARITY_PUBLISH_DEPENDENCIES += host-iride
+SINGULARITY_PUBLISH_CONF_OPTS += -Diride=enabled
 
 $(eval $(meson-package))

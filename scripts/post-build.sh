@@ -399,6 +399,16 @@ if ! grep -q '"image/svg+xml"' "$_loaders"; then
     echo "post-build: no SVG loader in the gdk-pixbuf loaders.cache" >&2
     exit 1
 fi
+if [ -e "$TARGET_DIR/usr/lib/libiride.so" ]; then
+    if ! grep -q '"application/vnd.sinty.iride"' "$_loaders"; then
+        echo "post-build: no Iride loader in the gdk-pixbuf loaders.cache" >&2
+        exit 1
+    fi
+    if ! grep -q 'application/vnd.sinty.iride' "$TARGET_DIR/usr/share/mime/globs2"; then
+        echo "post-build: the MIME database does not know Iride files" >&2
+        exit 1
+    fi
+fi
 for _module in $(sed -n 's,^"\(/[^"]*\.so\)".*,\1,p' "$_loaders"); do
     if [ ! -f "$TARGET_DIR$_module" ]; then
         echo "post-build: loaders.cache lists $_module, which is not in the image" >&2

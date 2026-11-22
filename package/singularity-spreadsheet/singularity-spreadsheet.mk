@@ -4,12 +4,15 @@
 #
 ################################################################################
 
-SINGULARITY_SPREADSHEET_VERSION = 2d501f2cc38bf6d6948ffb5a8cb496eb0c4d4030
+SINGULARITY_SPREADSHEET_VERSION = 8c4c0d9f7cce99cfed2a837695ee20f2b4224980
 SINGULARITY_SPREADSHEET_SITE = $(call github,singularityos-lab,singularity-spreadsheet,$(SINGULARITY_SPREADSHEET_VERSION))
 SINGULARITY_SPREADSHEET_LICENSE = GPL-3.0+
 SINGULARITY_SPREADSHEET_LICENSE_FILES = LICENSE
 SINGULARITY_SPREADSHEET_DEPENDENCIES = host-pkgconf host-vala host-vetro host-gettext libsingularity libgtk4 libgee json-glib libsoup3 libxml2 pango sqlite zlib
 
 SINGULARITY_SPREADSHEET_NINJA_ENV = XDG_DATA_HOME=$(STAGING_DIR)/usr/share
+
+SINGULARITY_SPREADSHEET_DEPENDENCIES += host-iride
+SINGULARITY_SPREADSHEET_CONF_OPTS += -Diride=enabled
 
 $(eval $(meson-package))

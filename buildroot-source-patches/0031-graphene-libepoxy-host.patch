@@ -1,0 +1,29 @@
+diff --git a/package/graphene/graphene.mk b/package/graphene/graphene.mk
+--- a/package/graphene/graphene.mk
++++ b/package/graphene/graphene.mk
+@@ -41,4 +41,13 @@ else
+ GRAPHENE_CONF_OPTS += -Darm_neon=false
+ endif
+ 
++HOST_GRAPHENE_DEPENDENCIES = host-libglib2
++HOST_GRAPHENE_CONF_OPTS = \
++	-Dtests=false \
++	-Dinstalled_tests=false \
++	-Dgtk_doc=false \
++	-Dgobject_types=true \
++	-Dintrospection=disabled
++
+ $(eval $(meson-package))
++$(eval $(host-meson-package))
+diff --git a/package/libepoxy/libepoxy.mk b/package/libepoxy/libepoxy.mk
+--- a/package/libepoxy/libepoxy.mk
++++ b/package/libepoxy/libepoxy.mk
+@@ -28,4 +28,8 @@ else
+ LIBEPOXY_CONF_OPTS += -Dglx=no -Dx11=false
+ endif
+ 
++HOST_LIBEPOXY_DEPENDENCIES = host-pkgconf
++HOST_LIBEPOXY_CONF_OPTS = -Ddocs=false -Dtests=false -Degl=no -Dglx=no -Dx11=false
++
+ $(eval $(meson-package))
++$(eval $(host-meson-package))

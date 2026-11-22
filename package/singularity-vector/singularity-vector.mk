@@ -4,7 +4,7 @@
 #
 ################################################################################
 
-SINGULARITY_VECTOR_VERSION = 97f8f25025a8c9e689f8505c16a55948281efa2d
+SINGULARITY_VECTOR_VERSION = fb1dff59200d2585c07ea1cf5b4d295ec907751c
 SINGULARITY_VECTOR_SITE = $(call github,singularityos-lab,singularity-vector,$(SINGULARITY_VECTOR_VERSION))
 SINGULARITY_VECTOR_LICENSE = GPL-3.0+
 SINGULARITY_VECTOR_LICENSE_FILES = LICENSE
@@ -35,5 +35,8 @@ SINGULARITY_VECTOR_CONF_OPTS += \
 	-Dlibsingularity:zig=$(HOST_DIR)/bin/zig \
 	-Dlibsingularity:zig-target=$(call qstrip,$(BR2_ARCH))-linux-gnu \
 	-Dlibsingularity:zig-cpu=baseline
+
+SINGULARITY_VECTOR_DEPENDENCIES += host-iride
+SINGULARITY_VECTOR_CONF_OPTS += -Diride=enabled
 
 $(eval $(meson-package))

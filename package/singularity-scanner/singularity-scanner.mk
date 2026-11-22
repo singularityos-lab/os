@@ -4,7 +4,7 @@
 #
 ################################################################################
 
-SINGULARITY_SCANNER_VERSION = 807a3c6335c62c21e87a79e992e581f7aad37edd
+SINGULARITY_SCANNER_VERSION = d06a8aba350f9c2d00f061b61209d388519bfdc2
 SINGULARITY_SCANNER_SITE = $(call github,singularityos-lab,singularity-scanner,$(SINGULARITY_SCANNER_VERSION))
 SINGULARITY_SCANNER_LICENSE = GPL-3.0+
 SINGULARITY_SCANNER_LICENSE_FILES = LICENSE
@@ -31,5 +31,8 @@ SINGULARITY_SCANNER_CONF_OPTS += \
 	-Dlibsingularity:zig=$(HOST_DIR)/bin/zig \
 	-Dlibsingularity:zig-target=$(call qstrip,$(BR2_ARCH))-linux-gnu \
 	-Dlibsingularity:zig-cpu=baseline
+
+SINGULARITY_SCANNER_DEPENDENCIES += host-iride
+SINGULARITY_SCANNER_CONF_OPTS += -Diride=enabled
 
 $(eval $(meson-package))

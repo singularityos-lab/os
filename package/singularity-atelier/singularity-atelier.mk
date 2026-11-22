@@ -4,12 +4,15 @@
 #
 ################################################################################
 
-SINGULARITY_ATELIER_VERSION = 040c6a56890868a3a989d5b63c35f3ee5820d584
+SINGULARITY_ATELIER_VERSION = 2bf40850ef3fb2ac8e8aa71b33f185682099f419
 SINGULARITY_ATELIER_SITE = $(call github,singularityos-lab,singularity-atelier,$(SINGULARITY_ATELIER_VERSION))
 SINGULARITY_ATELIER_LICENSE = GPL-3.0+
 SINGULARITY_ATELIER_LICENSE_FILES = LICENSE
 SINGULARITY_ATELIER_DEPENDENCIES = host-pkgconf host-vala host-vetro host-gettext libsingularity libgtk4 cairo gdk-pixbuf libgee gstreamer1 json-glib lcms2 libpeas2 libxml2 pango zlib
 
 SINGULARITY_ATELIER_NINJA_ENV = XDG_DATA_HOME=$(STAGING_DIR)/usr/share
+
+SINGULARITY_ATELIER_DEPENDENCIES += host-iride
+SINGULARITY_ATELIER_CONF_OPTS += -Diride=enabled
 
 $(eval $(meson-package))

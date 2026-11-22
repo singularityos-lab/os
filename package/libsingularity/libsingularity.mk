@@ -6,7 +6,7 @@
 
 # Local dev builds from buildroot-build/local.mk _OVERRIDE_SRCDIR (build dir -custom),
 # which supersedes this github SITE. Keep the pin for RC/CI (no override present).
-LIBSINGULARITY_VERSION = 5e9240aa135d8ca39a8c8126fc29bbf23063c439
+LIBSINGULARITY_VERSION = 5d6c0344fb333bedf69aeb7792edb4ced0d59459
 LIBSINGULARITY_SITE = $(call github,singularityos-lab,libsingularity,$(LIBSINGULARITY_VERSION))
 
 define LIBSINGULARITY_ENSURE_SOURCE
@@ -42,6 +42,13 @@ LIBSINGULARITY_CONF_OPTS = \
 	-Dzig=$(HOST_DIR)/bin/zig \
 	-Dzig-target=$(call qstrip,$(BR2_ARCH))-linux-gnu \
 	-Dzig-cpu=baseline
+
+ifeq ($(BR2_PACKAGE_IRIDE),y)
+LIBSINGULARITY_DEPENDENCIES += iride
+LIBSINGULARITY_CONF_OPTS += -Diride=enabled
+else
+LIBSINGULARITY_CONF_OPTS += -Diride=disabled
+endif
 
 define LIBSINGULARITY_INSTALL_CUPS_VAPI
 	$(INSTALL) -D -m 0644 $(LIBSINGULARITY_PKGDIR)/cups.vapi $(STAGING_DIR)/usr/share/vala/vapi/cups.vapi
