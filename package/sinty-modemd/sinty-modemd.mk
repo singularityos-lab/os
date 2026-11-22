@@ -4,7 +4,7 @@
 #
 ################################################################################
 
-SINTY_MODEMD_VERSION = 5c9c6a2a88776104c1f26eb355d560d979ede295
+SINTY_MODEMD_VERSION = 41c6156ac05509a55fa4a54e487f20417abe045f
 SINTY_MODEMD_SITE = $(call github,singularityos-lab,sinty-modem,$(SINTY_MODEMD_VERSION))
 SINTY_MODEMD_LICENSE = GPL-3.0-or-later
 SINTY_MODEMD_LICENSE_FILES = LICENSE NOTICE
