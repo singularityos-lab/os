@@ -53,6 +53,7 @@
     <keybind key="W-period"><action name="Execute"><command>/usr/bin/singularity-shortcut toggle_emoji_picker</command></action></keybind>
     <keybind key="W-v"><action name="Execute"><command>/usr/bin/singularity-shortcut toggle_clipboard_history</command></action></keybind>
     <keybind key="W-slash"><action name="Execute"><command>/usr/bin/singularity-shortcut toggle_shortcut_cheatsheet</command></action></keybind>
+    <keybind key="W-g"><action name="Execute"><command>/usr/bin/singularity-shortcut toggle_game_overlay</command></action></keybind>
     <keybind key="W-Tab"><action name="Execute"><command>/usr/bin/singularity-shortcut run_command</command></action></keybind>
     <keybind key="W-a"><action name="Execute"><command>/usr/bin/singularity-shortcut toggle_agent</command></action></keybind>
     <keybind key="W-S-a"><action name="Execute"><command>/usr/bin/singularity-shortcut agent_voice</command></action></keybind>
