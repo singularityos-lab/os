@@ -1,0 +1,13 @@
+config BR2_PACKAGE_MANGOHUD
+	bool "mangohud"
+	depends on BR2_INSTALL_LIBSTDCPP
+	select BR2_PACKAGE_DBUS
+	select BR2_PACKAGE_XLIB_LIBX11
+	select BR2_PACKAGE_LIBXKBCOMMON
+	select BR2_PACKAGE_WAYLAND
+	select BR2_PACKAGE_VULKAN_LOADER
+	help
+	  Vulkan and OpenGL overlay that shows frame rate, frame time
+	  and processor and graphics load in games.
+
+	  https://github.com/flightlessmango/MangoHud
