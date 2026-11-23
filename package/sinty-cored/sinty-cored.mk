@@ -4,7 +4,7 @@
 #
 ################################################################################
 
-SINTY_CORED_VERSION = 582d42d5b0f3570b8fe05d5e2b7fbdd04833d1a1
+SINTY_CORED_VERSION = f1ac8d782cb6b3dee85177e205f9892faba450cb
 SINTY_CORED_SITE = $(call github,singularityos-lab,sinty-cored,$(SINTY_CORED_VERSION))
 SINTY_CORED_LICENSE = GPL-3.0-only
 SINTY_CORED_LICENSE_FILES = LICENSE
