@@ -28,8 +28,7 @@ sscommon_locale
 sscommon_softrender_backstop
 _softmark=/run/singularity/render-software
 if [ -e "$_softmark" ] || [ -e /etc/singularity/render-software ] || grep -qw sinty.render=software /proc/cmdline 2>/dev/null; then
-    export WLR_RENDERER=pixman WLR_RENDERER_ALLOW_SOFTWARE=1
-    export LIBGL_ALWAYS_SOFTWARE=1 GALLIUM_DRIVER=llvmpipe
+    sscommon_force_software
     sscommon_log "compositor: software render (WLR_RENDERER=pixman)"
 fi
 
@@ -80,6 +79,7 @@ _session=/run/singularity/labwc-session
 mkdir -p "$_session" && rm -f "$_session/rc.xml" "$_session/menu.xml" \
     && chgrp singularity-session "$_session" 2>/dev/null && chmod 2770 "$_session" \
     && export LABWC_SESSION_RC="$_session/rc.xml" LABWC_SESSION_MENU="$_session/menu.xml"
+_started=$(cut -d. -f1 /proc/uptime)
 labwc -C "$_cfg" 2>>"$XDG_RUNTIME_DIR/labwc.log" &
 _pid=$!
 trap 'kill -TERM "$_pid" 2>/dev/null' TERM INT HUP
@@ -88,8 +88,11 @@ while :; do
     _rc=$?
     kill -0 "$_pid" 2>/dev/null || break
 done
-if [ "${WLR_RENDERER:-}" != pixman ] && { [ "$_rc" = 75 ] || [ "$_rc" -gt 128 ] && [ "$_rc" != 143 ]; }; then
+_lived=$(( $(cut -d. -f1 /proc/uptime) - _started ))
+if [ "${WLR_RENDERER:-}" != pixman ] && [ "$_rc" != 0 ] && [ "$_rc" != 143 ] && [ "$_lived" -lt 15 ]; then
     : > "$_softmark" 2>/dev/null || true
-    sscommon_log "compositor: GPU rendering failed (exit $_rc), restarting with software render"
+    sscommon_log "compositor: GPU rendering failed at start (exit $_rc after ${_lived}s), restarting with software render"
+else
+    sscommon_log "compositor: exited $_rc after ${_lived}s, restarting with the same renderer"
 fi
 exit "$_rc"

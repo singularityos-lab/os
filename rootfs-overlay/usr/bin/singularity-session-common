@@ -67,6 +67,14 @@ sscommon_hw_gpu_driver() {
     return 1
 }
 
+sscommon_force_software() {
+    export GSK_RENDERER=cairo WLR_RENDERER=pixman WLR_RENDERER_ALLOW_SOFTWARE=1
+    export LIBGL_ALWAYS_SOFTWARE=1 GALLIUM_DRIVER=llvmpipe WLR_NO_HARDWARE_CURSORS=1
+    if ls /dev/dri/renderD* >/dev/null 2>&1; then
+        export MESA_LOADER_DRIVER_OVERRIDE=kms_swrast WLR_DRM_NO_ATOMIC=1
+    fi
+}
+
 sscommon_softrender_backstop() {
     if command -v udevadm >/dev/null 2>&1; then
         udevadm settle --timeout=20 2>/dev/null || sscommon_log "udev still busy after 20 s, deciding the renderer anyway"
@@ -90,11 +98,7 @@ sscommon_softrender_backstop() {
         export __EGL_VENDOR_LIBRARY_FILENAMES=/usr/share/glvnd/egl_vendor.d/50_mesa.json
     fi
     if [ "$_hwgpu" = 0 ]; then
-        export GSK_RENDERER=cairo WLR_RENDERER=pixman WLR_RENDERER_ALLOW_SOFTWARE=1
-        export LIBGL_ALWAYS_SOFTWARE=1 GALLIUM_DRIVER=llvmpipe WLR_NO_HARDWARE_CURSORS=1
-        if [ "$_rendernode" = 1 ]; then
-            export MESA_LOADER_DRIVER_OVERRIDE=kms_swrast WLR_DRM_NO_ATOMIC=1
-        fi
+        sscommon_force_software
         sscommon_log "no HW GPU driver: forcing software render (llvmpipe/pixman/cairo)"
     else
         unset LIBGL_ALWAYS_SOFTWARE GALLIUM_DRIVER WLR_RENDERER WLR_RENDERER_ALLOW_SOFTWARE
