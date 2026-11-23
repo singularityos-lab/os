@@ -115,11 +115,32 @@ sscommon_drm_devices() {
             break
         fi
     done
+    _connected() {
+        for _s in /sys/class/drm/"$1"-*/status; do
+            case "$(cat "$_s" 2>/dev/null)" in connected|unknown) return 0 ;; esac
+        done
+        return 1
+    }
+    _firmware_fb() {
+        case "$(sed -n 's/^DRIVER=//p' "/sys/class/drm/$1/device/uevent" 2>/dev/null)" in
+            simple-framebuffer|simpledrm|efidrm|vesadrm|ofdrm) return 0 ;;
+        esac
+        return 1
+    }
+    _display_ready() {
+        for _c in /sys/class/drm/card[0-9]*; do
+            _n="${_c##*/}"
+            case "$_n" in *-*) continue ;; esac
+            _firmware_fb "$_n" && continue
+            _connected "$_n" && return 0
+        done
+        return 1
+    }
     _i=0
     while [ "$_i" -lt 150 ]; do
         if [ -n "$_boot" ]; then
             if ls "$_boot"/drm/card[0-9]* >/dev/null 2>&1; then break; fi
-        elif ls -d /sys/class/drm/card[0-9]* >/dev/null 2>&1; then
+        elif _display_ready; then
             break
         fi
         sleep 0.1
@@ -139,19 +160,11 @@ sscommon_drm_devices() {
         case ":$_list:" in *":/dev/dri/$1:"*) return 0 ;; esac
         _list="${_list:+$_list:}/dev/dri/$1"
     }
-    _connected() {
-        for _s in /sys/class/drm/"$1"-*/status; do
-            case "$(cat "$_s" 2>/dev/null)" in connected|unknown) return 0 ;; esac
-        done
-        return 1
-    }
     if [ -n "$_bootcard" ] && _connected "$_bootcard"; then _add "$_bootcard"; fi
     for _c in /sys/class/drm/card[0-9]*; do
         _n="${_c##*/}"
         case "$_n" in *-*) continue ;; esac
-        case "$(sed -n 's/^DRIVER=//p' "$_c/device/uevent" 2>/dev/null)" in
-            simple-framebuffer|simpledrm|efidrm|vesadrm|ofdrm) continue ;;
-        esac
+        _firmware_fb "$_n" && continue
         if _connected "$_n"; then _add "$_n"; fi
     done
     if [ -z "$_list" ] && [ -n "$_bootcard" ]; then _add "$_bootcard"; fi
