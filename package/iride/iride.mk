@@ -4,7 +4,7 @@
 #
 ################################################################################
 
-IRIDE_VERSION = 6c5fa3ba2f2e62eb2f8773a1d2331ca5cac186c5
+IRIDE_VERSION = a56eea6709c724b7db32ade658eb7f32913a98a5
 IRIDE_SITE = $(call github,singularityos-lab,iride,$(IRIDE_VERSION))
 IRIDE_LICENSE = GPL-3.0-only
 IRIDE_LICENSE_FILES = LICENSE
