@@ -247,6 +247,8 @@ jobs:
             artifacts/rootfs.hash
             artifacts/kernelcache*.efi
             artifacts/kernelcache*.efi.sig
+            artifacts/loader.efi
+            artifacts/loader.efi.sig
             artifacts/sinty-os.img
             artifacts/sinty-os-portable.img
             artifacts/sinty-os.iso

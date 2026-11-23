@@ -346,7 +346,7 @@ jobs:
           mv verity-output.txt "verity-output-$s.txt"
           files="rootfs.erofs rootfs.hash kernelcache.efi kernelcache.efi.sig kernelcache-recovery.efi kernelcache-recovery.efi.sig files.json.zst"
           files="$files firmware-active-amd.img firmware-active-amd.hash firmware-active-nvidia.img firmware-active-nvidia.hash verity-output-$s.txt"
-          for f in kernelcache.*.efi kernelcache.*.efi.sig sinty-board-firmware.tar.xz sinty-os-$VERSION.img.xz sinty-os-$VERSION.img.xz.sha256 sinty-os-portable-$VERSION.img.xz sinty-os-portable-$VERSION.img.xz.sha256; do
+          for f in loader.efi loader.efi.sig kernelcache.*.efi kernelcache.*.efi.sig sinty-board-firmware.tar.xz sinty-os-$VERSION.img.xz sinty-os-$VERSION.img.xz.sha256 sinty-os-portable-$VERSION.img.xz sinty-os-portable-$VERSION.img.xz.sha256; do
             [ -f "$f" ] && files="$files $f"
           done
           sha256sum $files > "SHA256SUMS-$s.txt"
