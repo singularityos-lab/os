@@ -195,6 +195,23 @@ runs:
         done
 
 
+    - name: Rebuild the packages whose own patches changed
+      shell: bash
+      run: |
+        rec="$BUILD_DIR"/build/.package-patch-hashes
+        mkdir -p "$BUILD_DIR"/build
+        touch "$rec"
+        for p in $(ls package/*/*.patch 2>/dev/null | cut -d/ -f2 | sort -u); do
+          h=$(cat package/"$p"/*.patch | sha256sum | cut -c1-16)
+          if ! grep -qx "$p $h" "$rec"; then
+            echo "patches of $p changed: rebuilding it"
+            rm -rf "$BUILD_DIR"/build/"$p"-*
+            sed -i "/^$p /d" "$rec"
+            echo "$p $h" >> "$rec"
+          fi
+        done
+
+
     - name: Rebuild the packages whose staged libraries are for another architecture
       shell: bash
       run: |
