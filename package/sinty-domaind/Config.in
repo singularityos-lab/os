@@ -1,0 +1,9 @@
+config BR2_PACKAGE_SINTY_DOMAIND
+	bool "sinty-domaind"
+	depends on BR2_PACKAGE_HOST_GO_TARGET_ARCH_SUPPORTS
+	help
+	  Organisation accounts for SintyOS: joins a Kerberos domain,
+	  signs domain users in through pam_sinty with an encrypted
+	  local home, and recognises the organisation's network.
+
+	  https://github.com/singularityos-lab/sinty-domaind
