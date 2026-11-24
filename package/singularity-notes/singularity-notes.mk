@@ -4,7 +4,7 @@
 #
 ################################################################################
 
-SINGULARITY_NOTES_VERSION = a4681ec7ddd1065a3349d490da6c3fa08c8c94ae
+SINGULARITY_NOTES_VERSION = 2ad477c625c50d66e67c2cf5f6aae9a97c085089
 SINGULARITY_NOTES_SITE = $(call github,singularityos-lab,singularity-notes,$(SINGULARITY_NOTES_VERSION))
 SINGULARITY_NOTES_LICENSE = GPL-3.0+
 SINGULARITY_NOTES_LICENSE_FILES = LICENSE
