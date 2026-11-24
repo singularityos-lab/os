@@ -5,7 +5,7 @@ After=sinty-devd.service
 
 [Service]
 ExecStart=/usr/bin/singularity-logcollect
-Restart=always
+Restart=on-failure
 RestartSec=2
 
 [Install]

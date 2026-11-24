@@ -1,7 +1,7 @@
 [Unit]
 Description=Keep the kernel and compositor logs of the last boots on disk
 DefaultDependencies=no
-After=sealedlogd.service
+After=sealedlogd.service atom-fscrypt-de.service
 Before=singularity-compositor.service
 
 [Service]
