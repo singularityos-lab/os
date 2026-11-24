@@ -4,14 +4,14 @@
 #
 ################################################################################
 
-CPAK_VERSION = 013dc3922ba693d98d0c7b1be1978356e8649046
+CPAK_VERSION = 4a8bcd146558a808fcccf5c398c1b066851cb11f
 CPAK_SITE = $(call github,containerpak,cpak,$(CPAK_VERSION))
 CPAK_LICENSE = LGPL-2.1
 CPAK_LICENSE_FILES = LICENSE
 CPAK_GOMOD = github.com/mirkobrombin/cpak
 CPAK_BUILD_TARGETS = cmd/cpak-storaged
 CPAK_DEPENDENCIES = libgtk4 host-pkgconf
-CPAK_RELEASE = 2.14.18
+CPAK_RELEASE = 2.14.20
 CPAK_TAGS = cpak_ui_gtk
 CPAK_LDFLAGS = \
 	-X main.version=$(CPAK_RELEASE) \

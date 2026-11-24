@@ -4,7 +4,7 @@
 #
 ################################################################################
 
-CPAK_PREBUILT_VERSION = 2.14.19-managed
+CPAK_PREBUILT_VERSION = 2.14.20-managed
 CPAK_PREBUILT_SOURCE = cpak-$(CPAK_PREBUILT_VERSION)-x86_64.tar.zst
 CPAK_PREBUILT_SITE = https://github.com/singularityos-lab/os/releases/download/prebuilt-26A131
 CPAK_PREBUILT_LICENSE = LGPL-2.1

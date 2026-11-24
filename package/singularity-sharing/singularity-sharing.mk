@@ -4,7 +4,7 @@
 #
 ################################################################################
 
-SINGULARITY_SHARING_VERSION = 0dfe080cbe1fded3179484024766e38c8088e1b8
+SINGULARITY_SHARING_VERSION = 34f332a5b669cdff83deaae035a018952d551cf4
 SINGULARITY_SHARING_SITE = $(call github,singularityos-lab,singularity-sharing,$(SINGULARITY_SHARING_VERSION))
 SINGULARITY_SHARING_LICENSE = LGPL-2.1+
 SINGULARITY_SHARING_LICENSE_FILES = LICENSE

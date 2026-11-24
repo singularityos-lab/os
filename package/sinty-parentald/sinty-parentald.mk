@@ -4,7 +4,7 @@
 #
 ################################################################################
 
-SINTY_PARENTALD_VERSION = 8a157908a1597310933519ac68c575b82e9b969a
+SINTY_PARENTALD_VERSION = 606f775e41d51592ce37432173134464c9d60e49
 SINTY_PARENTALD_SITE = $(call github,singularityos-lab,sinty-parentald,$(SINTY_PARENTALD_VERSION))
 SINTY_PARENTALD_LICENSE = GPL-3.0-only
 SINTY_PARENTALD_LICENSE_FILES = LICENSE

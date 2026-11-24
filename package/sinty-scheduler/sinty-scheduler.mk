@@ -4,7 +4,7 @@
 #
 ################################################################################
 
-SINTY_SCHEDULER_VERSION = 7f8d08190db9aa18beee4f914673d4ef81371ce6
+SINTY_SCHEDULER_VERSION = f94210b3d2f01b91d85fab571e4cf81323550e80
 SINTY_SCHEDULER_SITE = $(call github,singularityos-lab,sinty-scheduler,$(SINTY_SCHEDULER_VERSION))
 SINTY_SCHEDULER_LICENSE = GPL-2.0
 SINTY_SCHEDULER_LICENSE_FILES = LICENSE

@@ -4,7 +4,7 @@
 #
 ################################################################################
 
-SINTY_COMPUTE_VERSION = 97894b2d8bea242490ab9a43c628fe6c8cf8c3bd
+SINTY_COMPUTE_VERSION = f0bd1e91f8c994c7544b92ac0f2dfed6797534bc
 SINTY_COMPUTE_SITE = $(call github,singularityos-lab,sinty-compute,$(SINTY_COMPUTE_VERSION))
 SINTY_COMPUTE_LICENSE = GPL-2.0
 SINTY_COMPUTE_LICENSE_FILES = LICENSE

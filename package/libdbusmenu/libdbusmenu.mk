@@ -4,7 +4,7 @@
 #
 ################################################################################
 
-LIBDBUSMENU_VERSION = aa8f73b5123c79eb164a628c6eb0f91169b529de
+LIBDBUSMENU_VERSION = 84f69d55b9caa3883104adf3dcbb111fb6a20a23
 LIBDBUSMENU_SITE = $(call github,singularityos-lab,libdbusmenu,$(LIBDBUSMENU_VERSION))
 LIBDBUSMENU_LICENSE = LGPL-2.1, LGPL-3.0, GPL-3.0
 LIBDBUSMENU_LICENSE_FILES = COPYING COPYING.2.1 COPYING-GPL3

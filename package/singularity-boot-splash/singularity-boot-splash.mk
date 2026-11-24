@@ -4,7 +4,7 @@
 #
 ################################################################################
 
-SINGULARITY_BOOT_SPLASH_VERSION = a0d5c88934cc9c3193abab83111cd1993675bbdb
+SINGULARITY_BOOT_SPLASH_VERSION = 2538b36bab576c083321bd8f243fcd6e30a6ee4d
 SINGULARITY_BOOT_SPLASH_SITE = $(call github,singularityos-lab,singularity-boot-splash,$(SINGULARITY_BOOT_SPLASH_VERSION))
 SINGULARITY_BOOT_SPLASH_LICENSE = LGPL-2.1
 SINGULARITY_BOOT_SPLASH_LICENSE_FILES = LICENSE

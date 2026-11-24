@@ -4,7 +4,7 @@
 #
 ################################################################################
 
-SINTY_DEVD_VERSION = 0566bdfa04a73c22a01770a55fa08e62cc561795
+SINTY_DEVD_VERSION = 65ce8f72457ec917b3054a20e60960600de9c495
 SINTY_DEVD_SITE = $(call github,singularityos-lab,sinty-devd,$(SINTY_DEVD_VERSION))
 SINTY_DEVD_LICENSE = GPL-3.0-only
 SINTY_DEVD_LICENSE_FILES = LICENSE

@@ -4,7 +4,7 @@
 #
 ################################################################################
 
-SINTY_HOSTNAME_VERSION = d2cb309460d975cc0b2abff954166a29287e6b34
+SINTY_HOSTNAME_VERSION = c53503da5c19b06292ba41bd2f8d976930a264ca
 SINTY_HOSTNAME_SITE = $(call github,singularityos-lab,sinty-hostname,$(SINTY_HOSTNAME_VERSION))
 SINTY_HOSTNAME_LICENSE = GPL-3.0-only
 SINTY_HOSTNAME_LICENSE_FILES = LICENSE

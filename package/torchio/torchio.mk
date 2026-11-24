@@ -4,7 +4,7 @@
 #
 ################################################################################
 
-TORCHIO_VERSION = 263f92b295a014cbcaef04f34ddef1aec074969a
+TORCHIO_VERSION = 8bee900e034ecb86b2f8eb9cb296bb50396fea5f
 TORCHIO_SITE = $(call github,singularityos-lab,torchio,$(TORCHIO_VERSION))
 TORCHIO_LICENSE = GPL-3.0-or-later
 TORCHIO_LICENSE_FILES = LICENSE

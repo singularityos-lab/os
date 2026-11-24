@@ -4,7 +4,7 @@
 #
 ################################################################################
 
-SINTY_AEGIS_VERSION = 4b7d665c017a9cf5c307f07aa15a0a539ada8258
+SINTY_AEGIS_VERSION = 16a499af79c16aaedd545407271ea42c70e41f75
 SINTY_AEGIS_SITE = $(call github,singularityos-lab,sinty-aegis,$(SINTY_AEGIS_VERSION))
 SINTY_AEGIS_LICENSE = GPL-3.0-only
 SINTY_AEGIS_LICENSE_FILES = LICENSE

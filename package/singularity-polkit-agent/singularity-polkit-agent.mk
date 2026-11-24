@@ -4,7 +4,7 @@
 #
 ################################################################################
 
-SINGULARITY_POLKIT_AGENT_VERSION = 5b170ecdbbf8358dfab69fd1331e370c36827cc8
+SINGULARITY_POLKIT_AGENT_VERSION = 2d968a1b8c8be7c1ffac4d55e72efa5407109606
 SINGULARITY_POLKIT_AGENT_SITE = $(call github,singularityos-lab,singularity-polkit-agent,$(SINGULARITY_POLKIT_AGENT_VERSION))
 SINGULARITY_POLKIT_AGENT_LICENSE = GPL-3.0+
 SINGULARITY_POLKIT_AGENT_LICENSE_FILES = LICENSE

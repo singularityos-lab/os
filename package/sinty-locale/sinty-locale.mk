@@ -4,7 +4,7 @@
 #
 ################################################################################
 
-SINTY_LOCALE_VERSION = 3187c25103f584f6ceeddec8ad866fb035405caf
+SINTY_LOCALE_VERSION = 0c9e20451ae272aec3592161442bc9815464dce4
 SINTY_LOCALE_SITE = $(call github,singularityos-lab,sinty-locale,$(SINTY_LOCALE_VERSION))
 SINTY_LOCALE_LICENSE = GPL-3.0-only
 SINTY_LOCALE_LICENSE_FILES = LICENSE

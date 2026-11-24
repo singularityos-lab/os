@@ -4,7 +4,7 @@
 #
 ################################################################################
 
-SINTY_DESKTOPD_VERSION = 8cd5687334b17f8ddf199aa673dddebde316d2d9
+SINTY_DESKTOPD_VERSION = 1fc28da49e597a91adce91d779b45e8b6aadfac1
 SINTY_DESKTOPD_SITE = $(call github,singularityos-lab,sinty-desktopd,$(SINTY_DESKTOPD_VERSION))
 SINTY_DESKTOPD_LICENSE = GPL-3.0-only
 SINTY_DESKTOPD_LICENSE_FILES = LICENSE

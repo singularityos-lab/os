@@ -4,7 +4,7 @@
 #
 ################################################################################
 
-SINGULARITY_KEYRING_VERSION = e26b3c90d7ddf326b2eaa87d7c8344e88320d423
+SINGULARITY_KEYRING_VERSION = 4b9b1f35957ab1ea6151e1a897c2ac67559a439e
 SINGULARITY_KEYRING_SITE = $(call github,singularityos-lab,singularity-keyring,$(SINGULARITY_KEYRING_VERSION))
 SINGULARITY_KEYRING_LICENSE = GPL-3.0+
 SINGULARITY_KEYRING_LICENSE_FILES = LICENSE

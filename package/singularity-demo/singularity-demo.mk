@@ -4,7 +4,7 @@
 #
 ################################################################################
 
-SINGULARITY_DEMO_VERSION = f7961449a9b91115b0c131225216e14193679319
+SINGULARITY_DEMO_VERSION = 83203fe85eaa550bdbfc82657cae0bc3c17d7ae5
 SINGULARITY_DEMO_SITE = $(call github,singularityos-lab,singularity-demo,$(SINGULARITY_DEMO_VERSION))
 SINGULARITY_DEMO_LICENSE = GPL-3.0+
 SINGULARITY_DEMO_LICENSE_FILES = LICENSE

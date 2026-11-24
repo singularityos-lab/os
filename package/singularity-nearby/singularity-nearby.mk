@@ -4,7 +4,7 @@
 #
 ################################################################################
 
-SINGULARITY_NEARBY_VERSION = 09b492d4aea86ad4bc586dc1897705081567e051
+SINGULARITY_NEARBY_VERSION = f39a6fbcfe02a2261446ee60cb2e65661861963c
 SINGULARITY_NEARBY_SITE = $(call github,singularityos-lab,singularity-nearby,$(SINGULARITY_NEARBY_VERSION))
 SINGULARITY_NEARBY_LICENSE = GPL-3.0+
 SINGULARITY_NEARBY_LICENSE_FILES = LICENSE
