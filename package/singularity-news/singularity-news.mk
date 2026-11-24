@@ -4,7 +4,7 @@
 #
 ################################################################################
 
-SINGULARITY_NEWS_VERSION = ec6ab04ccf501fac3300e794cc2cb6df8459a5d5
+SINGULARITY_NEWS_VERSION = d5a658a29336969147889f16362e82abe8bad48a
 SINGULARITY_NEWS_SITE = $(call github,singularityos-lab,singularity-news,$(SINGULARITY_NEWS_VERSION))
 SINGULARITY_NEWS_LICENSE = GPL-3.0+
 SINGULARITY_NEWS_LICENSE_FILES = LICENSE

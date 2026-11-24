@@ -4,7 +4,7 @@
 #
 ################################################################################
 
-SINGULARITY_TRANSLATE_VERSION = 0c8a690f4aacac54a9a7af298fded208cb00d1d0
+SINGULARITY_TRANSLATE_VERSION = af73435c214cfcb39783d630d7fe52273b54ad26
 SINGULARITY_TRANSLATE_SITE = $(call github,singularityos-lab,singularity-translate,$(SINGULARITY_TRANSLATE_VERSION))
 SINGULARITY_TRANSLATE_LICENSE = GPL-3.0+
 SINGULARITY_TRANSLATE_LICENSE_FILES = LICENSE

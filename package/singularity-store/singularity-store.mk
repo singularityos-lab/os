@@ -4,7 +4,7 @@
 #
 ################################################################################
 
-SINGULARITY_STORE_VERSION = e8b85f880ac36d219cad173da8f6f53ccfc1e8af
+SINGULARITY_STORE_VERSION = cfd03de82c769e254b686b06c232117434addf8d
 SINGULARITY_STORE_SITE = $(call github,singularityos-lab,singularity-store,$(SINGULARITY_STORE_VERSION))
 SINGULARITY_STORE_LICENSE = GPL-3.0+
 SINGULARITY_STORE_LICENSE_FILES = LICENSE

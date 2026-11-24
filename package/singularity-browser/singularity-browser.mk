@@ -4,7 +4,7 @@
 #
 ################################################################################
 
-SINGULARITY_BROWSER_VERSION = 5948d1a62ef8ec04686bfd62c82f94f8aeeafaef
+SINGULARITY_BROWSER_VERSION = bf9ce880016683650969a0f08038ab5c14298d1d
 SINGULARITY_BROWSER_SITE = $(call github,singularityos-lab,singularity-browser,$(SINGULARITY_BROWSER_VERSION))
 SINGULARITY_BROWSER_LICENSE = GPL-3.0+
 SINGULARITY_BROWSER_LICENSE_FILES = LICENSE

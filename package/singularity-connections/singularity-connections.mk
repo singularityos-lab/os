@@ -4,7 +4,7 @@
 #
 ################################################################################
 
-SINGULARITY_CONNECTIONS_VERSION = 5351638f010b2c8b1c5a4757feeae8a9e95b6dfa
+SINGULARITY_CONNECTIONS_VERSION = 4431c7ab44ab6c194eacc0ceefb953be61fe376d
 SINGULARITY_CONNECTIONS_SITE = $(call github,singularityos-lab,singularity-connections,$(SINGULARITY_CONNECTIONS_VERSION))
 SINGULARITY_CONNECTIONS_LICENSE = GPL-3.0+
 SINGULARITY_CONNECTIONS_LICENSE_FILES = LICENSE

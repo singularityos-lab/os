@@ -4,7 +4,7 @@
 #
 ################################################################################
 
-SINGULARITY_COLORPICKER_VERSION = 91dc9af30a317e6e7def842eb75fe22b79baaacb
+SINGULARITY_COLORPICKER_VERSION = 2d0a902a2a60631d4b09bb8ac1333e8c764fa0d3
 SINGULARITY_COLORPICKER_SITE = $(call github,singularityos-lab,singularity-colorpicker,$(SINGULARITY_COLORPICKER_VERSION))
 SINGULARITY_COLORPICKER_LICENSE = GPL-3.0+
 SINGULARITY_COLORPICKER_LICENSE_FILES = LICENSE

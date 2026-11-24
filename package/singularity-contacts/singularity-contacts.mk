@@ -4,7 +4,7 @@
 #
 ################################################################################
 
-SINGULARITY_CONTACTS_VERSION = a66cb59be6ca320bc78e2d8c7bb1f3d7d62e90b1
+SINGULARITY_CONTACTS_VERSION = ba69743b978b37c25ded2a95cc90599a77c5fb74
 SINGULARITY_CONTACTS_SITE = $(call github,singularityos-lab,singularity-contacts,$(SINGULARITY_CONTACTS_VERSION))
 SINGULARITY_CONTACTS_LICENSE = GPL-3.0+
 SINGULARITY_CONTACTS_LICENSE_FILES = LICENSE

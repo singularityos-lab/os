@@ -4,7 +4,7 @@
 #
 ################################################################################
 
-SINGULARITY_DRAW_VERSION = f54501e068273d3625abb8f86e50efb468f66696
+SINGULARITY_DRAW_VERSION = 530922b6256af761ed148eff8eb164e3bfdfa6cd
 SINGULARITY_DRAW_SITE = $(call github,singularityos-lab,singularity-draw,$(SINGULARITY_DRAW_VERSION))
 SINGULARITY_DRAW_LICENSE = GPL-3.0+
 SINGULARITY_DRAW_LICENSE_FILES = LICENSE

@@ -4,7 +4,7 @@
 #
 ################################################################################
 
-SINGULARITY_HELP_VERSION = 4c86a957a6898b503e74f108febcd1d00b09f407
+SINGULARITY_HELP_VERSION = 2f5f991582826a23c95e3e1a9ae269070c684878
 SINGULARITY_HELP_SITE = $(call github,singularityos-lab,singularity-help,$(SINGULARITY_HELP_VERSION))
 SINGULARITY_HELP_LICENSE = GPL-3.0+
 SINGULARITY_HELP_LICENSE_FILES = LICENSE

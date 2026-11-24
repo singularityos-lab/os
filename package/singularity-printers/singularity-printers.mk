@@ -4,7 +4,7 @@
 #
 ################################################################################
 
-SINGULARITY_PRINTERS_VERSION = 4071bcb2bd869e6808d3ad3c5ee271a932daf86c
+SINGULARITY_PRINTERS_VERSION = 24a249fbb95ff56d80ca7f418f090366762163d7
 SINGULARITY_PRINTERS_SITE = $(call github,singularityos-lab,singularity-printers,$(SINGULARITY_PRINTERS_VERSION))
 SINGULARITY_PRINTERS_LICENSE = GPL-3.0+
 SINGULARITY_PRINTERS_LICENSE_FILES = LICENSE

@@ -4,7 +4,7 @@
 #
 ################################################################################
 
-SINGULARITY_MAPS_VERSION = 8a730e50116c360a9b02bc327b65496eec3d8536
+SINGULARITY_MAPS_VERSION = 4f2baf557d6f96ecc3f64ee5ec8e64c478cfdd9e
 SINGULARITY_MAPS_SITE = $(call github,singularityos-lab,singularity-maps,$(SINGULARITY_MAPS_VERSION))
 SINGULARITY_MAPS_LICENSE = GPL-3.0+
 SINGULARITY_MAPS_LICENSE_FILES = LICENSE

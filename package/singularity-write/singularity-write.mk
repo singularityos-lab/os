@@ -4,7 +4,7 @@
 #
 ################################################################################
 
-SINGULARITY_WRITE_VERSION = ba9c0267c70cbbe061643d6a7001a4048a8cd533
+SINGULARITY_WRITE_VERSION = d2b27e08a2eb2e3bd7ed53891bc94db45464268f
 SINGULARITY_WRITE_SITE = $(call github,singularityos-lab,singularity-write,$(SINGULARITY_WRITE_VERSION))
 SINGULARITY_WRITE_LICENSE = GPL-3.0+
 SINGULARITY_WRITE_LICENSE_FILES = LICENSE

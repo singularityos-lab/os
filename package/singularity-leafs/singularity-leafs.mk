@@ -4,7 +4,7 @@
 #
 ################################################################################
 
-SINGULARITY_LEAFS_VERSION = cb69f11a62615b8455a097d5032a16342a8edaf0
+SINGULARITY_LEAFS_VERSION = c87c4cf65e6a779a16ffc6bb6dddc49c6e178a16
 SINGULARITY_LEAFS_SITE = $(call github,singularityos-lab,singularity-leafs,$(SINGULARITY_LEAFS_VERSION))
 SINGULARITY_LEAFS_LICENSE = GPL-3.0+
 SINGULARITY_LEAFS_LICENSE_FILES = LICENSE

@@ -4,7 +4,7 @@
 #
 ################################################################################
 
-SINGULARITY_ATELIER_VERSION = 2bf40850ef3fb2ac8e8aa71b33f185682099f419
+SINGULARITY_ATELIER_VERSION = fd003cb0f58426332addc6a52d3b897ac06d0681
 SINGULARITY_ATELIER_SITE = $(call github,singularityos-lab,singularity-atelier,$(SINGULARITY_ATELIER_VERSION))
 SINGULARITY_ATELIER_LICENSE = GPL-3.0+
 SINGULARITY_ATELIER_LICENSE_FILES = LICENSE

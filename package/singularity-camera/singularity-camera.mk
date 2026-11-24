@@ -4,7 +4,7 @@
 #
 ################################################################################
 
-SINGULARITY_CAMERA_VERSION = 5f254b19b379d65125af53a9a0b6fa8ff2a2f5c6
+SINGULARITY_CAMERA_VERSION = 15f6a59d084326626cc22dc612e0b9dbea02906c
 SINGULARITY_CAMERA_SITE = $(call github,singularityos-lab,singularity-camera,$(SINGULARITY_CAMERA_VERSION))
 SINGULARITY_CAMERA_LICENSE = GPL-3.0+
 SINGULARITY_CAMERA_LICENSE_FILES = LICENSE

@@ -4,7 +4,7 @@
 #
 ################################################################################
 
-SINGULARITY_FONTS_VERSION = a7014dc355813be972be97066839abab707e6c7c
+SINGULARITY_FONTS_VERSION = 0b286a99f992b72fb628c1ca8181a7e2c59d0840
 SINGULARITY_FONTS_SITE = $(call github,singularityos-lab,singularity-fonts,$(SINGULARITY_FONTS_VERSION))
 SINGULARITY_FONTS_LICENSE = GPL-3.0+
 SINGULARITY_FONTS_LICENSE_FILES = LICENSE
