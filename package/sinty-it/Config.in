@@ -1,0 +1,9 @@
+config BR2_PACKAGE_SINTY_IT
+	bool "sinty-it"
+	depends on BR2_PACKAGE_HOST_GO_TARGET_ARCH_SUPPORTS
+	help
+	  Device management agent for SintyOS: enrolls the device with
+	  the organisation's Sinty IT server, reports its protection
+	  state and runs the signed commands it receives.
+
+	  https://github.com/singularityos-lab/sinty-it
