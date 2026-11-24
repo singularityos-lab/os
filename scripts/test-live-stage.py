@@ -94,6 +94,14 @@ with tempfile.TemporaryDirectory() as tmp:
         with open(os.path.realpath(elf), "rb") as e:
             symbols = ls.dynamic_symbols(e.read())
         check(symbols is not None and "malloc" in symbols and len(symbols) > 500, "exported symbols are read from a real library")
+        os.makedirs(os.path.join(root, "usr/lib/gstreamer"))
+        with open(os.path.realpath(elf), "rb") as src, open(os.path.join(root, "usr/lib/gstreamer/libgstx-1.0.so.0.2802.0"), "wb") as dst:
+            dst.write(src.read())
+        with open(os.path.join(root, "usr/share/notes.so.txt"), "wb") as dst:
+            dst.write(b"\x7fELF")
+        listed = {e[0]: e for e in ls.list_root(root, rules)}
+        check("malloc" in (listed["/usr/lib/gstreamer/libgstx-1.0.so.0.2802.0"][4] or []), "every shared library lists its exports")
+        check(listed["/usr/share/notes.so.txt"][4] is None, "other files list no exports")
 
     out = subprocess.run([sys.executable, os.path.join(HERE, "live-stage.py"), "decide", "--table", table,
                           "--old", os.devnull, "--new", os.devnull, "--min-stage", "2"], capture_output=True, text=True)

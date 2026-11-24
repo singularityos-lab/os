@@ -14,6 +14,7 @@ CLASSES = {0: "silent", 1: "reload", 2: "relogin"}
 REBOOT = 3
 ANCHOR = "/usr/lib/atomloops/live"
 SHT_DYNSYM = 11
+SHARED_LIBRARY = re.compile(r"\.so(\.[0-9]+)*$")
 
 
 def glob_regex(pattern):
@@ -119,8 +120,10 @@ def list_root(root, rules):
                 data = f.read()
             extra = None
             rule = match(rules, path)
-            if rule and rule[2]:
-                extra = dynamic_symbols(data) if rule[2][0] == "abi" else schema_keys(data)
+            if rule and rule[2] and rule[2][0] == "keys":
+                extra = schema_keys(data)
+            elif (rule and rule[2]) or SHARED_LIBRARY.search(name):
+                extra = dynamic_symbols(data)
             entries.append([path, "f", mode, hashlib.sha256(data).hexdigest(), extra])
     entries.sort(key=lambda e: e[0])
     return entries
