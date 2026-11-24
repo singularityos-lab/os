@@ -78,6 +78,7 @@
     <keybind key="XF86AudioMicMute"><action name="Execute"><command>/usr/bin/singularity-shortcut mic_mute</command></action></keybind>
     <keybind key="XF86KbdBrightnessUp"><action name="Execute"><command>/usr/bin/singularity-shortcut kbd_brightness_up</command></action></keybind>
     <keybind key="XF86KbdBrightnessDown"><action name="Execute"><command>/usr/bin/singularity-shortcut kbd_brightness_down</command></action></keybind>
+    <keybind key="XF86KbdLightOnOff"><action name="Execute"><command>/usr/bin/singularity-shortcut kbd_brightness_toggle</command></action></keybind>
     <keybind key="XF86AudioRaiseVolume"><action name="Execute"><command>/usr/bin/singularity-shortcut volume_up</command></action></keybind>
     <keybind key="XF86AudioLowerVolume"><action name="Execute"><command>/usr/bin/singularity-shortcut volume_down</command></action></keybind>
     <keybind key="XF86AudioMute"><action name="Execute"><command>/usr/bin/singularity-shortcut volume_mute</command></action></keybind>
