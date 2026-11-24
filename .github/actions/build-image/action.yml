@@ -227,7 +227,7 @@ runs:
           f="$sysroot/${path#./}"
           [ -f "$f" ] && [ ! -L "$f" ] || continue
           m=$(readelf -h "$f" 2>/dev/null | sed -n 's/^ *Machine: *//p')
-          [ -n "$m" ] && [ "${m%"$want"}" = "$m" ] && echo "$pkg"
+          if [ -n "$m" ] && [ "${m%"$want"}" = "$m" ]; then echo "$pkg"; fi
         done < "$list" | sort -u)
         for p in $bad; do
           echo "staged libraries of $p are not $ARCH: rebuilding it"
