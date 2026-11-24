@@ -4,7 +4,7 @@
 #
 ################################################################################
 
-SINTY_FIREWALLD_VERSION = 5a24bda07fcb8b6cff839951ffac6f0b27181b28
+SINTY_FIREWALLD_VERSION = 59f3a76782f867259ebee545db22386fb164bbbe
 SINTY_FIREWALLD_SITE = $(call github,singularityos-lab,sinty-firewalld,$(SINTY_FIREWALLD_VERSION))
 SINTY_FIREWALLD_LICENSE = GPL-3.0-only
 SINTY_FIREWALLD_LICENSE_FILES = LICENSE
