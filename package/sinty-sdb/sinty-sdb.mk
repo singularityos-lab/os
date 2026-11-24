@@ -1,8 +1,13 @@
-SINTY_SDB_VERSION = 9695e9252cd50bc51e520aa6c18e737ab7c0e282
+SINTY_SDB_VERSION = 375a29bd5666f183473a5989c88742308d240b7e
 SINTY_SDB_SITE = $(call github,singularityos-lab,sinty-sdb,$(SINTY_SDB_VERSION))
 SINTY_SDB_LICENSE = GPL-3.0-only
 SINTY_SDB_GOMOD = github.com/singularityos-lab/sinty-sdb
 SINTY_SDB_BUILD_TARGETS = cmd/sdb cmd/sdbd
+
+define SINTY_SDB_GO_VENDOR
+	cd $(@D) && env -u GOFLAGS GOPROXY=https://proxy.golang.org,direct GOTOOLCHAIN=local $(HOST_DIR)/bin/go mod vendor
+endef
+SINTY_SDB_PRE_BUILD_HOOKS += SINTY_SDB_GO_VENDOR
 
 define SINTY_SDB_INSTALL_TARGET_CMDS
 	$(INSTALL) -D -m 0755 $(@D)/bin/sdbd $(TARGET_DIR)/usr/bin/sdbd

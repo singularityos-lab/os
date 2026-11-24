@@ -158,12 +158,16 @@ fi
 
 _fails=0
 _swfallback=0
+sealedlogd emit session start 2>/dev/null || true
 while true; do
     _t0=$(date +%s)
     "$BIN/singularity-desktop" >> "$_LOG" 2>&1
     _EC=$?
     export SINGULARITY_SHELL_RESTARTED=1
     _dt=$(($(date +%s) - _t0))
+    if [ $_EC -ne 0 ] && [ $_EC -ne 79 ]; then
+        sealedlogd emit session crash "$_EC" "$_dt" 2>/dev/null || true
+    fi
     if [ $_EC -eq 79 ]; then
         echo "[$(date)] singularity-desktop reloading for a live update" >> "$_LOG"
         _fails=0
@@ -215,6 +219,7 @@ while true; do
         fi
         if [ $_fails -ge 5 ]; then
             echo "[$(date)] singularity-desktop failed fast $_fails times (compositor gone?), ending the session instead of looping." >> "$_LOG"
+            sealedlogd emit session fail "$_fails" 2>/dev/null || true
             kill "$PPID" 2>/dev/null || true
             exit 1
         fi
