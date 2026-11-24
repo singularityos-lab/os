@@ -1,0 +1,156 @@
+diff --git a/backend/wayland/backend.c b/backend/wayland/backend.c
+index 14a783b6..05a82e64 100644
+--- a/backend/wayland/backend.c
++++ b/backend/wayland/backend.c
+@@ -28,6 +28,7 @@
+ #include "xdg-decoration-unstable-v1-client-protocol.h"
+ #include "xdg-shell-client-protocol.h"
+ #include "tablet-v2-client-protocol.h"
++#include "pointer-constraints-unstable-v1-client-protocol.h"
+ #include "relative-pointer-unstable-v1-client-protocol.h"
+ #include "viewporter-client-protocol.h"
+ 
+@@ -397,6 +398,9 @@ static void registry_global(void *data, struct wl_registry *registry,
+ 	} else if (strcmp(iface, zwp_relative_pointer_manager_v1_interface.name) == 0) {
+ 		wl->zwp_relative_pointer_manager_v1 = wl_registry_bind(registry, name,
+ 			&zwp_relative_pointer_manager_v1_interface, 1);
++	} else if (strcmp(iface, zwp_pointer_constraints_v1_interface.name) == 0) {
++		wl->zwp_pointer_constraints_v1 = wl_registry_bind(registry, name,
++			&zwp_pointer_constraints_v1_interface, 1);
+ 	} else if (strcmp(iface, wl_drm_interface.name) == 0) {
+ 		wl->legacy_drm = wl_registry_bind(registry, name, &wl_drm_interface, 1);
+ 		wl_drm_add_listener(wl->legacy_drm, &legacy_drm_listener, wl);
+@@ -547,6 +551,9 @@ static void backend_destroy(struct wlr_backend *backend) {
+ 	if (wl->zwp_relative_pointer_manager_v1) {
+ 		zwp_relative_pointer_manager_v1_destroy(wl->zwp_relative_pointer_manager_v1);
+ 	}
++	if (wl->zwp_pointer_constraints_v1) {
++		zwp_pointer_constraints_v1_destroy(wl->zwp_pointer_constraints_v1);
++	}
+ 	if (wl->subcompositor) {
+ 		wl_subcompositor_destroy(wl->subcompositor);
+ 	}
+diff --git a/backend/wayland/meson.build b/backend/wayland/meson.build
+index b606a9bb..4eb8eef6 100644
+--- a/backend/wayland/meson.build
++++ b/backend/wayland/meson.build
+@@ -15,6 +15,7 @@ client_protos = [
+ 	'drm',
+ 	'linux-dmabuf-v1',
+ 	'linux-drm-syncobj-v1',
++	'pointer-constraints-unstable-v1',
+ 	'pointer-gestures-unstable-v1',
+ 	'presentation-time',
+ 	'relative-pointer-unstable-v1',
+diff --git a/backend/wayland/output.c b/backend/wayland/output.c
+index fb4d1f91..d57f6769 100644
+--- a/backend/wayland/output.c
++++ b/backend/wayland/output.c
+@@ -22,6 +22,7 @@
+ 
+ #include "linux-dmabuf-v1-client-protocol.h"
+ #include "linux-drm-syncobj-v1-client-protocol.h"
++#include "pointer-constraints-unstable-v1-client-protocol.h"
+ #include "presentation-time-client-protocol.h"
+ #include "viewporter-client-protocol.h"
+ #include "xdg-activation-v1-client-protocol.h"
+@@ -1272,3 +1273,42 @@ struct wl_surface *wlr_wl_output_get_surface(struct wlr_output *output) {
+ 	struct wlr_wl_output *wl_output = get_wl_output_from_output(output);
+ 	return wl_output->surface;
+ }
++
++void wlr_wl_output_lock_pointer(struct wlr_output *output, bool locked) {
++	struct wlr_wl_output *wl_output = get_wl_output_from_output(output);
++	struct wlr_wl_backend *backend = wl_output->backend;
++	struct wlr_wl_seat *seat;
++	wl_list_for_each(seat, &backend->seats, link) {
++		if (seat->locked_pointer != NULL) {
++			zwp_locked_pointer_v1_destroy(seat->locked_pointer);
++			seat->locked_pointer = NULL;
++		}
++		if (locked && backend->zwp_pointer_constraints_v1 != NULL &&
++				seat->wl_pointer != NULL) {
++			seat->locked_pointer = zwp_pointer_constraints_v1_lock_pointer(
++				backend->zwp_pointer_constraints_v1, wl_output->surface,
++				seat->wl_pointer, NULL,
++				ZWP_POINTER_CONSTRAINTS_V1_LIFETIME_PERSISTENT);
++		}
++	}
++	wl_display_flush(backend->remote_display);
++}
++
++void wlr_wl_output_unlock_pointer_at(struct wlr_output *output,
++		double sx, double sy) {
++	struct wlr_wl_output *wl_output = get_wl_output_from_output(output);
++	struct wlr_wl_backend *backend = wl_output->backend;
++	bool hinted = false;
++	struct wlr_wl_seat *seat;
++	wl_list_for_each(seat, &backend->seats, link) {
++		if (seat->locked_pointer != NULL) {
++			zwp_locked_pointer_v1_set_cursor_position_hint(seat->locked_pointer,
++				wl_fixed_from_double(sx), wl_fixed_from_double(sy));
++			hinted = true;
++		}
++	}
++	if (hinted) {
++		wl_surface_commit(wl_output->surface);
++	}
++	wlr_wl_output_lock_pointer(output, false);
++}
+diff --git a/backend/wayland/pointer.c b/backend/wayland/pointer.c
+index b61e32cd..2e560e1c 100644
+--- a/backend/wayland/pointer.c
++++ b/backend/wayland/pointer.c
+@@ -7,6 +7,7 @@
+ #include "backend/wayland.h"
+ 
+ #include "pointer-gestures-unstable-v1-client-protocol.h"
++#include "pointer-constraints-unstable-v1-client-protocol.h"
+ #include "relative-pointer-unstable-v1-client-protocol.h"
+ 
+ static struct wlr_wl_pointer *output_get_pointer(struct wlr_wl_output *output,
+@@ -550,6 +551,10 @@ void finish_seat_pointer(struct wlr_wl_seat *seat) {
+ 	if (seat->relative_pointer != NULL) {
+ 		zwp_relative_pointer_v1_destroy(seat->relative_pointer);
+ 	}
++	if (seat->locked_pointer != NULL) {
++		zwp_locked_pointer_v1_destroy(seat->locked_pointer);
++		seat->locked_pointer = NULL;
++	}
+ 
+ 	seat->wl_pointer = NULL;
+ 	seat->active_pointer = NULL;
+diff --git a/include/backend/wayland.h b/include/backend/wayland.h
+index e24eb9fd..8d000fc1 100644
+--- a/include/backend/wayland.h
++++ b/include/backend/wayland.h
+@@ -45,6 +45,7 @@ struct wlr_wl_backend {
+ 	struct wp_linux_drm_syncobj_manager_v1 *drm_syncobj_manager_v1;
+ 	struct wl_list drm_syncobj_timelines; // wlr_wl_drm_syncobj_timeline.link
+ 	struct zwp_relative_pointer_manager_v1 *zwp_relative_pointer_manager_v1;
++	struct zwp_pointer_constraints_v1 *zwp_pointer_constraints_v1;
+ 	struct wl_list seats; // wlr_wl_seat.link
+ 	struct zwp_tablet_manager_v2 *tablet_manager;
+ 	struct wlr_drm_format_set shm_formats;
+@@ -172,6 +173,7 @@ struct wlr_wl_seat {
+ 	struct zwp_pointer_gesture_pinch_v1 *gesture_pinch;
+ 	struct zwp_pointer_gesture_hold_v1 *gesture_hold;
+ 	struct zwp_relative_pointer_v1 *relative_pointer;
++	struct zwp_locked_pointer_v1 *locked_pointer;
+ 
+ 	struct wl_touch *wl_touch;
+ 	struct wlr_touch wlr_touch;
+diff --git a/include/wlr/backend/wayland.h b/include/wlr/backend/wayland.h
+index c732de68..49a1dc5f 100644
+--- a/include/wlr/backend/wayland.h
++++ b/include/wlr/backend/wayland.h
+@@ -73,4 +73,9 @@ void wlr_wl_output_set_app_id(struct wlr_output *output, const char *app_id);
+  */
+ struct wl_surface *wlr_wl_output_get_surface(struct wlr_output *output);
+ 
++void wlr_wl_output_lock_pointer(struct wlr_output *output, bool locked);
++
++void wlr_wl_output_unlock_pointer_at(struct wlr_output *output,
++	double sx, double sy);
++
+ #endif
