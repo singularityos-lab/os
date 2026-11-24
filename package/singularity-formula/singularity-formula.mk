@@ -4,7 +4,7 @@
 #
 ################################################################################
 
-SINGULARITY_FORMULA_VERSION = 022bf3f86bbbceafb24fabc938c51325d3758948
+SINGULARITY_FORMULA_VERSION = 3cdd8300704e84e36ac9019480630e97fe9abb6d
 SINGULARITY_FORMULA_SITE = $(call github,singularityos-lab,singularity-formula,$(SINGULARITY_FORMULA_VERSION))
 SINGULARITY_FORMULA_LICENSE = GPL-3.0+
 SINGULARITY_FORMULA_LICENSE_FILES = LICENSE
