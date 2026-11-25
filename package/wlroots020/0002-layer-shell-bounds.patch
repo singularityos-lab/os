@@ -1,0 +1,44 @@
+diff --git a/types/wlr_layer_shell_v1.c b/types/wlr_layer_shell_v1.c
+index 2d838498..1e05121f 100644
+--- a/types/wlr_layer_shell_v1.c
++++ b/types/wlr_layer_shell_v1.c
+@@ -173,6 +173,18 @@ static void layer_surface_handle_set_anchor(struct wl_client *client,
+ 	surface->pending.anchor = anchor;
+ }
+ 
++#define LAYER_SURFACE_COORD_LIMIT (1 << 20)
++
++static int32_t layer_surface_clamp_coord(int32_t value) {
++	if (value > LAYER_SURFACE_COORD_LIMIT) {
++		return LAYER_SURFACE_COORD_LIMIT;
++	}
++	if (value < -LAYER_SURFACE_COORD_LIMIT) {
++		return -LAYER_SURFACE_COORD_LIMIT;
++	}
++	return value;
++}
++
+ static void layer_surface_handle_set_exclusive_zone(struct wl_client *client,
+ 		struct wl_resource *resource, int32_t zone) {
+ 	struct wlr_layer_surface_v1 *surface = wlr_layer_surface_v1_from_resource(resource);
+@@ -181,6 +193,8 @@ static void layer_surface_handle_set_exclusive_zone(struct wl_client *client,
+ 		return;
+ 	}
+ 
++	zone = layer_surface_clamp_coord(zone);
++
+ 	if (surface->pending.exclusive_zone == zone) {
+ 		return;
+ 	}
+@@ -199,6 +213,11 @@ static void layer_surface_handle_set_margin(
+ 		return;
+ 	}
+ 
++	top = layer_surface_clamp_coord(top);
++	right = layer_surface_clamp_coord(right);
++	bottom = layer_surface_clamp_coord(bottom);
++	left = layer_surface_clamp_coord(left);
++
+ 	if (surface->pending.margin.top == top
+ 			&& surface->pending.margin.right == right
+ 			&& surface->pending.margin.bottom == bottom
