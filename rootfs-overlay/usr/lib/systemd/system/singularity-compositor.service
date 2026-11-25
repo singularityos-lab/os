@@ -22,6 +22,8 @@ RuntimeDirectoryMode=0770
 RuntimeDirectoryPreserve=yes
 ExecStart=/usr/bin/singularity-compositor
 Restart=always
+Nice=-10
+CPUWeight=1000
 RestartSec=1
 
 [Install]

@@ -1,0 +1,6 @@
+[Unit]
+Description=Work that waits for the computer to be idle
+
+[Slice]
+CPUWeight=20
+IOWeight=10
