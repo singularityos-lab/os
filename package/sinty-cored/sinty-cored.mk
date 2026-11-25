@@ -4,7 +4,7 @@
 #
 ################################################################################
 
-SINTY_CORED_VERSION = debdbe71f3af8b70ad3e8f04cbe7c7d5054a9b49
+SINTY_CORED_VERSION = 6069c18ad65896078d4be5796034fbecf6eae9a2
 SINTY_CORED_SITE = $(call github,singularityos-lab,sinty-cored,$(SINTY_CORED_VERSION))
 SINTY_CORED_LICENSE = GPL-3.0-only
 SINTY_CORED_LICENSE_FILES = LICENSE
@@ -24,6 +24,7 @@ define SINTY_CORED_INSTALL_TARGET_CMDS
 	$(INSTALL) -D -m 0644 $(@D)/packaging/sinty-cored.service $(TARGET_DIR)/usr/lib/systemd/system/sinty-cored.service
 	$(INSTALL) -D -m 0644 $(@D)/packaging/sinty-screen.service $(TARGET_DIR)/usr/lib/systemd/system/sinty-screen.service
 	$(INSTALL) -D -m 0644 $(@D)/packaging/sinty-cored.conf $(TARGET_DIR)/usr/share/dbus-1/system.d/sinty-cored.conf
+	$(INSTALL) -D -m 0644 $(@D)/packaging/sinty-core.firewall.json $(TARGET_DIR)/usr/share/sinty-firewalld/services/sinty-core.json
 endef
 
 define SINTY_CORED_BUILD_PROXY
