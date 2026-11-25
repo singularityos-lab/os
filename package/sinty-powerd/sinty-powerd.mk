@@ -4,7 +4,7 @@
 #
 ################################################################################
 
-SINTY_POWERD_VERSION = 15e85ce2d421014ca925d01402f9cdb469e15cb4
+SINTY_POWERD_VERSION = 24719411acb447fd91a22769d3f117fc58c8fba3
 SINTY_POWERD_SITE = $(call github,singularityos-lab,sinty-powerd,$(SINTY_POWERD_VERSION))
 SINTY_POWERD_LICENSE = GPL-3.0-only
 SINTY_POWERD_LICENSE_FILES = LICENSE
