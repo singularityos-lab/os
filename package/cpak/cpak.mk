@@ -4,7 +4,7 @@
 #
 ################################################################################
 
-CPAK_VERSION = 9d028e2d255b52934f332a60f2720960ae0e8922
+CPAK_VERSION = edf7fe07f67d45d2dacc20cea21f4c34fe1437ab
 CPAK_SITE = $(call github,containerpak,cpak,$(CPAK_VERSION))
 CPAK_LICENSE = LGPL-2.1
 CPAK_LICENSE_FILES = LICENSE
