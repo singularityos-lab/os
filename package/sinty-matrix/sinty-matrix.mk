@@ -4,7 +4,7 @@
 #
 ################################################################################
 
-SINTY_MATRIX_VERSION = 80f22cfa2583ef9e1e93766775c81467bdfbff99
+SINTY_MATRIX_VERSION = 11b22526e7b6f84c405668aa76d6ead120e45076
 SINTY_MATRIX_SITE = $(call github,singularityos-lab,sinty-matrix,$(SINTY_MATRIX_VERSION))
 SINTY_MATRIX_LICENSE = GPL-3.0-only
 SINTY_MATRIX_LICENSE_FILES = LICENSE
