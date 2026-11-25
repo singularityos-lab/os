@@ -128,7 +128,29 @@ if [ -f "$_SPID" ]; then
 fi
 echo $$ > "$_SPID"
 trap 'rm -f "$_SPID" ${_SINTY_SESSION:+"$_SINTY_SESSION"} 2>/dev/null' EXIT
-trap 'exit 143' INT TERM
+trap 'kill ${_SHELL_PID:-} ${_WATCH_PID:-} 2>/dev/null; exit 143' INT TERM
+
+_watch_shell() {
+    sleep 60
+    _miss=0
+    while kill -0 "$1" 2>/dev/null; do
+        if dbus-send --session --print-reply --reply-timeout=10000 \
+                --dest=org.freedesktop.ScreenSaver /org/freedesktop/ScreenSaver \
+                org.freedesktop.ScreenSaver.GetActive 2>&1 | grep -q 'NoReply\|Timeout'; then
+            _miss=$((_miss + 1))
+        else
+            _miss=0
+        fi
+        if [ $_miss -ge 3 ]; then
+            echo "[$(date)] singularity-desktop stopped answering on D-Bus, aborting it for a core dump" >> "$_LOG"
+            kill -ABRT "$1" 2>/dev/null
+            sleep 10
+            kill -KILL "$1" 2>/dev/null
+            return
+        fi
+        sleep 30
+    done
+}
 
 pkill -TERM -x singularity-desktop 2>/dev/null || true
 pkill -x singularity-polkit-agent 2>/dev/null || true
@@ -161,8 +183,15 @@ _swfallback=0
 sealedlogd emit session start 2>/dev/null || true
 while true; do
     _t0=$(date +%s)
-    "$BIN/singularity-desktop" >> "$_LOG" 2>&1
+    "$BIN/singularity-desktop" >> "$_LOG" 2>&1 &
+    _SHELL_PID=$!
+    _watch_shell "$_SHELL_PID" &
+    _WATCH_PID=$!
+    wait "$_SHELL_PID"
     _EC=$?
+    kill "$_WATCH_PID" 2>/dev/null
+    wait "$_WATCH_PID" 2>/dev/null
+    _SHELL_PID= _WATCH_PID=
     export SINGULARITY_SHELL_RESTARTED=1
     _dt=$(($(date +%s) - _t0))
     if [ $_EC -ne 0 ] && [ $_EC -ne 79 ]; then

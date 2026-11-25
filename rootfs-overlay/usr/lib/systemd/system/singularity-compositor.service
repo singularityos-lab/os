@@ -7,7 +7,8 @@ After=sinty-logind.service sinty-devd.service
 ConditionPathExists=/run/atom/installed
 
 [Service]
-Type=simple
+Type=notify
+WatchdogSec=30
 User=greeter
 # Primary group singularity-session so the Wayland socket is group-owned by it
 # and BOTH the greeter (greeter user) and the logged-in desktop (sinty user),
