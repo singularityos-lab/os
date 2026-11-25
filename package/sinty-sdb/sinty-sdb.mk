@@ -1,4 +1,4 @@
-SINTY_SDB_VERSION = 175d1c8e8abee1edaa763f8c9573e07d2dfacb4b
+SINTY_SDB_VERSION = a6e109b47916ccc3033d30c6807555fe87ecfa8e
 SINTY_SDB_SITE = $(call github,singularityos-lab,sinty-sdb,$(SINTY_SDB_VERSION))
 SINTY_SDB_LICENSE = GPL-3.0-only
 SINTY_SDB_GOMOD = github.com/singularityos-lab/sinty-sdb
