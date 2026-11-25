@@ -4,7 +4,7 @@
 #
 ################################################################################
 
-SINTY_IT_APP_VERSION = e179f08d35e58bd24a7380f78dbfe4baf72bde66
+SINTY_IT_APP_VERSION = d2de365e20099eb761240f353c339c1c784d1f57
 SINTY_IT_APP_SITE = $(call github,singularityos-lab,sinty-it,$(SINTY_IT_APP_VERSION))
 SINTY_IT_APP_DL_SUBDIR = sinty-it
 SINTY_IT_APP_SUBDIR = app
