@@ -4,7 +4,7 @@
 #
 ################################################################################
 
-SINTY_KEYD_VERSION = d75e23a436a3e26140423004819f2b78c8230f90
+SINTY_KEYD_VERSION = f3a92f7c737dbc5056f09227b1603b771da79bbe
 SINTY_KEYD_SITE = $(call github,singularityos-lab,sinty-keyd,$(SINTY_KEYD_VERSION))
 SINTY_KEYD_LICENSE = GPL-3.0-only
 SINTY_KEYD_LICENSE_FILES = LICENSE
@@ -22,6 +22,7 @@ define SINTY_KEYD_INSTALL_TARGET_CMDS
 	$(INSTALL) -D -m 0644 $(@D)/packaging/sinty-keyd.service $(TARGET_DIR)/usr/lib/systemd/system/sinty-keyd.service
 	$(INSTALL) -D -m 0644 $(@D)/packaging/sinty-keyd.conf $(TARGET_DIR)/usr/share/dbus-1/system.d/sinty-keyd.conf
 	$(INSTALL) -D -m 0644 $(@D)/packaging/dev.sinty.Key1.service $(TARGET_DIR)/usr/share/dbus-1/system-services/dev.sinty.Key1.service
+	$(INSTALL) -D -m 0644 $(@D)/packaging/dev.sinty.key.policy $(TARGET_DIR)/usr/share/polkit-1/actions/dev.sinty.key.policy
 endef
 
 $(eval $(golang-package))

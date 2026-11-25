@@ -1,0 +1,10 @@
+config BR2_PACKAGE_SINTY_IDENTITY
+	bool "sinty-identity"
+	depends on BR2_PACKAGE_HOST_GO_TARGET_ARCH_SUPPORTS
+	select BR2_PACKAGE_SINTY_KEYD
+	help
+	  Sign-in confirmations for SintyOS: enrolls the device as one
+	  of the person's Sinty sign-in devices, with a key kept in the
+	  TPM, and lists the sign-ins waiting for their approval.
+
+	  https://github.com/singularityos-lab/sinty-identity
