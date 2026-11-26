@@ -1,0 +1,15 @@
+#!/bin/sh
+set -u
+state=/var/lib/mts
+mkdir -p "$state"
+[ -f "$state/cold.img" ] || truncate -s 1G "$state/cold.img"
+stamp=$(sha256sum /usr/bin/mtsctl /etc/mts/mts.conf)
+[ -f "$state/mts.conf" ] && [ "$(cat "$state/calibrated-by" 2>/dev/null)" = "$stamp" ] && exit 0
+rm -f "$state/mts.conf" "$state/calibrated-by"
+if /usr/bin/mtsctl calibrate /etc/mts/mts.conf cold "$state/mts.conf.new"; then
+	mv "$state/mts.conf.new" "$state/mts.conf"
+	printf '%s\n' "$stamp" > "$state/calibrated-by"
+else
+	rm -f "$state/mts.conf.new"
+fi
+exit 0
