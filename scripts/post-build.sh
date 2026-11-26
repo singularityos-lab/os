@@ -33,8 +33,8 @@ _STG="$(dirname "$TARGET_DIR")/staging/usr/share/glib-2.0/schemas"
 _TGT="$TARGET_DIR/usr/share/glib-2.0/schemas"
 mkdir -p "$_TGT"
 if [ -d "$_STG" ]; then
-    cp -f "$_STG"/*.gschema.xml "$_TGT/" 2>/dev/null || true
-    cp -f "$_STG"/*.enums.xml "$_TGT/" 2>/dev/null || true
+    cp -n "$_STG"/*.gschema.xml "$_TGT/" 2>/dev/null || true
+    cp -n "$_STG"/*.enums.xml "$_TGT/" 2>/dev/null || true
 fi
 "$(dirname "$TARGET_DIR")/host/bin/glib-compile-schemas" "$_TGT" >/dev/null 2>&1 || true
 
