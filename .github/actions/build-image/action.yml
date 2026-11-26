@@ -173,6 +173,7 @@ runs:
         for p in $(grep -l 'SITE_METHOD = local' package/*/*.mk | xargs -n1 dirname | xargs -n1 basename) linux-pam; do
           rm -rf "$BUILD_DIR"/build/${p}-* 2>/dev/null || true
         done
+        rm -rf "$BUILD_DIR"/build/singularity-desktop-data-* buildroot-dl/singularity-desktop-data
         rm -f "$BUILD_DIR"/host/*/sysroot/usr/lib/libsystemd.so* \
               "$BUILD_DIR"/host/*/sysroot/usr/lib/pkgconfig/libsystemd.pc 2>/dev/null || true
         rm -rf "$BUILD_DIR"/host/*/sysroot/usr/include/systemd 2>/dev/null || true
