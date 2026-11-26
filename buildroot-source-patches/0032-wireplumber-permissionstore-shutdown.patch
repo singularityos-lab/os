@@ -1,0 +1,52 @@
+diff --git a/package/wireplumber/0001-m-permissions-portal-Avoid-race-condition-during-shutdown.patch b/package/wireplumber/0001-m-permissions-portal-Avoid-race-condition-during-shutdown.patch
+new file mode 100644
+--- /dev/null
++++ b/package/wireplumber/0001-m-permissions-portal-Avoid-race-condition-during-shutdown.patch
+@@ -0,0 +1,47 @@
++From 627b003a05c09d6646af40daf7fe8a45ea205c6d Mon Sep 17 00:00:00 2001
++From: Charles <charles05@canonical.com>
++Date: Wed, 8 Oct 2025 10:49:48 +0100
++Subject: [PATCH] m-permissions-portal: Avoid race condition during shutdown
++
++Attempts to workaround a race condition between daemon thread and
++GDBus worker thread during shutdown.
++
++Ubuntu bug: https://bugs.launchpad.net/bugs/2127049
++
++I've not been able to get a symbolic backtrace yet or reproduce it
++myself, but the behaviour points to a threading bug. Hypothesis,
++
++Main thread (1, daemon thread) shuts down, unregistering its plugins.
++One of the plugins, module-permissions-portal, is triggered to
++shutdown.
++It tries to clear its GDBus connection handle without disconnecting
++its signal handlers.
++GDBus thread (2) is in the middle of writing a message on the same
++connection handle.
++Once finished, it also tries to clear its handle.
++The main thread has already taken the signal lock and the signal
++handler table ends up in an invalid state, triggering the assert.
++
++I believe this could happen since
++wp_portal_permissionstore_plugin_disable is not disconnecting its
++signal handlers before trying to clear its DBus object.
++
++See https://bugzilla.gnome.org/show_bug.cgi?id=730296 for more
++discussion about this assert in the Glib signal handling code.
++---
++ modules/module-portal-permissionstore.c | 2 ++
++ 1 file changed, 2 insertions(+)
++
++diff --git a/modules/module-portal-permissionstore.c b/modules/module-portal-permissionstore.c
++index ceb7cdb99..47764d134 100644
++--- a/modules/module-portal-permissionstore.c
+++++ b/modules/module-portal-permissionstore.c
++@@ -204,6 +204,8 @@ wp_portal_permissionstore_plugin_disable (WpPlugin * plugin)
++       WP_PORTAL_PERMISSIONSTORE_PLUGIN (plugin);
++ 
++   clear_signal (self);
+++  if (self->dbus)
+++    g_signal_handlers_disconnect_by_data (self->dbus, self);
++   g_clear_object (&self->dbus);
++ 
++   wp_object_update_features (WP_OBJECT (self), 0, WP_PLUGIN_FEATURE_ENABLED);
