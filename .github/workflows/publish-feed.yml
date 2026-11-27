@@ -26,6 +26,11 @@ on:
       sign_run:
         description: Id of the run that signed the release
         required: true
+      arch:
+        description: Architecture to publish when the run signed more than one
+        type: choice
+        options: ['', 'x86_64', 'aarch64']
+        default: ''
       min_stage:
         description: Lowest stage the release may apply at (3 forces a restart)
         type: choice
@@ -73,8 +78,15 @@ jobs:
               .github/workflows/release-sign.yml|.github/workflows/build-self-hosted.yml) ;;
               *) echo "run $SIGN_RUN is not a signing run"; exit 1 ;;
             esac
-            name=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SIGN_RUN/artifacts" --jq '[.artifacts[] | select(.expired | not) | select(.name | test("^signed(-aarch64)?-[0-9a-f]{40}$")) | .name] | first // ""')
-            [ -n "$name" ] || { echo "run $SIGN_RUN kept no signed release"; exit 1; }
+            case "$CALL_ARCH" in
+              x86_64) want='^signed-[0-9a-f]{40}$' ;;
+              aarch64) want='^signed-aarch64-[0-9a-f]{40}$' ;;
+              *) want='^signed(-aarch64)?-[0-9a-f]{40}$' ;;
+            esac
+            names=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SIGN_RUN/artifacts" --jq "[.artifacts[] | select(.expired | not) | select(.name | test(\"$want\")) | .name] | .[]")
+            [ -n "$names" ] || { echo "run $SIGN_RUN kept no signed release${CALL_ARCH:+ for $CALL_ARCH}"; exit 1; }
+            [ "$(printf '%s\n' "$names" | wc -l)" -eq 1 ] || { echo "run $SIGN_RUN signed more than one architecture, choose one"; exit 1; }
+            name=$names
             sha=${name##*-}
             case "$name" in signed-aarch64-*) arch=aarch64 ;; *) arch=x86_64 ;; esac
           else
