@@ -4,7 +4,7 @@
 #
 ################################################################################
 
-SINTY_NMD_VERSION = 6c13099028df0be2aefa667ad68959ab68c4d7c5
+SINTY_NMD_VERSION = 8d23f78f4b25ec90c5f9b10598927ff918bb8d39
 SINTY_NMD_SITE = $(call github,singularityos-lab,sinty-nm,$(SINTY_NMD_VERSION))
 SINTY_NMD_LICENSE = GPL-3.0-or-later
 SINTY_NMD_LICENSE_FILES = LICENSE
