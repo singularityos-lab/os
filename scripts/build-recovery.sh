@@ -132,7 +132,7 @@ fi
 
 echo "[recovery] wifi firmware ONLY (no audio/gpu -- recovery just needs to get online)"
 mkdir -p "$WORK/lib/firmware/mediatek"
-cp -a "$TARGET_DIR"/lib/firmware/iwlwifi-*.ucode "$WORK/lib/firmware/" 2>/dev/null || true
+cp -a "$TARGET_DIR"/lib/firmware/iwlwifi-*.ucode "$TARGET_DIR"/lib/firmware/iwlwifi-*.ucode.xz "$WORK/lib/firmware/" 2>/dev/null || true
 cp -a "$TARGET_DIR"/lib/firmware/regulatory.db* "$WORK/lib/firmware/" 2>/dev/null || true
 cp -a "$TARGET_DIR"/lib/firmware/mediatek/mt76* "$TARGET_DIR"/lib/firmware/mediatek/mt79* \
       "$TARGET_DIR"/lib/firmware/mediatek/WIFI_* "$WORK/lib/firmware/mediatek/" 2>/dev/null || true

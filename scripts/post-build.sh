@@ -208,27 +208,34 @@ chmod 600 "$TARGET_DIR"/root/.atom-probe/token "$TARGET_DIR"/root/.atom-probe/pr
 # the kernel can init generic wifi/GPU/BT out of the box; per-card verification stays a
 # hardware test, this only provides the capability. Mode: none | curated | full.
 _FW_MODE="curated"
-_FW_SRC="$(ls -d "$(dirname "$TARGET_DIR")"/build/linux-firmware-*/ 2>/dev/null | head -1)"
-if [ "$_FW_MODE" != "none" ] && [ -n "$_FW_SRC" ] && [ -d "$_FW_SRC" ]; then
+_FW_SRC=""
+for _d in "$(dirname "$TARGET_DIR")"/build/linux-firmware-*/; do
+    [ -f "$_d/.stamp_target_installed" ] && _FW_SRC="$_d"
+done
+if [ "$_FW_MODE" != "none" ] && [ -n "$_FW_SRC" ]; then
     _FW_DST="$TARGET_DIR/usr/lib/firmware"
-    mkdir -p "$_FW_DST"
-    # Use upstream copy-firmware.sh so the WHENCE Link: entries become the flat symlinks
-    # the drivers request (e.g. iwlwifi-so-a0-hr-b0-89.ucode -> intel/iwlwifi/...).
-    if [ -f "$_FW_SRC/copy-firmware.sh" ]; then
-        ( cd "$_FW_SRC" && sh ./copy-firmware.sh "$_FW_DST" ) >/dev/null 2>&1 || cp -a "$_FW_SRC"/. "$_FW_DST"/ 2>/dev/null
-    else
-        cp -a "$_FW_SRC"/. "$_FW_DST"/ 2>/dev/null || true
-    fi
+    _FW_STAGE="$(dirname "$TARGET_DIR")/build/sinty-firmware"
+    rm -rf "$_FW_STAGE"
+    mkdir -p "$_FW_STAGE" "$_FW_DST"
+    ( cd "$_FW_SRC" && sh ./copy-firmware.sh "$_FW_STAGE" ) || { echo "post-build: copy-firmware.sh failed for $_FW_SRC" >&2; exit 1; }
     if [ "$_FW_MODE" = "curated" ]; then
         # keep all wifi/GPU/BT/Intel-audio; drop server NICs, video codecs, cameras,
         # obscure SoC/modem blobs a laptop desktop never loads.
-        rm -rf "$_FW_DST"/netronome "$_FW_DST"/mellanox "$_FW_DST"/qed "$_FW_DST"/bnx2x \
-               "$_FW_DST"/liquidio "$_FW_DST"/cxgb4 "$_FW_DST"/dpaa2 "$_FW_DST"/br-firmware.tar \
-               "$_FW_DST"/ti-connectivity "$_FW_DST"/ueagle-atm \
-               "$_FW_DST"/dsp56k "$_FW_DST"/matrox "$_FW_DST"/ositech 2>/dev/null || true
-        grep -q '^BR2_aarch64=y' "${BR2_CONFIG}" 2>/dev/null || rm -rf "$_FW_DST"/qcom
+        rm -rf "$_FW_STAGE"/netronome "$_FW_STAGE"/mellanox "$_FW_STAGE"/qed "$_FW_STAGE"/bnx2x \
+               "$_FW_STAGE"/liquidio "$_FW_STAGE"/cxgb4 "$_FW_STAGE"/dpaa2 "$_FW_STAGE"/br-firmware.tar \
+               "$_FW_STAGE"/ti-connectivity "$_FW_STAGE"/ueagle-atm \
+               "$_FW_STAGE"/dsp56k "$_FW_STAGE"/matrox "$_FW_STAGE"/ositech
+        grep -q '^BR2_aarch64=y' "${BR2_CONFIG}" 2>/dev/null || rm -rf "$_FW_STAGE"/qcom
+        find "$_FW_STAGE" -xtype l -delete
     fi
-    rm -rf "$_FW_DST/.git" "$_FW_DST/check_whence.py" "$_FW_DST"/*.rst 2>/dev/null || true
+    # DEVICE-FIX(qcom): the Qualcomm remote processors fetch their files through tqftpserv and pd-mapper, which read them from userspace and cannot decompress, so these trees stay uncompressed
+    XZ="${HOST_DIR}/bin/xz" python3 "$SCRIPT_DIR/compress-firmware.py" "$_FW_STAGE" qcom ath10k/WCN3990 || { echo "post-build: firmware compression failed" >&2; exit 1; }
+    ( cd "$_FW_STAGE" && find . \( -type f -o -type l \) -name '*.xz' ) | while read -r _f; do
+        _plain="$_FW_DST/${_f%.xz}"
+        if [ -e "$_plain" ] || [ -L "$_plain" ]; then rm -f "$_plain"; fi
+    done
+    cp -a --remove-destination "$_FW_STAGE"/. "$_FW_DST"/
+    rm -rf "$_FW_STAGE"
     # DEVICE-FIX(uno-q): the QCM2290 modem fetches wlanmdsp.mbn through tqftpserv from the directory of its own firmware; linux-firmware ships it only under ath10k, so without this link the modem never brings up wifi
     if [ -f "$_FW_DST/ath10k/WCN3990/hw1.0/qcm2290/wlanmdsp.mbn" ] && [ -d "$_FW_DST/qcom/qcm2290" ] && [ ! -e "$_FW_DST/qcom/qcm2290/wlanmdsp.mbn" ]; then
         ln -s ../../ath10k/WCN3990/hw1.0/qcm2290/wlanmdsp.mbn "$_FW_DST/qcom/qcm2290/wlanmdsp.mbn"

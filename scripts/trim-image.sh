@@ -40,7 +40,8 @@ fi
 # requirements are dead weight.
 rm -rf "$FW/mrvl" "$FW/radeon" "$FW/rtlwifi"
 for gen in 3945 4965 1000 5000 5150 6050 6000g2a 6000g2b 100 105 135 2000 2030 6000; do
-    rm -f "$FW/iwlwifi-$gen"-*.ucode "$FW/intel/iwlwifi/iwlwifi-$gen"-*.ucode
+    rm -f "$FW/iwlwifi-$gen"-*.ucode "$FW/iwlwifi-$gen"-*.ucode.xz \
+          "$FW/intel/iwlwifi/iwlwifi-$gen"-*.ucode "$FW/intel/iwlwifi/iwlwifi-$gen"-*.ucode.xz
 done
 
 rm -rf "$TARGET/usr/share/clc" "$TARGET/usr/lib/clang" "$TARGET/usr/share/vulkan/registry"
