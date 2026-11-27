@@ -4,7 +4,7 @@
 #
 ################################################################################
 
-SINTY_IDENTITY_VERSION = 03b36ea9c8de2cac131f4042d573c0e618dada96
+SINTY_IDENTITY_VERSION = 95a2a4eecae61cb2e94ace95831b0950e4ae81fe
 SINTY_IDENTITY_SITE = $(call github,singularityos-lab,sinty-identity,$(SINTY_IDENTITY_VERSION))
 SINTY_IDENTITY_LICENSE = GPL-3.0-only
 SINTY_IDENTITY_LICENSE_FILES = LICENSE

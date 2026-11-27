@@ -4,7 +4,7 @@
 #
 ################################################################################
 
-SINTY_TIMEDATE_VERSION = 3544be4c66639a54e50f540afe00d5209bfa7109
+SINTY_TIMEDATE_VERSION = 66160442a7d66769417429744b4e8cd0c62f98fe
 SINTY_TIMEDATE_SITE = $(call github,singularityos-lab,sinty-timedate,$(SINTY_TIMEDATE_VERSION))
 SINTY_TIMEDATE_LICENSE = MIT
 SINTY_TIMEDATE_LICENSE_FILES = LICENSE

@@ -4,7 +4,7 @@
 #
 ################################################################################
 
-SINTY_DOMAIND_VERSION = 9f14024dc575c4a9bf5bc37da8093475d9fe91a1
+SINTY_DOMAIND_VERSION = 16f123ac72d2f678b9111e6d0f12e24ae2624b31
 SINTY_DOMAIND_SITE = $(call github,singularityos-lab,sinty-domaind,$(SINTY_DOMAIND_VERSION))
 SINTY_DOMAIND_LICENSE = GPL-3.0-only
 SINTY_DOMAIND_LICENSE_FILES = LICENSE

@@ -15,6 +15,7 @@ check|poll|serve)
 	*) arch= ;;
 	esac
 	[ "$cmd" = serve ] && set -- --live-pcr "$live_pcr" "$@"
+	[ "$cmd" != check ] && set -- --policy /var/lib/sinty-it/policy.json "$@"
 	exec /usr/libexec/updated.real "$cmd" \
 		--channels "stable=https://updates.sinty.dev/stable$arch,canary=https://updates.sinty.dev/canary$arch" \
 		--channel-file /var/lib/sinty/update-channel "$@"
