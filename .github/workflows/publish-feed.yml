@@ -179,6 +179,7 @@ jobs:
           MIN_STAGE: ${{ inputs.min_stage }}
         run: |
           set -euo pipefail
+          sudo apt-get update -qq -o APT::Update::Error-Mode=any
           sudo apt-get install -y -qq erofs-utils zstd >/dev/null
           root="$RUNNER_TEMP/root"
           sudo fsck.erofs --extract="$root" rel/rootfs.erofs >/dev/null
@@ -228,6 +229,7 @@ jobs:
             drop "not tried on $ARCH"
             exit 0
           fi
+          sudo apt-get update -qq -o APT::Update::Error-Mode=any
           sudo apt-get install -y -qq qemu-system-x86 swtpm cryptsetup-bin mtools dosfstools e2fsprogs >/dev/null
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm.rules >/dev/null
           sudo udevadm control --reload-rules
