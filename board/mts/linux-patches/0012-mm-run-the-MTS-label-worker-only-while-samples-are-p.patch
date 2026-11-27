@@ -1,0 +1,104 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Mirko Brombin <9479903+mirkobrombin@users.noreply.github.com>
+Date: Fri, 27 Nov 2026 21:30:16 +0000
+Subject: [PATCH 12/12] mm: run the MTS label worker only while samples are
+ pending
+
+---
+ mm/mts.c | 39 ++++++++++++++++++++++++++-------------
+ 1 file changed, 26 insertions(+), 13 deletions(-)
+
+diff --git a/mm/mts.c b/mm/mts.c
+index c1af23592..1ecd3659d 100644
+--- a/mm/mts.c
++++ b/mm/mts.c
+@@ -53,7 +53,8 @@ static atomic64_t mts_sample_attempts;
+ static atomic64_t mts_sample_collisions;
+ static atomic64_t mts_access_events;
+ static atomic64_t mts_consider_events;
+-static struct delayed_work mts_label_work;
++static void mts_label_worker(struct work_struct *work);
++static DECLARE_DELAYED_WORK(mts_label_work, mts_label_worker);
+ 
+ static unsigned int mts_reuse_horizon_ms = 1000;
+ static unsigned int mts_sample_shift = 10;
+@@ -153,6 +154,12 @@ static bool mts_should_sample(unsigned long pfn)
+ 	return hash_long(pfn ^ epoch, mts_sample_shift) == 0;
+ }
+ 
++static unsigned long mts_label_delay(void)
++{
++	return max_t(unsigned long, 1,
++		     msecs_to_jiffies(mts_reuse_horizon_ms / 16));
++}
++
+ static void mts_start_sample(struct page *page, u64 attr)
+ {
+ 	unsigned long pfn = page_to_pfn(page);
+@@ -180,6 +187,7 @@ static void mts_start_sample(struct page *page, u64 attr)
+ 	atomic64_set(&sample->meta, meta);
+ 	atomic_long_set_release(&sample->key, pfn + 1);
+ 	trace_mts_observe_sample(pfn, age, prediction);
++	schedule_delayed_work(&mts_label_work, mts_label_delay());
+ }
+ 
+ void mts_observe_consider(struct folio *folio, bool referenced)
+@@ -252,27 +260,36 @@ static void mts_finish_sample(struct mts_sample *sample, unsigned long pfn, u64
+ static void mts_label_worker(struct work_struct *work)
+ {
+ 	u32 now = (u32)jiffies;
+-	unsigned int i;
++	unsigned int i, labeled = 0, pending = 0;
+ 
+ 	for (i = 0; i < MTS_SAMPLE_COUNT; i++) {
+ 		struct mts_sample *sample = &mts_samples[i];
+ 		unsigned long key = atomic_long_read_acquire(&sample->key);
+ 		u64 meta;
+ 
+-		if (!key || key == MTS_SAMPLE_RESERVED)
++		if (!key)
+ 			continue;
++		if (key == MTS_SAMPLE_RESERVED) {
++			pending++;
++			continue;
++		}
+ 		meta = atomic64_read(&sample->meta);
+-		if ((s32)(now - (u32)(meta & MTS_SAMPLE_EXPIRY_MASK)) < 0)
++		if ((s32)(now - (u32)(meta & MTS_SAMPLE_EXPIRY_MASK)) < 0) {
++			pending++;
+ 			continue;
+-		if (atomic_long_cmpxchg(&sample->key, key, 0) != key)
++		}
++		if (atomic_long_cmpxchg(&sample->key, key, 0) != key) {
++			pending++;
+ 			continue;
++		}
+ 		mts_finish_sample(sample, key - 1, meta);
++		labeled++;
+ 	}
+ 
+-	mts_recalibrate();
+-	schedule_delayed_work(&mts_label_work,
+-			      max_t(unsigned long, 1,
+-				    msecs_to_jiffies(mts_reuse_horizon_ms / 16)));
++	if (labeled)
++		mts_recalibrate();
++	if (pending)
++		schedule_delayed_work(&mts_label_work, mts_label_delay());
+ }
+ 
+ static int mts_observe_show(struct seq_file *m, void *unused)
+@@ -304,10 +321,6 @@ static int __init mts_observe_init(void)
+ 
+ 	for (g = 0; g < MTS_ISO_BUCKETS; g++)
+ 		atomic_set(&mts_probability_q12[g], MTS_Q12_MAX / 2);
+-	INIT_DELAYED_WORK(&mts_label_work, mts_label_worker);
+-	schedule_delayed_work(&mts_label_work,
+-			      max_t(unsigned long, 1,
+-				    msecs_to_jiffies(mts_reuse_horizon_ms / 16)));
+ 	dir = debugfs_create_dir("mts", NULL);
+ 	debugfs_create_file("observe", 0444, dir, NULL, &mts_observe_fops);
+ 	return 0;
+-- 
+2.53.0
+
