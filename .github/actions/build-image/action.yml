@@ -116,6 +116,7 @@ runs:
         fi
         [ -e "$CACHE/src/Makefile" ] && ln -sfn "$CACHE/src" buildroot-src || true
         cp "$BUILD_DIR"/build/buildroot-config/auto.conf "$RUNNER_TEMP/cached-auto.conf" 2>/dev/null || : > "$RUNNER_TEMP/cached-auto.conf"
+        [ -d "$CACHE/build/build" ] && ./scripts/prune-build-cache.py "$CACHE/build/build"
         df -h "$CACHE"
 
 
